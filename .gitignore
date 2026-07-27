@@ -1,0 +1,9 @@
+# Downloaded notice data — re-fetch with the scripts, never commit
+data/
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
