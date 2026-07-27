@@ -16,26 +16,43 @@ Response JSON: {"notices": [ {<requested fields>, "links": {...}}, ... ],
 
 An API key IS required only to SUBMIT / modify notices, not to search.
 
-This script pulls recent contract-AWARD notices (which carry money + winners +
-bid counts) and saves them as one JSON object per line (.jsonl).
+This script pulls contract-AWARD notices (which carry money + winners + bid
+counts) for a chosen date range and saves them as one JSON object per line (.jsonl).
 
-Usage:
-    python ted_download_sample.py                 # default: recent award notices
-    python ted_download_sample.py 200             # fetch up to 200 notices
+Usage (all arguments are optional):
+    python ted_download_sample.py                              # newest 50 awards since 2026-07-01
+    python ted_download_sample.py --max 2000                   # newest 2000 in the default window
+    python ted_download_sample.py --from 20250101 --to 20251231 --max 2000
+    python ted_download_sample.py --from 20250101 --country DEU # German buyers only (one language)
+    python ted_download_sample.py --type cn-standard           # calls for bids instead of awards
+
+Arguments:
+    --from YYYYMMDD   start publication date (inclusive). Default 20260701.
+    --to   YYYYMMDD   end publication date (inclusive). Default: today (no upper bound).
+    --max  N          maximum notices to download, newest first. Default 50.
+    --type CODE       notice-type: can-standard (award, has money) | cn-standard (call) | pin ...
+    --country ISO3    restrict to a buyer country, e.g. DEU, FRA (handy to fix one language).
+    --out  PATH       output .jsonl path. Default data/ted_awards_sample.jsonl.
 """
 
+import argparse
 import json
-import sys
 import urllib.request
 from pathlib import Path
 
 SEARCH_URL = "https://api.ted.europa.eu/v3/notices/search"
 OUT_DIR = Path(__file__).parent / "data"
 
-# Expert-search query: contract-award notices published since July 2026,
-# newest first. The query language supports =, >=, IN, ~ (contains),
-# AND/OR/NOT and "SORT BY". This is the server-side filter the German feed lacks.
-QUERY = "notice-type=can-standard AND publication-date>=20260701 SORT BY publication-date DESC"
+
+def build_query(date_from: str, date_to: str | None, notice_type: str, country: str | None) -> str:
+    """Assemble a TED expert-search query. Operators: =, >=, <=, AND, SORT BY.
+    This server-side filter is the advantage TED has over the German whole-day feed."""
+    parts = [f"notice-type={notice_type}", f"publication-date>={date_from}"]
+    if date_to:
+        parts.append(f"publication-date<={date_to}")
+    if country:
+        parts.append(f"buyer-country={country}")
+    return " AND ".join(parts) + " SORT BY publication-date DESC"
 
 # eForms "business term" fields to return (there are ~1830 to choose from).
 FIELDS = [
@@ -74,15 +91,42 @@ def post(body: dict) -> dict:
         return json.loads(resp.read())
 
 
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Download a sample of TED procurement notices.")
+    # 'from'/'to' are Python keywords, so store them under different attribute names.
+    p.add_argument("--from", dest="date_from", default="20260701",
+                   metavar="YYYYMMDD", help="start publication date, inclusive (default 20260701)")
+    p.add_argument("--to", dest="date_to", default=None,
+                   metavar="YYYYMMDD", help="end publication date, inclusive (default: today)")
+    p.add_argument("--max", dest="max_notices", type=int, default=50,
+                   metavar="N", help="max notices to download, newest first (default 50)")
+    p.add_argument("--type", dest="notice_type", default="can-standard",
+                   help="notice-type: can-standard (award) | cn-standard (call) | pin ...")
+    p.add_argument("--country", default=None, metavar="ISO3",
+                   help="restrict to a buyer country, e.g. DEU, FRA")
+    p.add_argument("--out", default=None, metavar="PATH",
+                   help="output .jsonl path (default data/ted_awards_sample.jsonl)")
+    return p.parse_args()
+
+
 def main() -> None:
-    target = int(sys.argv[1]) if len(sys.argv) > 1 else 50
-    OUT_DIR.mkdir(exist_ok=True)
-    out = OUT_DIR / "ted_awards_sample.jsonl"
+    args = parse_args()
+    for label, val in (("--from", args.date_from), ("--to", args.date_to)):
+        if val is not None and not (val.isdigit() and len(val) == 8):
+            raise SystemExit(f"{label} must be YYYYMMDD (8 digits), got {val!r}")
+
+    query = build_query(args.date_from, args.date_to, args.notice_type, args.country)
+    target = args.max_notices
+    out = Path(args.out) if args.out else OUT_DIR / "ted_awards_sample.jsonl"
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    print(f"Query: {query}")
+    print(f"Fetching up to {target} notices -> {out}\n")
 
     notices, token = [], None
     while len(notices) < target:
         body = {
-            "query": QUERY, "fields": FIELDS,
+            "query": query, "fields": FIELDS,
             "limit": min(100, target - len(notices)),
             "scope": "ALL", "paginationMode": "ITERATION",
         }

@@ -75,19 +75,33 @@ only the fields you ask for. No whole-day downloads.
 
 ### 1. Download a sample of award notices
 
-Queries the TED search API for recent contract-award notices (which carry money, winners,
-and bid counts) and saves them as JSON Lines. Optional argument = how many to fetch
-(default 50).
+Queries the TED search API for contract-award notices (which carry money, winners, and bid
+counts) and saves them as JSON Lines. All arguments are optional:
+
+| Argument | Meaning | Default |
+| --- | --- | --- |
+| `--from YYYYMMDD` | start publication date (inclusive) | `20260701` |
+| `--to YYYYMMDD` | end publication date (inclusive) | today (no upper bound) |
+| `--max N` | max notices to download, **newest first** | `50` |
+| `--type CODE` | notice-type: `can-standard` (award, has money) / `cn-standard` (call) / `pin` … | `can-standard` |
+| `--country ISO3` | restrict to a buyer country (e.g. `DEU`, `FRA`) — handy to fix one language | all |
+| `--out PATH` | output `.jsonl` path | `data/ted_awards_sample.jsonl` |
 
 ```bash
-python ted_download_sample.py        # up to 50 notices
-python ted_download_sample.py 200    # up to 200 notices
+python ted_download_sample.py                                   # newest 50 awards since 2026-07-01
+python ted_download_sample.py --max 2000                        # newest 2000 in the default window
+python ted_download_sample.py --from 20250101 --to 20251231 --max 2000   # all of 2025
+python ted_download_sample.py --from 20250101 --country DEU     # German buyers only (one language)
+python ted_download_sample.py --type cn-standard               # calls for bids instead of awards
+python ted_download_sample.py --help                           # full argument list
 ```
 
-Output: `data/ted_awards_sample.jsonl` (one notice per line).
+**`--max` is a count of notices, not a time span.** The time span is `--from` / `--to`;
+`--max` just limits how many of the matching notices you pull (newest first). The script
+prints how many notices match your window, e.g. `fetched 2000/2000 (of 29207 ... total)`.
 
-To change **what** is fetched, edit the `QUERY` and `FIELDS` constants near the top of
-`ted_download_sample.py` (e.g. filter by country, CPV, or value range).
+Output: `data/ted_awards_sample.jsonl` (one notice per line). To change **which fields**
+are returned, edit the `FIELDS` list near the top of `ted_download_sample.py`.
 
 ### 2. Survey the sample
 
@@ -117,7 +131,7 @@ python oeffentlichevergabe_analyze_day.py 2026-07-20
 **Get clean EU-wide award data (structured money + bidders):**
 
 ```bash
-python ted_download_sample.py 200
+python ted_download_sample.py --max 200
 python ted_explore_fields.py
 ```
 
