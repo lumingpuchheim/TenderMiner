@@ -1,8 +1,9 @@
-# TenderMining — Data Source Findings
+# TenderMining — oeffentlichevergabe.de Findings
 
 Exploration of the German public-procurement open data at
 [oeffentlichevergabe.de](https://oeffentlichevergabe.de) (the *Bekanntmachungsservice*,
 "announcement service"). Goal: understand what data is available and what can be mined.
+For the EU-wide source, see the companion [`FINDINGS_ted.md`](FINDINGS_ted.md).
 
 ## 1. The data source
 
@@ -139,8 +140,8 @@ the structured field; fall back to text only when it is absent.**
 
 ## Scripts
 
-- `download_sample.py` — download + unpack **one small early day** (fast schema sample).
-- `analyze_day.py` — download + unpack **any day** (no timeout) and print a field survey.
-- `explore_fields.py` — field-coverage survey over an already-downloaded folder.
+- `oeffentlichevergabe_download_sample.py` — download + unpack **one small early day** (fast schema sample).
+- `oeffentlichevergabe_analyze_day.py` — download + unpack **any day** (no timeout) and print a field survey.
+- `oeffentlichevergabe_explore_fields.py` — field-coverage survey over an already-downloaded folder.
 
 Data lands in `data/` (git-ignored — re-download with the scripts above).

@@ -8,8 +8,8 @@ There is no artificial timeout: a recent day is tens of MB and streams slowly,
 so the script just waits (printing progress) until the download finishes.
 
 Usage:
-    python analyze_day.py                # defaults to the recent day below
-    python analyze_day.py 2026-07-15     # any day >= 2022-12-01 and < today
+    python oeffentlichevergabe_analyze_day.py                # defaults to the recent day below
+    python oeffentlichevergabe_analyze_day.py 2026-07-15     # any day >= 2022-12-01 and < today
 
 Notes:
   - The API only serves a whole day/month as a ZIP; there is no server-side

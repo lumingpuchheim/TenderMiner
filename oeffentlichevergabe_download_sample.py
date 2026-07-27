@@ -22,8 +22,8 @@ Early-2023 days hold only a handful of notices (~30 KB) and download instantly,
 which is why the default below is an early date - a fast, small sample.
 
 Usage:
-    python download_sample.py                # default sample day below
-    python download_sample.py 2023-01-16     # any day >= 2022-12-01 and < today
+    python oeffentlichevergabe_download_sample.py                # default sample day below
+    python oeffentlichevergabe_download_sample.py 2023-01-16     # any day >= 2022-12-01 and < today
 """
 
 import io
@@ -68,7 +68,7 @@ def unpack(zip_bytes: bytes, pub_day: str) -> None:
         names = zf.namelist()
         if not names:
             print(f"\nThe archive for {pub_day} is empty - no notices were published that day.")
-            print("Try another date, e.g.  python download_sample.py 2023-01-16")
+            print("Try another date, e.g.  python oeffentlichevergabe_download_sample.py 2023-01-16")
             return
         print(f"\nArchive holds {len(names)} notice file(s). Extracting to {dest}/")
         for name in names:
