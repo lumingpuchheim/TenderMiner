@@ -161,23 +161,37 @@ def build_query(date_from: str, date_to: str | None, notice_type: str,
     return " AND ".join(parts) + " SORT BY publication-date DESC"
 
 # eForms "business term" fields to return (there are ~1830 to choose from).
+# Only fields listed here come back in the JSON - so this list IS the feature set.
 FIELDS = [
+    # --- IDENTITY / JOIN KEYS ---
     "publication-number",              # TED notice id, e.g. 516182-2026
     "notice-type",                     # cn-standard (call) / can-standard (award) / pin ...
     "publication-date",
-    # --- TEXT (for ML on description -> value etc.) ---
+    "procedure-identifier",            # shared UUID: joins a tender to its award
+    # --- TEXT (optional NLP layer) ---
     "notice-title",                    # short title
     "title-proc",                      # procedure title
     "description-proc",                # MAIN free-text description of what is procured
     "description-lot",                 # per-lot descriptions (fallback / more detail)
-    # --- LABELS / features ---
+    # --- MODEL FEATURES (inputs, known at call time; structured, no LLM) ---
+    "classification-cpv",              # what is bought (CPV codes)
+    "contract-nature",                 # works / services / supplies
+    "procedure-type",                  # open / restricted / negotiated
+    "place-of-performance-subdiv-lot", # REGION as a NUTS code
+    "contract-duration-period-lot",    # DURATION (effort proxy): {unit, value}
+    "estimated-value-lot",             # budget hint (present on tenders)
+    "gpa-lot",                          # WTO-covered (scale/reach signal)
+    "framework-agreement-lot",         # framework vs one-off
+    "award-criterion-type-glo",        # price-only vs quality-weighted
+    "award-criterion-number-weight-lot",
+    # --- BUYER ---
     "organisation-name-buyer",         # the public buyer (multilingual: {"eng": [...]})
     "buyer-country",
-    "classification-cpv",              # what is bought (CPV codes)
-    "total-value", "total-value-cur",  # MONEY: awarded value + currency (the ML target)
-    "winner-country",                  # where the winner is based
-    "winner-size",                     # large / sme  <-- SME participation signal
+    # --- TARGETS (revealed on the award; do NOT use as inputs) ---
+    "total-value", "total-value-cur",  # MONEY: awarded value + currency
     "received-submissions-type-val",   # NUMBER OF TENDERS received (bid count)
+    "winner-country",                  # where the winner is based
+    "winner-size",                     # large / sme
 ]
 # Note: TED always returns a big `links` block (per-language PDF/HTML URLs) regardless
 # of FIELDS; trim_notice() strips it. Text fields are multilingual and currencies vary
