@@ -18,6 +18,7 @@ plates, 43 m² stainless-steel netting, 136 m double handrails, 4 exterior doors
 | B — Embedding + regressor | **selected** | learns global patterns, the classic supervised approach |
 | C — LLM as estimator | **rejected** | result not controllable (non-reproducible, hallucination risk) |
 | D — Competition classifier | **selected** | most reliably learnable target; no price estimation involved |
+| E — LLM as feature extractor | **approved extension** | fixed schema, offline, checkable; availability measured at 40–72 % (§5a) |
 | Final estimator | **learnable combination of A + B + D** | stacking meta-model, see §6 |
 
 ---
@@ -251,9 +252,76 @@ Prompting a large language model with the description to output a value (benchma
 [MDPI, LLM conceptual cost estimation](https://www.mdpi.com/2075-5309/16/2/396)).
 **Rejected because the result is not controllable:** non-reproducible across runs,
 hallucination risk on thin descriptions, per-call cost at scale, and no way to improve
-it on our own data short of fine-tuning. A possible future *offline* role — parsing
-descriptions into structured quantity tables (48 m, 43 m², 4 doors → features for A/B)
-— is noted but out of scope.
+it on our own data short of fine-tuning. The *offline extraction* role is different and
+approved — see §5a.
+
+---
+
+## 5a. Approved extension: Method E — LLM as feature extractor (fixed schema)
+
+### 5a.1 Why this is not Method C
+
+C used an LLM to *output the answer* (a value) — uncontrollable. E uses an LLM only as a
+**data-entry clerk**: it fills a **fixed, finite table** of cost-driver fields from the
+description text, offline, once per notice, cached. Wrong extractions are checkable
+against the source (every extracted value must literally appear in the text), a random
+sample can be hand-audited, and extraction accuracy is measured separately from model
+accuracy. The estimator itself remains A/B/D — trained, reproducible models.
+
+### 5a.2 The fixed schema — from the cost-estimation literature
+
+Published construction-cost models reaching MAPE 3–18 % were fed ~10 structured project
+parameters from human-maintained project registries (typically only 100–500 projects!),
+not text. The recurring cost-driver set across systematic reviews
+([303-study review](https://www.researchgate.net/publication/344266621_Cost_estimation_and_prediction_in_construction_projects_a_systematic_review_on_machine_learning_techniques),
+[ML cost review](https://www.researchgate.net/publication/375570946_A_Review_on_Machine_Learning_Algorithms_for_Cost_Estimation_in_Construction_Projects)):
+**gross floor area, storeys, building type/class, footprint, structural system,
+materials, elevators, rooms/units, height, location+year.** Because this set is fixed
+and validated, the earlier "growing keys" objection does not apply: the schema does not
+grow, only the values differ.
+
+Domain adaptation required (measured, see below): for **civil works** (roads, pipes,
+rail) the drivers are work quantities — m² surface, m³ earthworks, m length, tonnes —
+not storeys/elevators. So the schema is per-domain: a *buildings* table and a *civil
+works* table, both fixed and small.
+
+### 5a.3 Measured availability in our data (counter-check, 2026-07-29)
+
+Scanned: all 60 German construction awards on disk (`data/ted_de_construction.jsonl`),
+title + description text, German regex patterns per feature.
+
+| Feature | Present in description |
+| --- | --- |
+| Project kind (Neubau / Sanierung / Umbau) | 68 % |
+| Length quantity (m / lfm) | 47 % |
+| Building type (Schule, Kita, Brücke, …) | 45 % |
+| Area quantity (m² / qm) | 38 % |
+| Piece counts (Stück, Räume) | 32 % |
+| Storeys | 12 % |
+| Structural material (Stahlbeton, …) | 10 % |
+| Volume (m³) | 8 % |
+| Duration in text | 7 % |
+
+Per-notice density: **72 %** of notices contain ≥1 quantitative feature, **40 %** contain
+≥2, **28 % contain none** (extraction yields nothing there). Median text length ~840
+chars; only 2/60 are title-only. Best case observed: notice `518801-2026` (Autobahn A2)
+carries a full bill of quantities in the description (2 500 m³ earthworks, 45 000 m²
+asphalt, 1 000 m pipes, 1 650 t disposal) — exactly the quantity-surveyor input the
+high-accuracy studies used.
+
+Known regex limitation (and the reason an LLM beats patterns here): "m²" can be asphalt
+surface, not floor area — the extractor must label *what* each quantity refers to, which
+is a language task, not a pattern task.
+
+### 5a.4 Consequence for the system
+
+- E feeds its table into **B** as additional structured features (and can pre-filter
+  **A**'s neighbours by quantity range).
+- Expected coverage: quantity-informed estimates on ~40–70 % of construction notices;
+  the remaining ~30 % fall back to the embedding-only path — which A/B already handle.
+- Expected effect: moves value accuracy from band-level toward (not to) the published
+  7–18 % MAPE regime; the full regime likely requires parsing attached tender documents
+  (Leistungsverzeichnis), a separate future step.
 
 ---
 
@@ -309,14 +377,24 @@ bases' training error and collapses onto whichever base memorised best.
 
 ---
 
-## 7. Expectations (honest)
+## 7. Expectations (honest, benchmarked)
 
-- **Value:** magnitude/band accuracy, not surveyor precision — the notice text bounds
-  what is knowable (scope details live in tender documents, not the notice; see the
-  scope-vs-metadata discussion in MODELING.md §9). Success = beating the CPV-median
-  baseline clearly and hitting the right value band most of the time.
-- **Competition (D):** the strongest published track record; treat it as the flagship
-  deliverable.
+Published reference points and what they mean in plain terms:
+
+| Task | Published result | Plain meaning | Transfers to us? |
+| --- | --- | --- | --- |
+| Cost from full project specs | MAPE 3–18 % ([reviews](https://www.researchgate.net/publication/361573381_Machine_Learning_Algorithms_for_Constructions_Cost_Prediction_A_Systematic_Review)) | on a true €1M project the estimate misses by €30k–180k | only with Method E inputs (or document parsing); their features came from human-maintained project registries |
+| Value from notice text | no published benchmark found | — | our task; expect band-level accuracy, tens of % |
+| Exact bidder count | R² 0.13–0.17 ([Singapore study](https://www.emerald.com/insight/content/doi/10.1108/ci-10-2024-0325/full/html)) | barely better than always guessing the average | confirms: predict classes, not counts |
+| Single-bidder / risk flag | 84 % accuracy, AUC 0.90 ([cartel screening](https://www.sciencedirect.com/science/article/pii/S0167718725000943)) | ~84 of 100 tenders classified correctly | the realistic strong deliverable for D |
+
+- **Value:** magnitude/band accuracy from notice text alone; Method E (§5a) moves a
+  quantity-rich subset toward the published MAPE regime, full precision likely needs the
+  attached tender documents. Success = beating the CPV-median baseline clearly and
+  hitting the right value band most of the time.
+- **Competition (D):** the strongest published track record (AUC ≈ 0.9 for the binary
+  flag is a realistic target); treat it as the flagship deliverable. Do not target the
+  exact count — published R² of 0.13–0.17 says it is mostly noise.
 - **Ensemble:** typically a modest but consistent win over the best single model; its
   real value is robustness (A and B fail in different situations) plus keeping A's
   reference projects attached to every estimate.
@@ -331,3 +409,5 @@ bases' training error and collapses onto whichever base memorised best.
 4. **B** — the supervised value model; compare against A and the CPV-median baseline on
    the time split.
 5. **Stacking meta-model** over A+B+D outputs (§6), evaluated on the newest window.
+6. **E** (extraction, §5a) — add the fixed-schema quantity table as extra features for
+   B; measure the accuracy gain on the quantity-rich subset against step 4.
