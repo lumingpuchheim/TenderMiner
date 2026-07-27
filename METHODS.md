@@ -179,14 +179,53 @@ reality established in MODELING.md §9.
 **Hyperparameters:** tuned on a validation window that is *later* than the training
 window (never random CV across time).
 
-### 3.3 What B learns that A cannot
+### 3.3 Handling missing features — literature-backed policy
+
+Not every notice carries every feature (duration, estimated value, and the whole
+Method E / GAEB block can be absent). The prediction-with-missing-values literature
+gives a clear, evidence-ranked policy:
+
+**Established methods and what the research says:**
+
+1. **Native tree handling / MIA ("Missingness Incorporated in Attributes").** Each
+   split learns a default branch for missing values by trying both directions
+   (XGBoost/LightGBM built-in). [Josse, Prost & Varoquaux](https://arxiv.org/abs/1902.06931)
+   recommend MIA as the best default because it handles both harmless and
+   **informative** missingness.
+2. **Constant/mean imputation is provably fine for prediction.** The same paper's
+   striking consistency result: imputing a constant before learning does not hurt
+   prediction asymptotically — despite being wrong for statistical inference. Cheap and
+   theoretically justified in our (prediction) setting.
+3. **Missingness indicator columns** (`X_is_missing` per feature). Essential when the
+   *fact* of absence is informative — ours is: notices that omit `estimated-value` are
+   systematically smaller/national-style.
+4. **Reduced models — one model per missingness pattern.**
+   [Saar-Tsechansky & Provost, JMLR 2007](https://www.jmlr.org/papers/v8/saar-tsechansky07a.html):
+   consistently the most accurate approach, but practical only with few, structured
+   patterns (blockwise missingness —
+   [INFORMS 2022](https://pubsonline.informs.org/doi/10.1287/ijds.2022.9016)).
+5. **Rich imputation (MICE/iterative): not worth it here.** Benchmarks
+   ([health-DB study](https://arxiv.org/pdf/2202.10580)) find it rarely beats the
+   simpler methods for prediction, at much higher cost. Its home is inference.
+
+**Our policy (maps 1–4 onto our data):**
+
+- **Baseline:** gradient-boosted trees with native missing handling (MIA) **plus**
+  missingness indicators (§3.2's flags) — no imputation step at all.
+- **Upgrade:** our missingness is *blockwise by construction* — the `source_level`
+  marker in `features.jsonl` (DATA_PIPELINE.md) yields exactly three patterns
+  (`gaeb` / `description` / `fields_only`). That is the rare case where the
+  best-performing reduced-models approach is practical: three submodels, not 2^n.
+  Adopt it if the baseline underperforms on the sparse patterns.
+
+### 3.4 What B learns that A cannot
 
 Global, additive patterns that no single neighbourhood shows: regional price levels
 ("NUTS DE2 +x%"), procedure effects ("negotiated trends higher for equal scope"), buyer
 effects, CPV base rates, and interactions between text topic and region. B interpolates
 smoothly where A's neighbour set is thin.
 
-### 3.4 Properties
+### 3.5 Properties
 
 | | |
 | --- | --- |
