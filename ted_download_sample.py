@@ -24,6 +24,7 @@ Usage (all arguments are optional):
     python ted_download_sample.py --max 2000                   # newest 2000 in the default window
     python ted_download_sample.py --from 20250101 --to 20251231 --max 2000
     python ted_download_sample.py --from 20250101 --country DEU # German buyers only (one language)
+    python ted_download_sample.py --cpv 33,72                   # only medical (33) or IT (72) tenders
     python ted_download_sample.py --type cn-standard           # calls for bids instead of awards
 
 Arguments:
@@ -32,6 +33,8 @@ Arguments:
     --max  N          maximum notices to download, newest first. Default 50.
     --type CODE       notice-type: can-standard (award, has money) | cn-standard (call) | pin ...
     --country ISO3    restrict to a buyer country, e.g. DEU, FRA (handy to fix one language).
+    --cpv  CODES      CPV filter, comma-separated. Short code = prefix (33=medical, 72=IT);
+                      8-digit code = exact. Example: --cpv 33,72 or --cpv 33696000.
     --out  PATH       output .jsonl path. Default data/ted_awards_sample.jsonl.
 """
 
@@ -44,14 +47,34 @@ SEARCH_URL = "https://api.ted.europa.eu/v3/notices/search"
 OUT_DIR = Path(__file__).parent / "data"
 
 
-def build_query(date_from: str, date_to: str | None, notice_type: str, country: str | None) -> str:
-    """Assemble a TED expert-search query. Operators: =, >=, <=, AND, SORT BY.
+def cpv_clause(cpvs: list[str]) -> str:
+    """Build a CPV filter. A code shorter than 8 digits becomes a prefix match
+    (e.g. '33' -> classification-cpv=33*, matching the whole CPV division); a full
+    8-digit code is matched exactly. Multiple codes are OR-ed together."""
+    terms = []
+    for c in cpvs:
+        c = c.strip()
+        if not c:
+            continue
+        terms.append(f"classification-cpv={c}" if len(c) >= 8 else f"classification-cpv={c}*")
+    if not terms:
+        return ""
+    return terms[0] if len(terms) == 1 else "(" + " OR ".join(terms) + ")"
+
+
+def build_query(date_from: str, date_to: str | None, notice_type: str,
+                country: str | None, cpvs: list[str] | None) -> str:
+    """Assemble a TED expert-search query. Operators: =, >=, <=, OR, AND, SORT BY.
     This server-side filter is the advantage TED has over the German whole-day feed."""
     parts = [f"notice-type={notice_type}", f"publication-date>={date_from}"]
     if date_to:
         parts.append(f"publication-date<={date_to}")
     if country:
         parts.append(f"buyer-country={country}")
+    if cpvs:
+        clause = cpv_clause(cpvs)
+        if clause:
+            parts.append(clause)
     return " AND ".join(parts) + " SORT BY publication-date DESC"
 
 # eForms "business term" fields to return (there are ~1830 to choose from).
@@ -104,6 +127,10 @@ def parse_args() -> argparse.Namespace:
                    help="notice-type: can-standard (award) | cn-standard (call) | pin ...")
     p.add_argument("--country", default=None, metavar="ISO3",
                    help="restrict to a buyer country, e.g. DEU, FRA")
+    p.add_argument("--cpv", default=None, metavar="CODES",
+                   help="CPV filter, comma-separated. A short code is a prefix "
+                        "(e.g. 33=medical, 72=IT); an 8-digit code is exact. "
+                        "Example: --cpv 33,72 or --cpv 33696000")
     p.add_argument("--out", default=None, metavar="PATH",
                    help="output .jsonl path (default data/ted_awards_sample.jsonl)")
     return p.parse_args()
@@ -115,7 +142,8 @@ def main() -> None:
         if val is not None and not (val.isdigit() and len(val) == 8):
             raise SystemExit(f"{label} must be YYYYMMDD (8 digits), got {val!r}")
 
-    query = build_query(args.date_from, args.date_to, args.notice_type, args.country)
+    cpvs = args.cpv.split(",") if args.cpv else None
+    query = build_query(args.date_from, args.date_to, args.notice_type, args.country, cpvs)
     target = args.max_notices
     out = Path(args.out) if args.out else OUT_DIR / "ted_awards_sample.jsonl"
     out.parent.mkdir(parents=True, exist_ok=True)

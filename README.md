@@ -85,6 +85,7 @@ counts) and saves them as JSON Lines. All arguments are optional:
 | `--max N` | max notices to download, **newest first** | `50` |
 | `--type CODE` | notice-type: `can-standard` (award, has money) / `cn-standard` (call) / `pin` … | `can-standard` |
 | `--country ISO3` | restrict to a buyer country (e.g. `DEU`, `FRA`) — handy to fix one language | all |
+| `--cpv CODES` | CPV filter, comma-separated. Short code = prefix (`33`=medical, `72`=IT); 8-digit = exact | all |
 | `--out PATH` | output `.jsonl` path | `data/ted_awards_sample.jsonl` |
 
 ```bash
@@ -92,6 +93,7 @@ python ted_download_sample.py                                   # newest 50 awar
 python ted_download_sample.py --max 2000                        # newest 2000 in the default window
 python ted_download_sample.py --from 20250101 --to 20251231 --max 2000   # all of 2025
 python ted_download_sample.py --from 20250101 --country DEU     # German buyers only (one language)
+python ted_download_sample.py --cpv 33,72                       # only medical (33) or IT (72) tenders
 python ted_download_sample.py --type cn-standard               # calls for bids instead of awards
 python ted_download_sample.py --help                           # full argument list
 ```
