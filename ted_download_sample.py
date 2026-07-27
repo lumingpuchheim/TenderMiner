@@ -36,6 +36,17 @@ Arguments:
     --cpv  CODES      CPV filter, comma-separated. Short code = prefix (33=medical, 72=IT);
                       8-digit code = exact. Example: --cpv 33,72 or --cpv 33696000.
     --out  PATH       output .jsonl path. Default data/ted_awards_sample.jsonl.
+    --lang LANG       force a text language (3-letter, e.g. deu). Default Rule A below.
+    --raw             keep full untrimmed notices (skip the shrink step).
+
+Saved notices are TRIMMED by default to keep the file small and single-language:
+    - drop the `links` block (all per-language PDF/HTML URLs are rebuildable from
+      publication-number, so no information is lost);
+    - collapse every multilingual field to ONE language -- Rule A: the buyer's own
+      language (from buyer-country), falling back to English;
+    - de-duplicate code lists such as classification-cpv.
+Pass --raw to keep everything. Trimming is lossless in practice: any dropped detail is
+reproducible from TED via the publication-number.
 """
 
 import argparse
@@ -45,6 +56,78 @@ from pathlib import Path
 
 SEARCH_URL = "https://api.ted.europa.eu/v3/notices/search"
 OUT_DIR = Path(__file__).parent / "data"
+
+# TED 3-letter language codes. Used to detect language-keyed fields like
+# {"deu": "..."} so we can collapse them to a single language (see trim_notice).
+LANGS = {
+    "bul", "ces", "dan", "deu", "ell", "eng", "est", "fin", "fra", "gle", "hrv",
+    "hun", "ita", "lav", "lit", "mlt", "nld", "pol", "por", "ron", "slk", "slv",
+    "spa", "swe", "nor", "isl",
+}
+
+# Buyer country (ISO3) -> its main TED language. Rule A: keep the buyer's own
+# language, then fall back to English. Unmapped countries just fall back to English
+# (and then to whatever the field actually contains).
+COUNTRY_LANG = {
+    "DEU": "deu", "AUT": "deu", "CHE": "deu", "FRA": "fra", "LUX": "fra", "BEL": "fra",
+    "ESP": "spa", "ITA": "ita", "NLD": "nld", "POL": "pol", "PRT": "por", "ROU": "ron",
+    "CZE": "ces", "SVK": "slk", "SVN": "slv", "HRV": "hrv", "HUN": "hun", "GRC": "ell",
+    "CYP": "ell", "BGR": "bul", "DNK": "dan", "SWE": "swe", "FIN": "fin", "EST": "est",
+    "LVA": "lav", "LTU": "lit", "MLT": "mlt", "IRL": "eng", "NOR": "nor", "ISL": "isl",
+}
+
+# Array fields whose duplicate entries are noise (safe to de-duplicate). We do NOT
+# dedup value-bearing lists like received-submissions-type-val where order/repeats matter.
+DEDUP_FIELDS = {"classification-cpv", "contract-nature"}
+
+
+def preferred_langs(notice: dict, override: str | None) -> list[str]:
+    """Rule A: [buyer's own language, English]. --lang overrides the first choice."""
+    if override:
+        first = override
+    else:
+        country = notice.get("buyer-country")
+        country = country[0] if isinstance(country, list) and country else country
+        first = COUNTRY_LANG.get(country)
+    order = [first, "eng"]
+    return [x for i, x in enumerate(order) if x and x not in order[:i]]
+
+
+def _unwrap(v):
+    """Single-element lists -> the element, so text is a plain string not ["str"]."""
+    return v[0] if isinstance(v, list) and len(v) == 1 else v
+
+
+def _collapse_lang(value: dict, pref: list[str]):
+    """Pick one language from a {lang: value} map: preferred langs first, else any."""
+    for lang in pref:
+        if lang in value:
+            return _unwrap(value[lang])
+    return _unwrap(next(iter(value.values())))  # fallback: first available language
+
+
+def _is_lang_map(v) -> bool:
+    return isinstance(v, dict) and bool(v) and all(k in LANGS for k in v)
+
+
+def trim_notice(notice: dict, lang_override: str | None) -> dict:
+    """Shrink one notice for local storage:
+      - drop `links` (all per-language PDF/HTML URLs are rebuildable from publication-number)
+      - collapse each multilingual field to one language (Rule A)
+      - de-duplicate code-list fields (e.g. classification-cpv)
+    Everything is reproducible from TED, so this is lossless for practical purposes."""
+    pref = preferred_langs(notice, lang_override)
+    out = {}
+    for k, v in notice.items():
+        if k == "links":
+            continue
+        if _is_lang_map(v):
+            out[k] = _collapse_lang(v, pref)
+        elif k in DEDUP_FIELDS and isinstance(v, list):
+            out[k] = list(dict.fromkeys(v))  # order-preserving unique
+        else:
+            out[k] = v
+    return out
 
 
 def cpv_clause(cpvs: list[str]) -> str:
@@ -95,12 +178,10 @@ FIELDS = [
     "winner-country",                  # where the winner is based
     "winner-size",                     # large / sme  <-- SME participation signal
     "received-submissions-type-val",   # NUMBER OF TENDERS received (bid count)
-    "links",                           # per-language XML + PDF of the full notice
 ]
-
-# Note: text fields are multilingual and currencies vary (EUR, PLN, ...). For ML you
-# will likely normalise language (e.g. filter buyer-country, or translate) and convert
-# all values to one currency.
+# Note: TED always returns a big `links` block (per-language PDF/HTML URLs) regardless
+# of FIELDS; trim_notice() strips it. Text fields are multilingual and currencies vary
+# (EUR, PLN, ...); trim_notice() collapses text to one language, you still convert value.
 
 
 def post(body: dict) -> dict:
@@ -133,6 +214,12 @@ def parse_args() -> argparse.Namespace:
                         "Example: --cpv 33,72 or --cpv 33696000")
     p.add_argument("--out", default=None, metavar="PATH",
                    help="output .jsonl path (default data/ted_awards_sample.jsonl)")
+    p.add_argument("--lang", default=None, metavar="LANG",
+                   help="force a text language (3-letter, e.g. deu). Default: the buyer's "
+                        "own language with English fallback (Rule A).")
+    p.add_argument("--raw", action="store_true",
+                   help="keep the full untrimmed notices (do not drop links / collapse "
+                        "languages / dedup CPV).")
     return p.parse_args()
 
 
@@ -169,10 +256,14 @@ def main() -> None:
         if not batch or not token:
             break
 
+    if not args.raw:
+        notices = [trim_notice(n, args.lang) for n in notices]
+
     with out.open("w", encoding="utf-8") as f:
         for n in notices:
             f.write(json.dumps(n, ensure_ascii=False) + "\n")
-    print(f"\nSaved {len(notices)} notices to {out}")
+    print(f"\nSaved {len(notices)} notices to {out}"
+          + ("  (raw, untrimmed)" if args.raw else "  (trimmed: no links, one language, deduped CPV)"))
     print("Inspect fields with:  python ted_explore_fields.py")
 
 

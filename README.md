@@ -87,6 +87,20 @@ counts) and saves them as JSON Lines. All arguments are optional:
 | `--country ISO3` | restrict to a buyer country (e.g. `DEU`, `FRA`) — handy to fix one language | all |
 | `--cpv CODES` | CPV filter, comma-separated. Short code = prefix (`33`=medical, `72`=IT); 8-digit = exact | all |
 | `--out PATH` | output `.jsonl` path | `data/ted_awards_sample.jsonl` |
+| `--lang LANG` | force a text language (3-letter, e.g. `deu`) | buyer's language + English fallback |
+| `--raw` | keep full untrimmed notices (skip the shrink step) | off (trimmed) |
+
+**Saved notices are trimmed by default** (~80% smaller) to keep the file lean and
+single-language:
+
+- drops the `links` block — all per-language PDF/HTML URLs are rebuildable from
+  `publication-number`, so nothing is lost;
+- collapses every multilingual field to **one** language — Rule A: the buyer's own
+  language (from `buyer-country`), falling back to English;
+- de-duplicates code lists such as `classification-cpv`.
+
+Trimming is lossless in practice — any dropped detail is reproducible from TED via the
+`publication-number`. Use `--raw` to keep everything, or `--lang deu` to force a language.
 
 ```bash
 python ted_download_sample.py                                   # newest 50 awards since 2026-07-01
