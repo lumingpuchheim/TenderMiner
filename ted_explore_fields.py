@@ -33,6 +33,21 @@ def main() -> None:
     for t, c in Counter(first(r.get("notice-type")) for r in rows).most_common():
         print(f"  {t}: {c}")
 
+    print("=== TEXT for ML (description-proc / title) ===")
+    with_desc = sum(1 for r in rows if first(r.get("description-proc")) or first(r.get("description-lot")))
+    with_title = sum(1 for r in rows if first(r.get("title-proc")) or first(r.get("notice-title")))
+    print(f"  notices with a description: {with_desc}/{n} ({with_desc/n:.0%})")
+    print(f"  notices with a title:       {with_title}/{n} ({with_title/n:.0%})")
+    # one description -> value training pair, to show the data is ML-ready
+    for r in rows:
+        desc = first(r.get("description-proc")) or first(r.get("description-lot"))
+        val = first(r.get("total-value"))
+        if desc and val:
+            print("  example (description -> value):")
+            print(f"    text:  {str(desc)[:120]}...")
+            print(f"    value: {val} {first(r.get('total-value-cur'))}")
+            break
+
     print("\n=== MONEY (total-value) ===")
     vals = []
     for r in rows:

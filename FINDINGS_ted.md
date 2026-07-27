@@ -46,6 +46,8 @@ July 2026:
 
 | Signal | Field | Coverage | Notes |
 | --- | --- | --- | --- |
+| **Description (text)** | `description-proc` / `description-lot` | **100 %** | free-text object of the contract — the ML input |
+| **Title** | `title-proc` / `notice-title` | **100 %** | short title |
 | **Money** | `total-value` (+`-cur`) | **89 %** | median **€417k**; structured, not free text |
 | **Competition** | `received-submissions-type-val` | **99 %** | tenders received; median **2**, max 82 |
 | **Single-bidder rate** | derived | — | **27 %** of awards had just 1 bid |
@@ -58,6 +60,24 @@ July 2026:
 **Key contrast with the German source:** money and bidder counts here are *first-class,
 near-complete structured fields*, because every TED notice is an above-threshold EU eForms
 notice (see §6 of the German findings). No free-text extraction and no ML needed for money.
+
+### Ready-made ML dataset: description → value
+
+Because **description is 100 %** and **value is 89 %**, TED directly yields
+`(text, value)` pairs — e.g. predict/estimate contract value or CPV category from the
+description, or model bid count vs. description/CPV/country. A real pair from the sample:
+
+> text: *"Suministro de tiras reactivas y cesión de equipos… determinación de glucosa en sangre…"*
+> value: **141 900 EUR** (CPV 33696, medical)
+
+**Caveats that matter for training:**
+- **Multilingual** — descriptions are in the buyer's own language (Spanish, French, Polish,
+  German…). Either filter by `buyer-country`/language, or translate, or use a multilingual model.
+- **Mixed currencies** — `total-value-cur` is not always EUR (saw PLN); convert to one currency
+  before using value as a target.
+- **Outliers** — a few values are framework ceilings / unit artefacts (one read €36 bn); clip or
+  winsorise, and prefer the median for summaries.
+- **Award-only** — value exists on award (`can-standard`) notices, not on the initial call.
 
 ## 3. How easy is it to mine?
 

@@ -42,15 +42,25 @@ FIELDS = [
     "publication-number",              # TED notice id, e.g. 516182-2026
     "notice-type",                     # cn-standard (call) / can-standard (award) / pin ...
     "publication-date",
+    # --- TEXT (for ML on description -> value etc.) ---
+    "notice-title",                    # short title
+    "title-proc",                      # procedure title
+    "description-proc",                # MAIN free-text description of what is procured
+    "description-lot",                 # per-lot descriptions (fallback / more detail)
+    # --- LABELS / features ---
     "organisation-name-buyer",         # the public buyer (multilingual: {"eng": [...]})
     "buyer-country",
     "classification-cpv",              # what is bought (CPV codes)
-    "total-value", "total-value-cur",  # MONEY: awarded value + currency
+    "total-value", "total-value-cur",  # MONEY: awarded value + currency (the ML target)
     "winner-country",                  # where the winner is based
     "winner-size",                     # large / sme  <-- SME participation signal
     "received-submissions-type-val",   # NUMBER OF TENDERS received (bid count)
     "links",                           # per-language XML + PDF of the full notice
 ]
+
+# Note: text fields are multilingual and currencies vary (EUR, PLN, ...). For ML you
+# will likely normalise language (e.g. filter buyer-country, or translate) and convert
+# all values to one currency.
 
 
 def post(body: dict) -> dict:
