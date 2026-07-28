@@ -1,10 +1,15 @@
 # Component: Extractor
 
-Third component of the data pipeline ([overview](../DATA_PIPELINE.md)). Takes **two
-inputs**: the notice XMLs (directly from XML download) and the GAEB files with their
-manifest (from GAEB download). Generates `data/features.jsonl` — the one table the
-modeling stage reads. **Touches no network.** Fully re-runnable: deleting
-`features.jsonl` and re-extracting from `data/raw/` must reproduce it.
+Second of the two pipeline components ([overview](../DATA_PIPELINE.md)):
+
+```
+[Download job] ──► [Extractor]
+```
+
+Takes the Download job's raw archive — the notice XMLs plus the GAEB files with their
+manifest — and generates `data/features.jsonl`, the one table the modeling stage reads.
+**Touches no network.** Fully re-runnable: deleting `features.jsonl` and re-extracting
+from `data/raw/` must reproduce it.
 
 ## Input
 
@@ -56,7 +61,7 @@ modeling stage reads. **Touches no network.** Fully re-runnable: deleting
   "publication-number": "518801-2026",   // provenance: notice the lot was read from
   "notice-type": "cn-standard",
   "source_level": "gaeb" | "description" | "fields_only",
-  "gaeb_outcome": "ok" | "no_url" | … ,   // GAEB download outcome, carried along
+  "gaeb_outcome": "ok" | "no_url" | … ,   // Download job's GAEB outcome, carried along
   "fields": { "cpv_division": "45", "nuts": "DEA2C", "procedure": "open", … },
   "quantities": [
     { "what": "asphalt_surface", "value": 45000, "unit": "m2", "source": "gaeb" },

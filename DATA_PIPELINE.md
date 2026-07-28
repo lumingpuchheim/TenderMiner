@@ -14,29 +14,21 @@ stage ([`MODELING.md`](MODELING.md), [`METHODS.md`](METHODS.md)) consumes.
 ## The architecture
 
 ```
-                 xml files
-[XML download] ─────────────────────────────► [Extractor] ──► features.jsonl
-      │                                           ▲
-      │ document links                            │ gaeb files + manifest
-      ▼                                           │
-[GAEB download] ──────────────────────────────────┘
+[Download job] ──► [Extractor] ──► features.jsonl
+ (network)          (offline)
 ```
 
-Two edges feed the Extractor: the notice XMLs (from XML download) and the GAEB files
-with their manifest (from GAEB download). GAEB download itself consumes the XMLs only
-to find the document links.
-
-Three components, each with its own specification document:
+Two components, each with its own specification document:
 
 | Component | Document | Input | Output |
 | --- | --- | --- | --- |
-| **XML download** | [`pipeline/xml-download.md`](pipeline/xml-download.md) | TED search API (discovery only, response never persisted); `data/logs/checkpoint.json` from the previous run | `data/raw/xml/<publication-number>.xml` (one per notice); `data/logs/ingest_log.jsonl` (run stats incl. single-/multi-lot counts); updated `checkpoint.json` |
-| **GAEB download** | [`pipeline/gaeb-download.md`](pipeline/gaeb-download.md) | `data/raw/xml/` (document links inside the notice XMLs) | `data/raw/gaeb/<procedure-identifier>/…` (GAEB files only); `data/logs/manifest.jsonl` (file↔tender/lot mapping); per-notice outcome log |
+| **Download job** | [`pipeline/download.md`](pipeline/download.md) | TED search API (discovery only, response never persisted); e-procurement platforms via the document links inside the fetched XMLs; `data/logs/checkpoint.json` from the previous run | `data/raw/xml/<publication-number>.xml` (one per notice); `data/raw/gaeb/<procedure-identifier>/…` (GAEB files only); `data/logs/manifest.jsonl` (GAEB↔tender/lot mapping); `data/logs/ingest_log.jsonl` (run stats: lot counts + GAEB outcomes); updated `checkpoint.json` |
 | **Extractor** | [`pipeline/extractor.md`](pipeline/extractor.md) | `data/raw/xml/`; `data/raw/gaeb/` via `manifest.jsonl` — **no network** | `data/features.jsonl` (one line per LOT — the only file the modeling stage reads); `data/embeddings/*.npy` |
 
-The download job = XML download + GAEB download (the two components that touch the
-network). The Extractor is a separate offline program, fully re-runnable from the raw
-archive.
+The **Download job** is the one program that talks to the network: it fetches each
+notice's XML and immediately follows the document links inside it to grab the GAEB
+files while the links are alive. The **Extractor** is a separate offline program,
+fully re-runnable from the raw archive.
 
 ## Three roles of files on disk
 
@@ -81,13 +73,12 @@ data/
 
 | Component | Status |
 | --- | --- |
-| XML download | spec only ([`pipeline/xml-download.md`](pipeline/xml-download.md)) — `ted_download_sample.py` is the exploration sampler, not this job |
-| GAEB download | spec only ([`pipeline/gaeb-download.md`](pipeline/gaeb-download.md)) |
+| Download job | spec only ([`pipeline/download.md`](pipeline/download.md)) — `ted_download_sample.py` is the exploration sampler, not this job |
 | Extractor | spec only ([`pipeline/extractor.md`](pipeline/extractor.md)) |
 
 ## Open questions (to resolve during implementation)
 
-- Actual GAEB survival rate — measured by the GAEB download outcome log, not assumed.
+- Actual GAEB survival rate — measured by the Download job's outcome log, not assumed.
 - Per-platform download quirks (dozens of e-procurement platforms; handle the common
   ones first, `error`-log the rest).
 - GAEB parser choice (format is documented; Python parsing is feasible — evaluate
