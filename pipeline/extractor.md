@@ -25,6 +25,15 @@ from `data/raw/` must reproduce it.
 | `data/features.jsonl` | **one line per LOT** (unit of observation — MODELING.md §2.1), keyed by `(procedure-identifier, lot-id)`; the only file the modeling stage reads |
 | `data/embeddings/*.npy` | text-embedding vectors, one sidecar file per lot |
 
+## Two rules inherited from the download discussion
+
+- **Language:** country is a fetch filter; language is enforced *here*. When a field
+  exists in several languages in the XML, keep the buyer's language (e.g. `deu`),
+  drop the rest — no foreign-language text ever reaches `features.jsonl`.
+- **Latest version wins:** corrigenda are complete republished notices. Per procedure,
+  extract from the **latest version only**; earlier versions are history and are not
+  merged.
+
 ## The four workers
 
 1. **XML parser** — reads each notice XML, resolves lots from

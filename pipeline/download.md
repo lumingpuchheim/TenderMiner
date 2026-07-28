@@ -11,13 +11,64 @@ official eForms **XML** (the single source of notice truth, including lot struct
 and — immediately, while the link is alive — follows the document link inside that XML
 to retrieve the **GAEB** bill of quantities. Two payload formats, one job.
 
+## Invocation and arguments
+
+The job is a **finite run**: start → work → exit. No permanently-running process. Run
+it daily (manually or via a scheduler); each run picks up exactly where the previous
+one stopped. Missing a day (or a week) is harmless — the next run fetches the backlog.
+
+```bash
+python download.py --from 20240101 --to 20251231 --country DEU --cpv 45   # backfill a window, once
+python download.py --country DEU --cpv 45                                  # continue from checkpoint
+python download.py --country DEU --cpv-re "^452(1|2)"                      # regex CPV scope
+```
+
+| Argument | Meaning | Default |
+| --- | --- | --- |
+| `--from` / `--to` (YYYYMMDD) | **Backfill mode:** fetch this publication-date window, then exit. | unset |
+| *(no dates)* | **Continuation mode:** fetch everything new since the checkpoint, then exit. | — |
+| `--country ISO3` | buyer-country fetch filter (e.g. `DEU`) | required |
+| `--cpv CODES` | comma-separated; short code = prefix (server-side `45*`), 8 digits = exact | all CPVs |
+| `--cpv-re REGEX` | true regular expression over CPV codes, applied **client-side** during discovery (the TED server only supports exact + prefix; the job queries the broadest safe prefix server-side, then filters the returned CPV lists with the regex **before** fetching any XML) | unset |
+| `--limit N` | stop after N newly fetched notices (testing aid) | unlimited |
+
+A notice is in scope if **any** of its CPV codes matches (trade lots inside a larger
+project count — see MODELING.md §2.1).
+
+**Warning (recorded advice):** a narrow scope at download time forfeits GAEB files
+forever for everything it excludes (links die after tender deadlines). Filter
+**coarse** here (country + CPV division, e.g. `--cpv 45`); express fine concepts like
+"Sporthalle" as queries on the extracted data, not as download filters — fine CPV codes
+are unreliable anyway (buyers tag by trade and misclassify).
+
+## Scope decisions (recorded)
+
+1. **Country filters fetching; language does not.** `--country` decides which notices
+   are fetched. Language is an Extractor rule (keep the buyer's language text, e.g.
+   German); the raw XML keeps whatever languages the buyer submitted.
+2. **Discovery searches tenders + awards only** (`cn-standard`, `can-standard`).
+3. **Procedure completion is automatic:** whenever a notice is fetched, the job also
+   fetches **all other notices of the same procedure** (by `procedure-identifier` —
+   the search API supports this query directly), even outside the date window. This is
+   what makes tender→award training pairs complete: an award from June pulls in its
+   tender from January.
+4. **No planning notices** (`pin*`) — not searched, and skipped during completion.
+   Corrigenda/change notices and contract modifications of in-scope procedures **are**
+   fetched: a correction is a complete republished notice, and only the version chain
+   tells us which is the latest. The Extractor uses only each procedure's **latest
+   version**; earlier versions are history (and extend the GAEB retry window when a
+   deadline was moved).
+5. **GAEB retries ride along inside each finite run:** after fetching new notices, the
+   run re-attempts GAEB links of still-live tenders whose previous attempts failed,
+   then exits. A retry is a line in the next run's to-do list, not a waiting process.
+
 ## Input
 
 | Input | Role |
 | --- | --- |
-| TED search API (`POST /v3/notices/search`) | **discovery only** — yields the publication numbers matching the scope (date window, country, CPV, `cn-standard` + `can-standard`); the response is **never persisted** |
+| TED search API (`POST /v3/notices/search`) | **discovery only** — yields the publication numbers matching the scope, plus the completion lookups by `procedure-identifier`; responses are **never persisted** |
 | e-procurement platforms (evergabe etc.) | reached via the document links found inside the fetched XMLs; source of the GAEB packages |
-| `data/logs/checkpoint.json` | last covered publication date from the previous run → incremental operation |
+| `data/logs/checkpoint.json` | last covered publication date from the previous run → continuation mode |
 
 ## Output
 
@@ -26,6 +77,7 @@ to retrieve the **GAEB** bill of quantities. Two payload formats, one job.
 | `data/raw/xml/<publication-number>.xml` | one file per notice, stored byte-for-byte as received, never edited |
 | `data/raw/gaeb/<procedure-identifier>/…` | retrieved GAEB files; everything else in a package (PDF etc.) is discarded |
 | `data/logs/manifest.jsonl` | one line per stored GAEB file — the authoritative GAEB↔tender/lot mapping |
+| `data/logs/gaeb_outcomes.jsonl` | one line per notice per attempt — feeds the retry pass and measures link rot |
 | `data/logs/ingest_log.jsonl` | one line per run: query, notices fetched, **single-/multi-lot counts, lot histogram**, GAEB outcome counts |
 | `data/logs/checkpoint.json` | updated last covered date |
 
@@ -33,15 +85,23 @@ to retrieve the **GAEB** bill of quantities. Two payload formats, one job.
 
 Per run:
 
-1. **Discover:** query the search API for the scope; keep only the publication numbers.
+1. **Discover:** query the search API for the scope (window from `--from/--to` or the
+   checkpoint); apply `--cpv-re` client-side if given; keep only the publication
+   numbers + procedure identifiers.
 2. **Fetch XML:** for each number not yet in `data/raw/xml/`, GET
    `https://ted.europa.eu/en/notice/<number>/xml` (verified: no login, one request,
    ~26 KB) and store it unmodified.
-3. **Fetch GAEB (immediately after the XML, best-effort):** read the document links
-   from the just-fetched XML and attempt retrieval — links rot after award, so
+3. **Complete procedures:** for every procedure touched in step 2, look up its other
+   notices by `procedure-identifier` (skipping `pin*`) and fetch any missing XMLs.
+4. **Fetch GAEB (immediately, best-effort):** read the document links from each newly
+   fetched tender XML and attempt retrieval — links rot after award, so
    fetch-at-publication beats backfill. Policy below.
-4. **Checkpoint:** record the last covered publication date; the next run continues
-   from there. Nothing is ever re-downloaded or overwritten (append-only principle).
+5. **Retry pass:** re-attempt GAEB for previously failed, still-live tenders.
+6. **Checkpoint:** record the last covered publication date; append the run line to
+   `ingest_log.jsonl`; exit.
+
+Nothing is ever re-downloaded or overwritten (append-only principle): existing XML
+files are skipped, manifest and logs only grow.
 
 ## XML part — lot handling
 
@@ -88,7 +148,7 @@ every notice and record the outcome instead of failing**:
 | `dead_link` | URL unreachable / tender taken down (expected for old/awarded notices) |
 | `error` | anything else (recorded with detail, non-fatal) |
 
-5. Retries while the tender is live (e.g. daily until deadline); after the award, one
+5. Retries while the tender is live (each run's retry pass); after the award, one
    final attempt, then stop — `dead_link` becomes a permanent, expected state.
 
 No outcome blocks the pipeline: lots without GAEB proceed through the Extractor with
