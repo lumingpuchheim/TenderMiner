@@ -58,12 +58,35 @@ cn-standard (tender / call)  ───────────►  can-standard 
 The usable training set is lots whose procedure has **both** a tender and an award: the
 tender's lot supplies the inputs, the award's matching lot result supplies the labels.
 
-**Implementation note (data shape):** the TED search API returns lot fields as flat
-arrays whose alignment across fields is not guaranteed for multi-lot notices. Reliable
-per-lot rows require a structure-preserving source: the notice's full eForms XML
-(`links.xml`) or the OCDS form (`tender.lots[]`, `awards[]/contracts[]` with
-`relatedLots`), where each lot is an object. Single-lot notices (the majority) are
-unaffected.
+### 2.3 Getting per-lot rows out of TED (the flat-array problem and its fix)
+
+**The problem:** the TED *search API* returns lot fields as flat lists — all lots'
+values thrown together per field, without saying which value belongs to which lot, and
+with differing list lengths (observed: 4 CPV entries, 3 winner sizes, 10 submission
+numbers on one notice). Per-lot rows cannot be reconstructed from that. Worse, the flat
+lists can *look* multi-lot when they are not: notice `517829-2026` shows 4 CPVs and 3
+winner sizes in the search response but is a **single-lot** procedure in its XML — the
+duplicates are main+additional classifications and consortium members flattened
+together.
+
+**The fix, in two phases (verified against the live service):**
+
+- **Route 1 — Phase 1: single-lot procedures only.** For notices with exactly one lot
+  (the majority), the flat lists are safe — one value per field, nothing to misalign.
+  Start training on these: zero extra work, zero correctness risk, at the cost of some
+  rows. Lot count must be taken from the XML (Route 2's fetch), not inferred from
+  array lengths (see above).
+- **Route 2 — Phase 2: fetch the notice XML for multi-lot procedures.** Every search
+  result links its full eForms XML (`https://ted.europa.eu/en/notice/<number>/xml` —
+  verified: no login, one GET, ~26 KB). The XML is explicitly structured:
+  `<cac:ProcurementProjectLot>` blocks hold each lot's own fields, and each
+  `<efac:LotResult>` names the lot it belongs to (`<efac:TenderLot><cbc:ID>LOT-0001`).
+  Ingestion flow: search API to *find* notices (filtered, cheap) → one GET per notice
+  for the XML → parse lots from the XML. Multi-lot notices are disproportionately the
+  large construction projects, so this parser is worth building.
+
+(A structured per-lot form also exists in the German OCDS feed, but that is a second
+data source — rejected; TED stays the single source.)
 
 ## 3. Features (inputs) — from the tender's lot, no LLM
 

@@ -16,6 +16,21 @@ Stage 1: TED notices  ──►  Stage 2: GAEB documents  ──►  Stage 3: fe
 deduped CPV — see README). Both `cn-standard` (tenders) and `can-standard` (awards) are
 ingested; they join on `procedure-identifier`.
 
+**Lot handling (MODELING.md §2.3):** the search API cannot deliver reliable per-lot
+data for multi-lot notices, so ingestion follows the two-route policy — Route 1 uses
+single-lot notices directly; Route 2 fetches each multi-lot notice's eForms XML
+(`…/notice/<number>/xml`, one GET, no login) and reads the lots from its
+`ProcurementProjectLot`/`LotResult` blocks. Lot count is determined from the XML, never
+inferred from search-response array lengths (those can fake multi-lot on single-lot
+notices).
+
+**Required protocol:** the download job must count and report, per run and cumulatively,
+how many ingested notices are **single-lot** vs **multi-lot** (and the lot-count
+distribution). This statistic sizes the Route 1 training set and tells us when building
+the Route 2 parser pays off — it is data, not debug output: append one line per run to
+`data/ingest_log.jsonl` (run date, query, notices fetched, single-lot count, multi-lot
+count, lots histogram).
+
 ## Stage 2 — GAEB document acquisition (best-effort)
 
 ### What and why
