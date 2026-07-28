@@ -148,7 +148,8 @@ Spanish open data 2012–2018 using Random-Forest regression
 
 ### 3.2 Pipeline in detail
 
-**Feature matrix (one row per matched pair):**
+**Feature matrix (one row per LOT of a matched procedure — MODELING.md §2.1; sibling
+lots always stay in the same time split):**
 
 ```
 [ 768 embedding dims | cpv_division one-hot | nuts1 one-hot | procedure one-hot |

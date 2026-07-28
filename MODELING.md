@@ -18,50 +18,86 @@ Then, once the award is published, **verify** the prediction against reality.
 
 ## 2. Data structure this relies on
 
+### 2.1 The unit of observation is the LOT, not the notice
+
+A procurement procedure is often split into **lots** (*Lose*) — independently awardable
+pieces with their own scope, own bidders, own winner, and own value. Real examples from
+our data: a catering notice with 4 lots (one per school/Kita site, awarded €138k–€547k
+separately); a building project split into numbered trade lots (Los 3 masonry … Los 14
+outdoor works), each with its own Leistungsverzeichnis/GAEB and its own award.
+
+Therefore **one training row = one lot**:
+
+- a single-lot procedure contributes exactly one row (the common, trivial case);
+- a 14-lot building project contributes up to 14 rows, each with the lot's own
+  description, quantities, value, and bid count.
+
+Treating a multi-lot notice as one row would smear all trades' features together and
+train, e.g., the metalwork price against the electrician's quantities — wrong by
+construction. eForms encodes this explicitly: field suffixes `-proc` (procedure-level,
+shared across lots), `-lot` (per lot), `-glo` (lots group). Per-lot arrays we observed
+(4 contract values, `received-submissions ['4','4','4','0','0']`) are exactly this
+lot-level breakdown.
+
+### 2.2 Notices and the join
+
 On TED, one procurement is a sequence of **separate** notices sharing one
 `procedure-identifier`:
 
 ```
-        join on procedure-identifier
+        join on procedure-identifier (+ lot id)
 cn-standard (tender / call)  ───────────►  can-standard (award)
-   known at bidding time                     revealed at the outcome
+   lots defined, inputs known                per-lot results revealed
 ```
 
 - `notice-type` says which a record is (`cn-standard` = tender, `can-standard` = award).
 - `procedure-identifier` (a shared UUID) says which records **belong together**.
+- The **lot identifier** (e.g. `LOT-0003`) keys the row *within* the procedure; the
+  row join is `(procedure-identifier, lot-id)`.
 
-The usable training set is procedures that have **both** a tender and an award: the tender
-supplies the inputs, the award supplies the labels.
+The usable training set is lots whose procedure has **both** a tender and an award: the
+tender's lot supplies the inputs, the award's matching lot result supplies the labels.
 
-## 3. Features (inputs) — from the tender, no LLM
+**Implementation note (data shape):** the TED search API returns lot fields as flat
+arrays whose alignment across fields is not guaranteed for multi-lot notices. Reliable
+per-lot rows require a structure-preserving source: the notice's full eForms XML
+(`links.xml`) or the OCDS form (`tender.lots[]`, `awards[]/contracts[]` with
+`relatedLots`), where each lot is an object. Single-lot notices (the majority) are
+unaffected.
+
+## 3. Features (inputs) — from the tender's lot, no LLM
 
 Extracted by **direct JSON key access** (no text parsing, no LLM). This is the baseline.
-All are structured eForms fields that exist for any tender (bridge, IT, catering alike):
+Each row combines the **lot's own fields** with the **procedure-level fields shared by
+all lots** of the notice:
 
-| Concept | TED field (on the tender) | Encoding |
-| --- | --- | --- |
-| Budget hint | `estimated-value-lot` / `-glo` | EUR, log-scaled |
-| Category | `classification-cpv` | first 4–5 digits, categorical |
-| Category breadth | count of distinct `classification-cpv` | integer |
-| Region | `place-of-performance-subdiv-lot` | NUTS code, one-hot |
-| Effort / duration | `contract-duration-period-lot` | normalise to days |
-| Procedure | `procedure-type` | categorical (open / restricted / negotiated) |
-| Nature | `contract-nature` | works / services / supplies |
-| Reach | `gpa-lot` | boolean (WTO-covered) |
-| Structure | `framework-agreement-lot` | none / framework |
-| Award logic | `award-criterion-type-glo`, `-number-weight-lot` | price-only vs quality-weighted |
-| Buyer | `organisation-name-buyer`, `buyer-country` | categorical / id |
+| Concept | TED field | Level | Encoding |
+| --- | --- | --- | --- |
+| Budget hint | `estimated-value-lot` | lot | EUR, log-scaled |
+| Category | lot's `classification-cpv` | lot | first 4–5 digits, categorical |
+| Region | `place-of-performance-subdiv-lot` | lot | NUTS code, one-hot |
+| Effort / duration | `contract-duration-period-lot` | lot | normalise to days |
+| Reach | `gpa-lot` | lot | boolean (WTO-covered) |
+| Structure | `framework-agreement-lot` | lot | none / framework |
+| Award logic | `award-criterion-number-weight-lot` | lot | price-only vs quality-weighted |
+| Lot context | number of lots in the procedure; this lot's position | procedure | integers |
+| Procedure | `procedure-type` | procedure | categorical (open / restricted / negotiated) |
+| Nature | `contract-nature` | procedure | works / services / supplies |
+| Buyer | `organisation-name-buyer`, `buyer-country` | procedure | categorical / id |
+
+Text for the optional NLP layer is likewise lot-first: `title-lot`/`description-lot`
+for this lot, with `description-proc` as shared context.
 
 **Optional LLM/NLP layer (not the baseline):** TF-IDF or embeddings over `description-proc`
 can be concatenated to the structured features if they add signal — but the structured
 features stand alone first.
 
-## 4. Targets (labels) — from the award
+## 4. Targets (labels) — from the award's matching lot result
 
-| Target | TED field (on the award) | Notes |
+| Target | Source (award side) | Notes |
 | --- | --- | --- |
-| Price | `total-value` (+ `total-value-cur`) | convert all to one currency (EUR) |
-| Expected bidders | `received-submissions-type-val` | take the max of the breakdown = total bids |
+| Price | the lot's own awarded value (OCDS: `contracts[]` with matching `relatedLots`; eForms: the LotResult value) | convert all to one currency (EUR); `total-value` is the whole notice — do NOT use it as a per-lot label in multi-lot procedures |
+| Expected bidders | the lot's received-submissions entry | per-lot statistic; the flat array from the search API is the concatenation over lots — resolve via the structured source (§2.2) |
 
 ## 5. Leakage rule (critical)
 
@@ -72,13 +108,19 @@ inputs — they are only known after the outcome. They are **targets**, not feat
 ## 6. Training pipeline
 
 1. **Collect** historical `cn-standard` and `can-standard` notices for a scope
-   (e.g. `--country DEU --cpv 45`, a date range).
-2. **Join** on `procedure-identifier`; keep procedures that have both notice types.
-3. **Build the row:** features from the tender (§3), labels from the award (§4).
+   (e.g. `--country DEU --cpv 45`, a date range), resolving lot structure from the
+   structure-preserving source (§2.2).
+2. **Join** on `(procedure-identifier, lot-id)`; keep lots whose procedure has both
+   notice types and whose lot has an award result.
+3. **Build the row — one per lot:** lot + procedure features from the tender (§3),
+   labels from the award's matching lot result (§4).
 4. **Clean:** normalise currency to EUR; normalise duration to days; add missing-value
    flags and impute; clip/winsorise value outliers (framework ceilings, unit artefacts).
-5. **Split by time:** train on older procedures, test on newer ones (mimics the real task
-   and prevents leakage). No random shuffle across time.
+5. **Split by time AND by procedure:** train on older, test on newer (mimics the real
+   task). Additionally, sibling lots of one procedure are highly correlated (same buyer,
+   site, date) — all lots of a procedure must land in the **same** split, never spread
+   across train and test, or the model gets graded on near-duplicates of its training
+   rows.
 6. **Fit two baseline regressors** (no LLM), e.g. gradient-boosted trees:
    - price model: features → `log(total-value)`
    - bidders model: features → `received-submissions` count
@@ -88,16 +130,16 @@ inputs — they are only known after the outcome. They are **targets**, not feat
 
 Given a freshly published `cn-standard` with no award yet:
 
-1. Extract the §3 features from its JSON (same code as training).
-2. Predict price and expected bidders.
-3. Store the prediction with the `procedure-identifier`.
+1. Resolve its lots; extract the §3 features per lot (same code as training).
+2. Predict price and expected bidders **per lot**.
+3. Store each prediction with `(procedure-identifier, lot-id)`.
 
 ## 8. Verification against the award
 
 When the matching `can-standard` is published later:
 
-1. Look it up by `procedure-identifier`.
-2. Read the actual `total-value` and `received-submissions-type-val`.
+1. Look it up by `(procedure-identifier, lot-id)`.
+2. Read the lot's actual awarded value and received-submissions entry (§4).
 3. Compare to the stored prediction.
    - Price: MAE / MAPE on value (or on `log` value).
    - Bidders: MAE, and accuracy of the single-bidder flag (0/1 bidder vs many).
