@@ -1,9 +1,10 @@
 # Component: GAEB download
 
-Second component of the data pipeline
-([overview](../DATA_PIPELINE.md): `[XML download] ──► [GAEB download] ──► [Extractor]`).
-Follows the document links found inside the notice XMLs and retrieves the GAEB bills of
-quantities — best-effort, with every outcome recorded.
+Second component of the data pipeline ([overview](../DATA_PIPELINE.md)). Consumes the
+notice XMLs **only to find the document links**, then retrieves the GAEB bills of
+quantities — best-effort, with every outcome recorded. Its output (GAEB files +
+manifest) is one of the Extractor's two inputs; the other is the XMLs themselves,
+directly from XML download.
 
 ## Input
 

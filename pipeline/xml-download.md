@@ -1,9 +1,10 @@
 # Component: XML download
 
-First component of the data pipeline
-([overview](../DATA_PIPELINE.md): `[XML download] ──► [GAEB download] ──► [Extractor]`).
-Downloads the official eForms XML of every in-scope notice — the single source of
-notice truth, including lot structure.
+First component of the data pipeline ([overview](../DATA_PIPELINE.md)). Downloads the
+official eForms XML of every in-scope notice — the single source of notice truth,
+including lot structure. Its output feeds **both** downstream components: the GAEB
+download reads the XMLs for document links, and the Extractor reads them for lots,
+fields, and text.
 
 ## Input
 

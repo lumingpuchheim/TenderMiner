@@ -14,8 +14,17 @@ stage ([`MODELING.md`](MODELING.md), [`METHODS.md`](METHODS.md)) consumes.
 ## The architecture
 
 ```
-[XML download] ──► [GAEB download] ──► [Extractor]
+                 xml files
+[XML download] ─────────────────────────────► [Extractor] ──► features.jsonl
+      │                                           ▲
+      │ document links                            │ gaeb files + manifest
+      ▼                                           │
+[GAEB download] ──────────────────────────────────┘
 ```
+
+Two edges feed the Extractor: the notice XMLs (from XML download) and the GAEB files
+with their manifest (from GAEB download). GAEB download itself consumes the XMLs only
+to find the document links.
 
 Three components, each with its own specification document:
 

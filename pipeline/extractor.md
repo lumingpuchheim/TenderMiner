@@ -1,10 +1,10 @@
 # Component: Extractor
 
-Third component of the data pipeline
-([overview](../DATA_PIPELINE.md): `[XML download] ──► [GAEB download] ──► [Extractor]`).
-Generates `data/features.jsonl` — the one table the modeling stage reads — from the raw
-archive. **Touches no network.** Fully re-runnable: deleting `features.jsonl` and
-re-extracting from `data/raw/` must reproduce it.
+Third component of the data pipeline ([overview](../DATA_PIPELINE.md)). Takes **two
+inputs**: the notice XMLs (directly from XML download) and the GAEB files with their
+manifest (from GAEB download). Generates `data/features.jsonl` — the one table the
+modeling stage reads. **Touches no network.** Fully re-runnable: deleting
+`features.jsonl` and re-extracting from `data/raw/` must reproduce it.
 
 ## Input
 
