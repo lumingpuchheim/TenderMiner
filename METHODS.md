@@ -3,7 +3,8 @@
 Method selection and detailed design for estimating a tender's **value** and
 **competition** from its notice (free-text description + structured fields). Companion to
 [`MODELING.md`](MODELING.md), which defines the data pipeline (tender/award join,
-features, targets, leakage rules).
+features, targets, leakage rules), and [`FINDINGS_literature.md`](FINDINGS_literature.md),
+which tabulates the literature-backed feature sets for both tasks.
 
 Running example used throughout: notice `516890-2026` — *"Neubau Kita Kuhweid und MGH
 Weinheim, Metallbauarbeiten"*, description-lot listing quantities (48 m railing wall
