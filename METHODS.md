@@ -284,6 +284,47 @@ than for value — a useful diagnostic in itself.
 | Failure modes | class imbalance (handled by weighting + calibration); drift in procurement law changing base rates |
 | Output | `D_p_single_bidder` (calibrated), `D_expected_bids` (class probabilities → expectation) |
 
+### 4.5 Verified academic sources (checked 2026-07-29)
+
+The claim "competition is guessable as a class (many bidders vs one), but not as an
+exact count" traces to peer-reviewed work; all four sources below were re-verified
+against the publisher pages.
+
+Why the exact count is *not* the target:
+
+- **Oo, Nguyen, Ahn & Lim (2025)**, "Predicting the number of bidders in construction
+  competitive bidding using explainable machine learning models", *Construction
+  Innovation* 25(7).
+  [doi:10.1108/CI-10-2024-0325](https://www.emerald.com/insight/content/doi/10.1108/ci-10-2024-0325/full/html).
+  913 Singapore public construction projects (GeBIZ, 2017–2022), six ML models;
+  best (XGBoost) reaches only **R² 0.168** on the exact bidder count (all models
+  0.126–0.168). Exact counts are mostly noise — hence D predicts classes.
+
+Why the binary/risk flag *is* learnable:
+
+- **Fazekas, Tóth, Wachs & Abdou (2026)**, "Public procurement cartels: A large-sample
+  testing of screens using machine learning", *Int. J. Industrial Organization*.
+  [doi:10.1016/j.ijindorg.2025.103103](https://www.sciencedirect.com/science/article/pii/S0167718725000943).
+  73 confirmed cartels, 7 European countries, 15 000+ contracts, 2004–2021; a random
+  forest combining bidding/pricing screens distinguishes cartel from non-cartel
+  behaviour with **70–84 % accuracy** (evaluated on accuracy, ROC-AUC and false-positive
+  rate, 5-fold CV). Basis for the §7 "risk flag" benchmark.
+- **Goryunova, Baklanov & Ianovski (2021)**, "Detecting corruption in single-bidder
+  auctions via positive-unlabelled learning",
+  [arXiv:2102.05523](https://arxiv.org/abs/2102.05523). Single-bidder auctions in
+  Russian public procurement separated into "probably fair" vs "suspicious" — the
+  single-bidder risk-modelling reference in §4.1.
+
+What drives the number of bidders (feature support for D):
+
+- **Tátrai, Vörösmarty & Juhász (2023)**, "Intensifying Competition in Public
+  Procurement", *Public Organization Review* 24.
+  [doi:10.1007/s11115-023-00742-0](https://link.springer.com/article/10.1007/s11115-023-00742-0).
+  TED 2017–2020; bid counts are driven by procedure type (negotiated +2–5 bids),
+  award criterion (lowest-price > MEAT), lot structure, contract duration, funding
+  source, contract type (works > supplies) and authority type — i.e. exactly the
+  structured notice fields D uses as features.
+
 ---
 
 ## 5. Rejected: Method C — LLM as estimator
@@ -461,8 +502,8 @@ Published reference points and what they mean in plain terms:
 | --- | --- | --- | --- |
 | Cost from full project specs | MAPE 3–18 % (sources verified in §5a.5: Lowe et al. 2006 MAPE 19.3 %, Emsley et al. 2002 MAPE 16.6 %, plus two systematic reviews) | on a true €1M project the estimate misses by €30k–180k | only with Method E inputs (or document parsing); their features came from human-maintained project registries |
 | Value from notice text | no published benchmark found | — | our task; expect band-level accuracy, tens of % |
-| Exact bidder count | R² 0.13–0.17 ([Singapore study](https://www.emerald.com/insight/content/doi/10.1108/ci-10-2024-0325/full/html)) | barely better than always guessing the average | confirms: predict classes, not counts |
-| Single-bidder / risk flag | 84 % accuracy, AUC 0.90 ([cartel screening](https://www.sciencedirect.com/science/article/pii/S0167718725000943)) | ~84 of 100 tenders classified correctly | the realistic strong deliverable for D |
+| Exact bidder count | R² 0.13–0.17 (Oo et al. 2025, verified in §4.5) | barely better than always guessing the average | confirms: predict classes, not counts |
+| Single-bidder / risk flag | 70–84 % accuracy, AUC 0.90 (Fazekas et al. 2026, verified in §4.5) | up to ~84 of 100 tenders classified correctly | the realistic strong deliverable for D |
 
 - **Value:** magnitude/band accuracy from notice text alone; Method E (§5a) moves a
   quantity-rich subset toward the published MAPE regime, full precision likely needs the
