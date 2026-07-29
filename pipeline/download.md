@@ -31,6 +31,30 @@ python download.py --country DEU --cpv-re "^452(1|2)"                      # reg
 | `--cpv CODES` | comma-separated; short code = prefix (server-side `45*`), 8 digits = exact | all CPVs |
 | `--cpv-re REGEX` | true regular expression over CPV codes, applied **client-side** during discovery (the TED server only supports exact + prefix; the job queries the broadest safe prefix server-side, then filters the returned CPV lists with the regex **before** fetching any XML) | unset |
 | `--limit N` | stop after N newly fetched notices (testing aid) | unlimited |
+| `--platform NAMES` | only process tenders whose documents live on these platforms (comma-separated). Special values: `handled` = every platform with a working handler (walled ones excluded), `selective` = per-file handlers only, i.e. no bulk-archive downloads | all |
+| `--list-platforms` | print the known platform names, whether each has a handler, and its mode (selective / bulk / wall), then exit | — |
+
+**`--platform` is for building a GAEB-dense dataset.** Roughly 37 % of tenders sit on
+bulk-only platforms whose archives dominate run time, and ~10 % sit behind a
+registration wall that can never yield anything. Restricting a run to `selective`
+platforms produces GAEB-bearing tenders far faster — the right input for a first
+modelling pass, at the cost of a non-representative sample (see the caveat below).
+
+The filter is applied **twice**, and both are required:
+
+1. at **discovery**, on the search response's `document-url-lot`, so skipped tenders
+   cost no XML fetch at all;
+2. at the **GAEB attempt** (and in the retry pass), because procedure completion pulls
+   in sibling tenders that discovery never saw. Without the second check the filter
+   leaks.
+
+Award notices carry no document link and are never filtered out — they hold the
+targets.
+
+**Sampling caveat:** a platform-filtered corpus is biased by construction (specific
+buyers use specific platforms, and platform choice correlates with region and buyer
+size). It is fine for "does the model work at all?", but any accuracy figure from it
+must not be reported as representative of German construction procurement.
 
 A notice is in scope if **any** of its CPV codes matches (trade lots inside a larger
 project count — see MODELING.md §2.1).

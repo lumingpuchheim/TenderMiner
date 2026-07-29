@@ -53,7 +53,7 @@ INGEST_LOG = LOG_DIR / "ingest_log.jsonl"
 GAEB_EXT = re.compile(r"\.(x8[1-6]|d8[1-6]|p8[1-6])$", re.I)
 RETRY_MAX_AGE_DAYS = 60  # tenders older than this are treated as no longer live
 DISCOVERY_FIELDS = ["publication-number", "procedure-identifier", "notice-type",
-                    "classification-cpv"]
+                    "classification-cpv", "document-url-lot"]
 PLATFORM_REPORT = LOG_DIR / "platform_report.json"
 
 # Download budget per file: GAEB files are small; LV zips are a few MB. Anything
@@ -655,6 +655,35 @@ def handle_vergabe24(doc_url: str, pid: str, pn: str, known_hashes: set[str]) ->
     return "ok" if stored else "no_gaeb"
 
 
+# Handlers that fetch individual files instead of whole packages. Bulk-only platforms
+# (cosinex-*, aumass) must download the entire archive and discard the drawings, which
+# dominates run time — '--platform selective' excludes them.
+SELECTIVE_PLATFORMS = {"rib", "evergabe.de", "evergabe-online", "deutsche-evergabe",
+                       "staatsanzeiger", "vergabe24"}
+# Platforms whose documents require an account: a handler exists only to record the
+# wall cheaply. They can never yield GAEB, so 'handled'/'selective' exclude them.
+WALLED_PLATFORMS = {"subreport"}
+
+
+def resolve_platforms(spec: str) -> set[str]:
+    """Expand a --platform value into a set of platform names.
+    'handled'   = every platform with a working handler (walled ones excluded)
+    'selective' = per-file handlers only (no bulk archive downloads)
+    Explicitly naming a walled platform still includes it."""
+    names: set[str] = set()
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if part == "handled":
+            names |= set(HANDLERS) - WALLED_PLATFORMS
+        elif part == "selective":
+            names |= (SELECTIVE_PLATFORMS & set(HANDLERS)) - WALLED_PLATFORMS
+        else:
+            names.add(part)
+    return names
+
+
 # handler registry: platform product -> handler. Platforms without a handler fall
 # back to the generic strategy (visible file links). Extend guided by the report.
 HANDLERS = {
@@ -875,11 +904,28 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--cpv", default=None, metavar="CODES")
     p.add_argument("--cpv-re", dest="cpv_re", default=None, metavar="REGEX")
     p.add_argument("--limit", type=int, default=None, metavar="N")
+    p.add_argument("--platform", default=None, metavar="NAMES",
+                   help="only process tenders whose documents live on these platforms "
+                        "(comma-separated). Special values: 'handled' = every platform "
+                        "with a handler, 'selective' = handlers that fetch single files "
+                        "(fast, no bulk archives). Use --list-platforms to see names.")
+    p.add_argument("--list-platforms", action="store_true",
+                   help="print the known platform names and exit")
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    if args.list_platforms:
+        print("platform            handler   mode")
+        for name in sorted(set(HANDLERS) | {n for n, _ in PLATFORM_HOSTS}):
+            has = "yes" if name in HANDLERS else "-"
+            mode = ("wall (needs an account, yields nothing)" if name in WALLED_PLATFORMS
+                    else "selective" if name in SELECTIVE_PLATFORMS
+                    else "bulk (downloads whole packages)" if name in HANDLERS else "")
+            print(f"  {name:22} {has:8} {mode}")
+        print("\nspecial values: 'handled' (all with a handler), 'selective' (per-file only)")
+        return
     for label, val in (("--from", args.date_from), ("--to", args.date_to)):
         if val and not (val.isdigit() and len(val) == 8):
             raise SystemExit(f"{label} must be YYYYMMDD, got {val!r}")
@@ -907,6 +953,31 @@ def main() -> None:
         hits = [h for h in hits
                 if any(rx.search(str(c)) for c in (h.get("classification-cpv") or []))]
     print(f"discovered {len(hits)} notices in scope")
+
+    # 1b. platform filter — applied here, on the search response's document link, so
+    # out-of-scope tenders cost no XML fetch at all. Awards carry no document link and
+    # are kept: they hold the targets and arrive anyway via procedure completion.
+    platform_filter: set[str] | None = None
+    if args.platform:
+        wanted = platform_filter = resolve_platforms(args.platform)
+        unknown = wanted - set(HANDLERS) - {n for n, _ in PLATFORM_HOSTS}
+        if unknown:
+            print(f"  warning: unknown platform name(s): {', '.join(sorted(unknown))}"
+                  f" (see --list-platforms)")
+        kept, dropped = [], Counter()
+        for h in hits:
+            url = first(h.get("document-url-lot"))
+            plat = detect_platform(str(url)) if url else None
+            if plat is None or plat in wanted:
+                kept.append(h)
+            else:
+                dropped[plat] += 1
+        print(f"  platform filter [{','.join(sorted(wanted))}]: "
+              f"kept {len(kept)}, skipped {sum(dropped.values())}")
+        if dropped:
+            top = ", ".join(f"{p}:{c}" for p, c in dropped.most_common(5))
+            print(f"    skipped by platform: {top}")
+        hits = kept
 
     # 2. fetch XML + 3. complete procedures
     XML_DIR.mkdir(parents=True, exist_ok=True)
@@ -958,6 +1029,12 @@ def main() -> None:
         if not is_tender(ntype):
             continue
         text = (XML_DIR / f"{pn}.xml").read_text(encoding="utf-8", errors="replace")
+        # Re-apply the platform filter here: procedure completion pulls in sibling
+        # tenders that discovery never filtered, so this is what makes --platform airtight.
+        if platform_filter:
+            urls = document_urls(text)
+            if urls and detect_platform(urls[0]) not in platform_filter:
+                continue
         outcome, platform = attempt_gaeb(text, pid, pn, known_hashes)
         gaeb_counts[outcome] += 1
         by_platform.setdefault(platform or "none", Counter())[outcome] += 1
@@ -980,6 +1057,10 @@ def main() -> None:
         if not path.exists():
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
+        if platform_filter:
+            urls = document_urls(text)
+            if urls and detect_platform(urls[0]) not in platform_filter:
+                continue
         outcome, platform = attempt_gaeb(text, rec.get("procedure-identifier") or "", pn, known_hashes)
         gaeb_counts[f"retry_{outcome}"] += 1
         by_platform.setdefault(platform or "none", Counter())[f"retry_{outcome}"] += 1
