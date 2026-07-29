@@ -78,7 +78,8 @@ are unreliable anyway (buyers tag by trade and misclassify).
 | `data/raw/gaeb/<procedure-identifier>/…` | retrieved GAEB files; everything else in a package (PDF etc.) is discarded |
 | `data/logs/manifest.jsonl` | one line per stored GAEB file — the authoritative GAEB↔tender/lot mapping |
 | `data/logs/gaeb_outcomes.jsonl` | one line per notice per attempt — feeds the retry pass and measures link rot |
-| `data/logs/ingest_log.jsonl` | one line per run: query, notices fetched, **single-/multi-lot counts, lot histogram**, GAEB outcome counts |
+| `data/logs/ingest_log.jsonl` | one line per run: query, notices fetched, **single-/multi-lot counts, lot histogram**, GAEB outcome counts, per-platform breakdown |
+| `data/logs/platform_report.json` | regenerated each run from the full outcome history: per platform → handled?, attempts, ok-rate, last success. **The file to read when yield drops** ("RIB: 0 % since <date>") |
 | `data/logs/checkpoint.json` | updated last covered date |
 
 ## Behaviour
@@ -124,6 +125,24 @@ in this pipeline.
 Accepted GAEB types: GAEB DA XML `.x81`–`.x86` (tender phase: `.x83`) and legacy
 GAEB90/2000 `.d81`–`.d86` / `.p81`–`.p86`.
 
+## GAEB part — the platform layer
+
+Notices link to hundreds of portals, but those portals run on a **handful of software
+products**. Handlers are therefore written per *product*, not per website, and product
+signatures in the URL path beat host names — the same software is white-labelled across
+many domains (`/VMPSatellite/` on every state Vergabemarktplatz, `evergabe.bieter` on
+Deutsche Bahn's portal). Two components:
+
+- **`PLATFORM_HOSTS` + `detect_platform()`** — maps a document URL to a product name;
+  unrecognised hosts surface as `other:<host>` so they are visible, never silently
+  lumped together.
+- **`HANDLERS`** — product → handler function. Products without a handler fall back to
+  the generic strategy (visible file links only), which fails on JavaScript-rendered
+  pages; that is expected and recorded, not an error.
+
+Every attempt records its platform, so `data/logs/platform_report.json` can answer
+"which platform stopped working, and since when".
+
 ## GAEB part — best-effort policy (required behaviour)
 
 Document access is legally guaranteed only for **open procedures** and only **while the
@@ -132,7 +151,7 @@ every notice and record the outcome instead of failing**:
 
 1. Follow the link; use only the direct/no-registration path (the legally required
    "ohne Anmeldung" access). **Never create accounts, never bypass a registration
-   wall** — record and move on.
+   wall, never solve a CAPTCHA** — record and move on.
 2. Keep only GAEB files; store under `data/raw/gaeb/<procedure-identifier>/` (the
    procedure, not the notice, owns the documents — corrigenda create new
    publication-numbers for the same documents, and award notices carry no link).
@@ -143,16 +162,46 @@ every notice and record the outcome instead of failing**:
 | --- | --- |
 | `ok` | ≥1 GAEB file retrieved |
 | `no_url` | notice has no document link |
-| `no_gaeb` | package retrieved but contains no GAEB file (e.g. PDF-only) |
-| `registration_wall` | no registration-free path found |
-| `dead_link` | URL unreachable / tender taken down (expected for old/awarded notices) |
+| `no_gaeb` | documents reached, but none is a GAEB file (e.g. the LV is published as PDF) |
+| `registration_wall` | documents exist but require an account — **a policy limit, permanent** |
+| `needs_javascript` | the page renders its file list client-side and no handler exists yet — **a tooling gap, fixable** |
+| `dead_link` | URL unreachable / tender taken down / deadline passed (expected for old notices) |
 | `error` | anything else (recorded with detail, non-fatal) |
+
+`registration_wall` and `needs_javascript` must not be conflated: the first is a
+decision we will not reverse, the second is a to-do item. Misfiling one as the other
+hides work (or invents a wall that is not there).
 
 5. Retries while the tender is live (each run's retry pass); after the award, one
    final attempt, then stop — `dead_link` becomes a permanent, expected state.
 
 No outcome blocks the pipeline: lots without GAEB proceed through the Extractor with
 description-only features (the fallback path METHODS.md §5a.4 is designed for).
+
+## GAEB part — download efficiency (required behaviour)
+
+Handlers fall into two kinds:
+
+- **Selective** (rib, evergabe.de, evergabe-online, deutsche-evergabe, staatsanzeiger):
+  the platform exposes per-file URLs, so only GAEB/LV-named files are fetched.
+- **Bulk-only** (cosinex-satellite, cosinex-netserver, aumass): the platform offers no
+  per-file access — the whole package is the only door. Observed sizes: 39 MB (a DTVP
+  archive containing **no** GAEB at all) and 174 MB (aumass). Roughly 37 % of tenders
+  land on a bulk-only platform, and most of those bytes are drawings we discard.
+
+Bulk downloads are therefore the run's bottleneck, and the job **must avoid them when
+the package cannot contain a GAEB file**:
+
+1. **Listing pre-check.** If the platform prints filenames before download (cosinex
+   Satellite does), scan the listing first and skip the archive when no name matches a
+   GAEB/LV pattern.
+2. **ZIP central-directory peek.** A ZIP stores its index at the *end* of the file. Where
+   the server supports HTTP `Range` requests, fetch only the last ~64 KB, read the entry
+   names from the central directory, and download the full archive **only if** a GAEB
+   file is actually inside. Fall back to a full download when ranges are unsupported.
+3. **Caps remain the backstop:** `FILE_CAP_BYTES` / `FILE_TIME_BUDGET_S` for per-file
+   downloads, and a larger `ARCHIVE_CAP_BYTES` / `ARCHIVE_TIME_BUDGET_S` for bulk-only
+   platforms, so no single tender can stall a run.
 
 ## GAEB part — the manifest
 
@@ -192,9 +241,33 @@ Each run appends one line to `data/logs/ingest_log.jsonl`:
 ```jsonc
 { "run": "2026-07-30T06:00Z", "query": "…", "notices_fetched": 412,
   "single_lot": 371, "multi_lot": 41, "lots_histogram": {"1": 371, "2": 18, "3": 9, "4+": 14},
-  "gaeb": {"ok": 118, "no_url": 61, "no_gaeb": 155, "registration_wall": 40, "dead_link": 30, "error": 8} }
+  "gaeb": {"ok": 118, "no_url": 61, "no_gaeb": 155, "registration_wall": 40, "dead_link": 30, "error": 8},
+  "gaeb_by_platform": {"cosinex-satellite": {"ok": 41, "no_gaeb": 30}, "subreport": {"registration_wall": 40}} }
 ```
 
 The single-vs-multi-lot count sizes the Route 1 training set and tells us when the
-Route 2 lot parser pays off; the GAEB outcome counts measure link rot and platform
-coverage.
+Route 2 lot parser pays off; the GAEB outcome counts measure link rot, and the
+per-platform breakdown feeds `platform_report.json`, which ranks unhandled platforms by
+volume — the to-do list for the next handler.
+
+## Measured platform distribution (German construction, July 2026)
+
+From 1 988 `cn-standard` notices with a document link (CPV 45\*, `buyer-country=DEU`).
+Handlers are written against this ranking, not guesses:
+
+| Platform | Share | Status |
+| --- | --- | --- |
+| cosinex-satellite (DTVP, VMPSatellite) | 18.9 % | handled (bulk) |
+| cosinex-netserver | 15.7 % | handled (bulk) |
+| rib | 11.9 % | handled (selective) |
+| subreport | 10.0 % | **registration wall** — documents require an account |
+| deutsche-evergabe (incl. DB `evergabe.bieter`) | 7.2 %+ | handled (selective) |
+| evergabe.de | 4.9 % | handled (selective) |
+| evergabe-online | 3.4 % | handled (selective) |
+| aumass | 2.9 % | handled (bulk) |
+| vergabe24 | 2.1 % | partial — expiry detected; download path unobserved |
+| staatsanzeiger evoportal | <1 % | handled (selective) |
+| unhandled long tail | ~9 % | `staatsanzeiger-eservices` 3.2 %, `deutsches-ausschreibungsblatt` 2.3 %, rest <1 % each |
+
+**Attemptable coverage: ~81 %** of tenders with a document link; ~10 % walled, ~9 %
+not yet implemented.
