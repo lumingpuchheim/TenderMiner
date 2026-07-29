@@ -26,13 +26,38 @@ for traditional manual estimating.
 
 ## Task 2 — Estimating whether a tender will have (almost) no competition
 
-Headline result: the **exact** bidder count is barely predictable — best model
-(XGBoost, 913 Singapore projects) reaches only **R² 0.168** (Oo et al. 2025). The
-**coarse** question — healthy competition vs single-bidder/suspicious — is
-answerable: **70–84 % accuracy** (Fazekas et al. 2026); Goryunova et al. 2021
-separate single-bidder auctions into "probably fair" vs "suspicious"
-([arXiv:2102.05523](https://arxiv.org/abs/2102.05523)). So "is this tender a good
-one (no competition)?" is supported as a probability/flag, not a bidder count.
+Headline results (corrected 2026-07-29 after reading the primary papers — an
+earlier version of this section conflated ex-post cartel screening with call-time
+forecasting):
+
+- **The boundary every prediction paper uses is 1 bid vs ≥2 bids** ("single
+  bidding") — no study validates any other cut (e.g. "3 vs 8"). It is also the
+  EU's official competition indicator: the Single Market Scoreboard's
+  triple-weighted single-bidder share, red-flagged above **20 %**
+  ([Scoreboard](https://single-market-scoreboard.ec.europa.eu/business-framework-conditions/public-procurement_en)).
+- The **exact** bidder count is barely predictable — best model reaches **R²
+  0.168** (XGBoost, 913 Singapore projects, Oo et al. 2025); count regression on
+  TED text lands at **MAE ≈ 1.6 bids** (Acikalin et al. 2023).
+- **Call-time (ex-ante) single-bid prediction — the numbers that transfer to us:**
+  on **333,832 TED notices** (2011–2018, 21 % single-offer), predicting
+  single-offer from the call description reaches **precision ≈ 0.61 at recall
+  ≈ 0.34** ([Acikalin, Gorgun, Kutlu & Tas 2023, *Nat. Lang. Eng.*](https://doi.org/10.1017/S135132492300030X)).
+  On 15,800 Croatian tenders (26 % single-bid; target verbatim "one bid = true,
+  more than one = false"), tender-text models reach **accuracy 0.59–0.85 by CPV
+  sector** with often-poor single-bid recall
+  ([Rabuzin & Modrušan 2019](https://www.scitepress.org/Papers/2019/83536/83536.pdf)).
+  Useful (≈3–5× enrichment over the base rate), but far from solved.
+- The oft-quoted **70–84 % accuracy** (Fazekas et al. 2026) is **ex-post cartel
+  detection** — classifying contracts as cartel vs non-cartel from *award-side*
+  bidding/pricing patterns (73 confirmed cartels). It is not a call-time
+  competition forecast and must not be used as a benchmark for one. Likewise
+  Goryunova et al. 2021 ([arXiv:2102.05523](https://arxiv.org/abs/2102.05523))
+  classify *already-known* single-bidder auctions into "probably fair" vs
+  "suspicious".
+
+So "is this tender a good one (no competition)?" is supported as a probability
+flag at the 1-vs-≥2 boundary, with realistic ex-ante performance around precision
+0.6 — not as a bidder count, and not at 70–84 % accuracy.
 
 | Feature | Effect on number of bidders | Source |
 | --- | --- | --- |
@@ -45,7 +70,7 @@ one (no competition)?" is supported as a probability/flag, not a bidder count.
 | Authority type (local vs central) | Regional/local authorities receive more bids than ministries | [Tátrai et al. 2023](https://link.springer.com/article/10.1007/s11115-023-00742-0) |
 | Project size / work nature / workhead (trade) type | Project-characteristic inputs to the bidder-count models | [Oo, Nguyen, Ahn & Lim 2025](https://www.emerald.com/insight/content/doi/10.1108/ci-10-2024-0325/full/html) |
 | Tender price index, construction demand | "Economic-related factors play a vital role in this prediction problem" | [Oo et al. 2025](https://www.emerald.com/insight/content/doi/10.1108/ci-10-2024-0325/full/html) |
-| Bidding-pattern & pricing screens (bid spread, repeated co-bidding, price irregularities) | Distinguish collusive/no-competition behaviour from healthy markets at 70–84 % accuracy | [Fazekas, Tóth, Wachs & Abdou 2026](https://www.sciencedirect.com/science/article/pii/S0167718725000943) |
+| Bidding-pattern & pricing screens (bid spread, repeated co-bidding, price irregularities) | Distinguish collusive/no-competition behaviour from healthy markets at 70–84 % accuracy — **ex-post screens on award-side data; not usable as call-time features** | [Fazekas, Tóth, Wachs & Abdou 2026](https://www.sciencedirect.com/science/article/pii/S0167718725000943) |
 
 ## The asymmetry between the tasks
 

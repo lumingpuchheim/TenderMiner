@@ -297,9 +297,10 @@ than for value — a useful diagnostic in itself.
 
 ### 4.5 Verified academic sources (checked 2026-07-29)
 
-The claim "competition is guessable as a class (many bidders vs one), but not as an
-exact count" traces to peer-reviewed work; all four sources below were re-verified
-against the publisher pages.
+The claim "competition is guessable as a class (single bid vs ≥2), but not as an
+exact count" traces to peer-reviewed work; all sources below were re-verified against
+the publisher pages (last check 2026-07-29, when the call-time vs ex-post benchmark
+conflation was corrected).
 
 Why the exact count is *not* the target:
 
@@ -311,20 +312,40 @@ Why the exact count is *not* the target:
   best (XGBoost) reaches only **R² 0.168** on the exact bidder count (all models
   0.126–0.168). Exact counts are mostly noise — hence D predicts classes.
 
-Why the binary/risk flag *is* learnable:
+What the binary flag achieves **at call time** (the numbers that transfer — the
+boundary in every study is exactly **1 bid vs ≥2 bids**, which is also the EU Single
+Market Scoreboard's triple-weighted competition indicator, red-flagged above 20 %):
+
+- **Acikalin, Gorgun, Kutlu & Tas (2023)**, "How you describe procurement calls
+  matters: Predicting outcome of public procurement using call descriptions",
+  *Natural Language Engineering* 30(6), 1255–1276.
+  [doi:10.1017/S135132492300030X](https://doi.org/10.1017/S135132492300030X).
+  333,832 **TED notices** 2011–2018 (21 % single-offer); predicting single-offer from
+  the call description: best **precision ≈ 0.61 at recall ≈ 0.34**; bidder-count
+  regression **MAE ≈ 1.6**. The closest published analogue to D — same data source,
+  same call-time setting. Basis for the §7 "single-bid flag" benchmark.
+- **Rabuzin & Modrušan (2019)**, "Prediction of Public Procurement Corruption Indices
+  using Machine Learning Methods", KMIS 2019.
+  [PDF](https://www.scitepress.org/Papers/2019/83536/83536.pdf). 15,800 Croatian
+  tenders (26 % single-bid; target verbatim "one bid = true, more than one = false");
+  tender-text models reach **accuracy 0.59–0.85 by CPV sector**, single-bid recall
+  often poor (0.04–0.30).
+
+Adjacent but **not** call-time benchmarks (ex-post, award-side data — an earlier
+draft wrongly used the first as D's benchmark):
 
 - **Fazekas, Tóth, Wachs & Abdou (2026)**, "Public procurement cartels: A large-sample
   testing of screens using machine learning", *Int. J. Industrial Organization*.
   [doi:10.1016/j.ijindorg.2025.103103](https://www.sciencedirect.com/science/article/pii/S0167718725000943).
   73 confirmed cartels, 7 European countries, 15 000+ contracts, 2004–2021; a random
   forest combining bidding/pricing screens distinguishes cartel from non-cartel
-  behaviour with **70–84 % accuracy** (evaluated on accuracy, ROC-AUC and false-positive
-  rate, 5-fold CV). Basis for the §7 "risk flag" benchmark.
+  behaviour with **70–84 % accuracy** — classifying *completed* bidding behaviour,
+  not forecasting competition for a new tender.
 - **Goryunova, Baklanov & Ianovski (2021)**, "Detecting corruption in single-bidder
   auctions via positive-unlabelled learning",
-  [arXiv:2102.05523](https://arxiv.org/abs/2102.05523). Single-bidder auctions in
-  Russian public procurement separated into "probably fair" vs "suspicious" — the
-  single-bidder risk-modelling reference in §4.1.
+  [arXiv:2102.05523](https://arxiv.org/abs/2102.05523). Separates *already-known*
+  single-bidder auctions in Russian procurement into "probably fair" vs "suspicious" —
+  the single-bidder risk-modelling reference in §4.1.
 
 What drives the number of bidders (feature support for D):
 
@@ -513,16 +534,20 @@ Published reference points and what they mean in plain terms:
 | --- | --- | --- | --- |
 | Cost from full project specs | MAPE 3–18 % (sources verified in §5a.5: Lowe et al. 2006 MAPE 19.3 %, Emsley et al. 2002 MAPE 16.6 %, plus two systematic reviews) | on a true €1M project the estimate misses by €30k–180k | only with Method E inputs (or document parsing); their features came from human-maintained project registries |
 | Value from notice text | no published benchmark found | — | our task; expect band-level accuracy, tens of % |
-| Exact bidder count | R² 0.13–0.17 (Oo et al. 2025, verified in §4.5) | barely better than always guessing the average | confirms: predict classes, not counts |
-| Single-bidder / risk flag | 70–84 % accuracy, AUC 0.90 (Fazekas et al. 2026, verified in §4.5) | up to ~84 of 100 tenders classified correctly | the realistic strong deliverable for D |
+| Exact bidder count | R² 0.13–0.17 (Oo et al. 2025); MAE ≈ 1.6 bids on TED text (Acikalin et al. 2023; both verified in §4.5) | barely better than always guessing the average | confirms: predict classes, not counts |
+| Single-bid flag at call time (1 vs ≥2 bids) | precision ≈ 0.61 at recall ≈ 0.34 on 334k TED notices, 21 % base rate (Acikalin et al. 2023); accuracy 0.59–0.85 by sector (Rabuzin & Modrušan 2019; both verified in §4.5) | of tenders flagged "likely single-bid", ~60 % really are — a 3–5× enrichment over the base rate, but recall misses most of them | our task exactly (same data source); this, not 70–84 %, is the honest benchmark for D |
+| Cartel / collusion screen (ex-post) | 70–84 % accuracy (Fazekas et al. 2026, verified in §4.5) | classifies *completed* bidding behaviour from award-side patterns | does **not** transfer to call-time forecasting; earlier drafts wrongly used it as D's benchmark |
 
 - **Value:** magnitude/band accuracy from notice text alone; Method E (§5a) moves a
   quantity-rich subset toward the published MAPE regime, full precision likely needs the
   attached tender documents. Success = beating the CPV-median baseline clearly and
   hitting the right value band most of the time.
-- **Competition (D):** the strongest published track record (AUC ≈ 0.9 for the binary
-  flag is a realistic target); treat it as the flagship deliverable. Do not target the
-  exact count — published R² of 0.13–0.17 says it is mostly noise.
+- **Competition (D):** still the most learnable target and the flagship deliverable,
+  but calibrate expectations to the call-time literature: beating precision ≈ 0.6 at
+  the 1-vs-≥2 boundary (Acikalin et al. 2023, same data source) is the bar — richer
+  structured features (buyer identity, incumbency, lot structure) than their
+  text-only setup are our realistic edge. Do not target the exact count — published
+  R² of 0.13–0.17 says it is mostly noise.
 - **Ensemble:** typically a modest but consistent win over the best single model; its
   real value is robustness (A and B fail in different situations) plus keeping A's
   reference projects attached to every estimate.
