@@ -312,9 +312,7 @@ accuracy. The estimator itself remains A/B/D — trained, reproducible models.
 
 Published construction-cost models reaching MAPE 3–18 % were fed ~10 structured project
 parameters from human-maintained project registries (typically only 100–500 projects!),
-not text. The recurring cost-driver set across systematic reviews
-([303-study review](https://www.researchgate.net/publication/344266621_Cost_estimation_and_prediction_in_construction_projects_a_systematic_review_on_machine_learning_techniques),
-[ML cost review](https://www.researchgate.net/publication/375570946_A_Review_on_Machine_Learning_Algorithms_for_Cost_Estimation_in_Construction_Projects)):
+not text. The recurring cost-driver set across systematic reviews (see §5a.5):
 **gross floor area, storeys, building type/class, footprint, structural system,
 materials, elevators, rooms/units, height, location+year.** Because this set is fixed
 and validated, the earlier "growing keys" objection does not apply: the schema does not
@@ -362,6 +360,44 @@ is a language task, not a pattern task.
 - Expected effect: moves value accuracy from band-level toward (not to) the published
   7–18 % MAPE regime; the full regime likely requires parsing attached tender documents
   (Leistungsverzeichnis), a separate future step.
+
+### 5a.5 Verified academic sources (checked 2026-07-29)
+
+The "≈20 % error from ~10 structured features" claim traces to peer-reviewed work;
+all four sources below were re-verified against the publisher pages.
+
+Primary empirical studies — the origin of the ~20 % figure:
+
+- **Lowe, Emsley & Harding (2006)**, "Predicting Construction Cost Using Multiple
+  Regression Techniques", *J. Constr. Eng. Manage.* 132(7), 750–758.
+  [doi:10.1061/(ASCE)0733-9364(2006)132:7(750)](https://ascelibrary.org/doi/abs/10.1061/(ASCE)0733-9364(2006)132:7(750)).
+  Regression on 286 UK building projects, 41 candidate variables; best model
+  **MAPE 19.3 %** (R² 0.661). Recurring drivers across all six models: gross internal
+  floor area, function (= project type), duration, mechanical installations, piling.
+  Baseline cited for traditional manual estimating: ~25 % MAPE.
+- **Emsley, Lowe & Duff (2002)**, "Data modelling and the application of a neural
+  network approach to the prediction of total construction costs", *Construction
+  Management and Economics* 20(6), 465–472.
+  [doi:10.1080/01446190210151050](https://www.tandfonline.com/doi/abs/10.1080/01446190210151050).
+  ANN on ~300 projects; best model **MAPE 16.6 %**, vs 20.8–27.9 % reported for
+  traditional estimating.
+
+Systematic reviews — the MAPE 3–18 % range and the recurring feature set:
+
+- **Tayefeh Hashemi, Ebadati & Kaur (2020)**, "Cost estimation and prediction in
+  construction projects: a systematic review on machine learning techniques",
+  *SN Applied Sciences* 2:1703.
+  [doi:10.1007/s42452-020-03497-1](https://link.springer.com/article/10.1007/s42452-020-03497-1).
+  The "303-study review": ~30 years of ML cost-estimation literature.
+- **"Machine learning algorithms for constructions cost prediction: A systematic
+  review" (2022)**, *Int. J. Nonlinear Analysis and Applications*.
+  [ijnaa.semnan.ac.ir/article_6693](https://ijnaa.semnan.ac.ir/article_6693.html).
+  Shallow models MAPE 8–18 %, SVM ~7 %, hybrid models 3–7 %.
+
+Caveat (unchanged from §5a.2): these accuracies were achieved on curated project
+registries with human-entered parameters — not on raw notice text. The claim
+"20 % error is possible with a featured database" holds only once the structured
+features exist, which is exactly what Method E produces.
 
 ---
 
@@ -423,7 +459,7 @@ Published reference points and what they mean in plain terms:
 
 | Task | Published result | Plain meaning | Transfers to us? |
 | --- | --- | --- | --- |
-| Cost from full project specs | MAPE 3–18 % ([reviews](https://www.researchgate.net/publication/361573381_Machine_Learning_Algorithms_for_Constructions_Cost_Prediction_A_Systematic_Review)) | on a true €1M project the estimate misses by €30k–180k | only with Method E inputs (or document parsing); their features came from human-maintained project registries |
+| Cost from full project specs | MAPE 3–18 % (sources verified in §5a.5: Lowe et al. 2006 MAPE 19.3 %, Emsley et al. 2002 MAPE 16.6 %, plus two systematic reviews) | on a true €1M project the estimate misses by €30k–180k | only with Method E inputs (or document parsing); their features came from human-maintained project registries |
 | Value from notice text | no published benchmark found | — | our task; expect band-level accuracy, tens of % |
 | Exact bidder count | R² 0.13–0.17 ([Singapore study](https://www.emerald.com/insight/content/doi/10.1108/ci-10-2024-0325/full/html)) | barely better than always guessing the average | confirms: predict classes, not counts |
 | Single-bidder / risk flag | 84 % accuracy, AUC 0.90 ([cartel screening](https://www.sciencedirect.com/science/article/pii/S0167718725000943)) | ~84 of 100 tenders classified correctly | the realistic strong deliverable for D |
