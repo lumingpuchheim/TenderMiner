@@ -49,13 +49,46 @@ July 2026:
 | **Description (text)** | `description-proc` / `description-lot` | **100 %** | free-text object of the contract — the ML input |
 | **Title** | `title-proc` / `notice-title` | **100 %** | short title |
 | **Money** | `total-value` (+`-cur`) | **89 %** | median **€417k**; structured, not free text |
-| **Competition** | `received-submissions-type-val` | **99 %** | tenders received; median **2**, max 82 |
-| **Single-bidder rate** | derived | — | **27 %** of awards had just 1 bid |
+| **Competition** | XML `ReceivedSubmissionsStatistics` (**not** the flat search field) | **99 %** | tenders received per lot; median **5**, max 26 — see the correction below |
+| **Single-bidder rate** | derived | — | **12 %** of lots had just 1 bid |
 | **Winner size (SME)** | `winner-size` | high | large / medium / small / micro / sme |
 | **Winner country** | `winner-country` | high | DEU 21, FRA 15, CZE 12, POL 10… |
 | **Category** | `classification-cpv` | ~100 % | 45xx works, 71xx eng., 72xx IT, 33xx medical |
 | **Buyer** | `organisation-name-buyer` | ~100 % | multilingual `{lang: [...]}` |
 | **Full notice** | `links.xml` / `links.pdf` | 100 % | eForms XML + PDF, all EU languages |
+
+### Correction: the competition figures (2026-07-30, GitHub issue #1)
+
+An earlier version of this table reported *median 2 bids, max 82, 27 % single-bidder*.
+Those numbers were computed from the search API's `received-submissions-type-val`, which
+is an **unlabeled flat array mixing two different semantics** — per-lot totals on
+multi-lot notices, but a per-*type* breakdown (`tenders`, `t-esubm`, `t-sme`,
+`t-oth-eea`, `t-no-eea`) on single-lot ones. Subtype values and structural zeros were
+being counted as if they were separate bids, dragging the median down and inflating the
+single-bidder rate.
+
+Recomputed from the **notice XML**, where each `<efac:LotResult>` carries labeled
+`<efac:ReceivedSubmissionsStatistics>` per lot (196 German construction award notices,
+223 lot results with a count, July 2026):
+
+| Metric | Old (flat array) | **Corrected (XML)** |
+| --- | --- | --- |
+| Median bids per lot | 2 | **5** |
+| Mean | — | **6.0** |
+| Max | 82 | **26** |
+| Single-bidder lots | 27 % | **12 %** |
+| Zero-bid lots | — | 1 % (procedure ran, no admissible tender) |
+
+Two parsing details found while doing this, both handled in `extractor.py`:
+
+- **40 of 223** lot results publish no `tenders` total — only `t-esubm` (electronic
+  submissions). That is used as a fallback and flagged via `n_bids_source`; since
+  electronic submissions are a subset of all tenders, it is a **lower bound**.
+- `StatisticsNumeric` can be **negative** (`-1` observed) as a "not disclosed" marker.
+  Negative values are treated as missing, never as counts.
+
+The SME / e-submission / cross-border splits come free from the same block (present on
+110 of 223 lot results) and are captured as extra features.
 
 **Key contrast with the German source:** money and bidder counts here are *first-class,
 near-complete structured fields*, because every TED notice is an above-threshold EU eForms
@@ -126,7 +159,8 @@ German *below-threshold* notices appear **only** on oeffentlichevergabe.de.
    n_bidders, winner-country, winner-size), straight from the selected fields.
 2. **Cross-border & SME analysis** — TED uniquely supports "who wins across borders" and
    "SME win rate by sector/country".
-3. **Competition monitoring** — single-bidder rate by CPV/country over time (27 % in-sample).
+3. **Competition monitoring** — single-bidder rate by CPV/country over time (12 % in-sample,
+   XML-derived; see the correction above).
 4. **De-duplicate against the German feed** on above-threshold notices when combining sources.
 
 ## Scripts

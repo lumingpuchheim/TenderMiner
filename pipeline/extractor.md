@@ -51,6 +51,33 @@ from `data/raw/` must reproduce it.
    actual value and bid count into the matching record's `targets` — the only mutation
    `features.jsonl` ever sees.
 
+### Bidder-count label (implemented — `extractor.py`)
+
+The bid count **must** be parsed from the award XML, never from the search API's
+`received-submissions-type-val` (GitHub issue #1). That flat array mixes per-lot totals
+(multi-lot notices) with a per-*type* breakdown (single-lot notices) and the two are
+indistinguishable without the XML.
+
+`parse_lot_results(xml_text)` returns one record per `<efac:LotResult>`:
+
+| Field | Meaning |
+| --- | --- |
+| `lot_id` | the lot the result belongs to (`<efac:TenderLot><cbc:ID>`) |
+| `n_bids` | headline bid count |
+| `n_bids_source` | `tenders` (the explicit total, preferred) / `t-esubm` (fallback, a **lower bound**) / `None` (missing) |
+| `n_bids_sme`, `n_bids_electronic`, `n_bids_other_eea`, `n_bids_non_eea`, … | subset counts, captured free from the same block |
+
+Two data realities it handles, both observed live:
+
+- **~18 % of lot results publish no `tenders` total**, only `t-esubm` (electronic
+  submissions). Since electronic submissions are a subset of all tenders, the fallback
+  is a lower bound — hence `n_bids_source`, so downstream can filter or flag it.
+- **`StatisticsNumeric` can be negative** (`-1` = not disclosed). Negative values are
+  treated as missing, never as counts.
+
+Measured on 196 German construction award notices (223 lot results, July 2026):
+median 5 bids, mean 6.0, max 26, 12 % single-bidder, 1 % zero-bid.
+
 ## Source priority per lot
 
 1. **GAEB** (worker 2) — best: complete quantities.

@@ -251,7 +251,17 @@ Predict the *competition* a tender will attract. Two targets from the award side
 Published support: competition-driver analysis on TED 2017–2020
 ([Springer](https://link.springer.com/article/10.1007/s11115-023-00742-0)) and
 single-bidder risk modelling ([arXiv](https://arxiv.org/pdf/2102.05523)). Our own
-sample showed 27% single-bidder awards — a strong, learnable base rate.
+sample shows **12 % single-bidder lots** (223 lot results, XML-parsed — see the
+correction in FINDINGS_ted.md; the earlier 27 % came from the polluted flat array).
+A 12 % positive rate is a meaningful but **imbalanced** target: class weighting and
+probability calibration (§4.2) are required, not optional.
+
+**The label must come from the notice XML**, never from the search API's
+`received-submissions-type-val` (GitHub issue #1): that flat array mixes per-lot totals
+with per-type subsets and cannot be disambiguated. Use `extractor.parse_lot_results()`,
+which reads the labeled `<efac:ReceivedSubmissionsStatistics>` blocks, falls back to
+`t-esubm` (a lower bound) when no `tenders` total is published (~18 % of lot results),
+and treats negative "not disclosed" markers as missing.
 
 ### 4.2 Pipeline in detail
 
