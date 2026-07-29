@@ -35,9 +35,12 @@ Therefore **one training row = one lot**:
 Treating a multi-lot notice as one row would smear all trades' features together and
 train, e.g., the metalwork price against the electrician's quantities — wrong by
 construction. eForms encodes this explicitly: field suffixes `-proc` (procedure-level,
-shared across lots), `-lot` (per lot), `-glo` (lots group). Per-lot arrays we observed
-(4 contract values, `received-submissions ['4','4','4','0','0']`) are exactly this
-lot-level breakdown.
+shared across lots), `-lot` (per lot), `-glo` (lots group). But beware: a multi-value
+array in the *search API* is **not** proof of a lot-level breakdown. Verified against
+the XML: `received-submissions ['4','4','4','0','0']` on notice `516890-2026` is a
+**single lot's per-type statistics** (tenders=4, t-esubm=4, t-sme=4, t-oth-eea=0,
+t-no-eea=0), while `['4','3']` on `517845-2026` really is two lots' totals (4 and 3).
+The flat array cannot distinguish the two cases — see §2.3.
 
 ### 2.2 Notices and the join
 
@@ -69,21 +72,35 @@ winner sizes in the search response but is a **single-lot** procedure in its XML
 duplicates are main+additional classifications and consortium members flattened
 together.
 
-**The fix, in two phases (verified against the live service):**
+**The fix (verified against the live service): fetch the notice XML for every award.**
 
-- **Route 1 — Phase 1: single-lot procedures only.** For notices with exactly one lot
-  (the majority), the flat lists are safe — one value per field, nothing to misalign.
-  Start training on these: zero extra work, zero correctness risk, at the cost of some
-  rows. Lot count must be taken from the XML (Route 2's fetch), not inferred from
-  array lengths (see above).
-- **Route 2 — Phase 2: fetch the notice XML for multi-lot procedures.** Every search
-  result links its full eForms XML (`https://ted.europa.eu/en/notice/<number>/xml` —
-  verified: no login, one GET, ~26 KB). The XML is explicitly structured:
-  `<cac:ProcurementProjectLot>` blocks hold each lot's own fields, and each
-  `<efac:LotResult>` names the lot it belongs to (`<efac:TenderLot><cbc:ID>LOT-0001`).
-  Ingestion flow: search API to *find* notices (filtered, cheap) → one GET per notice
-  for the XML → parse lots from the XML. Multi-lot notices are disproportionately the
-  large construction projects, so this parser is worth building.
+An earlier draft proposed a "Route 1" that trained on single-lot procedures straight
+from the search-API flat lists ("one value per field, nothing to misalign"). That is
+**wrong** for the bidder-count field: `received-submissions-type-val` on a *single-lot*
+notice routinely holds 3–5 values, because eForms publishes a per-**type** statistics
+breakdown per lot (`StatisticsCode` `tenders` / `t-esubm` / `t-sme` / `t-oth-eea` /
+`t-no-eea` …), and the search API flattens away the codes. Observed on live notices:
+
+| Notice | Lots | Flat array | Actual meaning (from XML) |
+| --- | --- | --- | --- |
+| `516890-2026` | 1 | `[4, 4, 4, 0, 0]` | type breakdown of one lot: tenders=4, t-esubm=4, t-sme=4, rest 0 |
+| `515758-2026` | 1 | `[6, 6, 3]` | type breakdown: tenders=6, t-esubm=6, t-sme=3 |
+| `517845-2026` | 2 | `[4, 3]` | per-lot totals: LOT-0001=4, LOT-0002=3 |
+
+Identical-looking arrays, different semantics; the flat list alone cannot be
+disambiguated. (Max-of-array recovers the total for single-lot notices, since subtypes
+cannot exceed it — but knowing the notice *is* single-lot already requires the XML.)
+
+So the bidder-count **label** must come from the notice XML for **all** award notices,
+single-lot included. Every search result links its full eForms XML
+(`https://ted.europa.eu/en/notice/<number>/xml` — verified: no login, one GET, ~26 KB).
+The XML is explicitly structured: `<cac:ProcurementProjectLot>` blocks hold each lot's
+own fields, each `<efac:LotResult>` names the lot it belongs to
+(`<efac:TenderLot><cbc:ID>LOT-0001`), and its `<efac:ReceivedSubmissionsStatistics>`
+blocks carry labeled counts (`StatisticsCode` + `StatisticsNumeric`) — take
+`tenders` as the bid count; the SME / e-submission / cross-border splits come free.
+Ingestion flow: search API to *find* notices (filtered, cheap) → one GET per notice
+for the XML → parse lots and statistics from the XML.
 
 (A structured per-lot form also exists in the German OCDS feed, but that is a second
 data source — rejected; TED stays the single source.)
@@ -120,7 +137,7 @@ features stand alone first.
 | Target | Source (award side) | Notes |
 | --- | --- | --- |
 | Price | the lot's own awarded value (OCDS: `contracts[]` with matching `relatedLots`; eForms: the LotResult value) | convert all to one currency (EUR); `total-value` is the whole notice — do NOT use it as a per-lot label in multi-lot procedures |
-| Expected bidders | the lot's received-submissions entry | per-lot statistic; the flat array from the search API is the concatenation over lots — resolve via the structured source (§2.2) |
+| Expected bidders | the lot's `ReceivedSubmissionsStatistics` block in the notice XML, code `tenders` | never from the search API's flat array — it mixes per-lot totals with per-type breakdowns indistinguishably (§2.3) |
 
 ## 5. Leakage rule (critical)
 
