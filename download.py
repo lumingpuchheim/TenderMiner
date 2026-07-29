@@ -60,13 +60,17 @@ PLATFORM_REPORT = LOG_DIR / "platform_report.json"
 # bigger is drawings we do not want. Platforms can be very slow (~45 KB/s observed).
 FILE_CAP_BYTES = 50 * 1024 * 1024
 FILE_TIME_BUDGET_S = 420
+# Platforms that only offer one bulk package (aumass, cosinex-satellite) need a
+# larger allowance; 174 MB observed. Still bounded so one tender cannot stall a run.
+ARCHIVE_CAP_BYTES = 250 * 1024 * 1024
+ARCHIVE_TIME_BUDGET_S = 900
 
 # ------------------------------------------------------------ platform registry
 # host fragment -> platform product name. Notices link to hundreds of portals but
 # these run on a handful of software products; handlers are written per PRODUCT.
 PLATFORM_HOSTS = [
     ("rib",              ("meinauftrag.rib.de", ".rib.de", "vergabe.bayern.de")),
-    ("cosinex/dtvp",     ("dtvp.de", "cosinex", "vergabemarktplatz")),
+    ("cosinex-satellite", ("dtvp.de", "cosinex", "vergabemarktplatz")),
     ("evergabe-online",  ("evergabe-online.de",)),
     ("subreport",        ("subreport.de",)),
     ("deutsche-evergabe",("deutsche-evergabe.de",)),
@@ -78,6 +82,16 @@ PLATFORM_HOSTS = [
 
 
 def detect_platform(url: str) -> str:
+    # Product signatures beat host names: the same software is white-labelled across
+    # hundreds of customer domains (e.g. VMPSatellite on every state Vergabemarktplatz,
+    # evergabe.bieter on Deutsche Bahn's portal). Detect the product, not the host.
+    low = url.lower()
+    if "/netserver/" in low:
+        return "cosinex-netserver"
+    if "satellite/notice" in low or "/satellite/" in low:
+        return "cosinex-satellite"
+    if "evergabe.bieter" in low:
+        return "deutsche-evergabe"
     host = urllib.parse.urlparse(url).netloc.lower()
     for name, fragments in PLATFORM_HOSTS:
         if any(f in host for f in fragments):
@@ -217,10 +231,15 @@ def make_browser_opener() -> urllib.request.OpenerDirector:
 
 
 def fetch_capped(opener: urllib.request.OpenerDirector, url: str,
-                 cap: int = FILE_CAP_BYTES, budget_s: int = FILE_TIME_BUDGET_S) -> bytes | None:
+                 cap: int = FILE_CAP_BYTES, budget_s: int = FILE_TIME_BUDGET_S,
+                 referer: str | None = None) -> bytes | None:
     """Chunked download with a size cap and a wall-clock budget (platforms stream
-    slowly; drawings are large and unwanted). Returns None on any failure/overrun."""
+    slowly; drawings are large and unwanted). Returns None on any failure/overrun.
+    Some platforms (evergabe-online) reject document requests without a Referer."""
     start = dt.datetime.now()
+    if referer:
+        url = urllib.request.Request(url, headers={"User-Agent": BROWSER_AGENT,
+                                                   "Referer": referer})
     try:
         with opener.open(url, timeout=90) as resp:
             if resp.status != 200:
@@ -286,9 +305,370 @@ def handle_rib(doc_url: str, pid: str, pn: str, known_hashes: set[str]) -> str:
     return "ok" if stored else "no_gaeb"
 
 
+def handle_evergabe_de(doc_url: str, pid: str, pn: str, known_hashes: set[str]) -> str:
+    """evergabe.de. The link redirects to a 'choose access' page; the plain
+    /unterlagen/<id> page is a server-rendered table <td>NAME</td><td><a href=DL>
+    with per-file download links. No login. Selective download of GAEB rows (and
+    LV-named ZIPs) only."""
+    opener = make_browser_opener()
+    try:
+        with opener.open(doc_url, timeout=60) as resp:
+            page = resp.read().decode("utf-8", "replace")
+            final = resp.url
+            if resp.status != 200:
+                return "dead_link"
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+        return "dead_link"
+
+    # If we landed on the access-choice page, follow the plain /unterlagen/<id> link.
+    if "/unterlagen/" in final and not re.search(r"<td>[^<]+\.[A-Za-z0-9]{2,4}</td>", page):
+        m = re.search(r'href="(/unterlagen/\d+)"', page)
+        if m:
+            try:
+                with opener.open(urllib.parse.urljoin(final, m.group(1)), timeout=60) as resp:
+                    page = resp.read().decode("utf-8", "replace")
+                    final = resp.url
+            except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+                return "dead_link"
+
+    rows = re.findall(r"<td>([^<]{3,90}\.[A-Za-z0-9]{2,4})</td>\s*<td><a[^>]+href=\"([^\"]+)\"",
+                      page)
+    if not rows:
+        return "registration_wall"
+    stored = 0
+    for name, href in rows:
+        name = html.unescape(name).strip()
+        url = urllib.parse.urljoin(final, html.unescape(href))
+        if GAEB_EXT.search(name):
+            blob = fetch_capped(opener, url)
+            if blob:
+                stored += store_gaeb([(Path(name).name, blob)], pid, pn, url, known_hashes)
+        elif name.lower().endswith(".zip") and LV_NAME.search(name) and not SKIP_NAME.search(name):
+            blob = fetch_capped(opener, url)
+            if blob:
+                files = extract_gaeb_from_zip(blob)
+                if files:
+                    stored += store_gaeb(files, pid, pn, url, known_hashes)
+    return "ok" if stored else "no_gaeb"
+
+
+def handle_cosinex(doc_url: str, pid: str, pn: str, known_hashes: set[str]) -> str:
+    """cosinex NetServer (DTVP and many state/organisation portals). The public
+    details page carries a download button with data-oid=<SpecificationVersion OID>;
+    GET .../TenderingProcedureDetails?function=_DownloadTenderDocuments&documentOID=
+    returns the full package ZIP without login. The server drops connections and
+    does not support resume, so retry whole-file up to 3 times."""
+    opener = make_browser_opener()
+    try:
+        with opener.open(doc_url, timeout=60) as resp:
+            page = resp.read().decode("utf-8", "replace")
+            final = resp.url
+            if resp.status != 200:
+                return "dead_link"
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+        return "dead_link"
+
+    m = re.search(r'data-oid="([^"]*SpecificationVersion[^"]*)"', page)
+    if not m:
+        return "registration_wall"
+    base = final[:final.lower().find("/netserver/") + len("/netserver/")]
+    dl = (base + "TenderingProcedureDetails?function=_DownloadTenderDocuments"
+          + "&documentOID=" + urllib.parse.quote(m.group(1)))
+    blob = None
+    for _ in range(3):
+        blob = fetch_capped(opener, dl)
+        if blob:
+            break
+    if not blob:
+        return "dead_link"
+    files = extract_gaeb_from_zip(blob)
+    if files and store_gaeb(files, pid, pn, dl, known_hashes):
+        return "ok"
+    return "no_gaeb"
+
+
+def handle_dtvp_satellite(doc_url: str, pid: str, pn: str, known_hashes: set[str]) -> str:
+    """cosinex 'Satellite' (dtvp.de and the state Vergabemarktplätze). Public, no
+    login. The .../notice/<ID>/documents page redirects to the public documents view,
+    which offers no per-file links but one bulk archive:
+        .../documents/archive/Vergabeunterlagen_<ID>.zip
+    Download it (size/time capped), keep GAEB, discard the rest. Archives can reach
+    tens of MB, which is why the cap exists."""
+    opener = make_browser_opener()
+    try:
+        with opener.open(doc_url, timeout=60) as resp:
+            page = resp.read().decode("utf-8", "replace")
+            final = resp.url
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+        return "dead_link"
+    m = re.search(r'href="([^"]*documents/archive/[^"]+\.zip)"', page)
+    if not m:
+        return "registration_wall"
+    blob = fetch_capped(opener, urllib.parse.urljoin(final, html.unescape(m.group(1))))
+    if not blob:
+        return "dead_link"
+    files = extract_gaeb_from_zip(blob)
+    if files and store_gaeb(files, pid, pn, final, known_hashes):
+        return "ok"
+    return "no_gaeb"
+
+
+def handle_subreport(doc_url: str, pid: str, pn: str, known_hashes: set[str]) -> str:
+    """subreport ELViS. Investigated 2026-07-28: the document route
+    (downloadVerdingungsunterlagen.html?ELVISID=...) serves a login page, and the
+    tender view is a GWT application whose file list is only reachable through
+    obfuscated RPC. No registration-free path exists, and our policy forbids
+    creating accounts -> permanent registration_wall, recorded without spending
+    requests on it. Revisit only if subreport publishes a public route (or if a
+    headless-browser fallback is introduced)."""
+    return "registration_wall"
+
+
+def handle_deutsche_evergabe(doc_url: str, pid: str, pn: str, known_hashes: set[str]) -> str:
+    """Deutsche eVergabe / Healy Hudson portal. Public, no login. Three steps:
+      1. the TED link is a dashboard URL carrying the tender GUID
+      2. GET /verfahren/BekSummaryModal/<guid>?isProd=true&FullSize=false&DashOff=true&UID=
+         -> modal HTML; it embeds the file-list endpoint and the addon-service token
+      3. GET /Verfahren/dxVUFilesForSupplier/<guid> -> JSON [{DokIDStr, TFilename, ...}]
+      4. GET https://addon-service.deutsche-evergabe.de/home/DirectDocload/?o=<token>&id=<DokIDStr>
+    Documents disappear once the offer deadline has passed (the modal then says
+    'Vergabeunterlagen sind nicht mehr einsehbar') -> dead_link, not a wall."""
+    opener = make_browser_opener()
+    # Notices link either straight to the dashboard or via a bieterzugang API
+    # deeplink that redirects there; follow it to learn the final URL.
+    if "/dashboard" not in doc_url.lower():
+        try:
+            with opener.open(doc_url, timeout=60) as resp:
+                doc_url = resp.url
+        except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+            return "dead_link"
+    m = re.search(r"/dashboard[^/]*/([0-9a-f-]{36})", doc_url, re.I)
+    if not m:
+        return "no_url"
+    guid = m.group(1)
+    base = f"{urllib.parse.urlparse(doc_url).scheme}://portal.deutsche-evergabe.de"
+    try:
+        with opener.open(f"{base}/verfahren/BekSummaryModal/{guid}"
+                         "?isProd=true&FullSize=false&DashOff=true&UID=", timeout=60) as resp:
+            modal = resp.read().decode("utf-8", "replace")
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+        return "dead_link"
+    if "nicht mehr einsehbar" in modal:
+        return "dead_link"  # deadline passed, documents withdrawn
+
+    token = re.search(r"DirectDocload/\?o=([^&\"']+)", modal)
+    try:
+        with opener.open(f"{base}/Verfahren/dxVUFilesForSupplier/{guid}", timeout=60) as resp:
+            files = json.loads(resp.read().decode("utf-8", "replace"))
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError, json.JSONDecodeError):
+        return "dead_link"
+    if not files:
+        return "no_gaeb"
+
+    stored = 0
+    for f in files:
+        name = (f.get("TFilename") or "").strip()
+        dok = f.get("DokIDStr")
+        if not name or not dok:
+            continue
+        is_gaeb = bool(GAEB_EXT.search(name))
+        is_lv_zip = name.lower().endswith(".zip") and LV_NAME.search(name) and not SKIP_NAME.search(name)
+        if not (is_gaeb or is_lv_zip):
+            continue
+        url = ("https://addon-service.deutsche-evergabe.de/home/DirectDocload/"
+               f"?o={token.group(1) if token else ''}&id={dok}")
+        blob = fetch_capped(opener, url)
+        if not blob:
+            continue
+        if is_gaeb:
+            stored += store_gaeb([(Path(name).name, blob)], pid, pn, url, known_hashes)
+        else:
+            inner = extract_gaeb_from_zip(blob)
+            if inner:
+                stored += store_gaeb(inner, pid, pn, url, known_hashes)
+    return "ok" if stored else "no_gaeb"
+
+
+def handle_evergabe_online(doc_url: str, pid: str, pn: str, known_hashes: set[str]) -> str:
+    """evergabe-online.de (the federal platform). Public, no login. The
+    tenderdocuments page is server-rendered and lists every file with its own
+    session-bound download link (Apache Wicket page state), so the page fetch and the
+    downloads must share one session. The server returns 403 without a Referer."""
+    opener = make_browser_opener()
+    try:
+        with opener.open(doc_url, timeout=60) as resp:
+            page = resp.read().decode("utf-8", "replace")
+            final = resp.url
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+        return "dead_link"
+
+    pairs = re.findall(
+        r'href="(\./tenderdocuments\.html\?[^"]*download(?:Link|Button)[^"]*)"[^>]*title="([^"]*)"',
+        page)
+    if not pairs:
+        return "registration_wall"
+    stored = 0
+    for href, title in pairs:
+        name = html.unescape(title).split("/")[-1].strip()
+        is_gaeb = bool(GAEB_EXT.search(name))
+        is_lv_zip = name.lower().endswith(".zip") and LV_NAME.search(name) and not SKIP_NAME.search(name)
+        if not (is_gaeb or is_lv_zip):
+            continue
+        url = urllib.parse.urljoin(final, html.unescape(href))
+        blob = fetch_capped(opener, url, referer=final)
+        if not blob:
+            continue
+        if is_gaeb:
+            stored += store_gaeb([(name, blob)], pid, pn, url, known_hashes)
+        else:
+            inner = extract_gaeb_from_zip(blob)
+            if inner:
+                stored += store_gaeb(inner, pid, pn, url, known_hashes)
+    return "ok" if stored else "no_gaeb"
+
+
+def handle_aumass(doc_url: str, pid: str, pn: str, known_hashes: set[str]) -> str:
+    """aumass.de. Public, no login. The publication page exposes exactly one bulk
+    endpoint, /Document/GetDocument?doctype=allfiles&aumassid=<ID> — there are no
+    per-file links, so the whole package must be pulled. Packages are large (174 MB
+    observed), hence the raised cap; anything beyond it is drawings we discard anyway."""
+    opener = make_browser_opener()
+    try:
+        with opener.open(doc_url, timeout=60) as resp:
+            page = resp.read().decode("utf-8", "replace")
+            final = resp.url
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+        return "dead_link"
+    m = re.search(r'href="([^"]*GetDocument\?doctype=allfiles[^"]*)"', page)
+    if not m:
+        return "registration_wall"
+    blob = fetch_capped(opener, urllib.parse.urljoin(final, html.unescape(m.group(1))),
+                        cap=ARCHIVE_CAP_BYTES, budget_s=ARCHIVE_TIME_BUDGET_S)
+    if not blob:
+        return "dead_link"
+    files = extract_gaeb_from_zip(blob)
+    if files and store_gaeb(files, pid, pn, final, known_hashes):
+        return "ok"
+    return "no_gaeb"
+
+
+def handle_staatsanzeiger(doc_url: str, pid: str, pn: str, known_hashes: set[str]) -> str:
+    """Staatsanzeiger evoportal (AI VERGABEPORTAL). Public, no login, four steps:
+      1. GET /ui/awardProcedure/<procedureId>            -> session cookie
+      2. GET /ui/award-procedure-fragment?procedureId=.. -> file list + _csrf + ids
+      3. POST /ui/awardProcedure/document/<shipmentId>/download-uri
+         (_csrf, zipName, documentIds)                   -> a tokenised download URI
+      4. GET that URI                                    -> the ZIP
+    Files carry data-document-id; each shipment block is one form."""
+    m = re.search(r"/awardProcedure/([0-9a-f-]{36})", doc_url, re.I)
+    if not m:
+        return "no_url"
+    procedure = m.group(1)
+    base = f"{urllib.parse.urlparse(doc_url).scheme}://{urllib.parse.urlparse(doc_url).netloc}"
+    opener = make_browser_opener()
+    try:
+        opener.open(f"{base}/ui/awardProcedure/{procedure}", timeout=60).read()
+        with opener.open(f"{base}/ui/award-procedure-fragment?procedureId={procedure}",
+                         timeout=60) as resp:
+            page = resp.read().decode("utf-8", "replace")
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+        return "dead_link"
+
+    csrf = re.search(r'name="_csrf" value="([^"]+)"', page)
+    if not csrf:
+        return "registration_wall"
+    # locate GAEB/LV files and the shipment form each one belongs to
+    wanted: dict[str, set[str]] = {}
+    for fm in re.finditer(r'data-document-id="([0-9a-f-]{36})"(?:(?!data-document-id).)*?'
+                          r'<span[^>]*>([^<]{3,120}\.[A-Za-z0-9]{2,4})</span>', page, re.S):
+        doc_id, name = fm.group(1), fm.group(2).strip()
+        if not (GAEB_EXT.search(name) or
+                (name.lower().endswith(".zip") and LV_NAME.search(name) and not SKIP_NAME.search(name))):
+            continue
+        before = page[:fm.start()]
+        ships = re.findall(r'action="document/([0-9a-f-]{36})/download-uri"', before)
+        if ships:
+            wanted.setdefault(ships[-1], set()).add(doc_id)
+    if not wanted:
+        return "no_gaeb"
+
+    stored = 0
+    for shipment, doc_ids in wanted.items():
+        data = [("_csrf", csrf.group(1)), ("zipName", "Vergabeunterlagen.zip")]
+        data += [("documentIds", d) for d in doc_ids]
+        req = urllib.request.Request(
+            f"{base}/ui/awardProcedure/document/{shipment}/download-uri",
+            data=urllib.parse.urlencode(data).encode(), method="POST",
+            headers={"User-Agent": BROWSER_AGENT,
+                     "Content-Type": "application/x-www-form-urlencoded",
+                     "Referer": f"{base}/ui/awardProcedure/{procedure}"})
+        try:
+            with opener.open(req, timeout=90) as resp:
+                uri = resp.read().decode("utf-8", "replace").strip()
+        except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+            continue
+        if not uri.startswith("/"):
+            continue
+        blob = fetch_capped(opener, base + uri, cap=ARCHIVE_CAP_BYTES)
+        if not blob:
+            continue
+        if blob[:2] == b"PK":
+            files = extract_gaeb_from_zip(blob)
+            if files:
+                stored += store_gaeb(files, pid, pn, base + uri, known_hashes)
+        elif blob.lstrip()[:5] in (b"<?xml", b"<GAEB"):
+            stored += store_gaeb([(f"{shipment}.x83", blob)], pid, pn, base + uri, known_hashes)
+    return "ok" if stored else "no_gaeb"
+
+
+def handle_vergabe24(doc_url: str, pid: str, pn: str, known_hashes: set[str]) -> str:
+    """vergabe24.de 'Direkt-Kiosk'. The notice link redirects to
+    europa.vergabe24.de/index.php?site=tenderDetails&token=..., which advertises
+    'Direkter Download und unentgeltlicher Zugang'. Both sampled tenders had already
+    expired ('Das Verfahren ist bereits abgelaufen') so the download path could not be
+    observed; expiry is detected and reported as dead_link. Any direct document links
+    present are followed. Revisit with a live tender to complete this handler."""
+    opener = make_browser_opener()
+    try:
+        with opener.open(doc_url, timeout=60) as resp:
+            page = resp.read().decode("utf-8", "replace")
+            final = resp.url
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+        return "dead_link"
+    if "bereits abgelaufen" in page or "keine Vergabeunterlagen mehr" in page:
+        return "dead_link"
+    stored = 0
+    for href, name in re.findall(r'href="([^"]+)"[^>]*>\s*([^<]{3,90}\.[A-Za-z0-9]{2,4})\s*<', page):
+        name = html.unescape(name).strip()
+        if not (GAEB_EXT.search(name) or
+                (name.lower().endswith(".zip") and LV_NAME.search(name) and not SKIP_NAME.search(name))):
+            continue
+        blob = fetch_capped(opener, urllib.parse.urljoin(final, html.unescape(href)), referer=final)
+        if not blob:
+            continue
+        if GAEB_EXT.search(name):
+            stored += store_gaeb([(name, blob)], pid, pn, final, known_hashes)
+        else:
+            inner = extract_gaeb_from_zip(blob)
+            if inner:
+                stored += store_gaeb(inner, pid, pn, final, known_hashes)
+    return "ok" if stored else "no_gaeb"
+
+
 # handler registry: platform product -> handler. Platforms without a handler fall
 # back to the generic strategy (visible file links). Extend guided by the report.
-HANDLERS = {"rib": handle_rib}
+HANDLERS = {
+    "rib": handle_rib,
+    "evergabe-online": handle_evergabe_online,
+    "aumass": handle_aumass,
+    "staatsanzeiger": handle_staatsanzeiger,
+    "vergabe24": handle_vergabe24,
+    "evergabe.de": handle_evergabe_de,
+    "cosinex-netserver": handle_cosinex,
+    "cosinex-satellite": handle_dtvp_satellite,
+    "deutsche-evergabe": handle_deutsche_evergabe,
+    "subreport": handle_subreport,
+}
 
 
 def document_urls(xml_text: str) -> list[str]:
@@ -304,7 +684,7 @@ def document_urls(xml_text: str) -> list[str]:
         urls = re.findall(r"<cbc:URI>\s*(https?://[^<\s]+)\s*</cbc:URI>", xml_text)
     seen, out = set(), []
     for u in urls:
-        u = u.strip()
+        u = html.unescape(u.strip())  # XML escapes & as &amp; inside URI elements
         if u.startswith("http") and "ted.europa.eu" not in u and u not in seen:
             seen.add(u)
             out.append(u)
