@@ -6,7 +6,8 @@ Scripts for exploring public-procurement (tender) open data from two sources:
 - **TED** — *Tenders Electronic Daily*, the EU-wide service (above-threshold notices).
 
 Findings are written up in [`FINDINGS_oeffentlichevergabe.md`](FINDINGS_oeffentlichevergabe.md)
-and [`FINDINGS_ted.md`](FINDINGS_ted.md).
+and [`FINDINGS_ted.md`](FINDINGS_ted.md). The sourced value case for the project is in
+[`BUSINESS_CASE.md`](BUSINESS_CASE.md).
 
 ## Requirements
 
