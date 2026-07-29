@@ -911,6 +911,10 @@ def parse_args() -> argparse.Namespace:
                         "(fast, no bulk archives). Use --list-platforms to see names.")
     p.add_argument("--list-platforms", action="store_true",
                    help="print the known platform names and exit")
+    p.add_argument("--xml-only", action="store_true",
+                   help="fetch notice XML only: skip all GAEB/document retrieval and "
+                        "the retry pass. Fast, no platform traffic; the GAEB pass can "
+                        "be run later over the same archive.")
     return p.parse_args()
 
 
@@ -1021,11 +1025,11 @@ def main() -> None:
     single = hist.get("1", 0)
     multi = sum(v for k, v in hist.items() if k != "1")
 
-    # 4. GAEB for newly fetched tender notices
+    # 4. GAEB for newly fetched tender notices (skipped entirely with --xml-only)
     known_hashes = load_manifest_hashes()
     gaeb_counts: Counter = Counter()
     by_platform: dict[str, Counter] = {}
-    for pn, pid, ntype in fetched:
+    for pn, pid, ntype in (() if args.xml_only else fetched):
         if not is_tender(ntype):
             continue
         text = (XML_DIR / f"{pn}.xml").read_text(encoding="utf-8", errors="replace")
@@ -1047,7 +1051,7 @@ def main() -> None:
     # 5. retry pass: previously failed, still-live tenders (not fetched this run)
     just_done = {pn for pn, _, _ in fetched}
     cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=RETRY_MAX_AGE_DAYS)
-    for pn, rec in load_last_outcomes().items():
+    for pn, rec in ({} if args.xml_only else load_last_outcomes()).items():
         if pn in just_done or rec["outcome"] == "ok":
             continue
         at = dt.datetime.strptime(rec["at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
@@ -1078,13 +1082,18 @@ def main() -> None:
             {"last_covered": dt.date.today().strftime("%Y%m%d"), "updated": now_iso()}))
     append_jsonl(INGEST_LOG, {
         "run": now_iso(), "mode": mode, "query": query,
+        "xml_only": bool(args.xml_only),
+        "platform_filter": sorted(platform_filter) if platform_filter else None,
         "notices_fetched": len(fetched), "single_lot": single, "multi_lot": multi,
         "lots_histogram": dict(hist), "gaeb": dict(gaeb_counts),
         "gaeb_by_platform": {p: dict(c) for p, c in by_platform.items()}})
-    write_platform_report()
     print(f"\nrun complete: {len(fetched)} new notices "
-          f"({single} single-lot, {multi} multi-lot); gaeb: {dict(gaeb_counts)}")
-    print_platform_report()
+          f"({single} single-lot, {multi} multi-lot)"
+          + ("; GAEB skipped (--xml-only)" if args.xml_only
+             else f"; gaeb: {dict(gaeb_counts)}"))
+    if not args.xml_only:
+        write_platform_report()
+        print_platform_report()
 
 
 if __name__ == "__main__":

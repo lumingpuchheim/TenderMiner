@@ -33,6 +33,20 @@ python download.py --country DEU --cpv-re "^452(1|2)"                      # reg
 | `--limit N` | stop after N newly fetched notices (testing aid) | unlimited |
 | `--platform NAMES` | only process tenders whose documents live on these platforms (comma-separated). Special values: `handled` = every platform with a working handler (walled ones excluded), `selective` = per-file handlers only, i.e. no bulk-archive downloads | all |
 | `--list-platforms` | print the known platform names, whether each has a handler, and its mode (selective / bulk / wall), then exit | — |
+| `--xml-only` | fetch notice XML only — skip all document/GAEB retrieval **and** the retry pass | off |
+
+**`--xml-only`** separates the two halves of the job. XML fetching is fast and reliable
+(one small GET per notice from a single stable server); document retrieval is slow,
+platform-dependent and failure-prone. Splitting them means a metadata corpus can be
+built quickly — for the notice-level features, the tender↔award join and the modelling
+baseline — without waiting on platform traffic. Measured: 5 notices in ~6 s with no
+platform requests at all.
+
+Because the raw archive is append-only and the GAEB pass reads its links from the
+stored XML, a document pass can be run **later** over the same archive (re-run without
+`--xml-only`; already-fetched XMLs are skipped). The caveat is the usual one: document
+links rot after the offer deadline, so a deferred GAEB pass will find fewer files than
+one run at publication time.
 
 **`--platform` is for building a GAEB-dense dataset.** Roughly 37 % of tenders sit on
 bulk-only platforms whose archives dominate run time, and ~10 % sit behind a
@@ -120,8 +134,9 @@ Per run:
    notices by `procedure-identifier` (skipping `pin*`) and fetch any missing XMLs.
 4. **Fetch GAEB (immediately, best-effort):** read the document links from each newly
    fetched tender XML and attempt retrieval — links rot after award, so
-   fetch-at-publication beats backfill. Policy below.
+   fetch-at-publication beats backfill. Policy below. *(Skipped with `--xml-only`.)*
 5. **Retry pass:** re-attempt GAEB for previously failed, still-live tenders.
+   *(Skipped with `--xml-only`.)*
 6. **Checkpoint:** record the last covered publication date; append the run line to
    `ingest_log.jsonl`; exit.
 
