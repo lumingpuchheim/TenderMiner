@@ -23,6 +23,7 @@ import io
 import json
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -52,6 +53,7 @@ INGEST_LOG = LOG_DIR / "ingest_log.jsonl"
 
 GAEB_EXT = re.compile(r"\.(x8[1-6]|d8[1-6]|p8[1-6])$", re.I)
 RETRY_MAX_AGE_DAYS = 60  # tenders older than this are treated as no longer live
+RATE_LIMIT_BACKOFF_S = 20  # base wait after HTTP 429; grows per attempt
 DISCOVERY_FIELDS = ["publication-number", "procedure-identifier", "notice-type",
                     "classification-cpv", "document-url-lot"]
 PLATFORM_REPORT = LOG_DIR / "platform_report.json"
@@ -116,10 +118,15 @@ def search(body: dict) -> dict:
         headers={"Content-Type": "application/json", "Accept": "application/json",
                  "User-Agent": USER_AGENT})
     last_err: Exception | None = None
-    for _ in range(2):  # one retry on slow/dropped reads
+    for _ in range(4):  # retries on slow/dropped reads and rate limits
         try:
             with urllib.request.urlopen(req, timeout=180) as resp:
                 return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            if e.code != 429:
+                raise
+            last_err = e
+            time.sleep(RATE_LIMIT_BACKOFF_S)
         except (TimeoutError, OSError) as e:
             last_err = e
     raise last_err
@@ -191,14 +198,31 @@ def first(v):
 # ---------------------------------------------------------------- XML fetching
 
 def fetch_xml(pn: str) -> Path | None:
-    """Fetch one notice XML unless already archived. Returns path or None on failure."""
+    """Fetch one notice XML unless already archived. Returns path or None on failure.
+
+    TED rate-limits sustained fetching (HTTP 429). A 429 is temporary, so it must be
+    waited out rather than treated as a failure — otherwise long runs silently drop
+    notices. Other errors fail fast."""
     path = XML_DIR / f"{pn}.xml"
     if path.exists():
         return path
-    try:
-        status, body, _ = http_get(XML_URL.format(pn=pn))
-    except (urllib.error.URLError, OSError, TimeoutError) as e:
-        print(f"  ! xml fetch failed {pn}: {e}")
+    body = None
+    for attempt in range(5):
+        try:
+            status, body, _ = http_get(XML_URL.format(pn=pn))
+            break
+        except urllib.error.HTTPError as e:
+            if e.code != 429:
+                print(f"  ! xml fetch {pn}: HTTP {e.code}")
+                return None
+            wait = RATE_LIMIT_BACKOFF_S * (attempt + 1)
+            print(f"  … rate limited, waiting {wait}s", flush=True)
+            time.sleep(wait)
+        except (urllib.error.URLError, OSError, TimeoutError) as e:
+            print(f"  ! xml fetch failed {pn}: {e}")
+            return None
+    if body is None:
+        print(f"  ! xml fetch {pn}: still rate limited after retries")
         return None
     if status != 200 or not body.lstrip().startswith(b"<?xml"):
         print(f"  ! xml fetch {pn}: HTTP {status}, not XML")
