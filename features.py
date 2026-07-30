@@ -921,6 +921,93 @@ def parse_notice(path):
 
 # ----------------------------------------------------------------------------- schema
 
+# ML role of every exported column, attached to the parquet schema as field metadata
+# (survives the round trip; read via schema.field(name).metadata[b'role']). The role is
+# what storage types cannot say: cpv_main and buyer_name are both strings, but one is a
+# hierarchical code to truncate and the other an entity to aggregate, never one-hot.
+#
+#   key          identifier / join key — never a feature
+#   categorical  finite code list (including list-of-codes columns), encode directly
+#   hierarchical structured code — truncate to a prefix (CPV, NUTS, postal zone)
+#   entity       named real-world party/place — feature only via aggregates
+#   numeric / bool / date  use as-is
+#   label        n_tenders — the training target, never a feature
+#   text         free text — NLP/LLM territory
+#   nested       list<struct> detail — explode or engineer before use
+#   plumbing     URLs, endpoints, bookkeeping — not learnable
+ROLES = {
+    'notice_id': 'key', 'notice_kind': 'categorical', 'notice_subtype': 'categorical',
+    'notice_version': 'plumbing', 'procedure_id': 'key', 'lot_id': 'key',
+    'lot_result_id': 'key', 'issue_date': 'date', 'source_file': 'key',
+    'publication_number': 'key', 'publication_date': 'date', 'gazette_id': 'plumbing',
+    'procedure_type': 'categorical', 'accelerated': 'categorical',
+    'award_criterion_kind': 'categorical', 'award_criteria': 'nested',
+    'award_terms_description': 'text', 'award_calculation_expression': 'text',
+    'price_weight_pct': 'numeric', 'n_lots': 'numeric', 'contract_type': 'categorical',
+    'buyer_legal_type': 'categorical', 'buyer_legal_type_list': 'plumbing',
+    'buyer_activity': 'categorical', 'buyer_activity_list': 'plumbing',
+    'eu_funded': 'bool', 'funding_programs': 'categorical',
+    'duration_days': 'numeric', 'duration_source': 'categorical',
+    'duration_measure_raw': 'numeric', 'duration_unit_raw': 'categorical',
+    'period_start': 'date', 'period_end': 'date',
+    'cpv_main': 'hierarchical', 'cpv_additional': 'hierarchical',
+    'title': 'text', 'description': 'text',
+    'est_value_lot': 'numeric', 'est_value_lot_currency': 'categorical',
+    'est_value_procedure': 'numeric', 'est_value_procedure_currency': 'categorical',
+    'deadline_date': 'date', 'deadline_days': 'numeric',
+    'deadline_days_published': 'numeric',
+    'n_selection_criteria': 'numeric', 'n_criteria_suitability': 'numeric',
+    'n_criteria_financial': 'numeric', 'n_criteria_technical': 'numeric',
+    'n_criteria_other': 'numeric', 'selection_criteria_types': 'categorical',
+    'selection_criteria': 'nested', 'bid_bond_required': 'bool',
+    'bid_bond_description': 'text', 'bid_validity_days': 'numeric',
+    'bid_validity_raw': 'numeric', 'bid_validity_unit': 'categorical',
+    'execution_requirements': 'nested', 'exclusion_grounds': 'categorical',
+    'n_exclusion_grounds': 'numeric', 'cv_required': 'categorical',
+    'legal_form_required': 'bool', 'security_clearance_required': 'bool',
+    'docs_restricted': 'bool', 'docs_url': 'plumbing', 'n_doc_references': 'numeric',
+    'variants': 'categorical', 'multiple_bids': 'categorical',
+    'esubmission': 'categorical',
+    'place_nuts3': 'hierarchical', 'place_city': 'entity',
+    'place_postal_zone': 'hierarchical', 'sme_suitable': 'bool',
+    'framework_type': 'categorical', 'is_framework': 'bool',
+    'procurement_additional_types': 'categorical', 'is_strategic': 'bool',
+    'strategic_procurement': 'nested', 'procedure_languages': 'categorical',
+    'gpa_covered': 'bool', 'recurring': 'bool', 'eauction': 'bool',
+    'bid_opening_date': 'date', 'question_deadline_date': 'date',
+    'question_window_days': 'numeric', 'opening_lag_days': 'numeric',
+    'is_corrigendum': 'bool', 'changed_notice_id': 'key',
+    'change_reasons': 'categorical', 'n_corrections_so_far': 'numeric',
+    'buyer_name': 'entity', 'buyer_national_id': 'entity', 'buyer_city': 'entity',
+    'buyer_postal_zone': 'hierarchical', 'buyer_nuts': 'hierarchical',
+    'buyer_country': 'categorical', 'buyer_website': 'plumbing',
+    'buyer_is_cpb_awarding': 'bool', 'buyer_is_cpb_acquiring': 'bool',
+    'buyer_profile_uri': 'plumbing', 'service_provider_type': 'categorical',
+    'platform_url': 'plumbing', 'platform_name': 'categorical',
+    'submission_endpoint': 'plumbing', 'quality_flags': 'categorical',
+    'result_code': 'categorical', 'decision_reason': 'categorical',
+    'award_date': 'date', 'n_tenders': 'label',
+    'n_tenders_esubmission': 'numeric', 'n_tenders_sme': 'numeric',
+    'n_tenders_micro': 'numeric', 'n_tenders_small': 'numeric',
+    'n_tenders_medium': 'numeric', 'n_tenders_other_eea': 'numeric',
+    'n_tenders_non_eea': 'numeric', 'n_tenders_inadmissible': 'numeric',
+    'n_tenders_abnormally_low': 'numeric', 'n_tenders_not_verified': 'numeric',
+    'n_participation_requests': 'numeric', 'submission_statistics': 'nested',
+    'lowest_tender_amount': 'numeric', 'highest_tender_amount': 'numeric',
+    'n_winning_bids': 'numeric', 'winning_bids': 'nested',
+    'winner_names': 'entity', 'n_winners': 'numeric', 'winner_size': 'categorical',
+    'n_beneficial_owners': 'numeric', 'contract_id': 'key',
+    'contract_reference': 'key', 'contract_title': 'text',
+    'contract_signed_date': 'date', 'contract_award_date': 'date',
+    'notice_total_amount': 'numeric', 'withheld_fields': 'categorical',
+}
+
+
+def _with_roles(schema):
+    """Stamp each field's ML role into its metadata; KeyError = undeclared new field."""
+    return pa.schema([f.with_metadata({'role': ROLES[f.name]}) for f in schema])
+
+
 SCHEMA = pa.schema([
     ('notice_id', pa.string()),
     ('notice_kind', pa.string()),
@@ -1035,6 +1122,7 @@ SCHEMA = pa.schema([
     ('submission_endpoint', pa.string()),
     ('quality_flags', pa.list_(pa.string())),
 ])
+SCHEMA = _with_roles(SCHEMA)
 
 BID = pa.struct([
     ('tender_id', pa.string()),
@@ -1104,6 +1192,7 @@ AWARD_SCHEMA = pa.schema([
     ('withheld_fields', pa.list_(pa.string())),
     ('quality_flags', pa.list_(pa.string())),
 ])
+AWARD_SCHEMA = _with_roles(AWARD_SCHEMA)
 
 
 def add_correction_counts(rows):
@@ -1171,6 +1260,34 @@ def deduplicate(rows):
     return [row for _, row in best.values()] + unkeyed
 
 
+def write_fields_doc(path):
+    """FIELDS.md, generated from the schemas so it cannot drift from the code."""
+    legend = {
+        'key': 'identifier / join key — never a feature',
+        'categorical': 'finite code list (incl. list-of-codes) — encode directly',
+        'hierarchical': 'structured code — truncate to a prefix (CPV, NUTS, postal)',
+        'entity': 'named party/place — feature only via aggregates, never one-hot',
+        'numeric': 'number, use as-is', 'bool': 'boolean, use as-is',
+        'date': 'date, use as-is (or derive spans)',
+        'label': 'the training target — never a feature',
+        'text': 'free text — NLP/LLM territory, kept verbatim',
+        'nested': 'list<struct> detail — explode or engineer before use',
+        'plumbing': 'URLs, endpoints, bookkeeping — not learnable',
+    }
+    lines = ['# Field dictionary', '',
+             'Generated by `python features.py --fields-doc` — do not edit by hand.',
+             'The same `role` tag is embedded in each parquet column\'s metadata:',
+             '`pq.read_schema(path).field(name).metadata[b"role"]`.', '', '## Roles', '']
+    lines += [f'- **{k}** — {v}' for k, v in legend.items()]
+    for title, schema in (('tenders.parquet', SCHEMA), ('awards.parquet', AWARD_SCHEMA)):
+        lines += ['', f'## {title}', '', '| column | type | role |', '| --- | --- | --- |']
+        lines += [f'| `{f.name}` | `{f.type}` | {f.metadata[b"role"].decode()} |'
+                  for f in schema]
+    with open(path, 'w', encoding='utf-8') as fh:
+        fh.write('\n'.join(lines) + '\n')
+    print(f'{len(SCHEMA) + len(AWARD_SCHEMA)} fields -> {path}')
+
+
 def _coverage(table, schema, title):
     print(f'\n  {title}')
     for field in schema.names:
@@ -1194,7 +1311,13 @@ def main():
     ap.add_argument('--deduplicate', action='store_true',
                     help='collapse each lot to its latest revision (default: keep every '
                          'revision, so n_corrections_so_far varies within a lot)')
+    ap.add_argument('--fields-doc', nargs='?', const='FIELDS.md', default=None,
+                    metavar='PATH', help='write the field dictionary and exit')
     args = ap.parse_args()
+
+    if args.fields_doc:
+        write_fields_doc(args.fields_doc)
+        return
 
     files = sorted(glob.glob(os.path.join(args.xml_dir, '*.xml')))
     if args.limit:
