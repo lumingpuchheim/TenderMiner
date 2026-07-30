@@ -837,6 +837,42 @@ AWARD_SCHEMA = pa.schema([
 ])
 
 
+def deduplicate(rows):
+    """Collapse corrigenda: keep one row per (procedure_id, lot_id).
+
+    A corrigendum republishes the whole notice, so the same lot appears once per
+    revision — 1,076 of 3,415 tender rows in the current corpus. Left in, a lot that
+    was corrected four times votes five times in training.
+
+    The survivor is the latest issue_date, tie-broken by notice_version then notice_id.
+    Note that cbc:VersionID is NOT a revision counter here — 98% of rows carry '01' and
+    a lot corrected four times keeps '01' throughout — so ordering by it first would
+    override the dispatch date, which is what actually tracks the chain.
+
+    Keeping the latest revision also means the row carries the deadline bidders really
+    faced: corrigenda in this corpus extend it, sometimes by months.
+
+    Rows missing a key are kept as-is: they cannot be matched to anything, so dropping
+    them would lose data rather than a duplicate.
+    """
+    best = {}
+    unkeyed = []
+    for row in rows:
+        key = (row.get('procedure_id'), row.get('lot_id'))
+        if key[0] is None or key[1] is None:
+            unkeyed.append(row)
+            continue
+        try:
+            version = int(row.get('notice_version') or 0)
+        except ValueError:
+            version = 0
+        rank = (row.get('issue_date') or datetime.date.min, version,
+                row.get('notice_id') or '')
+        if key not in best or rank > best[key][0]:
+            best[key] = (rank, row)
+    return [row for _, row in best.values()] + unkeyed
+
+
 def _coverage(table, schema, title):
     print(f'\n  {title}')
     for field in schema.names:
@@ -855,6 +891,8 @@ def main():
     ap.add_argument('--awards-out', default='data/awards.parquet')
     ap.add_argument('--limit', type=int, default=0, help='parse only the first N files')
     ap.add_argument('--coverage', action='store_true', help='print per-column fill rates')
+    ap.add_argument('--keep-corrigenda', action='store_true',
+                    help='keep every revision of a lot instead of only the latest')
     args = ap.parse_args()
 
     files = sorted(glob.glob(os.path.join(args.xml_dir, '*.xml')))
@@ -872,6 +910,13 @@ def main():
             continue
         tender_rows.extend(lots)
         award_rows.extend(awards)
+
+    if not args.keep_corrigenda:
+        before = len(tender_rows), len(award_rows)
+        tender_rows = deduplicate(tender_rows)
+        award_rows = deduplicate(award_rows)
+        print(f'corrigenda collapsed: tenders {before[0]} -> {len(tender_rows)}, '
+              f'awards {before[1]} -> {len(award_rows)}')
 
     tenders = pa.Table.from_pylist(tender_rows, schema=SCHEMA)
     awards = pa.Table.from_pylist(award_rows, schema=AWARD_SCHEMA)
