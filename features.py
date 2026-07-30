@@ -25,6 +25,7 @@ import datetime
 import glob
 import json
 import os
+import re
 import xml.etree.ElementTree as ET
 
 import pyarrow as pa
@@ -488,35 +489,85 @@ def document_references(terms):
     return (any(restricted) if refs else None), url, len(refs)
 
 
+# The criteria free text is platform boilerplate, not prose: ~145 code-less lots share
+# ~25 distinct strings. Negation is its own rule and runs FIRST; price-only requires the
+# whole (normalised) text to match an anchored known phrase — never a 'Preis' substring
+# search, which the standard sentence 'Der Preis ist nicht das einzige
+# Zuschlagskriterium' exists to punish. Anything unrecognised stays null and is counted,
+# so new boilerplate variants surface in the run report instead of swelling the
+# unknowns. The raw text is exported alongside for later (e.g. LLM) classification.
+_MEAT_TEXTS = (
+    'preis ist nicht das einzige zuschlagskriterium',
+    'most economically advantageous tender',
+)
+_PRICE_ONLY_TEXTS = (
+    re.compile(r'(der )?preis\.?$'),
+    re.compile(r'(angebots|gesamt)preis$'),
+    re.compile(r'(100 ?% ?preis|preis:? ?100 ?%)( preis)?\.?$'),
+    re.compile(r'alleiniges zuschlagskriterium ?=? ?preis( alleiniges zuschlagskriterium ?=? ?preis)?$'),
+    re.compile(r'niedrigster (angebots)?preis$'),
+    re.compile(r'zusch(?:l)?agskriterium:? preis\b'),  # prefix: calculation detail may follow
+)
+
+
+def _classify_criteria_text(text):
+    t = ' '.join(text.lower().split())
+    if any(m in t for m in _MEAT_TEXTS):
+        return 'meat'
+    if any(p.match(t) for p in _PRICE_ONLY_TEXTS):
+        return 'price-only'
+    return None
+
+
 def award_criteria(terms):
-    """Criterion types, their weights, and a price-only / MEAT flag.
+    """Criteria as published, a price-only / MEAT kind, and the raw fallback text.
 
     Weights sit in an extension *inside* each SubordinateAwardingCriterion, so they are
     paired per criterion rather than collected as a flat list.
+
+    The kind comes from the TypeCodes when any exist. Without codes the corpus offers
+    only free text — per-criterion Name/Description (7 lots) or, on lots that omit the
+    criteria section entirely, Description/CalculationExpression one level up on
+    AwardingCriterion (~145 lots). That text is classified by _classify_criteria_text
+    and kept verbatim in award_terms_description / award_calculation_expression.
+
+    Returns (criteria, kind, price_weight, terms_description, calculation_expression,
+    kind_from_text).
     """
-    types, weights, price_weight = [], [], None
+    criteria, price_weight = [], None
+    terms_desc, calc_expr = None, None
     if terms is not None:
-        path = 'cac:AwardingTerms/cac:AwardingCriterion/cac:SubordinateAwardingCriterion'
-        for crit in terms.findall(path, NS):
+        parent = 'cac:AwardingTerms/cac:AwardingCriterion'
+        terms_desc = '\n'.join(_texts(terms, parent + '/cbc:Description')) or None
+        calc_expr = '\n'.join(_texts(terms, parent + '/cbc:CalculationExpression')) or None
+        for crit in terms.findall(parent + '/cac:SubordinateAwardingCriterion', NS):
             ctype = _text(crit, 'cbc:AwardingCriterionTypeCode')
-            param = _text(crit, './/efac:AwardCriterionParameter/efbc:ParameterNumeric')
             pcode = _text(crit, './/efac:AwardCriterionParameter/efbc:ParameterCode')
-            if ctype:
-                types.append(ctype)
-            w = _float(param)
-            if w is not None:
-                weights.append(w)
-                # per-exa = exact percentage; other codes are points/orders, not comparable
-                if ctype == 'price' and pcode == 'per-exa':
-                    price_weight = w
-    uniq = set(types)
-    if not uniq:
-        kind = None
-    elif uniq == {'price'}:
-        kind = 'price-only'
+            w = _float(_text(crit, './/efac:AwardCriterionParameter/efbc:ParameterNumeric'))
+            criteria.append({
+                'type': ctype,
+                'name': _text(crit, 'cbc:Name'),
+                'description': _text(crit, 'cbc:Description'),
+                'weight': w,
+                'weight_code': pcode,
+            })
+            # per-exa = exact percentage; other codes are points/orders, not comparable
+            if w is not None and ctype == 'price' and pcode == 'per-exa':
+                price_weight = w
+
+    uniq = {c['type'] for c in criteria if c['type']}
+    kind_from_text = False
+    if uniq:
+        kind = 'price-only' if uniq == {'price'} else 'meat'
     else:
-        kind = 'meat'
-    return types, weights, kind, price_weight
+        texts = [t for c in criteria for t in (c['name'], c['description']) if t]
+        texts += [t for t in (terms_desc, calc_expr) if t]
+        verdicts = {v for v in map(_classify_criteria_text, texts) if v}
+        kind = verdicts.pop() if len(verdicts) == 1 else None
+        kind_from_text = kind is not None
+        if texts and kind is None:
+            _record('award_criteria_text', 'unclassified')
+    return criteria, kind, price_weight, terms_desc, calc_expr, kind_from_text
 
 
 def parse_notice(path):
@@ -597,7 +648,8 @@ def parse_notice(path):
 
         days, dur_source, dur_raw, dur_unit, start, end, dur_flags = duration_days(project)
         docs_restricted, docs_url, n_doc_refs = document_references(terms)
-        crit_types, crit_weights, crit_kind, price_weight = award_criteria(terms)
+        (criteria_structs, crit_kind, price_weight,
+         award_terms_desc, award_calc_expr, kind_from_text) = award_criteria(terms)
         criteria, families = selection_criteria(lot)
         validity_days, validity_raw, validity_unit = _measure_days(
             terms, 'cac:TenderValidityPeriod/cbc:DurationMeasure', 'bid_validity')
@@ -624,6 +676,8 @@ def parse_notice(path):
         question_window = _days_between(issue_date, question_deadline)
         opening_lag = _days_between(deadline, bid_opening)
         quality = list(dur_flags)
+        if kind_from_text:
+            quality.append('criterion_kind_from_text')
         if deadline_days is not None and deadline_days < 0:
             quality.append('deadline_before_issue')
         if question_window is not None and question_window < 0:
@@ -648,8 +702,9 @@ def parse_notice(path):
 
             # 2. award criterion (BT-539 / BT-5421)
             'award_criterion_kind': crit_kind,
-            'award_criterion_types': crit_types,
-            'award_criterion_weights': crit_weights,
+            'award_criteria': criteria_structs,
+            'award_terms_description': award_terms_desc,
+            'award_calculation_expression': award_calc_expr,
             'price_weight_pct': price_weight,
 
             # 3. lot structure (filled in once the notice's lots are all known)
@@ -791,8 +846,11 @@ SCHEMA = pa.schema([
     ('procedure_type', pa.string()),
     ('accelerated', pa.string()),
     ('award_criterion_kind', pa.string()),
-    ('award_criterion_types', pa.list_(pa.string())),
-    ('award_criterion_weights', pa.list_(pa.float64())),
+    ('award_criteria', pa.list_(pa.struct([
+        ('type', pa.string()), ('name', pa.string()), ('description', pa.string()),
+        ('weight', pa.float64()), ('weight_code', pa.string())]))),
+    ('award_terms_description', pa.string()),
+    ('award_calculation_expression', pa.string()),
     ('price_weight_pct', pa.float64()),
     ('n_lots', pa.int32()),
     ('contract_type', pa.string()),
