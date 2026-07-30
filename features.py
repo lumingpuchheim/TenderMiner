@@ -19,6 +19,7 @@ import argparse
 import collections
 import datetime
 import glob
+import json
 import os
 import xml.etree.ElementTree as ET
 
@@ -186,7 +187,7 @@ def _measure_days(node, path):
         return None, None, None
     try:
         n = int(float(raw))
-    except ValueError:
+    except (ValueError, OverflowError):  # OverflowError: int(float('1e400')) → inf
         return None, _float(raw), unit
     days = n * UNIT_DAYS[unit] if unit in UNIT_DAYS else None
     return days, float(n), unit
@@ -402,6 +403,22 @@ def award_results(root, orgs, keys):
     return rows
 
 
+def document_references(terms):
+    """Restricted flag, URL, and count over ALL CallForTendersDocumentReference blocks.
+
+    A lot routinely carries several document references. Restricted means ANY of them
+    is a restricted-document — judging only the first would export a lot with an open
+    cover sheet and restricted tender documents as unrestricted. The URL prefers the
+    first openly accessible reference.
+    """
+    refs = terms.findall('cac:CallForTendersDocumentReference', NS) if terms is not None else []
+    restricted = [_text(ref, 'cbc:DocumentType') == 'restricted-document' for ref in refs]
+    urls = [_text(ref, 'cac:Attachment/cac:ExternalReference/cbc:URI') for ref in refs]
+    url = next((u for u, r in zip(urls, restricted) if u and not r), None) \
+        or next((u for u in urls if u), None)
+    return (any(restricted) if refs else None), url, len(refs)
+
+
 def award_criteria(terms):
     """Criterion types, their weights, and a price-only / MEAT flag.
 
@@ -456,7 +473,7 @@ def parse_notice(path):
     root_project = root.find('cac:ProcurementProject', NS)
     root_process = root.find('cac:TenderingProcess', NS)
     root_terms = root.find('cac:TenderingTerms', NS)
-    procedure_value = _float(_text(
+    procedure_value = _number(_text(
         root_project, 'cac:RequestedTenderTotal/cbc:EstimatedOverallContractAmount'))
     procedure_currency = _attr(
         root_project, 'cac:RequestedTenderTotal/cbc:EstimatedOverallContractAmount', 'currencyID')
@@ -509,6 +526,7 @@ def parse_notice(path):
         terms = lot.find('cac:TenderingTerms', NS)
 
         days, dur_source, dur_raw, dur_unit, start, end = duration_days(project)
+        docs_restricted, docs_url, n_doc_refs = document_references(terms)
         crit_types, crit_weights, crit_kind, price_weight = award_criteria(terms)
         criteria, families = selection_criteria(lot)
         validity_days, validity_raw, validity_unit = _measure_days(
@@ -585,7 +603,7 @@ def parse_notice(path):
             'description': _text(project, 'cbc:Description'),
 
             # 9. estimated value — lot and procedure scopes are NOT interchangeable
-            'est_value_lot': _float(_text(
+            'est_value_lot': _number(_text(
                 project, 'cac:RequestedTenderTotal/cbc:EstimatedOverallContractAmount')),
             'est_value_lot_currency': _attr(
                 project, 'cac:RequestedTenderTotal/cbc:EstimatedOverallContractAmount', 'currencyID'),
@@ -618,12 +636,9 @@ def parse_notice(path):
             'legal_form_required': _bool(
                 _text(terms, 'cac:TendererQualificationRequest/cbc:CompanyLegalFormCode')),
             'security_clearance_required': _bool(_text(terms, 'cac:SecurityClearanceTerm/cbc:Code')),
-            'docs_restricted': (
-                None if (dt := _text(terms, 'cac:CallForTendersDocumentReference/cbc:DocumentType')) is None
-                else dt == 'restricted-document'),
-            'docs_url': _text(
-                terms,
-                'cac:CallForTendersDocumentReference/cac:Attachment/cac:ExternalReference/cbc:URI'),
+            'docs_restricted': docs_restricted,
+            'docs_url': docs_url,
+            'n_doc_references': n_doc_refs,
             'variants': _text(terms, 'cbc:VariantConstraintCode'),
             'multiple_bids': _text(terms, 'cbc:MultipleTendersCode'),
             'esubmission': _text(process, 'cbc:SubmissionMethodCode'),
@@ -736,6 +751,7 @@ SCHEMA = pa.schema([
     ('security_clearance_required', pa.bool_()),
     ('docs_restricted', pa.bool_()),
     ('docs_url', pa.string()),
+    ('n_doc_references', pa.int32()),
     ('variants', pa.string()),
     ('multiple_bids', pa.string()),
     ('esubmission', pa.string()),
@@ -922,6 +938,8 @@ def main():
     ap.add_argument('--awards-out', default='data/awards.parquet')
     ap.add_argument('--limit', type=int, default=0, help='parse only the first N files')
     ap.add_argument('--coverage', action='store_true', help='print per-column fill rates')
+    ap.add_argument('--strict', action='store_true',
+                    help='re-raise on the first unparseable file instead of skipping it')
     ap.add_argument('--deduplicate', action='store_true',
                     help='collapse each lot to its latest revision (default: keep every '
                          'revision, so n_corrections_so_far varies within a lot)')
@@ -933,15 +951,28 @@ def main():
     if not files:
         raise SystemExit(f'no XML found in {args.xml_dir}')
 
+    # One pathological file must cost its own rows, never the run: catch everything,
+    # log it, and keep going (--strict restores fail-fast for debugging).
     tender_rows, award_rows, failed = [], [], []
     for path in files:
         try:
             lots, awards = parse_notice(path)
-        except ET.ParseError as exc:
-            failed.append((os.path.basename(path), str(exc)))
+        except Exception as exc:
+            if args.strict:
+                raise
+            failed.append({'file': os.path.basename(path),
+                           'error_type': type(exc).__name__,
+                           'error': str(exc),
+                           'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat()})
             continue
         tender_rows.extend(lots)
         award_rows.extend(awards)
+
+    if failed:
+        os.makedirs('data/logs', exist_ok=True)
+        with open('data/logs/extract_failures.jsonl', 'a', encoding='utf-8') as fh:
+            for entry in failed:
+                fh.write(json.dumps(entry) + '\n')
 
     # Must precede deduplication: the count needs every revision of the chain.
     add_correction_counts(tender_rows)
@@ -963,7 +994,9 @@ def main():
 
     print(f'\n{len(files)} files parsed, {len(failed)} unparseable')
     if failed:
-        print(f'  {failed[:5]}')
+        for entry in failed[:5]:
+            print(f"  {entry['file']}: {entry['error_type']}: {entry['error']}")
+        print('  full list appended to data/logs/extract_failures.jsonl')
 
     # The two tables only overlap where a call and its result were both downloaded —
     # that intersection, not either row count, is the trainable set.
