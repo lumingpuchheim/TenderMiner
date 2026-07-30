@@ -84,6 +84,16 @@ STATISTIC_COLUMNS = {
 
 # --------------------------------------------------------------------------- helpers
 
+# One event per NON-EMPTY value that a helper suppressed to null, keyed by
+# (context, reason). Absent elements are never counted — absence is normal in eForms;
+# a malformed present value is not, and silently nulling it hides sender-wide rot.
+COERCIONS = collections.Counter()
+
+
+def _record(context, reason):
+    COERCIONS[(context, reason)] += 1
+
+
 def _text(node, path):
     if node is None:
         return None
@@ -119,26 +129,28 @@ def _first(*values):
     return None
 
 
-def _date(value):
+def _date(value, ctx='date'):
     """eForms dates look like '2026-03-24+01:00'."""
     if not value:
         return None
     try:
         return datetime.date.fromisoformat(value[:10])
     except ValueError:
+        _record(ctx, 'bad_date')
         return None
 
 
-def _float(value):
+def _float(value, ctx='float'):
     if value in (None, ''):
         return None
     try:
         return float(value)
     except ValueError:
+        _record(ctx, 'bad_float')
         return None
 
 
-def _bool(value):
+def _bool(value, ctx='bool'):
     """eForms indicators are the strings 'true'/'false'. Anything else stays null."""
     if value is None:
         return None
@@ -147,6 +159,7 @@ def _bool(value):
         return True
     if v == 'false':
         return False
+    _record(ctx, f'bad_bool:{v[:20]}')
     return None
 
 
@@ -175,7 +188,7 @@ def _ltext(node, local_path):
     return None
 
 
-def _measure_days(node, path):
+def _measure_days(node, path, ctx='measure'):
     """A DurationMeasure plus its @unitCode, normalised to days.
 
     Returns (days, raw_value, unit). An unrecognised unit yields days=None rather than
@@ -188,8 +201,13 @@ def _measure_days(node, path):
     try:
         n = int(float(raw))
     except (ValueError, OverflowError):  # OverflowError: int(float('1e400')) → inf
+        _record(ctx, 'bad_measure')
         return None, _float(raw), unit
-    days = n * UNIT_DAYS[unit] if unit in UNIT_DAYS else None
+    if unit in UNIT_DAYS:
+        days = n * UNIT_DAYS[unit]
+    else:
+        _record(ctx, f'unknown_unit:{unit}')
+        days = None
     return days, float(n), unit
 
 
@@ -199,14 +217,17 @@ def _days_between(start, end):
     return (end - start).days
 
 
-def _number(value):
+def _number(value, ctx='number'):
     """A published numeric value, with the withheld sentinel mapped to null."""
-    v = _float(value)
-    return None if v is None or v == WITHHELD else v
+    v = _float(value, ctx)
+    if v == WITHHELD:
+        _record(ctx, 'withheld')
+        return None
+    return v
 
 
-def _count(value):
-    n = _number(value)
+def _count(value, ctx='count'):
+    n = _number(value, ctx)
     return int(n) if n is not None else None
 
 
@@ -223,10 +244,14 @@ def duration_days(project):
     are kept alongside so the 30-day-month / 365-day-year convention below can be
     revisited without re-parsing the XML.
     """
-    days, raw, unit = _measure_days(project, 'cac:PlannedPeriod/cbc:DurationMeasure')
-    start = _date(_text(project, 'cac:PlannedPeriod/cbc:StartDate'))
-    end = _date(_text(project, 'cac:PlannedPeriod/cbc:EndDate'))
+    days, raw, unit = _measure_days(project, 'cac:PlannedPeriod/cbc:DurationMeasure',
+                                    'duration_measure')
+    start = _date(_text(project, 'cac:PlannedPeriod/cbc:StartDate'), 'period_start')
+    end = _date(_text(project, 'cac:PlannedPeriod/cbc:EndDate'), 'period_end')
 
+    flags = []
+    if start and end and start > end:
+        flags.append('period_inverted')
     source = 'measure' if days is not None else None
     if days is None and start and end:
         span = (end - start).days + 1  # inclusive of both endpoints
@@ -235,7 +260,8 @@ def duration_days(project):
             source = 'dates'
     if days is not None and not (0 < days <= 365 * 20):
         days, source = None, None  # data-entry noise, not a 60-year contract
-    return days, source, raw, unit, start, end
+        flags.append('duration_out_of_range')
+    return days, source, raw, unit, start, end, flags
 
 
 def selection_criteria(lot):
@@ -324,9 +350,12 @@ def award_results(root, orgs, keys):
         if not bid_id:
             continue
         org_ids = parties.get(_ltext(bid, 'TenderingParty/ID'), [])
+        for o in org_ids:
+            if o not in orgs:
+                _record('bid.tenderer', 'org_missing')
         bids[bid_id] = {
             'tender_id': bid_id,
-            'amount': _number(_ltext(bid, 'LegalMonetaryTotal/PayableAmount')),
+            'amount': _number(_ltext(bid, 'LegalMonetaryTotal/PayableAmount'), 'bid.amount'),
             'currency': next((e.get('currencyID') for e in
                               _lfind(bid, 'LegalMonetaryTotal/PayableAmount')), None),
             'rank': _count(_ltext(bid, 'RankCode')),
@@ -353,15 +382,15 @@ def award_results(root, orgs, keys):
                 'contract_award_date': _date(_ltext(contract, 'AwardDate')),
             }
 
-    notice_award_date = _date(_ltext(root, 'TenderResult/AwardDate'))
-    notice_total = _number(_ltext(block, 'TotalAmount'))
+    notice_award_date = _date(_ltext(root, 'TenderResult/AwardDate'), 'award_date')
+    notice_total = _number(_ltext(block, 'TotalAmount'), 'notice_total_amount')
 
     rows = []
     for result in _lfind(block, 'LotResult'):
         stats_raw, stats_named = [], {c: None for c in STATISTIC_COLUMNS.values()}
         for stat in _lfind(result, 'ReceivedSubmissionsStatistics'):
             code = _ltext(stat, 'StatisticsCode')
-            value = _count(_ltext(stat, 'StatisticsNumeric'))
+            value = _count(_ltext(stat, 'StatisticsNumeric'), 'submission_statistics')
             if code is None:
                 continue
             stats_raw.append({'code': code, 'value': value})
@@ -375,18 +404,37 @@ def award_results(root, orgs, keys):
                          if c in contracts), {})
         winners = sorted({n for b in lot_bids for n in b['tenderer_names']})
 
+        result_code = _ltext(result, 'TenderResultCode')
+        lowest = _number(_ltext(result, 'LowerTenderAmount'), 'lowest_tender_amount')
+        highest = _number(_ltext(result, 'HigherTenderAmount'), 'highest_tender_amount')
+        n_tenders = stats_named['n_tenders']
+
+        # Contradictions in the source are flagged, never fixed: the row still says
+        # exactly what the notice said.
+        quality = []
+        if result_code == 'selec-w' and n_tenders == 0:
+            quality.append('selected_but_zero_tenders')
+        if winners and n_tenders == 0:
+            quality.append('winner_but_zero_tenders')
+        if lowest is not None and highest is not None:
+            if lowest > highest:
+                quality.append('tender_band_inverted')
+            elif any(b['amount'] is not None and not (lowest <= b['amount'] <= highest)
+                     for b in lot_bids):
+                quality.append('winning_bid_outside_band')
+
         rows.append({
             **keys,
             'lot_result_id': _ltext(result, 'ID'),
             'lot_id': _ltext(result, 'TenderLot/ID'),
-            'result_code': _ltext(result, 'TenderResultCode'),
+            'result_code': result_code,
             'decision_reason': _ltext(result, 'DecisionReason/DecisionReasonCode'),
             'award_date': notice_award_date,
             **stats_named,
             'submission_statistics': stats_raw,
             # Cheapest and dearest bid received — the spread a raw count cannot show.
-            'lowest_tender_amount': _number(_ltext(result, 'LowerTenderAmount')),
-            'highest_tender_amount': _number(_ltext(result, 'HigherTenderAmount')),
+            'lowest_tender_amount': lowest,
+            'highest_tender_amount': highest,
             'n_bids_detailed': len(lot_bids),
             'bids': lot_bids,
             'winner_names': winners,
@@ -399,6 +447,7 @@ def award_results(root, orgs, keys):
             'notice_total_amount': notice_total,
             'withheld_fields': [c for c in (_ltext(f, 'FieldIdentifierCode')
                                             for f in _lfind(block, 'FieldsPrivacy')) if c],
+            'quality_flags': quality,
         })
     return rows
 
@@ -456,7 +505,7 @@ def parse_notice(path):
 
     notice_id = _text(root, 'cbc:ID')
     procedure_id = _text(root, 'cbc:ContractFolderID')
-    issue_date = _date(_text(root, 'cbc:IssueDate'))
+    issue_date = _date(_text(root, 'cbc:IssueDate'), 'issue_date')
     notice_subtype = _text(root, './/efext:EformsExtension/efac:NoticeSubType/cbc:SubTypeCode')
     notice_version = _text(root, 'cbc:VersionID')
 
@@ -474,7 +523,8 @@ def parse_notice(path):
     root_process = root.find('cac:TenderingProcess', NS)
     root_terms = root.find('cac:TenderingTerms', NS)
     procedure_value = _number(_text(
-        root_project, 'cac:RequestedTenderTotal/cbc:EstimatedOverallContractAmount'))
+        root_project, 'cac:RequestedTenderTotal/cbc:EstimatedOverallContractAmount'),
+        'est_value_procedure')
     procedure_currency = _attr(
         root_project, 'cac:RequestedTenderTotal/cbc:EstimatedOverallContractAmount', 'currencyID')
 
@@ -525,27 +575,41 @@ def parse_notice(path):
         process = lot.find('cac:TenderingProcess', NS)
         terms = lot.find('cac:TenderingTerms', NS)
 
-        days, dur_source, dur_raw, dur_unit, start, end = duration_days(project)
+        days, dur_source, dur_raw, dur_unit, start, end, dur_flags = duration_days(project)
         docs_restricted, docs_url, n_doc_refs = document_references(terms)
         crit_types, crit_weights, crit_kind, price_weight = award_criteria(terms)
         criteria, families = selection_criteria(lot)
         validity_days, validity_raw, validity_unit = _measure_days(
-            terms, 'cac:TenderValidityPeriod/cbc:DurationMeasure')
+            terms, 'cac:TenderValidityPeriod/cbc:DurationMeasure', 'bid_validity')
 
-        bid_opening = _date(_text(process, 'cac:OpenTenderEvent/cbc:OccurrenceDate'))
+        bid_opening = _date(_text(process, 'cac:OpenTenderEvent/cbc:OccurrenceDate'),
+                            'bid_opening_date')
         question_deadline = _date(_text(
-            process, 'cac:AdditionalInformationRequestPeriod/cbc:EndDate'))
+            process, 'cac:AdditionalInformationRequestPeriod/cbc:EndDate'),
+            'question_deadline_date')
         additional_types = [
             t for t in _texts(project, 'cac:ProcurementAdditionalType/cbc:ProcurementTypeCode')
             if t]
 
         deadline = _date(_first(
             _text(process, 'cac:TenderSubmissionDeadlinePeriod/cbc:EndDate'),
-            _text(root_process, 'cac:TenderSubmissionDeadlinePeriod/cbc:EndDate')))
+            _text(root_process, 'cac:TenderSubmissionDeadlinePeriod/cbc:EndDate')),
+            'deadline_date')
 
         funding = _first(
             _texts(terms, 'cbc:FundingProgramCode'),
             _texts(root_terms, 'cbc:FundingProgramCode')) or []
+
+        deadline_days = _days_between(issue_date, deadline)
+        question_window = _days_between(issue_date, question_deadline)
+        opening_lag = _days_between(deadline, bid_opening)
+        quality = list(dur_flags)
+        if deadline_days is not None and deadline_days < 0:
+            quality.append('deadline_before_issue')
+        if question_window is not None and question_window < 0:
+            quality.append('question_deadline_before_issue')
+        if opening_lag is not None and opening_lag < 0:
+            quality.append('opening_before_deadline')
 
         lots.append({
             # --- keys
@@ -604,7 +668,8 @@ def parse_notice(path):
 
             # 9. estimated value — lot and procedure scopes are NOT interchangeable
             'est_value_lot': _number(_text(
-                project, 'cac:RequestedTenderTotal/cbc:EstimatedOverallContractAmount')),
+                project, 'cac:RequestedTenderTotal/cbc:EstimatedOverallContractAmount'),
+                'est_value_lot'),
             'est_value_lot_currency': _attr(
                 project, 'cac:RequestedTenderTotal/cbc:EstimatedOverallContractAmount', 'currencyID'),
             'est_value_procedure': procedure_value,
@@ -612,7 +677,7 @@ def parse_notice(path):
 
             # 10. submission window
             'deadline_date': deadline,
-            'deadline_days': _days_between(issue_date, deadline),
+            'deadline_days': deadline_days,
 
             # ----- entry barriers -----
             # No criteria block at all is unknown, not zero: eForms lets a buyer omit
@@ -668,8 +733,8 @@ def parse_notice(path):
             # ----- timing beyond the deadline -----
             'bid_opening_date': bid_opening,
             'question_deadline_date': question_deadline,
-            'question_window_days': _days_between(issue_date, question_deadline),
-            'opening_lag_days': _days_between(deadline, bid_opening),
+            'question_window_days': question_window,
+            'opening_lag_days': opening_lag,
             'is_corrigendum': changed_notice_id is not None,
             'changed_notice_id': changed_notice_id,
             'change_reasons': change_reasons,
@@ -683,6 +748,7 @@ def parse_notice(path):
             'platform_name': _ltext(process, 'UBLExtensions/UBLExtension/ExtensionContent/'
                                              'EformsExtension/AccessToolName'),
             'submission_endpoint': _text(terms, 'cac:TenderRecipientParty/cbc:EndpointID'),
+            'quality_flags': quality,
         })
 
     n = len(lots)
@@ -791,6 +857,7 @@ SCHEMA = pa.schema([
     ('platform_url', pa.string()),
     ('platform_name', pa.string()),
     ('submission_endpoint', pa.string()),
+    ('quality_flags', pa.list_(pa.string())),
 ])
 
 BID = pa.struct([
@@ -852,6 +919,7 @@ AWARD_SCHEMA = pa.schema([
     ('contract_award_date', pa.date32()),
     ('notice_total_amount', pa.float64()),
     ('withheld_fields', pa.list_(pa.string())),
+    ('quality_flags', pa.list_(pa.string())),
 ])
 
 
@@ -997,6 +1065,32 @@ def main():
         for entry in failed[:5]:
             print(f"  {entry['file']}: {entry['error_type']}: {entry['error']}")
         print('  full list appended to data/logs/extract_failures.jsonl')
+
+    flag_counts = collections.Counter(f for row in tender_rows for f in row['quality_flags'])
+    flag_counts.update(f for row in award_rows for f in row['quality_flags'])
+    if COERCIONS:
+        print('\nnon-empty values coerced to null:')
+        for (ctx, reason), n in sorted(COERCIONS.items()):
+            print(f'  {ctx}: {reason} x{n}')
+    if flag_counts:
+        print('\nquality flags:')
+        for flag, n in sorted(flag_counts.items()):
+            print(f'  {flag} x{n}')
+
+    report = {
+        'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        'xml_dir': args.xml_dir,
+        'files': len(files),
+        'failed': len(failed),
+        'tender_rows': len(tenders),
+        'award_rows': len(awards),
+        'coercions': {f'{ctx}: {reason}': n for (ctx, reason), n in sorted(COERCIONS.items())},
+        'quality_flags': dict(sorted(flag_counts.items())),
+    }
+    os.makedirs('data/logs', exist_ok=True)
+    with open('data/logs/extract_report.json', 'w', encoding='utf-8') as fh:
+        json.dump(report, fh, indent=2)
+    print('\nrun report -> data/logs/extract_report.json')
 
     # The two tables only overlap where a call and its result were both downloaded —
     # that intersection, not either row count, is the trainable set.
