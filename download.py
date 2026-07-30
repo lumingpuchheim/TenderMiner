@@ -30,6 +30,7 @@ import json
 import re
 import sys
 import time
+import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -62,6 +63,11 @@ COMPLETED_PIDS = LOG_DIR / "completed_procedures.json"
 GAEB_EXT = re.compile(r"\.(x8[1-6]|d8[1-6]|p8[1-6])$", re.I)
 RETRY_MAX_AGE_DAYS = 60  # tenders older than this are treated as no longer live
 RATE_LIMIT_BACKOFF_S = 20  # base wait after HTTP 429; grows per attempt
+# Transient server-side failures. TED's gateway returns 502/503 under load — observed
+# mid-scan on page 44 of 227 — and those are worth waiting out, not crashing on.
+# Anything else (400 bad query, 404) is our fault and must surface immediately.
+RETRY_HTTP_CODES = {408, 429, 500, 502, 503, 504}
+SEARCH_ATTEMPTS = 6
 DISCOVERY_FIELDS = ["publication-number", "procedure-identifier", "notice-type",
                     "classification-cpv", "document-url-lot"]
 # TED rejects limit>250 with HTTP 400. Per-notice throughput is the same either way
@@ -149,22 +155,29 @@ def search(body: dict) -> dict:
         headers={"Content-Type": "application/json", "Accept": "application/json",
                  "User-Agent": USER_AGENT})
     last_err: Exception | None = None
-    for attempt in range(4):  # retries on slow/dropped reads and rate limits
+    for attempt in range(SEARCH_ATTEMPTS):
+        wait = min(RATE_LIMIT_BACKOFF_S * 2 ** attempt, 300)
         try:
             with urllib.request.urlopen(req, timeout=180) as resp:
                 return json.loads(resp.read())
         except urllib.error.HTTPError as e:
-            if e.code != 429:
+            if e.code not in RETRY_HTTP_CODES:
                 raise
             last_err = e
-            log(f"    … rate limited, waiting {RATE_LIMIT_BACKOFF_S}s")
-            time.sleep(RATE_LIMIT_BACKOFF_S)
+            reason = "rate limited" if e.code == 429 else f"HTTP {e.code} {e.reason}"
+            log(f"    ! search {reason}, retry {attempt + 1}/{SEARCH_ATTEMPTS} in {wait}s")
+            time.sleep(wait)
+        except json.JSONDecodeError as e:
+            # A truncated body reads as valid HTTP but broken JSON; retry, don't crash.
+            last_err = e
+            log(f"    ! search returned malformed JSON, retry {attempt + 1}/{SEARCH_ATTEMPTS} in {wait}s")
+            time.sleep(wait)
         except (TimeoutError, OSError) as e:
             # A hanging socket burns the full 180s timeout per attempt, so say so
-            # rather than leaving four silent minutes that look like a freeze.
+            # rather than leaving minutes of silence that look like a freeze.
             last_err = e
-            wait = 5 * (attempt + 1)
-            log(f"    ! search failed ({type(e).__name__}: {e}), retry {attempt + 1}/4 in {wait}s")
+            log(f"    ! search failed ({type(e).__name__}: {e}), "
+                f"retry {attempt + 1}/{SEARCH_ATTEMPTS} in {wait}s")
             time.sleep(wait)
     raise last_err
 
@@ -321,11 +334,12 @@ def fetch_xml(pn: str) -> Path | None:
             status, body, _ = http_get(XML_URL.format(pn=pn))
             break
         except urllib.error.HTTPError as e:
-            if e.code != 429:
+            if e.code not in RETRY_HTTP_CODES:
                 log(f"  ! xml fetch {pn}: HTTP {e.code}")
                 return None
             wait = RATE_LIMIT_BACKOFF_S * (attempt + 1)
-            log(f"  … rate limited, waiting {wait}s")
+            reason = "rate limited" if e.code == 429 else f"HTTP {e.code}"
+            log(f"  … {reason}, waiting {wait}s")
             time.sleep(wait)
         except (urllib.error.URLError, OSError, TimeoutError) as e:
             log(f"  ! xml fetch failed {pn}: {e}")
@@ -1276,4 +1290,18 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        log("\ninterrupted — progress saved; re-run the same command to continue")
+        sys.exit(130)
+    except Exception as exc:  # noqa: BLE001 — operational script, report and exit
+        # The full traceback goes to the ingest log; the console gets the one line
+        # that matters, which is that re-running resumes rather than restarts.
+        append_jsonl(INGEST_LOG, {"run": now_iso(), "event": "error",
+                                  "error": f"{type(exc).__name__}: {exc}",
+                                  "traceback": traceback.format_exc()})
+        log(f"\nrun failed: {type(exc).__name__}: {exc}")
+        log("progress is saved — re-run the same command to continue from where it "
+            "stopped (full traceback in data/logs/ingest_log.jsonl)")
+        sys.exit(1)
