@@ -92,8 +92,11 @@ because referenced tenders happen to be winners.
 **Spec.**
 - Rename columns: `bids` → `winning_bids`, `n_bids_detailed` → `n_winning_bids`.
   (Downstream impact: `eda_single_bidder.ipynb` §8 only; update alongside.)
-- `winner_names` derivation: from referenced tenders, filtered to `rank == 1` **when
-  any rank is present**; unranked referenced tenders count as winners (status quo).
+- `winner_names` derivation: a **sole** referenced tender is the winner regardless of
+  its rank — the corpus contains six lots where the top-ranked bid was excluded and
+  the sole referenced runner-up (rank 2–3) won, so filtering to `rank == 1` would
+  empty real winners. Rank arbitrates only when **several** tenders are referenced:
+  keep the best (lowest) rank; unranked referenced tenders count as winners.
 - If a lot references more than one tender and none carries a rank, flag
   `multiple_unranked_tenders` (R3 mechanism).
 - Module docstring and column comments updated to state that losing bids are not

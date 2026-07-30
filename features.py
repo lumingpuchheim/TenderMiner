@@ -3,7 +3,11 @@
     python features.py --xml-dir data/raw/xml
 
   tenders.parquet  one row per (procedure, lot) at call time — ContractNotice only.
-  awards.parquet   one row per LotResult, with the individual bids nested underneath.
+  awards.parquet   one row per LotResult, with the published tender details nested
+                   underneath. In this corpus only the WINNING tender is published
+                   (verified: every LotTender is referenced by a LotResult, and 99.6%
+                   of multi-bid lots detail exactly one tender) — losing bids exist
+                   only as counts in the submission statistics.
 
 They are deliberately NOT one table. Every award column is post-outcome, so keeping
 them apart means using an outcome as a feature requires writing a join rather than
@@ -329,7 +333,10 @@ def award_results(root, orgs, keys):
     NoticeResult is a flat block of cross-referenced records rather than a tree:
     LotResult points at LotTender ids, each LotTender points at a TenderingParty id,
     each TenderingParty lists Tenderer org ids. They are indexed here and resolved so a
-    row carries its bids and winners inline.
+    row carries its winning tenders and winners inline. A LotResult references the
+    winning tender(s), not every bid — when several tenders are referenced with ranks,
+    winner_names keeps only the best rank, so a sender that ever references losing
+    ranked tenders cannot silently inflate the winner list.
     """
     block = next(iter(_lfind(root, 'UBLExtensions/UBLExtension/ExtensionContent/'
                                    'EformsExtension/NoticeResult')), None)
@@ -402,7 +409,18 @@ def award_results(root, orgs, keys):
         contract = next((contracts[c] for c in
                          (_ltext(x, 'ID') for x in _lfind(result, 'SettledContract'))
                          if c in contracts), {})
-        winners = sorted({n for b in lot_bids for n in b['tenderer_names']})
+        # The LotResult reference is the winner signal: a sole referenced tender wins
+        # even at rank 2-3 (the corpus has six such lots — the top-ranked bid was
+        # excluded and the runner-up won). Rank only arbitrates when SEVERAL tenders
+        # are referenced, so a sender listing losing ranked tenders cannot inflate
+        # the winner list.
+        ranked = [b['rank'] for b in lot_bids if b['rank'] is not None]
+        if len(lot_bids) > 1 and ranked:
+            best = min(ranked)
+            winning = [b for b in lot_bids if b['rank'] is None or b['rank'] == best]
+        else:
+            winning = lot_bids
+        winners = sorted({n for b in winning for n in b['tenderer_names']})
 
         result_code = _ltext(result, 'TenderResultCode')
         lowest = _number(_ltext(result, 'LowerTenderAmount'), 'lowest_tender_amount')
@@ -422,6 +440,8 @@ def award_results(root, orgs, keys):
             elif any(b['amount'] is not None and not (lowest <= b['amount'] <= highest)
                      for b in lot_bids):
                 quality.append('winning_bid_outside_band')
+        if len(lot_bids) > 1 and all(b['rank'] is None for b in lot_bids):
+            quality.append('multiple_unranked_tenders')
 
         rows.append({
             **keys,
@@ -435,8 +455,8 @@ def award_results(root, orgs, keys):
             # Cheapest and dearest bid received — the spread a raw count cannot show.
             'lowest_tender_amount': lowest,
             'highest_tender_amount': highest,
-            'n_bids_detailed': len(lot_bids),
-            'bids': lot_bids,
+            'n_winning_bids': len(lot_bids),
+            'winning_bids': lot_bids,
             'winner_names': winners,
             'n_winners': len(winners),
             'contract_id': contract.get('contract_id'),
@@ -907,8 +927,8 @@ AWARD_SCHEMA = pa.schema([
 
     ('lowest_tender_amount', pa.float64()),
     ('highest_tender_amount', pa.float64()),
-    ('n_bids_detailed', pa.int32()),
-    ('bids', pa.list_(BID)),
+    ('n_winning_bids', pa.int32()),
+    ('winning_bids', pa.list_(BID)),
     ('winner_names', pa.list_(pa.string())),
     ('n_winners', pa.int32()),
 
