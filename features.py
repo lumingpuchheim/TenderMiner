@@ -296,6 +296,54 @@ def selection_criteria(lot):
     return pairs, families
 
 
+def execution_requirements(terms):
+    """Contract-execution conditions as (list_name, code, description) triples.
+
+    The sub-lists einvoicing/ecatalog/esignature/nda/fsr/reserved-execution are clean
+    enums. The 'conditions' list is NOT: its code is a category header ('performance')
+    and the substance sits in 568 distinct free-text descriptions — kept verbatim here,
+    deliberately unclassified (a later LLM pass, not a regex, is the right tool).
+    """
+    out = []
+    if terms is None:
+        return out
+    for er in terms.findall('cac:ContractExecutionRequirement', NS):
+        code_el = er.find('cbc:ExecutionRequirementCode', NS)
+        code = code_el.text.strip() if code_el is not None and code_el.text else None
+        desc = _text(er, 'cbc:Description')
+        if code or desc:
+            out.append({'list_name': code_el.get('listName') if code_el is not None else None,
+                        'code': code, 'description': desc})
+    return out
+
+
+def exclusion_grounds(terms, root_terms):
+    """Exclusion/participation codes, lot-level and procedure-level merged.
+
+    The substantive grounds (exg-*) sit on the root TenderingTerms; lot terms carry the
+    participation rules (late-*, res-ws, epo-*). A lot-only read would lose the exg-*
+    codes entirely, so this is a union, deduped in first-seen order.
+    """
+    path = 'cac:TendererQualificationRequest/cac:SpecificTendererRequirement/cbc:TendererRequirementTypeCode'
+    seen, out = set(), []
+    for code in _texts(terms, path) + _texts(root_terms, path):
+        if code not in seen:
+            seen.add(code)
+            out.append(code)
+    return out, sum(1 for c in out if c.startswith('exg-'))
+
+
+def strategic_procurement(lot):
+    """Green/social/innovation obligations as raw (code, value) pairs."""
+    pairs = []
+    for sp in _lfind(lot, 'TenderingTerms/UBLExtensions/UBLExtension/ExtensionContent/'
+                          'EformsExtension/StrategicProcurement'):
+        for el in sp.iter():
+            if not list(el) and el.text and el.text.strip():
+                pairs.append({'code': el.tag.split('}')[-1], 'value': el.text.strip()})
+    return pairs
+
+
 def organizations(root):
     """Map ORG-xxxx ids to buyer identity, so lots can be keyed to a real buyer.
 
@@ -617,6 +665,14 @@ def parse_notice(path):
                                  'EformsExtension/Changes/ChangeReason'))
         if t]
 
+    # TED's own publication identity — machine-generated, 100% filled, and the public
+    # join key to ted.europa.eu. PublicationDate can trail IssueDate by days; the
+    # bidders' clock starts at publication.
+    pub = 'UBLExtensions/UBLExtension/ExtensionContent/EformsExtension/Publication/'
+    publication_number = _ltext(root, pub + 'NoticePublicationID')
+    publication_date = _date(_ltext(root, pub + 'PublicationDate'), 'publication_date')
+    gazette_id = _ltext(root, pub + 'GazetteID')
+
     keys = {
         'notice_id': notice_id,
         'notice_subtype': notice_subtype,
@@ -624,6 +680,9 @@ def parse_notice(path):
         'procedure_id': procedure_id,
         'issue_date': issue_date,
         'source_file': os.path.basename(path),
+        'publication_number': publication_number,
+        'publication_date': publication_date,
+        'gazette_id': gazette_id,
         'buyer_name': buyer['buyer_name'],
         'buyer_national_id': buyer['buyer_national_id'],
         'buyer_nuts': buyer['buyer_nuts'],
@@ -651,6 +710,9 @@ def parse_notice(path):
         (criteria_structs, crit_kind, price_weight,
          award_terms_desc, award_calc_expr, kind_from_text) = award_criteria(terms)
         criteria, families = selection_criteria(lot)
+        exec_reqs = execution_requirements(terms)
+        excl_codes, n_excl = exclusion_grounds(terms, root_terms)
+        strategic = strategic_procurement(lot)
         validity_days, validity_raw, validity_unit = _measure_days(
             terms, 'cac:TenderValidityPeriod/cbc:DurationMeasure', 'bid_validity')
 
@@ -753,6 +815,12 @@ def parse_notice(path):
             # 10. submission window
             'deadline_date': deadline,
             'deadline_days': deadline_days,
+            'deadline_days_published': _days_between(publication_date, deadline),
+
+            # ----- publication identity (TED-generated) -----
+            'publication_number': publication_number,
+            'publication_date': publication_date,
+            'gazette_id': gazette_id,
 
             # ----- entry barriers -----
             # No criteria block at all is unknown, not zero: eForms lets a buyer omit
@@ -772,6 +840,9 @@ def parse_notice(path):
             'bid_validity_days': validity_days,
             'bid_validity_raw': validity_raw,
             'bid_validity_unit': validity_unit,
+            'execution_requirements': exec_reqs,
+            'exclusion_grounds': excl_codes,
+            'n_exclusion_grounds': n_excl,
             'cv_required': _text(terms, 'cbc:RequiredCurriculaCode'),
             'legal_form_required': _bool(
                 _text(terms, 'cac:TendererQualificationRequest/cbc:CompanyLegalFormCode')),
@@ -801,6 +872,9 @@ def parse_notice(path):
             'procurement_additional_types': additional_types,
             'is_strategic': (bool(set(additional_types) - NATURE_CODES)
                              if additional_types else None),
+            'strategic_procurement': strategic,
+            'procedure_languages': (_texts(terms, 'cac:Language/cbc:ID')
+                                    or _texts(root_terms, 'cac:Language/cbc:ID')),
             'gpa_covered': _bool(_text(process, 'cbc:GovernmentAgreementConstraintIndicator')),
             'recurring': _bool(_text(terms, 'cbc:RecurringProcurementIndicator')),
             'eauction': _bool(_text(process, 'cac:AuctionTerms/cbc:AuctionConstraintIndicator')),
@@ -876,6 +950,10 @@ SCHEMA = pa.schema([
     ('est_value_procedure_currency', pa.string()),
     ('deadline_date', pa.date32()),
     ('deadline_days', pa.int32()),
+    ('deadline_days_published', pa.int32()),
+    ('publication_number', pa.string()),
+    ('publication_date', pa.date32()),
+    ('gazette_id', pa.string()),
 
     ('n_selection_criteria', pa.int32()),
     ('n_criteria_suitability', pa.int32()),
@@ -890,6 +968,10 @@ SCHEMA = pa.schema([
     ('bid_validity_days', pa.int32()),
     ('bid_validity_raw', pa.float64()),
     ('bid_validity_unit', pa.string()),
+    ('execution_requirements', pa.list_(pa.struct([
+        ('list_name', pa.string()), ('code', pa.string()), ('description', pa.string())]))),
+    ('exclusion_grounds', pa.list_(pa.string())),
+    ('n_exclusion_grounds', pa.int32()),
     ('cv_required', pa.string()),
     ('legal_form_required', pa.bool_()),
     ('security_clearance_required', pa.bool_()),
@@ -908,6 +990,9 @@ SCHEMA = pa.schema([
     ('is_framework', pa.bool_()),
     ('procurement_additional_types', pa.list_(pa.string())),
     ('is_strategic', pa.bool_()),
+    ('strategic_procurement', pa.list_(pa.struct([
+        ('code', pa.string()), ('value', pa.string())]))),
+    ('procedure_languages', pa.list_(pa.string())),
     ('gpa_covered', pa.bool_()),
     ('recurring', pa.bool_()),
     ('eauction', pa.bool_()),
@@ -960,6 +1045,9 @@ AWARD_SCHEMA = pa.schema([
     ('lot_result_id', pa.string()),
     ('issue_date', pa.date32()),
     ('source_file', pa.string()),
+    ('publication_number', pa.string()),
+    ('publication_date', pa.date32()),
+    ('gazette_id', pa.string()),
     ('buyer_name', pa.string()),
     ('buyer_national_id', pa.string()),
     ('buyer_nuts', pa.string()),
