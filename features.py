@@ -367,6 +367,11 @@ def organizations(root):
             'buyer_website': _ltext(company, 'WebsiteURI'),
             'buyer_is_cpb_awarding': _bool(_ltext(org, 'AwardingCPBIndicator')),
             'buyer_is_cpb_acquiring': _bool(_ltext(org, 'AcquiringCPBIndicator')),
+            # Winner-side attributes; on award notices the winning firms live in the
+            # same Organizations block as the buyer. Extra keys are ignored by the
+            # tenders schema, so they ride along harmlessly for buyer orgs too.
+            'company_size': _ltext(company, 'CompanySizeCode'),
+            'n_ubos': len(_lfind(org, 'UltimateBeneficialOwner/ID')),
         }
     return orgs
 
@@ -421,6 +426,7 @@ def award_results(root, orgs, keys):
             'tenderer_ids': org_ids,
             'tenderer_names': [orgs[o]['buyer_name'] for o in org_ids
                                if o in orgs and orgs[o]['buyer_name']],
+            'tenderer_sizes': [orgs[o]['company_size'] for o in org_ids if o in orgs],
             'withheld_fields': [c for c in (_ltext(f, 'FieldIdentifierCode')
                                             for f in _lfind(bid, 'FieldsPrivacy')) if c],
         }
@@ -470,6 +476,10 @@ def award_results(root, orgs, keys):
         else:
             winning = lot_bids
         winners = sorted({n for b in winning for n in b['tenderer_names']})
+        winner_orgs = {o for b in winning for o in b['tenderer_ids'] if o in orgs}
+        winner_sizes = {orgs[o]['company_size'] for o in winner_orgs} - {None}
+        winner_size = winner_sizes.pop() if len(winners) == 1 and len(winner_sizes) == 1 else None
+        n_ubos = sum(orgs[o]['n_ubos'] for o in winner_orgs)
 
         result_code = _ltext(result, 'TenderResultCode')
         lowest = _number(_ltext(result, 'LowerTenderAmount'), 'lowest_tender_amount')
@@ -508,6 +518,8 @@ def award_results(root, orgs, keys):
             'winning_bids': lot_bids,
             'winner_names': winners,
             'n_winners': len(winners),
+            'winner_size': winner_size,
+            'n_beneficial_owners': n_ubos,
             'contract_id': contract.get('contract_id'),
             'contract_reference': contract.get('contract_reference'),
             'contract_title': contract.get('contract_title'),
@@ -1033,6 +1045,7 @@ BID = pa.struct([
     ('subcontracting', pa.string()),
     ('tenderer_ids', pa.list_(pa.string())),
     ('tenderer_names', pa.list_(pa.string())),
+    ('tenderer_sizes', pa.list_(pa.string())),
     ('withheld_fields', pa.list_(pa.string())),
 ])
 
@@ -1077,6 +1090,8 @@ AWARD_SCHEMA = pa.schema([
     ('winning_bids', pa.list_(BID)),
     ('winner_names', pa.list_(pa.string())),
     ('n_winners', pa.int32()),
+    ('winner_size', pa.string()),
+    ('n_beneficial_owners', pa.int32()),
 
     ('contract_id', pa.string()),
     ('contract_reference', pa.string()),
