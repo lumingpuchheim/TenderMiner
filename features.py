@@ -658,6 +658,7 @@ def parse_notice(path):
             'is_corrigendum': changed_notice_id is not None,
             'changed_notice_id': changed_notice_id,
             'change_reasons': change_reasons,
+            'n_corrections_so_far': None,  # filled by add_correction_counts()
 
             # ----- buyer & platform identity -----
             **buyer,
@@ -758,6 +759,7 @@ SCHEMA = pa.schema([
     ('is_corrigendum', pa.bool_()),
     ('changed_notice_id', pa.string()),
     ('change_reasons', pa.list_(pa.string())),
+    ('n_corrections_so_far', pa.int32()),
 
     ('buyer_name', pa.string()),
     ('buyer_national_id', pa.string()),
@@ -837,6 +839,35 @@ AWARD_SCHEMA = pa.schema([
 ])
 
 
+def add_correction_counts(rows):
+    """Corrections issued for this lot up to and including this notice.
+
+    Computed across the whole chain, so it must run before any deduplication.
+
+    This is a point-in-time count, not a total. The total is unknowable when a notice
+    goes out — nobody knows yet how many corrections will follow — so using it as a
+    call-time feature would leak the future. Counting only revisions at or before the
+    current one keeps the row honest: it says what was known the day it published.
+
+    Counts the is_corrigendum flag rather than the row's position in the chain. If the
+    original call fell outside the download window the count still undercounts, but a
+    row that declares itself a correction never reports zero.
+    """
+    chains = collections.defaultdict(list)
+    for row in rows:
+        key = (row.get('procedure_id'), row.get('lot_id'))
+        chains[key if None not in key else ('', id(row))].append(row)
+    for chain in chains.values():
+        chain.sort(key=lambda r: (r.get('issue_date') or datetime.date.min,
+                                  r.get('notice_id') or ''))
+        seen = 0
+        for row in chain:
+            if row.get('is_corrigendum'):
+                seen += 1
+            row['n_corrections_so_far'] = seen
+    return rows
+
+
 def deduplicate(rows):
     """Collapse corrigenda: keep one row per (procedure_id, lot_id).
 
@@ -891,8 +922,9 @@ def main():
     ap.add_argument('--awards-out', default='data/awards.parquet')
     ap.add_argument('--limit', type=int, default=0, help='parse only the first N files')
     ap.add_argument('--coverage', action='store_true', help='print per-column fill rates')
-    ap.add_argument('--keep-corrigenda', action='store_true',
-                    help='keep every revision of a lot instead of only the latest')
+    ap.add_argument('--deduplicate', action='store_true',
+                    help='collapse each lot to its latest revision (default: keep every '
+                         'revision, so n_corrections_so_far varies within a lot)')
     args = ap.parse_args()
 
     files = sorted(glob.glob(os.path.join(args.xml_dir, '*.xml')))
@@ -911,7 +943,10 @@ def main():
         tender_rows.extend(lots)
         award_rows.extend(awards)
 
-    if not args.keep_corrigenda:
+    # Must precede deduplication: the count needs every revision of the chain.
+    add_correction_counts(tender_rows)
+
+    if args.deduplicate:
         before = len(tender_rows), len(award_rows)
         tender_rows = deduplicate(tender_rows)
         award_rows = deduplicate(award_rows)
