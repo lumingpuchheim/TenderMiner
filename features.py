@@ -416,6 +416,7 @@ def award_results(root, orgs, keys):
                 _record('bid.tenderer', 'org_missing')
         bids[bid_id] = {
             'tender_id': bid_id,
+            'tender_reference': _ltext(bid, 'TenderReference/ID'),
             'amount': _number(_ltext(bid, 'LegalMonetaryTotal/PayableAmount'), 'bid.amount'),
             'currency': next((e.get('currencyID') for e in
                               _lfind(bid, 'LegalMonetaryTotal/PayableAmount')), None),
@@ -1037,6 +1038,7 @@ SCHEMA = pa.schema([
 
 BID = pa.struct([
     ('tender_id', pa.string()),
+    ('tender_reference', pa.string()),
     ('amount', pa.float64()),
     ('currency', pa.string()),
     ('rank', pa.int32()),
