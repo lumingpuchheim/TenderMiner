@@ -24,6 +24,8 @@ import argparse
 import datetime as dt
 import hashlib
 import html
+import gzip
+import http.client
 import http.cookiejar
 import io
 import json
@@ -75,6 +77,7 @@ DISCOVERY_FIELDS = ["publication-number", "procedure-identifier", "notice-type",
 # to lose a page to a dropped connection and less rate-limit exposure.
 PAGE_SIZE = 250
 HEARTBEAT_EVERY = 250  # notices between progress lines in the fetch loop
+PROCEDURE_BATCH = 50  # procedure-identifiers OR'd into one completion query
 PLATFORM_REPORT = LOG_DIR / "platform_report.json"
 
 # Download budget per file: GAEB files are small; LV zips are a few MB. Anything
@@ -256,6 +259,10 @@ def search_all(query: str, limit_cap: int | None = None, resume: bool = False,
             if total and resume:
                 log(f"{label}{total} notices match; ~{-(-total // PAGE_SIZE)} pages to fetch")
 
+        # An empty notices array is how ITERATION signals exhaustion. TED keeps handing
+        # back a live token past the end, and reusing it restarts the scan from the
+        # beginning: a one-day query (237 notices) looped to 33,654 rows of which only
+        # 237 were distinct. Never continue past an empty page.
         done = not batch or not token or bool(limit_cap and len(out) >= limit_cap)
         if resume:
             with hits_path.open("a", encoding="utf-8") as f:
@@ -270,6 +277,82 @@ def search_all(query: str, limit_cap: int | None = None, resume: bool = False,
 
         if done:
             return out[:limit_cap] if limit_cap else out
+
+
+def search_procedures(pids: list[str], label: str = "  ") -> list[dict]:
+    """All notices belonging to many procedures, asked in batches.
+
+    The API accepts OR'd procedure-identifiers, so one request covers 50 procedures in
+    about the time three single-procedure requests take. Completion previously issued
+    one request per procedure — tens of thousands of them, sequentially, and the
+    dominant cost of a large run.
+    """
+    out: list[dict] = []
+    batches = [pids[i:i + PROCEDURE_BATCH] for i in range(0, len(pids), PROCEDURE_BATCH)]
+    log(f"{label}completing {len(pids)} procedures in {len(batches)} batched queries")
+    for i, chunk in enumerate(batches, 1):
+        clause = " OR ".join(f"procedure-identifier={p}" for p in chunk)
+        try:
+            out.extend(search_all(f"({clause})"))
+        except Exception as e:
+            log(f"{label}  ! batch {i}/{len(batches)} failed: {e}")
+            continue
+        if i % 10 == 0 or i == len(batches):
+            log(f"{label}  batch {i}/{len(batches)}: {len(out)} sibling notices  [{elapsed()}]")
+    return out
+
+
+# ---------------------------------------------------------------- keep-alive fetching
+
+class KeepAlive:
+    """One reused HTTPS connection instead of a fresh TCP+TLS handshake per notice.
+
+    Measured on TED: 0.76s per notice with urllib's connect-per-request, 0.31s reusing
+    the connection. Requests gzip too — about 6x less data, though the run is
+    latency-bound so that only matters on a slow link.
+    """
+
+    def __init__(self, host: str, timeout: int = 60):
+        self.host, self.timeout, self.conn = host, timeout, None
+
+    def _connect(self) -> None:
+        self.conn = http.client.HTTPSConnection(self.host, timeout=self.timeout)
+
+    def close(self) -> None:
+        if self.conn is not None:
+            try:
+                self.conn.close()
+            except OSError:
+                pass
+            self.conn = None
+
+    def get(self, path: str, headers: dict | None = None) -> tuple[int, bytes]:
+        """GET a path, reconnecting once if the pooled connection went stale.
+
+        A kept-alive connection can be closed by the server between requests; that
+        surfaces as an exception on the next use and must not be mistaken for a
+        fetch failure, so one silent reconnect-and-retry is allowed.
+        """
+        head = {"User-Agent": USER_AGENT, "Accept-Encoding": "gzip"}
+        head.update(headers or {})
+        last: Exception | None = None
+        for attempt in range(2):
+            if self.conn is None:
+                self._connect()
+            try:
+                self.conn.request("GET", path, headers=head)
+                resp = self.conn.getresponse()
+                body = resp.read()
+                if resp.getheader("Content-Encoding", "").lower() == "gzip":
+                    body = gzip.decompress(body)
+                return resp.status, body
+            except (http.client.HTTPException, OSError, EOFError, gzip.BadGzipFile) as e:
+                last = e
+                self.close()
+        raise last if last else RuntimeError("unreachable")
+
+
+TED_SESSION = KeepAlive("ted.europa.eu")
 
 
 # ---------------------------------------------------------------- scope/query
@@ -331,7 +414,9 @@ def fetch_xml(pn: str) -> Path | None:
     body = None
     for attempt in range(5):
         try:
-            status, body, _ = http_get(XML_URL.format(pn=pn))
+            status, body = TED_SESSION.get(f"/en/notice/{pn}/xml")
+            if status in RETRY_HTTP_CODES:
+                raise urllib.error.HTTPError(pn, status, "retryable", {}, None)
             break
         except urllib.error.HTTPError as e:
             if e.code not in RETRY_HTTP_CODES:
@@ -1163,49 +1248,57 @@ def main() -> None:
              str(h.get("notice-type") or "")) for h in hits]
     log(f"fetching {len(todo)} notices "
         f"({pids_at_start} procedures already completed in earlier runs)")
-    n_new = n_seen = n_have = n_lookups = 0
-    try:
-        while todo:
-            pn, pid, ntype = todo.pop(0)
-            if is_planning(ntype):
-                continue
-            n_seen += 1
-            was_new = not (XML_DIR / f"{pn}.xml").exists()
-            if fetch_xml(pn) is None:
-                continue
-            if was_new:
-                n_new += 1
-                fetched.append((pn, pid, ntype))
-            else:
-                n_have += 1
-            if pid and pid not in done_pids:
-                done_pids.add(pid)
-                n_lookups += 1
-                try:
-                    sibs = search_all(f"procedure-identifier={pid}")
-                except Exception as e:
-                    log(f"  ! completion lookup failed {pid}: {e}")
-                    done_pids.discard(pid)  # not completed — retry it next run
-                    continue
-                for s in sibs:
+    # 3. complete procedures — one batched pass, before any fetching. Siblings share the
+    # procedure they complete, so this never cascades: one round finds everything.
+    if not args.limit:
+        pending = sorted({pid for _, pid, _ in todo if pid and pid not in done_pids})
+        if pending:
+            try:
+                for s in search_procedures(pending):
                     spn = str(s.get("publication-number"))
                     stype = str(s.get("notice-type") or "")
-                    if spn != pn and not is_planning(stype) and not (XML_DIR / f"{spn}.xml").exists():
-                        todo.append((spn, pid, stype))
+                    spid = first(s.get("procedure-identifier")) or ""
+                    todo.append((spn, spid, stype))
+                done_pids |= set(pending)
+            except KeyboardInterrupt:
+                log("\ninterrupted during completion — progress saved")
+            finally:
+                save_completed_pids(done_pids)
+
+    # de-duplicate: discovery and completion overlap heavily
+    seen_pn: set[str] = set()
+    unique_todo = []
+    for pn, pid, ntype in todo:
+        if pn not in seen_pn and not is_planning(ntype):
+            seen_pn.add(pn)
+            unique_todo.append((pn, pid, ntype))
+    log(f"  [{elapsed()}] {len(unique_todo)} distinct notices to consider "
+        f"({len(unique_todo) - len(hits)} added by completion)")
+    todo = unique_todo
+
+    n_new = n_seen = n_have = 0
+    try:
+        for pn, pid, ntype in todo:
+            n_seen += 1
+            if (XML_DIR / f"{pn}.xml").exists():
+                n_have += 1
+                continue
+            if fetch_xml(pn) is None:
+                continue
+            n_new += 1
+            fetched.append((pn, pid, ntype))
             # A run over an existing archive fetches almost nothing and used to print
             # nothing at all for hours. Report position, not just events.
-            if n_seen % HEARTBEAT_EVERY == 0:
-                log(f"  [{elapsed()}] {n_seen} processed · {n_new} new · {n_have} on disk"
-                    f" · {n_lookups} lookups · {len(todo)} queued")
-                save_completed_pids(done_pids)
+            if n_new % HEARTBEAT_EVERY == 0:
+                log(f"  [{elapsed()}] {n_seen}/{len(todo)} processed · {n_new} new "
+                    f"· {n_have} already on disk")
             if args.limit and n_new >= args.limit:
                 break
     except KeyboardInterrupt:
         log(f"\ninterrupted after {n_seen} notices ({n_new} new) — progress saved")
     finally:
-        save_completed_pids(done_pids)
-    log(f"  [{elapsed()}] fetch done: {n_new} new, {n_have} already on disk, "
-        f"{n_lookups} procedure lookups ({len(done_pids) - pids_at_start} newly completed)")
+        TED_SESSION.close()
+    log(f"  [{elapsed()}] fetch done: {n_new} new, {n_have} already on disk")
 
     # lot statistics over newly fetched XMLs
     hist: Counter = Counter()
