@@ -1,12 +1,18 @@
 """TenderMining Download job — the network component of the data pipeline.
 
 See pipeline/download.md for the full specification. In short, per finite run:
-  1. discover in-scope notice numbers via the TED search API (never persisted)
+  1. discover in-scope notice numbers via the TED search API (checkpointed per page)
   2. fetch each notice's eForms XML -> data/raw/xml/
-  3. complete procedures: fetch sibling notices by procedure-identifier (no pin*)
+  3. complete procedures: fetch sibling notices by procedure-identifier (no pin*),
+     skipping procedures already completed in an earlier run
   4. attempt GAEB retrieval from links inside newly fetched tender XMLs
   5. retry GAEB for still-live tenders that failed before
   6. write ingest-log line + checkpoint, exit
+
+Interrupting is safe. Discovery resumes from the last completed page
+(data/logs/discovery/), completed procedures are remembered
+(data/logs/completed_procedures.json), and already-downloaded XML is never
+re-fetched, so re-running the same command continues rather than restarts.
 
 Usage:
     python download.py --from 20240101 --to 20251231 --country DEU --cpv 45   # backfill
@@ -50,12 +56,19 @@ CHECKPOINT = LOG_DIR / "checkpoint.json"
 MANIFEST = LOG_DIR / "manifest.jsonl"
 GAEB_OUTCOMES = LOG_DIR / "gaeb_outcomes.jsonl"
 INGEST_LOG = LOG_DIR / "ingest_log.jsonl"
+DISCOVERY_DIR = LOG_DIR / "discovery"
+COMPLETED_PIDS = LOG_DIR / "completed_procedures.json"
 
 GAEB_EXT = re.compile(r"\.(x8[1-6]|d8[1-6]|p8[1-6])$", re.I)
 RETRY_MAX_AGE_DAYS = 60  # tenders older than this are treated as no longer live
 RATE_LIMIT_BACKOFF_S = 20  # base wait after HTTP 429; grows per attempt
 DISCOVERY_FIELDS = ["publication-number", "procedure-identifier", "notice-type",
                     "classification-cpv", "document-url-lot"]
+# TED rejects limit>250 with HTTP 400. Per-notice throughput is the same either way
+# (100 in ~1.1s, 250 in ~3.0s), but 250 means 2.5x fewer round trips, so fewer chances
+# to lose a page to a dropped connection and less rate-limit exposure.
+PAGE_SIZE = 250
+HEARTBEAT_EVERY = 250  # notices between progress lines in the fetch loop
 PLATFORM_REPORT = LOG_DIR / "platform_report.json"
 
 # Download budget per file: GAEB files are small; LV zips are a few MB. Anything
@@ -101,6 +114,24 @@ def detect_platform(url: str) -> str:
     return f"other:{host}"
 
 
+# ---------------------------------------------------------------- output
+
+RUN_START = time.monotonic()
+
+
+def log(msg: str = "") -> None:
+    """Every progress line goes through here, always flushed.
+
+    Without the flush, piping the run to a file or to `tee` buffers output in 8 KB
+    blocks and a long silent phase looks identical to a hang."""
+    print(msg, flush=True)
+
+
+def elapsed() -> str:
+    s = int(time.monotonic() - RUN_START)
+    return f"{s // 3600:d}:{s // 60 % 60:02d}:{s % 60:02d}"
+
+
 # ---------------------------------------------------------------- HTTP helpers
 
 def http_get(url: str, timeout: int = 60, browser: bool = False) -> tuple[int, bytes, str]:
@@ -118,7 +149,7 @@ def search(body: dict) -> dict:
         headers={"Content-Type": "application/json", "Accept": "application/json",
                  "User-Agent": USER_AGENT})
     last_err: Exception | None = None
-    for _ in range(4):  # retries on slow/dropped reads and rate limits
+    for attempt in range(4):  # retries on slow/dropped reads and rate limits
         try:
             with urllib.request.urlopen(req, timeout=180) as resp:
                 return json.loads(resp.read())
@@ -126,27 +157,105 @@ def search(body: dict) -> dict:
             if e.code != 429:
                 raise
             last_err = e
+            log(f"    … rate limited, waiting {RATE_LIMIT_BACKOFF_S}s")
             time.sleep(RATE_LIMIT_BACKOFF_S)
         except (TimeoutError, OSError) as e:
+            # A hanging socket burns the full 180s timeout per attempt, so say so
+            # rather than leaving four silent minutes that look like a freeze.
             last_err = e
+            wait = 5 * (attempt + 1)
+            log(f"    ! search failed ({type(e).__name__}: {e}), retry {attempt + 1}/4 in {wait}s")
+            time.sleep(wait)
     raise last_err
 
 
-def search_all(query: str, limit_cap: int | None = None) -> list[dict]:
-    """Iterate the search API until exhausted (or limit_cap notices)."""
+def discovery_paths(query: str) -> tuple[Path, Path]:
+    """Per-query state files. Keyed by a hash of the query so different scopes do not
+    overwrite each other's progress."""
+    key = hashlib.sha256(query.encode()).hexdigest()[:16]
+    return DISCOVERY_DIR / f"{key}.jsonl", DISCOVERY_DIR / f"{key}.state.json"
+
+
+def search_all(query: str, limit_cap: int | None = None, resume: bool = False,
+               label: str = "") -> list[dict]:
+    """Iterate the search API until exhausted (or limit_cap notices).
+
+    With resume=True the run is checkpointed after every page: hits append to a JSONL
+    file and the pagination token is saved beside it. A dropped connection therefore
+    costs one page, not the whole scan — which for a 56k-notice scope is ~227 requests
+    and ten-plus minutes that used to be repaid in full on every restart.
+
+    Sibling lookups (one tiny query per procedure) pass resume=False; checkpointing
+    thousands of two-item results would cost more than repeating them.
+    """
     out: list[dict] = []
     token = None
+    total = None
+    pages = 0
+
+    # A capped scan stops early by design. Persisting it would mark the query complete
+    # at --limit notices, and the next uncapped run would resume that as the whole scope.
+    if limit_cap:
+        resume = False
+
+    hits_path, state_path = discovery_paths(query)
+    if resume and state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            state = {}
+        if state.get("query") == query and hits_path.exists():
+            out = [json.loads(l) for l in hits_path.read_text(encoding="utf-8").splitlines() if l]
+            if state.get("done"):
+                log(f"{label}resuming: complete, {len(out)} notices already discovered")
+                return out[:limit_cap] if limit_cap else out
+            token, pages = state.get("token"), state.get("pages", 0)
+            log(f"{label}resuming from page {pages + 1} ({len(out)} notices already discovered)")
+
+    if resume:
+        DISCOVERY_DIR.mkdir(parents=True, exist_ok=True)
+        if not token:  # fresh scan — discard any stale partial for this query
+            hits_path.write_text("", encoding="utf-8")
+            out = []
+
     while True:
-        page_size = min(100, (limit_cap - len(out)) if limit_cap else 100)
+        page_size = min(PAGE_SIZE, (limit_cap - len(out)) if limit_cap else PAGE_SIZE)
         body = {"query": query, "fields": DISCOVERY_FIELDS, "limit": page_size,
                 "scope": "ALL", "paginationMode": "ITERATION"}
         if token:
             body["iterationNextToken"] = token
-        page = search(body)
+        try:
+            page = search(body)
+        except urllib.error.HTTPError as e:
+            # A resumed token can expire; restarting the scan beats failing the run.
+            if token and resume and e.code in (400, 404):
+                log(f"{label}saved pagination token rejected (HTTP {e.code}) — rescanning")
+                token, out, pages = None, [], 0
+                hits_path.write_text("", encoding="utf-8")
+                continue
+            raise
         batch = page.get("notices", [])
         out.extend(batch)
         token = page.get("iterationNextToken")
-        if not batch or not token or (limit_cap and len(out) >= limit_cap):
+        pages += 1
+        if total is None:
+            total = page.get("totalNoticeCount")
+            if total and resume:
+                log(f"{label}{total} notices match; ~{-(-total // PAGE_SIZE)} pages to fetch")
+
+        done = not batch or not token or bool(limit_cap and len(out) >= limit_cap)
+        if resume:
+            with hits_path.open("a", encoding="utf-8") as f:
+                for h in batch:
+                    f.write(json.dumps(h, ensure_ascii=False) + "\n")
+            state_path.write_text(json.dumps(
+                {"query": query, "token": token, "pages": pages, "done": done,
+                 "notices": len(out), "updated": now_iso()}), encoding="utf-8")
+            pct = f" ({100 * len(out) / total:.0f}%)" if total else ""
+            log(f"{label}  page {pages}: {len(out)}{('/' + str(total)) if total else ''}"
+                f"{pct}  [{elapsed()}]")
+
+        if done:
             return out[:limit_cap] if limit_cap else out
 
 
@@ -213,19 +322,19 @@ def fetch_xml(pn: str) -> Path | None:
             break
         except urllib.error.HTTPError as e:
             if e.code != 429:
-                print(f"  ! xml fetch {pn}: HTTP {e.code}")
+                log(f"  ! xml fetch {pn}: HTTP {e.code}")
                 return None
             wait = RATE_LIMIT_BACKOFF_S * (attempt + 1)
-            print(f"  … rate limited, waiting {wait}s", flush=True)
+            log(f"  … rate limited, waiting {wait}s")
             time.sleep(wait)
         except (urllib.error.URLError, OSError, TimeoutError) as e:
-            print(f"  ! xml fetch failed {pn}: {e}")
+            log(f"  ! xml fetch failed {pn}: {e}")
             return None
     if body is None:
-        print(f"  ! xml fetch {pn}: still rate limited after retries")
+        log(f"  ! xml fetch {pn}: still rate limited after retries")
         return None
     if status != 200 or not body.lstrip().startswith(b"<?xml"):
-        print(f"  ! xml fetch {pn}: HTTP {status}, not XML")
+        log(f"  ! xml fetch {pn}: HTTP {status}, not XML")
         return None
     path.write_bytes(body)
     return path
@@ -867,6 +976,25 @@ def load_manifest_hashes() -> set[str]:
     return {json.loads(l)["sha256"] for l in MANIFEST.read_text(encoding="utf-8").splitlines() if l}
 
 
+def load_completed_pids() -> set[str]:
+    """Procedures whose sibling lookup has already been done, in any previous run.
+
+    Completion costs one search request per procedure and previously ran again on
+    every restart even when every sibling was already on disk — tens of thousands of
+    silent round trips that could not find anything new."""
+    if not COMPLETED_PIDS.exists():
+        return set()
+    try:
+        return set(json.loads(COMPLETED_PIDS.read_text(encoding="utf-8")))
+    except (json.JSONDecodeError, OSError):
+        return set()
+
+
+def save_completed_pids(pids: set[str]) -> None:
+    COMPLETED_PIDS.parent.mkdir(parents=True, exist_ok=True)
+    COMPLETED_PIDS.write_text(json.dumps(sorted(pids)), encoding="utf-8")
+
+
 def load_last_outcomes() -> dict[str, dict]:
     """publication-number -> latest outcome record."""
     out: dict[str, dict] = {}
@@ -911,10 +1039,10 @@ def print_platform_report() -> None:
         return
     data = json.loads(PLATFORM_REPORT.read_text(encoding="utf-8"))
     rows = sorted(data["platforms"].items(), key=lambda kv: -kv[1]["attempts"])
-    print("\nPLATFORM OVERVIEW (cumulative, see data/logs/platform_report.json)")
-    print(f"  {'platform':22} {'handled':8} {'attempts':>8} {'ok-rate':>8}  last_ok")
+    log("\nPLATFORM OVERVIEW (cumulative, see data/logs/platform_report.json)")
+    log(f"  {'platform':22} {'handled':8} {'attempts':>8} {'ok-rate':>8}  last_ok")
     for name, a in rows:
-        print(f"  {name[:22]:22} {'yes' if a['handled'] else 'NO':8} "
+        log(f"  {name[:22]:22} {'yes' if a['handled'] else 'NO':8} "
               f"{a['attempts']:>8} {a['ok_rate']:>8.0%}  {a['last_ok'] or '-'}")
 
 
@@ -972,15 +1100,20 @@ def main() -> None:
 
     cpvs = args.cpv.split(",") if args.cpv else None
     query = build_query(date_from, date_to, args.country, cpvs, args.cpv_re)
-    print(f"[{mode}] {query}")
+    log(f"[{mode}] {query}")
+    # Written before any network work, so a run killed mid-flight still leaves a trace.
+    # Previously the only log line came after step 6, and a crash left nothing at all.
+    append_jsonl(INGEST_LOG, {"run": now_iso(), "event": "start", "mode": mode,
+                              "query": query, "xml_only": bool(args.xml_only)})
 
     # 1. discover
-    hits = search_all(query, args.limit)
+    log("discovering (checkpointed per page; a drop costs one page, not the scan)")
+    hits = search_all(query, args.limit, resume=True, label="  ")
     if args.cpv_re:
         rx = re.compile(args.cpv_re)
         hits = [h for h in hits
                 if any(rx.search(str(c)) for c in (h.get("classification-cpv") or []))]
-    print(f"discovered {len(hits)} notices in scope")
+    log(f"discovered {len(hits)} notices in scope  [{elapsed()}]")
 
     # 1b. platform filter — applied here, on the search response's document link, so
     # out-of-scope tenders cost no XML fetch at all. Awards carry no document link and
@@ -990,7 +1123,7 @@ def main() -> None:
         wanted = platform_filter = resolve_platforms(args.platform)
         unknown = wanted - set(HANDLERS) - {n for n, _ in PLATFORM_HOSTS}
         if unknown:
-            print(f"  warning: unknown platform name(s): {', '.join(sorted(unknown))}"
+            log(f"  warning: unknown platform name(s): {', '.join(sorted(unknown))}"
                   f" (see --list-platforms)")
         kept, dropped = [], Counter()
         for h in hits:
@@ -1000,45 +1133,65 @@ def main() -> None:
                 kept.append(h)
             else:
                 dropped[plat] += 1
-        print(f"  platform filter [{','.join(sorted(wanted))}]: "
+        log(f"  platform filter [{','.join(sorted(wanted))}]: "
               f"kept {len(kept)}, skipped {sum(dropped.values())}")
         if dropped:
             top = ", ".join(f"{p}:{c}" for p, c in dropped.most_common(5))
-            print(f"    skipped by platform: {top}")
+            log(f"    skipped by platform: {top}")
         hits = kept
 
     # 2. fetch XML + 3. complete procedures
     XML_DIR.mkdir(parents=True, exist_ok=True)
     fetched: list[tuple[str, str, str]] = []  # (pn, pid, notice-type)
-    done_pids: set[str] = set()
+    done_pids: set[str] = load_completed_pids()
+    pids_at_start = len(done_pids)
     todo = [(str(h.get("publication-number")), first(h.get("procedure-identifier")) or "",
              str(h.get("notice-type") or "")) for h in hits]
-    n_new = 0
-    while todo:
-        pn, pid, ntype = todo.pop(0)
-        if is_planning(ntype):
-            continue
-        was_new = not (XML_DIR / f"{pn}.xml").exists()
-        if fetch_xml(pn) is None:
-            continue
-        if was_new:
-            n_new += 1
-            fetched.append((pn, pid, ntype))
-            print(f"  xml {pn} ({ntype})")
-        if pid and pid not in done_pids:
-            done_pids.add(pid)
-            try:
-                sibs = search_all(f"procedure-identifier={pid}")
-            except Exception as e:
-                print(f"  ! completion lookup failed {pid}: {e}")
+    log(f"fetching {len(todo)} notices "
+        f"({pids_at_start} procedures already completed in earlier runs)")
+    n_new = n_seen = n_have = n_lookups = 0
+    try:
+        while todo:
+            pn, pid, ntype = todo.pop(0)
+            if is_planning(ntype):
                 continue
-            for s in sibs:
-                spn = str(s.get("publication-number"))
-                stype = str(s.get("notice-type") or "")
-                if spn != pn and not is_planning(stype) and not (XML_DIR / f"{spn}.xml").exists():
-                    todo.append((spn, pid, stype))
-        if args.limit and n_new >= args.limit:
-            break
+            n_seen += 1
+            was_new = not (XML_DIR / f"{pn}.xml").exists()
+            if fetch_xml(pn) is None:
+                continue
+            if was_new:
+                n_new += 1
+                fetched.append((pn, pid, ntype))
+            else:
+                n_have += 1
+            if pid and pid not in done_pids:
+                done_pids.add(pid)
+                n_lookups += 1
+                try:
+                    sibs = search_all(f"procedure-identifier={pid}")
+                except Exception as e:
+                    log(f"  ! completion lookup failed {pid}: {e}")
+                    done_pids.discard(pid)  # not completed — retry it next run
+                    continue
+                for s in sibs:
+                    spn = str(s.get("publication-number"))
+                    stype = str(s.get("notice-type") or "")
+                    if spn != pn and not is_planning(stype) and not (XML_DIR / f"{spn}.xml").exists():
+                        todo.append((spn, pid, stype))
+            # A run over an existing archive fetches almost nothing and used to print
+            # nothing at all for hours. Report position, not just events.
+            if n_seen % HEARTBEAT_EVERY == 0:
+                log(f"  [{elapsed()}] {n_seen} processed · {n_new} new · {n_have} on disk"
+                    f" · {n_lookups} lookups · {len(todo)} queued")
+                save_completed_pids(done_pids)
+            if args.limit and n_new >= args.limit:
+                break
+    except KeyboardInterrupt:
+        log(f"\ninterrupted after {n_seen} notices ({n_new} new) — progress saved")
+    finally:
+        save_completed_pids(done_pids)
+    log(f"  [{elapsed()}] fetch done: {n_new} new, {n_have} already on disk, "
+        f"{n_lookups} procedure lookups ({len(done_pids) - pids_at_start} newly completed)")
 
     # lot statistics over newly fetched XMLs
     hist: Counter = Counter()
@@ -1070,7 +1223,7 @@ def main() -> None:
                                      "procedure-identifier": pid,
                                      "platform": platform,
                                      "outcome": outcome, "at": now_iso()})
-        print(f"  gaeb {pn} [{platform}]: {outcome}")
+        log(f"  gaeb {pn} [{platform}]: {outcome}")
 
     # 5. retry pass: previously failed, still-live tenders (not fetched this run)
     just_done = {pn for pn, _, _ in fetched}
@@ -1097,13 +1250,15 @@ def main() -> None:
                                      "platform": platform,
                                      "outcome": outcome, "at": now_iso()})
         if outcome == "ok":
-            print(f"  gaeb retry {pn} [{platform}]: ok")
+            log(f"  gaeb retry {pn} [{platform}]: ok")
 
     # 6. checkpoint + ingest log + platform report
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    if mode == "continuation" or not args.date_to:
-        CHECKPOINT.write_text(json.dumps(
-            {"last_covered": dt.date.today().strftime("%Y%m%d"), "updated": now_iso()}))
+    # A --from/--to backfill used to write no checkpoint at all, so it left nothing
+    # behind to resume from. It covers up to --to, not up to today.
+    CHECKPOINT.write_text(json.dumps(
+        {"last_covered": args.date_to or dt.date.today().strftime("%Y%m%d"),
+         "updated": now_iso(), "mode": mode}))
     append_jsonl(INGEST_LOG, {
         "run": now_iso(), "mode": mode, "query": query,
         "xml_only": bool(args.xml_only),
@@ -1111,7 +1266,7 @@ def main() -> None:
         "notices_fetched": len(fetched), "single_lot": single, "multi_lot": multi,
         "lots_histogram": dict(hist), "gaeb": dict(gaeb_counts),
         "gaeb_by_platform": {p: dict(c) for p, c in by_platform.items()}})
-    print(f"\nrun complete: {len(fetched)} new notices "
+    log(f"\nrun complete: {len(fetched)} new notices "
           f"({single} single-lot, {multi} multi-lot)"
           + ("; GAEB skipped (--xml-only)" if args.xml_only
              else f"; gaeb: {dict(gaeb_counts)}"))
