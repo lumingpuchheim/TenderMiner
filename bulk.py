@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import calendar
 import datetime as dt
+import io
 import json
 import os
 import pathlib
@@ -142,68 +143,126 @@ def wanted(text: str, country: str, cpvs, cpv_re, date_from: str, date_to: str):
     return f"{pub.group(1).strip().lstrip('0')}", None
 
 
-def download_package(url: str, dest, label: str) -> bool:
-    """Stream a package to disk with progress. Returns False if TED has no such package."""
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    try:
-        resp = urllib.request.urlopen(req, timeout=300)
-    except urllib.error.HTTPError as e:
-        log(f"{label} no package: HTTP {e.code} {e.reason}")
-        return False
-    total = int(resp.headers.get("Content-Length") or 0)
+def download_package(url: str, dest, label: str, attempts: int = 5) -> bool:
+    """Stream a package to disk, resuming a partial transfer. False if it does not exist.
+
+    A read returning empty does NOT mean the transfer finished — a dropped connection
+    looks identical. The size is checked against Content-Length, and a short file is
+    kept as .part so the next attempt continues via a Range request rather than starting
+    over. At the ~0.6 MB/s TED serves, restarting a 400 MB package costs 11 minutes;
+    two months were lost that way before this check existed.
+    """
     tmp = dest.with_suffix(dest.suffix + ".part")
-    got = 0
     started = time.monotonic()
-    last = 0.0
-    with resp, tmp.open("wb") as fh:
-        while True:
-            chunk = resp.read(1 << 20)
-            if not chunk:
-                break
-            fh.write(chunk)
-            got += len(chunk)
-            now = time.monotonic()
-            if now - last > 10:
-                last = now
-                rate = got / max(now - started, 0.001) / 1e6
-                pct = f" ({100 * got / total:.0f}%)" if total else ""
-                log(f"{label}   {got / 1e6:.0f} MB{pct} at {rate:.1f} MB/s")
-    tmp.replace(dest)
-    log(f"{label} downloaded {got / 1e6:.0f} MB in {time.monotonic() - started:.0f}s")
-    return True
+    for attempt in range(1, attempts + 1):
+        have = tmp.stat().st_size if tmp.exists() else 0
+        headers = {"User-Agent": USER_AGENT}
+        if have:
+            headers["Range"] = f"bytes={have}-"
+        try:
+            resp = urllib.request.urlopen(
+                urllib.request.Request(url, headers=headers), timeout=300)
+        except urllib.error.HTTPError as e:
+            if e.code == 416:            # asked past the end: what we have is complete
+                tmp.replace(dest)
+                return True
+            if e.code == 404:
+                log(f"{label} no package: HTTP {e.code} {e.reason}")
+                return False
+            log(f"{label} ! HTTP {e.code} {e.reason}, attempt {attempt}/{attempts}")
+            time.sleep(5 * attempt)
+            continue
+        # A server may ignore Range and send the whole file; then we must not append.
+        resuming = resp.status == 206 and have
+        if have and not resuming:
+            have = 0
+        expected = int(resp.headers.get("Content-Length") or 0) + have
+        got = have
+        last = 0.0
+        try:
+            with resp, tmp.open("ab" if resuming else "wb") as fh:
+                if resuming:
+                    log(f"{label}   resuming at {have / 1e6:.0f} MB")
+                while True:
+                    chunk = resp.read(1 << 20)
+                    if not chunk:
+                        break
+                    fh.write(chunk)
+                    got += len(chunk)
+                    now = time.monotonic()
+                    if now - last > 10:
+                        last = now
+                        rate = (got - have) / max(now - started, 0.001) / 1e6
+                        pct = f" ({100 * got / expected:.0f}%)" if expected else ""
+                        log(f"{label}   {got / 1e6:.0f} MB{pct} at {rate:.1f} MB/s")
+        except (urllib.error.URLError, OSError, TimeoutError) as e:
+            log(f"{label} ! transfer failed at {got / 1e6:.0f} MB ({e})")
+        if expected and got < expected:
+            log(f"{label} ! short: {got / 1e6:.0f} of {expected / 1e6:.0f} MB, "
+                f"attempt {attempt}/{attempts} — resuming")
+            time.sleep(3)
+            continue
+        tmp.replace(dest)
+        log(f"{label} downloaded {got / 1e6:.0f} MB in {time.monotonic() - started:.0f}s")
+        return True
+    log(f"{label} ! gave up after {attempts} attempts; partial kept for next run")
+    return False
+
+
+def iter_notice_xml(path):
+    """Yield (member_name, xml_bytes) for every notice in a package.
+
+    Packages come in two shapes and the difference is invisible from the URL:
+      daily   — a flat tar of notice XML
+      monthly — a tar of DAILY tar.gz files, one per publication day
+
+    Handling only the flat shape makes a monthly package scan zero notices and report
+    success, which is exactly what happened before this existed.
+    """
+    with tarfile.open(path, mode="r|gz") as tf:
+        for member in tf:
+            if not member.isfile():
+                continue
+            if member.name.endswith(".xml"):
+                fh = tf.extractfile(member)
+                if fh is not None:
+                    yield member.name, fh.read()
+            elif member.name.endswith((".tar.gz", ".tgz")):
+                fh = tf.extractfile(member)
+                if fh is None:
+                    continue
+                inner = io.BytesIO(fh.read())
+                with tarfile.open(fileobj=inner, mode="r|gz") as day:
+                    for entry in day:
+                        if entry.isfile() and entry.name.endswith(".xml"):
+                            efh = day.extractfile(entry)
+                            if efh is not None:
+                                yield entry.name, efh.read()
 
 
 def process_package(path, out_dir, country, cpvs, cpv_re, date_from, date_to, label):
     """Scan one archive, writing matching notices into out_dir."""
     scanned = matched = written = 0
-    # 'r|gz' streams: a monthly package holds ~65k members and never needs random access.
-    with tarfile.open(path, mode="r|gz") as tf:
-        for member in tf:
-            if not member.isfile() or not member.name.endswith(".xml"):
-                continue
-            scanned += 1
-            pn_guess = publication_number(member.name)
-            if pn_guess and (out_dir / f"{pn_guess}.xml").exists():
-                matched += 1          # already have it; do not re-read or re-write
-                continue
-            fh = tf.extractfile(member)
-            if fh is None:
-                continue
-            raw = fh.read()
-            if country.encode() not in raw:
-                continue              # cheap reject before paying for a decode
-            text = raw.decode("utf-8", "replace")
-            pn, _ = wanted(text, country, cpvs, cpv_re, date_from, date_to)
-            if not pn:
-                continue
-            matched += 1
-            out = out_dir / f"{pn}.xml"
-            if out.exists():
-                continue
-            out.write_bytes(raw)
-            written += 1
-            if written % 500 == 0:
-                log(f"{label}   scanned {scanned} · matched {matched} · written {written}")
+    for name, raw in iter_notice_xml(path):
+        scanned += 1
+        pn_guess = publication_number(name)
+        if pn_guess and (out_dir / f"{pn_guess}.xml").exists():
+            matched += 1              # already have it; do not decode or re-write
+            continue
+        if country.encode() not in raw:
+            continue                  # cheap reject before paying for a decode
+        text = raw.decode("utf-8", "replace")
+        pn, _ = wanted(text, country, cpvs, cpv_re, date_from, date_to)
+        if not pn:
+            continue
+        matched += 1
+        out = out_dir / f"{pn}.xml"
+        if out.exists():
+            continue
+        out.write_bytes(raw)
+        written += 1
+        if written % 500 == 0:
+            log(f"{label}   scanned {scanned} · matched {matched} · written {written}")
     return scanned, matched, written
 
 
@@ -265,6 +324,7 @@ def main() -> None:
         "from": args.date_from, "to": args.date_to, "months": len(months)})
 
     totals = {"scanned": 0, "matched": 0, "written": 0}
+    failures: list[str] = []
     for i, (year, month) in enumerate(months, 1):
         label = f"  [{i}/{len(months)}] {year}-{month:02d}"
         key = f"{key_prefix}|{year}-{month:02d}"
@@ -275,6 +335,7 @@ def main() -> None:
         if not archive.exists():
             if not download_package(MONTHLY_URL.format(year=year, month=month),
                                     archive, label):
+                failures.append(f"{year}-{month:02d}: download did not complete")
                 continue
         else:
             log(f"{label} using existing archive ({archive.stat().st_size / 1e6:.0f} MB)")
@@ -287,9 +348,18 @@ def main() -> None:
             # re-fetches rather than skipping the month for good.
             log(f"{label} ! corrupt archive ({e}) — deleting, re-run to retry")
             archive.unlink(missing_ok=True)
+            failures.append(f"{year}-{month:02d}: corrupt archive ({e})")
             continue
         for k, v in zip(totals, (scanned, matched, written)):
             totals[k] += v
+        # A package that yields nothing is a bug, not a result: a month of any country's
+        # notices is never empty. Reporting "complete, 0 notices" is how a structural
+        # mistake (a monthly package being a tar of daily tars) passed as success.
+        if scanned == 0:
+            log(f"{label} ! scanned 0 notices — the package structure is not what this "
+                f"program expects. Not marking the month done.")
+            failures.append(f"{year}-{month:02d}: no notices found in package")
+            continue
         state[key] = {"done": True, "scanned": scanned, "matched": matched,
                       "written": written, "at": now_iso()}
         save_state(state)
@@ -301,7 +371,10 @@ def main() -> None:
     log(f"\nbulk complete: {totals['written']} new notices written to {out_dir} "
         f"({totals['matched']} in scope, {totals['scanned']} scanned) [{elapsed()}]")
     append_jsonl(LOG_DIR / "ingest_log.jsonl", {
-        "run": now_iso(), "event": "bulk_complete", "out_dir": str(out_dir), **totals})
+        "run": now_iso(), "event": "bulk_complete", "out_dir": str(out_dir),
+        "failures": failures, **totals})
+    if failures:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
