@@ -26,10 +26,17 @@ import glob
 import json
 import os
 import re
+import sys
+import time
 import xml.etree.ElementTree as ET
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+
+# Without this, redirecting the run to a file buffers output in 8 KB blocks and a
+# long parse looks identical to a hang.
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(line_buffering=True)
 
 NS = {
     'cbc': 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2',
@@ -1422,10 +1429,22 @@ def main():
     if not files:
         raise SystemExit(f'no XML found in {args.xml_dir}')
 
+    # Parsing is the slow phase and used to print nothing at all until it finished, so
+    # a multi-minute build over tens of thousands of files looked like a hang.
+    print(f'parsing {len(files)} files from {args.xml_dir} · scope [{tag}]')
+    started = time.monotonic()
+
     # One pathological file must cost its own rows, never the run: catch everything,
     # log it, and keep going (--strict restores fail-fast for debugging).
     tender_rows, award_rows, failed = [], [], []
-    for path in files:
+    for i, path in enumerate(files, 1):
+        if i % 2000 == 0 or i == len(files):
+            secs = time.monotonic() - started
+            rate = i / max(secs, 0.001)
+            eta = (len(files) - i) / max(rate, 0.001)
+            print(f'  {i}/{len(files)} files · {len(tender_rows)} lots · '
+                  f'{rate:.0f}/s · {secs:.0f}s elapsed'
+                  + (f' · ~{eta:.0f}s left' if i < len(files) else ''))
         try:
             lots, awards = parse_notice(path)
         except Exception as exc:
