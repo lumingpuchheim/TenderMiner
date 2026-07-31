@@ -21,7 +21,9 @@ Usage:
 """
 
 import argparse
+import calendar
 import datetime as dt
+import email.utils
 import hashlib
 import html
 import gzip
@@ -59,17 +61,30 @@ CHECKPOINT = LOG_DIR / "checkpoint.json"
 MANIFEST = LOG_DIR / "manifest.jsonl"
 GAEB_OUTCOMES = LOG_DIR / "gaeb_outcomes.jsonl"
 INGEST_LOG = LOG_DIR / "ingest_log.jsonl"
+HTTP_ERRORS = LOG_DIR / "http_errors.jsonl"
 DISCOVERY_DIR = LOG_DIR / "discovery"
 COMPLETED_PIDS = LOG_DIR / "completed_procedures.json"
 
 GAEB_EXT = re.compile(r"\.(x8[1-6]|d8[1-6]|p8[1-6])$", re.I)
 RETRY_MAX_AGE_DAYS = 60  # tenders older than this are treated as no longer live
 RATE_LIMIT_BACKOFF_S = 20  # base wait after HTTP 429; grows per attempt
-# Transient server-side failures. TED's gateway returns 502/503 under load — observed
-# mid-scan on page 44 of 227 — and those are worth waiting out, not crashing on.
-# Anything else (400 bad query, 404) is our fault and must surface immediately.
+# Retryable per RFC 9110 §15.6, which defines each of these as a temporary condition:
+# 408 Request Timeout, 429 Too Many Requests, 500 Internal Server Error, 502 Bad
+# Gateway, 503 Service Unavailable, 504 Gateway Timeout.
+#
+# 501 Not Implemented is excluded. §15.6.2 defines it as the server not supporting the
+# functionality required, and makes it heuristically cacheable — the spec's marker for a
+# permanent answer. We received one from TED on a request that succeeded 90s later, so
+# that 501 was not describing a real permanent incapacity; what did emit it is unknown,
+# which is why the whole exchange is now logged. Either way it is not retried: if the
+# claim is true, retrying hammers a server that has said no; if false, the log is what
+# tells us so. Discovery resumes per page, so failing costs a re-run, not the scan.
 RETRY_HTTP_CODES = {408, 429, 500, 502, 503, 504}
 SEARCH_ATTEMPTS = 6
+
+
+def _retryable(code: int) -> bool:
+    return code in RETRY_HTTP_CODES
 DISCOVERY_FIELDS = ["publication-number", "procedure-identifier", "notice-type",
                     "classification-cpv", "document-url-lot"]
 # TED rejects limit>250 with HTTP 400. Per-notice throughput is the same either way
@@ -151,7 +166,65 @@ def http_get(url: str, timeout: int = 60, browser: bool = False) -> tuple[int, b
         return resp.status, resp.read(), resp.headers.get("Content-Type", "")
 
 
+def retry_after_seconds(err: urllib.error.HTTPError, default: int) -> float:
+    """Honour the server's own Retry-After if it sent one (RFC 9110 §10.2.3).
+
+    Sent with 503 and 429 to say how long to wait. Value is either a number of seconds
+    or an HTTP-date; an unparseable or absent value falls back to our backoff. Capped so
+    a hostile or mistaken header cannot park the run for hours.
+    """
+    raw = (err.headers.get("Retry-After") if err.headers else None)
+    if not raw:
+        return default
+    raw = raw.strip()
+    if raw.isdigit():
+        return min(float(raw), 300.0)
+    try:
+        when = email.utils.parsedate_to_datetime(raw)
+    except (TypeError, ValueError):
+        return default
+    if when is None:
+        return default
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=dt.timezone.utc)
+    return max(0.0, min((when - dt.datetime.now(dt.timezone.utc)).total_seconds(), 300.0))
+
+
+def record_http_error(err: urllib.error.HTTPError, sent: dict | None = None) -> None:
+    """Write the full exchange — what we sent and what came back — to http_errors.jsonl.
+
+    Only the status code used to be kept, which left a 501 unexplainable: the code
+    means the server does not support the request at all (RFC 9110 §15.6.2), yet the
+    identical request succeeded 90 seconds later. Both halves are needed to tell
+    whether the request was actually malformed or the response was simply wrong.
+    """
+    try:
+        body = err.read(4096).decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 — diagnostics must never mask the original error
+        body = "<unreadable>"
+    headers = dict(err.headers.items()) if err.headers else {}
+    append_jsonl(HTTP_ERRORS, {
+        "at": now_iso(),
+        "sent": sent or {},
+        "got": {"status": err.code, "reason": err.reason,
+                "url": getattr(err, "url", None), "headers": headers, "body": body},
+    })
+    log(f"    ! HTTP {err.code} {err.reason} — request and response written to "
+        f"{HTTP_ERRORS.relative_to(ROOT)}")
+    for key in ("Server", "Via", "X-Cache", "X-Served-By", "CF-Ray", "X-Request-Id",
+                "Allow", "Retry-After", "Content-Type"):
+        for name, value in headers.items():
+            if name.lower() == key.lower():
+                log(f"        {name}: {value}")
+    if body.strip():
+        log(f"        body[:200]: {body.strip()[:200]}")
+
+
 def search(body: dict) -> dict:
+    # RFC 9110 §9.2.2 says a client SHOULD NOT automatically retry a non-idempotent
+    # method, "unless it has specific knowledge that the request semantics are
+    # idempotent". This POST is a search: it mutates nothing and returns the same
+    # results for the same body, so the exception applies and retrying is safe.
     data = json.dumps(body).encode()
     req = urllib.request.Request(
         SEARCH_URL, data=data, method="POST",
@@ -164,7 +237,12 @@ def search(body: dict) -> dict:
             with urllib.request.urlopen(req, timeout=180) as resp:
                 return json.loads(resp.read())
         except urllib.error.HTTPError as e:
-            if e.code not in RETRY_HTTP_CODES:
+            if not _retryable(e.code):
+                # Not retried. 501 in particular asserts permanent non-support, so
+                # hammering it is pointless; the exchange is logged and the run stops.
+                record_http_error(e, {"method": "POST", "url": SEARCH_URL,
+                                      "headers": dict(req.header_items()),
+                                      "body": body})
                 raise
             last_err = e
             reason = "rate limited" if e.code == 429 else f"HTTP {e.code} {e.reason}"
@@ -193,7 +271,7 @@ def discovery_paths(query: str) -> tuple[Path, Path]:
 
 
 def search_all(query: str, limit_cap: int | None = None, resume: bool = False,
-               label: str = "") -> list[dict]:
+               label: str = "") -> tuple[list[dict], int | None]:
     """Iterate the search API until exhausted (or limit_cap notices).
 
     With resume=True the run is checkpointed after every page: hits append to a JSONL
@@ -224,7 +302,7 @@ def search_all(query: str, limit_cap: int | None = None, resume: bool = False,
             out = [json.loads(l) for l in hits_path.read_text(encoding="utf-8").splitlines() if l]
             if state.get("done"):
                 log(f"{label}resuming: complete, {len(out)} notices already discovered")
-                return out[:limit_cap] if limit_cap else out
+                return (out[:limit_cap] if limit_cap else out), state.get("total")
             token, pages = state.get("token"), state.get("pages", 0)
             log(f"{label}resuming from page {pages + 1} ({len(out)} notices already discovered)")
 
@@ -270,13 +348,67 @@ def search_all(query: str, limit_cap: int | None = None, resume: bool = False,
                     f.write(json.dumps(h, ensure_ascii=False) + "\n")
             state_path.write_text(json.dumps(
                 {"query": query, "token": token, "pages": pages, "done": done,
-                 "notices": len(out), "updated": now_iso()}), encoding="utf-8")
+                 "notices": len(out), "total": total, "updated": now_iso()}),
+                encoding="utf-8")
             pct = f" ({100 * len(out) / total:.0f}%)" if total else ""
             log(f"{label}  page {pages}: {len(out)}{('/' + str(total)) if total else ''}"
                 f"{pct}  [{elapsed()}]")
 
         if done:
-            return out[:limit_cap] if limit_cap else out
+            return (out[:limit_cap] if limit_cap else out), total
+
+
+def discover_verified(make_query, date_from: str, date_to: str,
+                      depth: int = 0, label: str = "  ") -> list[dict]:
+    """Discover a date range, checking the result against the API's own match count.
+
+    ITERATION stops short on large result sets and does not say so: a single month
+    reporting 4,709 matches yielded 3,000 notices (12 pages of 250) and then an empty
+    page, and a 12-month scan yielded 36,214 of 56,573. The token is no help past that
+    point — reusing it restarts the scan from the beginning rather than continuing.
+
+    The documentation states no total cap for ITERATION and does not describe the
+    termination condition, so rather than hard-code a guessed page or notice limit,
+    every slice is compared against its own totalNoticeCount and halved when it comes
+    up short. That self-corrects if TED's behaviour changes, and it needs no constant.
+    """
+    query = make_query(date_from, date_to)
+    hits, total = search_all(query, resume=True, label=label)
+    got = len({str(h.get("publication-number")) for h in hits})
+
+    if total is None or got >= total:
+        return hits
+
+    start, end = _as_date(date_from), _as_date(date_to)
+    if start >= end:
+        log(f"{label}! {date_from}: {got} of {total} and cannot split further — "
+            f"{total - got} notices unreachable for this day")
+        return hits
+    mid = start + (end - start) // 2
+    log(f"{label}{date_from}..{date_to}: {got} of {total} — splitting")
+    return (discover_verified(make_query, date_from, _as_str(mid), depth + 1, label + "  ")
+            + discover_verified(make_query, _as_str(mid + dt.timedelta(days=1)), date_to,
+                                depth + 1, label + "  "))
+
+
+def _as_date(yyyymmdd: str) -> dt.date:
+    return dt.date(int(yyyymmdd[:4]), int(yyyymmdd[4:6]), int(yyyymmdd[6:8]))
+
+
+def _as_str(d: dt.date) -> str:
+    return d.strftime("%Y%m%d")
+
+
+def month_slices(date_from: str, date_to: str) -> list[tuple[str, str]]:
+    """Calendar-month slices, so each scan is short, independently resumable and
+    verifiable. Whole-year scans are neither."""
+    out, cur, end = [], _as_date(date_from), _as_date(date_to)
+    while cur <= end:
+        last_day = calendar.monthrange(cur.year, cur.month)[1]
+        stop = min(dt.date(cur.year, cur.month, last_day), end)
+        out.append((_as_str(cur), _as_str(stop)))
+        cur = stop + dt.timedelta(days=1)
+    return out
 
 
 def search_procedures(pids: list[str], label: str = "  ") -> list[dict]:
@@ -293,7 +425,7 @@ def search_procedures(pids: list[str], label: str = "  ") -> list[dict]:
     for i, chunk in enumerate(batches, 1):
         clause = " OR ".join(f"procedure-identifier={p}" for p in chunk)
         try:
-            out.extend(search_all(f"({clause})"))
+            out.extend(search_all(f"({clause})")[0])
         except Exception as e:
             log(f"{label}  ! batch {i}/{len(batches)} failed: {e}")
             continue
@@ -415,11 +547,11 @@ def fetch_xml(pn: str) -> Path | None:
     for attempt in range(5):
         try:
             status, body = TED_SESSION.get(f"/en/notice/{pn}/xml")
-            if status in RETRY_HTTP_CODES:
+            if _retryable(status):
                 raise urllib.error.HTTPError(pn, status, "retryable", {}, None)
             break
         except urllib.error.HTTPError as e:
-            if e.code not in RETRY_HTTP_CODES:
+            if not _retryable(e.code):
                 log(f"  ! xml fetch {pn}: HTTP {e.code}")
                 return None
             wait = RATE_LIMIT_BACKOFF_S * (attempt + 1)
@@ -1205,9 +1337,27 @@ def main() -> None:
     append_jsonl(INGEST_LOG, {"run": now_iso(), "event": "start", "mode": mode,
                               "query": query, "xml_only": bool(args.xml_only)})
 
-    # 1. discover
-    log("discovering (checkpointed per page; a drop costs one page, not the scan)")
-    hits = search_all(query, args.limit, resume=True, label="  ")
+    # 1. discover, month by month with a completeness check per slice
+    def make_query(a, b):
+        return build_query(a, b, args.country, cpvs, args.cpv_re)
+
+    if args.limit:  # testing path: one capped scan, no slicing or verification
+        hits, _ = search_all(query, args.limit, resume=True, label="  ")
+    else:
+        slices = month_slices(date_from, date_to or dt.date.today().strftime("%Y%m%d"))
+        log(f"discovering {len(slices)} month slices "
+            f"(checkpointed per page; each verified against its own match count)")
+        hits = []
+        for i, (a, b) in enumerate(slices, 1):
+            log(f"  [{i}/{len(slices)}] {a}..{b}")
+            hits.extend(discover_verified(make_query, a, b))
+        before = len(hits)
+        seen: set[str] = set()
+        hits = [h for h in hits
+                if not (str(h.get("publication-number")) in seen
+                        or seen.add(str(h.get("publication-number"))))]
+        if before != len(hits):
+            log(f"  removed {before - len(hits)} duplicate notices across slices")
     if args.cpv_re:
         rx = re.compile(args.cpv_re)
         hits = [h for h in hits
