@@ -1288,6 +1288,66 @@ def write_fields_doc(path):
     print(f'{len(SCHEMA) + len(AWARD_SCHEMA)} fields -> {path}')
 
 
+def _yyyymmdd(value, flag):
+    if value is None:
+        return None
+    if not (value.isdigit() and len(value) == 8):
+        raise SystemExit(f'{flag} must be YYYYMMDD, got {value!r}')
+    return datetime.date(int(value[:4]), int(value[4:6]), int(value[6:8]))
+
+
+def scope_filter(rows, cpvs, nuts, date_from, date_to):
+    """Narrow a parsed corpus to an analysis scope — a trade, a region, a period.
+
+    Deliberately separate from what bulk.py/download.py filter on. Acquisition can only
+    express what the source can: country, CPV and publication date. "Bridges in Hesse" is
+    neither — TED's packages carry no region filter, and which CPV subdivision matters is
+    usually decided after seeing the data. Refining here means changing your mind costs a
+    re-run over local XML instead of a re-download.
+
+    CPV matches the lot's MAIN classification only. The additional codes list secondary
+    trades, so matching them would pull a school building into a bridge analysis because
+    it includes a footbridge. Acquisition already did the loose match.
+
+    NUTS matches the place of performance, falling back to the buyer's region for lots
+    that state no place (~1%). A federal buyer in Berlin can procure a bridge in Hesse.
+
+    Dates match publication_date — the same field acquisition selected on — falling back
+    to issue_date, which can precede publication by days.
+    """
+    kept = []
+    for row in rows:
+        if cpvs and not (row.get('cpv_main') or '').startswith(tuple(cpvs)):
+            continue
+        if nuts:
+            region = row.get('place_nuts3') or row.get('buyer_nuts') or ''
+            if not region.startswith(tuple(nuts)):
+                continue
+        when = row.get('publication_date') or row.get('issue_date')
+        if date_from and (when is None or when < date_from):
+            continue
+        if date_to and (when is None or when > date_to):
+            continue
+        kept.append(row)
+    return kept
+
+
+def scope_tag(cpvs, nuts, date_from, date_to, use_all):
+    """A filename fragment describing the scope, so two analyses cannot overwrite
+    each other's output."""
+    if use_all:
+        return 'all'
+    parts = []
+    if cpvs:
+        parts.append('cpv' + '-'.join(cpvs))
+    if nuts:
+        parts.append('nuts' + '-'.join(nuts))
+    if date_from or date_to:
+        parts.append(f"{date_from.strftime('%Y%m%d') if date_from else 'start'}"
+                     f"-{date_to.strftime('%Y%m%d') if date_to else 'end'}")
+    return '_'.join(parts)
+
+
 def _coverage(table, schema, title):
     print(f'\n  {title}')
     for field in schema.names:
@@ -1301,9 +1361,24 @@ def _coverage(table, schema, title):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--xml-dir', default='data/raw/xml')
-    ap.add_argument('--tenders-out', default='data/tenders.parquet')
-    ap.add_argument('--awards-out', default='data/awards.parquet')
+    ap.add_argument('--xml-dir', default='data/raw/xml',
+                    help='input folder of notice XML (default: data/raw/xml)')
+    ap.add_argument('--cpv', default=None, metavar='CODES',
+                    help='keep lots whose MAIN CPV starts with any of these, comma-'
+                         'separated (e.g. 45221 for bridges)')
+    ap.add_argument('--nuts', default=None, metavar='CODES',
+                    help='keep lots whose place of performance starts with any of these '
+                         "(e.g. DE7 for Hesse); falls back to the buyer's region")
+    ap.add_argument('--from', dest='date_from', default=None, metavar='YYYYMMDD',
+                    help='keep notices published on or after this date')
+    ap.add_argument('--to', dest='date_to', default=None, metavar='YYYYMMDD',
+                    help='keep notices published on or before this date')
+    ap.add_argument('--all', action='store_true',
+                    help='use every notice in the folder — say so deliberately')
+    ap.add_argument('--tenders-out', default=None,
+                    help='default: data/tenders_<scope>.parquet')
+    ap.add_argument('--awards-out', default=None,
+                    help='default: data/awards_<scope>.parquet')
     ap.add_argument('--limit', type=int, default=0, help='parse only the first N files')
     ap.add_argument('--coverage', action='store_true', help='print per-column fill rates')
     ap.add_argument('--strict', action='store_true',
@@ -1318,6 +1393,28 @@ def main():
     if args.fields_doc:
         write_fields_doc(args.fields_doc)
         return
+
+    cpvs = [c.strip() for c in args.cpv.split(',')] if args.cpv else None
+    nuts = [n.strip().upper() for n in args.nuts.split(',')] if args.nuts else None
+    date_from = _yyyymmdd(args.date_from, '--from')
+    date_to = _yyyymmdd(args.date_to, '--to')
+    # The XML folder is deliberately broader than any one analysis, so forgetting a
+    # filter is the likeliest mistake and the hardest to spot: nothing crashes, and a
+    # parquet mixing IT projects into a construction study looks entirely normal.
+    # Requiring the flag turns a silent wrong answer into a loud question.
+    if not any((cpvs, nuts, date_from, date_to, args.all)):
+        raise SystemExit(
+            'error: no scope given. Say what you want to analyse:\n'
+            '  --cpv 45221            bridges\n'
+            '  --nuts DE7             Hesse\n'
+            '  --from 20260401 --to 20260630   a period\n'
+            '  --all                  everything in the folder, deliberately')
+    if args.all and any((cpvs, nuts, date_from, date_to)):
+        raise SystemExit('error: --all cannot be combined with a filter')
+
+    tag = scope_tag(cpvs, nuts, date_from, date_to, args.all)
+    tenders_out = args.tenders_out or f'data/tenders_{tag}.parquet'
+    awards_out = args.awards_out or f'data/awards_{tag}.parquet'
 
     files = sorted(glob.glob(os.path.join(args.xml_dir, '*.xml')))
     if args.limit:
@@ -1348,8 +1445,22 @@ def main():
             for entry in failed:
                 fh.write(json.dumps(entry) + '\n')
 
-    # Must precede deduplication: the count needs every revision of the chain.
+    # Must precede both filtering and deduplication: the count needs every revision of
+    # the chain, including revisions the scope may later drop.
     add_correction_counts(tender_rows)
+
+    if not args.all:
+        before = len(tender_rows), len(award_rows)
+        tender_rows = scope_filter(tender_rows, cpvs, nuts, date_from, date_to)
+        # Awards follow their tender: an award for an out-of-scope lot is not part of
+        # this analysis, and keeping it would leave rows that join to nothing.
+        keys = {(r['procedure_id'], r['lot_id']) for r in tender_rows}
+        award_rows = [r for r in award_rows
+                      if (r['procedure_id'], r['lot_id']) in keys]
+        print(f'scope [{tag}]: tenders {before[0]} -> {len(tender_rows)}, '
+              f'awards {before[1]} -> {len(award_rows)}')
+        if not tender_rows:
+            print('  warning: the scope matched nothing — check --cpv/--nuts/--from/--to')
 
     if args.deduplicate:
         before = len(tender_rows), len(award_rows)
@@ -1360,7 +1471,7 @@ def main():
 
     tenders = pa.Table.from_pylist(tender_rows, schema=SCHEMA)
     awards = pa.Table.from_pylist(award_rows, schema=AWARD_SCHEMA)
-    for table, out in ((tenders, args.tenders_out), (awards, args.awards_out)):
+    for table, out in ((tenders, tenders_out), (awards, awards_out)):
         os.makedirs(os.path.dirname(out) or '.', exist_ok=True)
         pq.write_table(table, out, compression='zstd')
         print(f'{len(table):5d} rows x {table.num_columns:3d} cols -> {out} '
