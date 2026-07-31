@@ -132,6 +132,40 @@ The fresh model is a **candidate**, not automatically the new model:
   names its model, so any past prediction can be traced to the exact artifact that
   made it.
 
+#### Persisting models
+
+One folder per model; a model is promoted or rolled back as one unit:
+
+```
+models/
+  m2026-08-07/
+    model.cbm          # CatBoost native format: trees, feature names, cat columns
+    calibration.json   # the isotonic mapping fitted to THIS model's scores (Phase 4)
+    meta.json          # provenance: trained_at, code_version (git sha), data_cutoff,
+                       #   validation window + metrics, tripwire status, promoted y/n
+  m2026-08-14/…
+  registry.jsonl       # one line per model: id, promoted, headline metrics
+  CURRENT              # one-line text file naming the champion → rollback = edit one line
+```
+
+Rules:
+
+- **`.cbm`, never pickle.** `save_model()` / `load_model()` is CatBoost's stable
+  binary format — loads instantly on any machine and Python version, needs no
+  training data. Pickles break across library versions and execute code on load.
+- **The calibration layer belongs to its model.** An isotonic mapping is only valid
+  for the score distribution of the model it was fitted against; it travels in the
+  same folder and is never mixed across models.
+- **`meta.json` makes every model rebuildable.** `(raw archive, code_version, seed)`
+  fully determines a model, so the raw archive is the thing that needs real backup —
+  model files are cheap derivatives (a few MB each; a decade of weekly models is
+  ~1 GB, so old folders are kept, never deleted).
+- **Not in git.** The repo is public and models would grow it every week forever;
+  they live on disk next to `data/`, optionally synced to Drive alongside the
+  parquets for an off-machine copy.
+- **The predict step reads `CURRENT`;** every ledger row records the `model_id`
+  that scored it, closing the loop between registry and ledger.
+
 ### 4. Predict
 
 Score **every lot whose bid deadline has not passed**, including re-scores of lots
