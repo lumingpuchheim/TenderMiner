@@ -28,11 +28,27 @@ TRAINING.md carries over unchanged; the loop just runs it repeatedly.
                            └───────────┘
 ```
 
-**Cadence: weekly** (default; a config value, not an architecture decision). Why
-weekly fits the domain: bid deadlines run ~30+ days, so a lot flagged this week is
-still actionable; the corpus grows ~600 lots/week — enough for one meaningful batch;
-and awards trail tenders by months, so grading more often than weekly mostly grades
-nothing. Daily is possible later without changing anything but the scheduler.
+**The interval is a parameter, never a constant.** The loop is invoked as
+
+```bash
+python loop.py run --last 7d      # download the last 7 days of tenders
+python loop.py run --last 2w      # …or 2 weeks
+python loop.py run --last 3m      # …or 3 months (e.g. first backfill)
+```
+
+`--last X` (days/weeks/months) sets the download window; the checkpoint guarantees
+no gap regardless of what is passed — the effective window is
+`max(--last, time since the last successful run)`, so overlapping windows are safe
+(re-fetched notices dedup by `notice_id`) and missed runs self-heal. The scheduler
+only decides how often to invoke the command; the command assumes nothing about
+how often that is. Every other window in the system (validation window, track-record
+window) is likewise a config parameter — the numbers in this document are defaults,
+not constants.
+
+A starting default of weekly fits the domain — bid deadlines run ~30+ days, so a
+lot flagged this week is still actionable; the corpus grows ~600 lots/week; and
+awards trail tenders by months, so grading much more often mostly grades nothing —
+but changing it is a scheduler-config edit plus a different `--last`, no code.
 
 **"Online learning" here means the loop is online, not the algorithm.** We do a full
 retrain every cycle rather than incrementally updating the model. At this data size
@@ -72,7 +88,8 @@ time.
 
 ### 1. Download (network; the only step that touches the internet)
 
-Incremental fetch since `checkpoint.json` (the existing pattern from
+Fetch the window given by `--last X` (days/weeks/months), widened to cover
+everything since `checkpoint.json` if that is older (the existing pattern from
 DATA_PIPELINE.md): new notice XMLs into the raw archive, then the offline extractor
 appends to the growing store — the same two parquets the notebook reads, now
 maintained instead of one-off:
@@ -84,8 +101,9 @@ data/logs/checkpoint.json    # last fetched date → next run resumes here
 ```
 
 Dedup by `notice_id` (a re-downloaded notice replaces itself byte-identically);
-revisions of a lot are all kept — TRAINING.md rule 3 requires them. A failed week
-needs no repair: the next run's checkpoint simply covers two weeks.
+revisions of a lot are all kept — TRAINING.md rule 3 requires them. A failed run
+needs no repair: the next run's effective window stretches back to the checkpoint
+and covers the gap.
 
 ### 2. Grade (the loop's conscience)
 
@@ -95,7 +113,8 @@ drop-rules as TRAINING.md), and append the verdicts to `data/ledger/grades.jsonl
 The headline number grades the **last prediction made before the award** — that is
 the prediction a customer would have acted on.
 
-Output: a rolling track record, e.g. over the trailing 12 weeks:
+Output: a rolling track record over the configured track-record window
+(a parameter; e.g. the trailing 12 weeks):
 
 > 214 flagged-lot outcomes arrived. 82 ended with 0–1 bids (38/100 flags right;
 > chance was 17/100). Of all 96 single-bid lots that resolved, we had flagged 31
@@ -119,9 +138,10 @@ date-aware (rule 5), pure one-hot with the cardinality assertion.
 
 The fresh model is a **candidate**, not automatically the new model:
 
-- **Validation window:** the most recent ~8 weeks of awarded lots, held out
-  temporally (train on everything first published before the window, same
-  no-straddle assertion). This is a rolling version of the notebook's exam.
+- **Validation window:** the most recent stretch of awarded lots (a parameter;
+  default ~8 weeks), held out temporally (train on everything first published
+  before the window, same no-straddle assertion). This is a rolling version of
+  the notebook's exam.
 - **Promotion gate:** the candidate replaces the current champion only if it
   (a) passes the automated trust checks below, and (b) matches or beats the
   champion's PR-AUC on the validation window. Otherwise: keep the champion, log the
@@ -251,7 +271,8 @@ one, `tier` simply null until Phase 4).
 
 ## Open decisions (defaults proposed, none blocking Phase 1)
 
-- **Cadence** — weekly proposed; config value.
+- **Cadence** — how often the scheduler invokes `loop.py run --last X`; weekly
+  with `--last 7d` proposed as the starting default.
 - **Flag rule** — fixed threshold vs. "top N per week": tiers (Phase 4) largely
   dissolve this; until then, threshold 0.5 as in the notebook.
 - **Report delivery** — markdown file in `data/reports/` first; e-mail later.
