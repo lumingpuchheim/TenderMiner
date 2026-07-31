@@ -46,12 +46,22 @@ size). Why: raw string categoricals via `cat_features`, native nulls,
 ```python
 model = CatBoostClassifier(
     cat_features=CATEGORICAL_COLS,   # roles categorical + hierarchical prefixes; NO buyer_name
-    one_hot_max_size=128,            # leakage rule 4: pure one-hot, no target statistics
+    one_hot_max_size=1024,           # leakage rule 4: must EXCEED max categorical cardinality
     auto_class_weights='Balanced',
     eval_metric='PRAUC',
     verbose=False,
 )
+
+# Leakage rule 4 guard: above one_hot_max_size CatBoost silently switches a column
+# to CTR target statistics. Assert before every fit:
+assert max(X[c].nunique() for c in CATEGORICAL_COLS) <= model.get_params()['one_hot_max_size']
 ```
+
+`one_hot_max_size` must exceed the largest categorical cardinality — the engineered
+columns are NOT small (first training run, 2026-07-31, cpv45 Jan–Jun extract:
+`selection_criteria_types` joined-combo 650 categories, `cpv_additional__cpv4` 438,
+`place_nuts3__nuts3` 336, `buyer_nuts__nuts3` 300, `cpv_additional__cpv3` 210).
+1024 covers these; raise it (and rely on the assertion) if a new extract grows past it.
 
 ## Evaluation
 
@@ -95,9 +105,14 @@ Enforceable rules, in order of application:
    harmless) and target statistics (replace the category with its average outcome,
    e.g. "electrical: 13% single-bid" — the feature is made out of the answers, and
    computed carelessly a row's own label leaks into its own feature; a buyer with 2
-   lots, 1 single-bid, gets "50%" written onto both rows). v1 uses one-hot only:
-   all our categoricals are small enough (`one_hot_max_size=128` forces CatBoost to
-   one-hot everything and disables its target statistics). `buyer_name` (1,561
+   lots, 1 single-bid, gets "50%" written onto both rows). v1 uses one-hot only.
+   CatBoost one-hots a column ONLY while its cardinality is ≤ `one_hot_max_size`;
+   above that it silently switches the column to CTR target statistics — exactly
+   what this rule forbids. The engineered columns are not small (combos reach 650
+   categories; see the Model block), so `one_hot_max_size` must be set above the
+   largest categorical cardinality (1024 currently) AND every training run must
+   assert `max categorical cardinality <= one_hot_max_size` so the silent CTR
+   fallback can never happen. `buyer_name` (1,561
    buyers, most with a single lot) cannot be one-hot — 1,561 columns would just
    memorize labels — so it is EXCLUDED from v1 features.
 5. **Outcome-availability (governs v2's buyer history).** "This buyer's past
