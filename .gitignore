@@ -10,3 +10,7 @@ venv/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Model registry and CatBoost training scratch — on-disk artifacts, never committed
+models/
+catboost_info/
