@@ -1,6 +1,10 @@
 # ONLINE_LEARNING — the predict → grade → retrain loop
 
-Status: concept, not yet implemented. Turns the one-off training notebook
+Status: implemented in [`loop.py`](loop.py) (all four phases, including the
+trust checks and drift monitors). The customer-facing layer on top of the loop
+is specified separately in [`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md).
+
+Turns the one-off training notebook
 ([`train_single_bidder.ipynb`](train_single_bidder.ipynb), recipe in
 [`TRAINING.md`](TRAINING.md)) into a running service that stays current on its own.
 Data acquisition builds on [`DATA_PIPELINE.md`](DATA_PIPELINE.md); this document uses
