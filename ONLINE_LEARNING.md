@@ -115,7 +115,11 @@ The headline number grades the **last prediction made before the award** — tha
 the prediction a customer would have acted on.
 
 Output: a rolling track record over the configured track-record window
-(a parameter; e.g. the trailing 12 weeks):
+(a parameter; e.g. the trailing 12 weeks). **The headline is rank-based** — the
+product action is picking the most attractive tenders, so the number that
+matters is "did the top slice of our ranking end lonely more often than the
+rest?", reported overall and per trade (grade rows carry the lot's cpv3);
+the flag-at-threshold view is kept as a secondary line:
 
 > 214 flagged-lot outcomes arrived. 82 ended with 0–1 bids (38/100 flags right;
 > chance was 17/100). Of all 96 single-bid lots that resolved, we had flagged 31
@@ -147,7 +151,9 @@ The fresh model is a **candidate**, not automatically the new model:
   the notebook's exam.
 - **Promotion gate:** the candidate replaces the current champion only if it
   (a) passes the automated trust checks below, and (b) matches or beats the
-  champion's PR-AUC on the validation window. Otherwise: keep the champion, log the
+  champion's PR-AUC on the validation window. The gate also records the
+  product-shaped sorting number — the top-slice hit rate and lift on the
+  validation window — in the model's meta and the registry. Otherwise: keep the champion, log the
   failure, raise an alert. The system degrades to "last week's model" — never to
   "broken model".
 - **Model registry:** `models/m<date>/` holds the model file, its metrics, the

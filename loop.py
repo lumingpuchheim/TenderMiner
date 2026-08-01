@@ -34,6 +34,9 @@ import single_bidder as sb
 
 REPO = Path(__file__).resolve().parent
 
+SECTOR = {'450': 'general construction', '451': 'site preparation', '452': 'civil engineering',
+          '453': 'building installation', '454': 'finishing trades'}
+
 
 # ------------------------------------------------------------------ small utils
 
@@ -127,14 +130,20 @@ def download(paths, args, checkpoint):
 
 # ---------------------------------------------------------------- step 2: grade
 
-def grade(paths, aw, args):
+def grade(paths, tenders, aw, args):
     """Grade ledger predictions for lots whose award has now been published.
-    The headline grades the LAST prediction made before the award appeared."""
+    The headline grades the LAST prediction made before the award appeared.
+    Each grade row is stamped with the lot's 3-digit trade code (cpv3) so the
+    track record can be sliced per trade."""
     predictions = read_jsonl(paths.predictions)
     already = {(g['procedure_id'], g['lot_id']) for g in read_jsonl(paths.grades)}
     by_lot = {}
     for row in predictions:
         by_lot.setdefault((row['procedure_id'], row['lot_id']), []).append(row)
+
+    cpv3 = {}
+    for r in tenders[sb.KEY + ['cpv_main']].dropna(subset=['cpv_main']).itertuples():
+        cpv3[(r.procedure_id, r.lot_id)] = str(r.cpv_main)[:3]
 
     labeled = {(r.procedure_id, r.lot_id): (int(r.label), str(r.publication_date))
                for r in aw.itertuples()}
@@ -150,7 +159,7 @@ def grade(paths, aw, args):
         new_grades.append({
             'graded_at': now_utc().isoformat(timespec='seconds'),
             'procedure_id': lot[0], 'lot_id': lot[1],
-            'label': label, 'award_pub': award_pub,
+            'label': label, 'award_pub': award_pub, 'cpv3': cpv3.get(lot),
             'score': last['score'], 'flag': flag,
             'correct': flag == bool(label), 'model': last['model'],
         })
@@ -160,8 +169,25 @@ def grade(paths, aw, args):
     return new_grades
 
 
+def _top_slice_stats(rows, share):
+    """Hit rate of the top `share` of rows by score, vs the rows' base rate."""
+    if not rows:
+        return None
+    base = sum(g['label'] for g in rows) / len(rows)
+    k = max(1, round(len(rows) * share))
+    top = sorted(rows, key=lambda g: -g['score'])[:k]
+    hit = sum(g['label'] for g in top) / len(top)
+    return {'n': len(rows), 'k': k, 'base': base, 'hit': hit,
+            'lift': (hit / base) if base > 0 else None}
+
+
 def track_record(paths, args):
-    """Rolling verified performance over the track window (a parameter)."""
+    """Rolling verified performance over the track window (a parameter).
+
+    The headline is RANK-based — 'did the top of our ranking end lonely more
+    often than the rest?' — because the product action is picking the most
+    attractive tenders, not applying a score threshold. The flag-based numbers
+    are kept as a secondary view."""
     grades = read_jsonl(paths.grades)
     if not grades:
         return None
@@ -171,10 +197,25 @@ def track_record(paths, args):
         return None
     flagged = [g for g in recent if g['flag']]
     positives = [g for g in recent if g['label'] == 1]
+
+    by_trade = {}
+    for g in recent:
+        if g.get('cpv3'):
+            by_trade.setdefault(g['cpv3'], []).append(g)
+    trades = []
+    for cpv3, rows in sorted(by_trade.items()):
+        if len(rows) < args.min_trade_grades:
+            continue
+        s = _top_slice_stats(rows, args.top_slice)
+        trades.append({'cpv3': cpv3, 'name': SECTOR.get(cpv3, ''), **s})
+
     return {
         'window': args.track_window,
         'graded': len(recent),
         'base_rate': sum(g['label'] for g in recent) / len(recent),
+        'top': _top_slice_stats(recent, args.top_slice),
+        'top_share': args.top_slice,
+        'trades': trades,
         'flags': len(flagged),
         'flags_right': (sum(g['label'] for g in flagged) / len(flagged)) if flagged else None,
         'coverage': (sum(1 for g in positives if g['flag']) / len(positives)) if positives else None,
@@ -225,8 +266,17 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint):
             f'validation window too small ({split.n_test_lots} lots) — gate skipped')
     else:
         eval_model = sb.train(split.Xtr, split.ytr, split.wtr, cat_cols, **overrides)
-        val_metrics = sb.metrics(split.yte, sb.predict(eval_model, split.Xte), split.wte,
-                                 threshold=args.threshold)
+        p_val = sb.predict(eval_model, split.Xte)
+        val_metrics = sb.metrics(split.yte, p_val, split.wte, threshold=args.threshold)
+        # the product-shaped sorting check: hit rate of the top slice of the
+        # ranking on the validation window, vs the window's base rate
+        k = max(1, round(len(p_val) * args.top_slice))
+        idx = np.argsort(-p_val)[:k]
+        top_hit = float(np.average(split.yte[idx], weights=split.wte[idx]))
+        val_metrics['top_slice_share'] = args.top_slice
+        val_metrics['top_slice_hit'] = top_hit
+        val_metrics['top_slice_lift'] = (top_hit / val_metrics['base_rate']
+                                         if val_metrics['base_rate'] else None)
         gate['val_metrics'] = val_metrics
         # tripwire: too good to be true
         if val_metrics['roc_auc'] >= sb.TOO_GOOD_ROC:
@@ -312,18 +362,24 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint):
         'max_cardinality': int(card.max()),
         'val_pr_auc': None if val_metrics is None else val_metrics['pr_auc'],
         'val_roc_auc': None if val_metrics is None else val_metrics['roc_auc'],
+        'val_top_hit': None if val_metrics is None else val_metrics.get('top_slice_hit'),
+        'val_top_lift': None if val_metrics is None else val_metrics.get('top_slice_lift'),
         'gate': gate, 'promoted': promote,
         'threshold': args.threshold,
     }
     write_json(mdir / 'meta.json', meta)
     append_jsonl(paths.registry, [{'model_id': model_id, 'promoted': promote,
                                    'val_pr_auc': meta['val_pr_auc'],
+                                   'val_top_hit': meta['val_top_hit'],
+                                   'val_top_lift': meta['val_top_lift'],
                                    'trained_at': meta['trained_at']}])
     if promote:
         paths.current.parent.mkdir(parents=True, exist_ok=True)
         paths.current.write_text(model_id + '\n', encoding='utf-8')
+    lift = f" | top-{args.top_slice:.0%} val hit {meta['val_top_hit']:.2f} (lift {meta['val_top_lift']:.1f}x)" \
+        if meta['val_top_hit'] is not None else ''
     print(f'[learn] candidate {model_id} '
-          f"val PR-AUC {meta['val_pr_auc']} -> {'PROMOTED' if promote else 'champion kept'}")
+          f"val PR-AUC {meta['val_pr_auc']}{lift} -> {'PROMOTED' if promote else 'champion kept'}")
     for wmsg in gate['warnings']:
         print(f'[learn] warning: {wmsg}')
     return model_id, gate
@@ -389,15 +445,27 @@ def report(paths, tenders, args, record, gate, model_id, n_graded, n_predicted):
     for t in tenders.itertuples():
         info[(t.procedure_id, t.lot_id)] = t
     lines = [f'# TenderMining weekly report — {now_utc().date().isoformat()}', '']
-    if record and record['flags']:
-        fr = record['flags_right']
-        lines += ['## Verified track record',
-                  '',
-                  f"Over the trailing {record['window']}: {record['graded']} flagged-or-graded outcomes arrived. "
-                  f"Of {record['flags']} flags, {fr*100:.0f} of 100 were right "
-                  f"(chance in the same window: {record['base_rate']*100:.0f} of 100)."
-                  + (f" We caught {record['coverage']*100:.0f} of 100 single-bid lots." if record['coverage'] is not None else ''),
+    if record and record.get('top'):
+        t = record['top']
+        lines += ['## Verified track record (rank-based — the product view)', '',
+                  f"Over the trailing {record['window']}: {record['graded']} predicted lots got their outcome. "
+                  f"Of the **top {record['top_share']:.0%} of our ranking** ({t['k']} lots), "
+                  f"**{t['hit']*100:.0f} in 100 ended with 0-1 bids**, vs {t['base']*100:.0f} in 100 "
+                  f"across all graded lots — **lift {t['lift']:.1f}x**." if t['lift'] is not None else
+                  'Top-slice lift not computable (no positives in the window).',
                   '']
+        if record['trades']:
+            lines += ['Per trade (trades with enough graded lots):', '']
+            for tr in record['trades']:
+                lines.append(f"- {tr['cpv3']} {tr['name']}: top {record['top_share']:.0%} of our ranking hit "
+                             f"{tr['hit']*100:.0f} in 100, base {tr['base']*100:.0f} in 100 "
+                             f"(lift {tr['lift']:.1f}x, {tr['n']} graded lots)")
+            lines.append('')
+        if record['flags']:
+            fr = record['flags_right']
+            lines += [f"Secondary (flag view @ cut-off): of {record['flags']} flags, {fr*100:.0f} of 100 right; "
+                      f"caught {record['coverage']*100:.0f} of 100 single-bid lots." if fr is not None else '',
+                      '']
     else:
         lines += ['## Verified track record', '',
                   'No graded outcomes in the window yet — grading starts as awards arrive.', '']
@@ -449,7 +517,7 @@ def cmd_run(args):
     print(f'[store] {len(tenders)} tender rows, {len(awards)} award rows, '
           f'{data.groupby(sb.KEY).ngroups} labeled lots ({n_dropped} reporting errors dropped)')
 
-    new_grades = grade(paths, aw, args)
+    new_grades = grade(paths, tenders, aw, args)
     record = track_record(paths, args)
     model_id, gate = learn(paths, tenders, roles, data, aw, args, checkpoint)
     rows = predict_open(paths, tenders, roles, aw, args)
@@ -480,6 +548,10 @@ def main():
                      help='minimum lots in the validation window to run the gate')
     run.add_argument('--min-shuffle-positives', type=int, default=20, dest='min_shuffle_positives',
                      help='minimum positive val lots for the shuffled-label check to be meaningful')
+    run.add_argument('--top-slice', type=float, default=0.2, dest='top_slice',
+                     help='share of the ranking counted as "our picks" in rank-based metrics (default 0.2)')
+    run.add_argument('--min-trade-grades', type=int, default=25, dest='min_trade_grades',
+                     help='minimum graded lots per trade before its track record is reported')
     run.add_argument('--promote-epsilon', type=float, default=0.005, dest='promote_epsilon',
                      help='candidate may trail the champion by this much and still promote')
     run.add_argument('--iterations', type=int, default=None,
