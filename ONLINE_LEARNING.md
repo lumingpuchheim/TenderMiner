@@ -169,7 +169,7 @@ One folder per model; a model is promoted or rolled back as one unit:
 models/
   m2026-08-07/
     model.cbm          # CatBoost native format: trees, feature names, cat columns
-    calibration.json   # the isotonic mapping fitted to THIS model's scores (Phase 4)
+    calibration.json   # reserved: only if literal probabilities are ever needed (not planned)
     meta.json          # provenance: trained_at, code_version (git sha), data_cutoff,
                        #   validation window + metrics, tripwire status, promoted y/n
   m2026-08-14/…
@@ -201,12 +201,16 @@ Score **every lot whose bid deadline has not passed**, including re-scores of lo
 that received a corrigendum since last cycle (production matches training: whatever
 revision exists, score it). Append all scores to the ledger.
 
-**Customers see tiers, not raw probabilities.** The notebook showed the raw scores
-are over-confident at the top (calibration cell) and the top-50 ordering is noisy.
-So: fit a calibration layer (isotonic regression) on the validation window, then
-bucket into **HIGH / MEDIUM / LOW** by calibrated probability. A tier claim ("HIGH
-means roughly 2 in 5 end single-bid") is checkable against the track record;
-a raw "0.72" invites false precision.
+**Customers see tiers, not raw probabilities — and tiers are RANK-based.**
+The notebook showed the raw scores are over-confident at the top but the ordering
+is trustworthy, and the product question is "is this a good one?", not "what is
+the exact probability?". So tiers are quantiles of the weekly ranking — HIGH =
+top `--tier-high` share (default 10%), MEDIUM = next `--tier-medium` share
+(default 20%), LOW = the rest — no calibration model at all (decision
+2026-08-01: an isotonic layer is only needed if literal probabilities must ever
+be quoted; it is deliberately not built). A tier's real-world meaning is
+verified by the graded track record ("HIGH picks ended lonely X in 100"), which
+the report prints per tier as outcomes arrive.
 
 ### 5. Report
 
@@ -271,12 +275,13 @@ ledger private (private artifact storage or a private data repo).
    report gains its header sentence. *First provable claim.*
 3. **Promotion gate + trust checks** — candidate/champion, registry, automated
    tripwires and drift monitors. *The loop can now be left unattended.*
-4. **Calibration + tiers + report polish** — isotonic layer, HIGH/MEDIUM/LOW,
-   customer-ready formatting. *The output becomes a product, not a printout.*
+4. **Tiers + report polish** — rank-quantile HIGH/MEDIUM/LOW (no calibration
+   model needed), tier-shaped shortlist, per-tier track record, auto-refreshed
+   dashboard. *The output becomes a product, not a printout.*
 
 Each phase leaves a running system; nothing in a later phase changes the data
 written by an earlier one (the ledger format carries `model` and `tier` from day
-one, `tier` simply null until Phase 4).
+one, `tier` simply null until Phase 4 shipped).
 
 ## Open decisions (defaults proposed, none blocking Phase 1)
 

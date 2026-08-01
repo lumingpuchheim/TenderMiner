@@ -17,7 +17,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
-OUT = REPO / 'data' / 'reports' / 'dashboard.html'
 
 INK = '#111827'; INK2 = '#6b7280'; GRID = '#e5e7eb'; ACCENT = '#2563eb'; FILL = '#60a5fa'
 
@@ -128,16 +127,19 @@ def table(headers, rows):
 
 # ------------------------------------------------------------------- assemble
 
-def main():
-    registry = read_jsonl(REPO / 'models' / 'registry.jsonl')
-    predictions = read_jsonl(REPO / 'data' / 'ledger' / 'predictions.jsonl')
-    grades = read_jsonl(REPO / 'data' / 'ledger' / 'grades.jsonl')
-    checkpoint = json.loads((REPO / 'data' / 'logs' / 'loop_checkpoint.json').read_text(encoding='utf-8')) \
-        if (REPO / 'data' / 'logs' / 'loop_checkpoint.json').exists() else {}
-    current = (REPO / 'models' / 'CURRENT').read_text(encoding='utf-8').strip() \
-        if (REPO / 'models' / 'CURRENT').exists() else None
-    meta = json.loads((REPO / 'models' / current / 'meta.json').read_text(encoding='utf-8')) \
-        if current and (REPO / 'models' / current / 'meta.json').exists() else {}
+def main(data_dir=None, models_dir=None):
+    data = Path(data_dir) if data_dir else REPO / 'data'
+    models = Path(models_dir) if models_dir else REPO / 'models'
+    out = data / 'reports' / 'dashboard.html'
+    registry = read_jsonl(models / 'registry.jsonl')
+    predictions = read_jsonl(data / 'ledger' / 'predictions.jsonl')
+    grades = read_jsonl(data / 'ledger' / 'grades.jsonl')
+    checkpoint = json.loads((data / 'logs' / 'loop_checkpoint.json').read_text(encoding='utf-8')) \
+        if (data / 'logs' / 'loop_checkpoint.json').exists() else {}
+    current = (models / 'CURRENT').read_text(encoding='utf-8').strip() \
+        if (models / 'CURRENT').exists() else None
+    meta = json.loads((models / current / 'meta.json').read_text(encoding='utf-8')) \
+        if current and (models / current / 'meta.json').exists() else {}
 
     champ_preds = [p for p in predictions if p.get('model') == current]
     scores = [p['score'] for p in champ_preds]
@@ -152,7 +154,10 @@ def main():
         tile(f"{meta.get('val_pr_auc', 0):.2f}" if meta.get('val_pr_auc') is not None else '—',
              'sorting score (PR-AUC, validation)', 'chance = the base rate; 1.00 = perfect'),
         tile(f'{len(champ_preds):,}', 'open lots ranked by the champion',
-             f'{n_flagged:,} above the {threshold} cut-off'),
+             (lambda h, m: f'{h:,} HIGH · {m:,} MEDIUM tier' if h or m
+              else f'{n_flagged:,} above the {threshold} cut-off')(
+                 sum(1 for p in champ_preds if p.get('tier') == 'HIGH'),
+                 sum(1 for p in champ_preds if p.get('tier') == 'MEDIUM'))),
         tile(f'{len(grades):,}', 'graded outcomes so far',
              'grading starts as awards arrive' if not grades else 'see track record below'),
         tile(checkpoint.get('last_success_at', '—')[:16].replace('T', ' '), 'last successful run',
@@ -271,9 +276,9 @@ data/ledger/predictions.jsonl · data/ledger/grades.jsonl · data/logs/loop_chec
   code {{ background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-size: 12px; }}
 </style></head><body>{body}</body></html>'''
 
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(page, encoding='utf-8')
-    print(f'wrote {OUT}')
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(page, encoding='utf-8')
+    print(f'[dashboard] wrote {out}')
 
 
 if __name__ == '__main__':

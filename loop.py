@@ -160,7 +160,7 @@ def grade(paths, tenders, aw, args):
             'graded_at': now_utc().isoformat(timespec='seconds'),
             'procedure_id': lot[0], 'lot_id': lot[1],
             'label': label, 'award_pub': award_pub, 'cpv3': cpv3.get(lot),
-            'score': last['score'], 'flag': flag,
+            'score': last['score'], 'tier': last.get('tier'), 'flag': flag,
             'correct': flag == bool(label), 'model': last['model'],
         })
     append_jsonl(paths.grades, new_grades)
@@ -209,6 +209,13 @@ def track_record(paths, args):
         s = _top_slice_stats(rows, args.top_slice)
         trades.append({'cpv3': cpv3, 'name': SECTOR.get(cpv3, ''), **s})
 
+    tiers = []
+    for tier in ('HIGH', 'MEDIUM', 'LOW'):
+        rows = [g for g in recent if g.get('tier') == tier]
+        if rows:
+            tiers.append({'tier': tier, 'n': len(rows),
+                          'hit': sum(g['label'] for g in rows) / len(rows)})
+
     return {
         'window': args.track_window,
         'graded': len(recent),
@@ -216,6 +223,7 @@ def track_record(paths, args):
         'top': _top_slice_stats(recent, args.top_slice),
         'top_share': args.top_slice,
         'trades': trades,
+        'tiers': tiers,
         'flags': len(flagged),
         'flags_right': (sum(g['label'] for g in flagged) / len(flagged)) if flagged else None,
         'coverage': (sum(1 for g in positives if g['flag']) / len(positives)) if positives else None,
@@ -409,11 +417,22 @@ def predict_open(paths, tenders, roles, aw, args):
         'store schema no longer matches the champion model — retrain required'
     scores = sb.predict(model, X_open)
 
+    # rank-based tiers ("is it a good one?"), never probabilities: HIGH = top
+    # tier_high share of this batch's ranking, MEDIUM = next tier_medium share,
+    # LOW = the rest. Their real-world meaning comes from the graded track
+    # record ("HIGH picks ended lonely X in 100"), not from the score values.
+    n = len(scores)
+    ranks = np.empty(n, dtype=int)
+    ranks[np.argsort(-scores)] = np.arange(n)
+    n_high = max(1, round(n * args.tier_high))
+    n_med = max(1, round(n * args.tier_medium))
+    tiers = np.where(ranks < n_high, 'HIGH', np.where(ranks < n_high + n_med, 'MEDIUM', 'LOW'))
+
     seen = {(r['procedure_id'], r['lot_id'], r.get('notice_id'), r['model'])
             for r in read_jsonl(paths.predictions)}
     ts = now_utc().isoformat(timespec='seconds')
     rows = []
-    for (idx, t), score in zip(open_t.iterrows(), scores):
+    for (idx, t), score, tier in zip(open_t.iterrows(), scores, tiers):
         key = (t['procedure_id'], t['lot_id'], t.get('notice_id'), champ['model_id'])
         if key in seen:
             continue  # idempotent re-runs: same notice + same model scored once
@@ -424,7 +443,7 @@ def predict_open(paths, tenders, roles, aw, args):
             'publication_date': str(t.get('publication_date')),
             'deadline_date': str(t.get('deadline_date')),
             'score': float(score), 'threshold': args.threshold,
-            'flag': bool(score >= args.threshold), 'tier': None,
+            'flag': bool(score >= args.threshold), 'tier': str(tier),
         })
     append_jsonl(paths.predictions, rows)
     print(f'[predict] {len(rows)} new ledger rows ({len(open_t)} open rows scored, '
@@ -461,6 +480,12 @@ def report(paths, tenders, args, record, gate, model_id, n_graded, n_predicted):
                              f"{tr['hit']*100:.0f} in 100, base {tr['base']*100:.0f} in 100 "
                              f"(lift {tr['lift']:.1f}x, {tr['n']} graded lots)")
             lines.append('')
+        if record.get('tiers'):
+            lines += ['What each tier really meant (graded outcomes per tier):', '']
+            for t_ in record['tiers']:
+                lines.append(f"- {t_['tier']}: {t_['hit']*100:.0f} in 100 ended with 0-1 bids "
+                             f"({t_['n']} graded lots)")
+            lines.append('')
         if record['flags']:
             fr = record['flags_right']
             lines += [f"Secondary (flag view @ cut-off): of {record['flags']} flags, {fr*100:.0f} of 100 right; "
@@ -470,14 +495,14 @@ def report(paths, tenders, args, record, gate, model_id, n_graded, n_predicted):
         lines += ['## Verified track record', '',
                   'No graded outcomes in the window yet — grading starts as awards arrive.', '']
 
-    lines += [f'## Top open lots (by score, cut-off {args.threshold})', '',
-              '| score | flag | deadline | est. value | title |', '|---|---|---|---|---|']
+    lines += [f'## This week\'s shortlist (top {args.report_top} of the ranking)', '',
+              '| tier | score | deadline | est. value | title |', '|---|---|---|---|---|']
     for r in open_rows[:args.report_top]:
         t = info.get((r['procedure_id'], r['lot_id']))
         title = (str(getattr(t, 'title', ''))[:60] if t is not None else '')
         value = getattr(t, 'est_value_lot', None) if t is not None else None
         value = f'{value:,.0f}' if isinstance(value, (int, float)) and pd.notna(value) else ''
-        lines.append(f"| {r['score']:.2f} | {'X' if r['flag'] else ''} | "
+        lines.append(f"| {r.get('tier') or ''} | {r['score']:.2f} | "
                      f"{str(r.get('deadline_date'))[:10]} | {value} | {title} |")
 
     lines += ['', '## Health', '',
@@ -523,6 +548,12 @@ def cmd_run(args):
     rows = predict_open(paths, tenders, roles, aw, args)
     report(paths, tenders, args, record, gate, model_id, len(new_grades), len(rows))
 
+    try:
+        import render_dashboard
+        render_dashboard.main(data_dir=paths.data, models_dir=paths.models)
+    except Exception as e:  # the dashboard is a convenience; never fail the cycle over it
+        print(f'[dashboard] rendering failed: {e}')
+
     checkpoint['last_success_at'] = now_utc().isoformat(timespec='seconds')
     if date_to:
         checkpoint['last_success_to'] = date_to
@@ -550,6 +581,10 @@ def main():
                      help='minimum positive val lots for the shuffled-label check to be meaningful')
     run.add_argument('--top-slice', type=float, default=0.2, dest='top_slice',
                      help='share of the ranking counted as "our picks" in rank-based metrics (default 0.2)')
+    run.add_argument('--tier-high', type=float, default=0.10, dest='tier_high',
+                     help='share of the weekly ranking tiered HIGH (default 0.10)')
+    run.add_argument('--tier-medium', type=float, default=0.20, dest='tier_medium',
+                     help='share of the weekly ranking tiered MEDIUM, after HIGH (default 0.20)')
     run.add_argument('--min-trade-grades', type=int, default=25, dest='min_trade_grades',
                      help='minimum graded lots per trade before its track record is reported')
     run.add_argument('--promote-epsilon', type=float, default=0.005, dest='promote_epsilon',
