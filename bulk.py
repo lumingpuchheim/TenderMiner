@@ -37,9 +37,14 @@ import urllib.request
 from download import (XML_DIR, LOG_DIR, append_jsonl, elapsed, log, now_iso)
 
 MONTHLY_URL = "https://ted.europa.eu/packages/monthly/{year}-{month}"
+# Daily packages are addressed by OJS issue number (one issue per working day),
+# zero-padded to five digits after the year: 2026 issue 135 -> "202600135".
+DAILY_URL = "https://ted.europa.eu/packages/daily/{year}{issue:05d}"
 # how many days after month end we still treat a missing monthly package as
 # "not yet published" rather than an error (TED lags a few days)
 PENDING_GRACE_DAYS = 5
+# safety cap on daily packages fetched in one run (a full pending month is ~23)
+MAX_DAILY_PER_RUN = 40
 USER_AGENT = "TenderMining/0.1 (research; contact: repo lumingpuchheim/TenderMiner)"
 ARCHIVE_DIR = LOG_DIR.parent / "raw" / "packages"
 BULK_STATE = LOG_DIR / "bulk_state.json"
@@ -212,6 +217,129 @@ def download_package(url: str, dest, label: str, attempts: int = 5) -> bool:
     return False
 
 
+def daily_exists(year: int, issue: int) -> bool:
+    """HEAD probe: is this OJS issue's daily package published?"""
+    req = urllib.request.Request(DAILY_URL.format(year=year, issue=issue),
+                                 headers={"User-Agent": USER_AGENT}, method="HEAD")
+    try:
+        with urllib.request.urlopen(req, timeout=60):
+            return True
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            log(f"  [daily] probe {year}#{issue}: HTTP {e.code} — treating as absent")
+        return False
+    except (urllib.error.URLError, OSError, TimeoutError) as e:
+        log(f"  [daily] probe {year}#{issue}: {e} — treating as absent")
+        return False
+
+
+def issue_guess(year: int) -> int:
+    """Rough current OJS issue number: one issue per working day of the year."""
+    today = dt.date.today()
+    if year != today.year:
+        return 260
+    doy = (today - dt.date(year, 1, 1)).days + 1
+    return max(1, round(doy * 5 / 7))
+
+
+def latest_issue(year: int, guess: int) -> int | None:
+    """Highest published OJS issue, found by cheap HEAD probes around a guess."""
+    n = max(1, guess)
+    if daily_exists(year, n):
+        while daily_exists(year, n + 1):
+            n += 1
+        return n
+    while n > 1 and not daily_exists(year, n):
+        n -= 1
+    return n if daily_exists(year, n) else None
+
+
+def peek_publication_date(path) -> str | None:
+    """Publication date (YYYYMMDD) of the first notice in a package. One issue
+    is one publication day, so a single notice dates the whole package."""
+    for _name, raw in iter_notice_xml(path):
+        m = PUBLICATION_DATE_RE.search(raw.decode("utf-8", "replace"))
+        if m:
+            return m.group(1)[:10].replace("-", "")
+    return None
+
+
+def fetch_pending_daily(year, month, out_dir, country, cpvs, cpv_re,
+                        date_from, date_to, scope, state, keep_archives):
+    """Cover a month whose monthly package is not yet published via TED's DAILY
+    packages: walk DOWN from the newest published issue, processing each not-yet-
+    done issue, and stop at the first issue that is already done or whose
+    publication day predates the window. Issue numbers are contiguous working
+    days, so no date->issue mapping is needed. When the monthly package appears
+    later, re-processing it is harmless (already-written notices are skipped).
+
+    Returns (totals_dict, failures_list)."""
+    totals = {"scanned": 0, "matched": 0, "written": 0}
+    failures: list[str] = []
+    last_day = calendar.monthrange(year, month)[1]
+    seg_from = max(date_from, f"{year}{month:02d}01")
+    seg_to = min(date_to, f"{year}{month:02d}{last_day:02d}")
+
+    guess = int(state.get(f"daily-latest|{year}") or issue_guess(year))
+    top = latest_issue(year, guess)
+    if top is None:
+        log(f"  [daily] no published issues found for {year} — nothing to fetch")
+        return totals, failures
+    state[f"daily-latest|{year}"] = top
+    save_state(state)
+
+    issue, fetched = top, 0
+    while issue >= 1 and fetched < MAX_DAILY_PER_RUN:
+        # done-keys are range-independent on purpose: an issue is one publication
+        # day, and one pass over it with a window containing that day is complete.
+        key = f"daily|{out_dir}|{country}|{scope}|{year}#{issue:03d}"
+        if state.get(key, {}).get("done"):
+            break                      # everything below was covered by earlier runs
+        label = f"  [daily] {year}-S{issue:03d}"
+        archive = ARCHIVE_DIR / f"daily-{year}-{issue:03d}.tar.gz"
+        if not archive.exists():
+            if not download_package(DAILY_URL.format(year=year, issue=issue),
+                                    archive, label):
+                failures.append(f"daily {year}#{issue}: download did not complete")
+                break
+        try:
+            day = peek_publication_date(archive)
+        except (tarfile.TarError, EOFError) as e:
+            log(f"{label} ! corrupt archive ({e}) — deleting, re-run to retry")
+            archive.unlink(missing_ok=True)
+            failures.append(f"daily {year}#{issue}: corrupt archive ({e})")
+            break
+        if day and day < seg_from:
+            log(f"{label} covers {day}, before window start {seg_from} — "
+                f"daily coverage complete")
+            if not keep_archives:
+                archive.unlink(missing_ok=True)
+            break
+        try:
+            scanned, matched, written = process_package(
+                archive, out_dir, country, cpvs, cpv_re, seg_from, seg_to, label)
+        except (tarfile.TarError, EOFError) as e:
+            log(f"{label} ! corrupt archive ({e}) — deleting, re-run to retry")
+            archive.unlink(missing_ok=True)
+            failures.append(f"daily {year}#{issue}: corrupt archive ({e})")
+            break
+        if scanned == 0:
+            failures.append(f"daily {year}#{issue}: no notices found in package")
+            break
+        for k, v in zip(totals, (scanned, matched, written)):
+            totals[k] += v
+        state[key] = {"done": True, "day": day, "scanned": scanned,
+                      "matched": matched, "written": written, "at": now_iso()}
+        save_state(state)
+        log(f"{label} ({day}) scanned {scanned} · matched {matched} · "
+            f"written {written} [{elapsed()}]")
+        if not keep_archives:
+            archive.unlink(missing_ok=True)
+        fetched += 1
+        issue -= 1
+    return totals, failures
+
+
 def iter_notice_xml(path):
     """Yield (member_name, xml_bytes) for every notice in a package.
 
@@ -341,11 +469,20 @@ def main() -> None:
                 # TED publishes a month's package only after the month ends (plus a
                 # few days of lag). A missing package for a month that is still
                 # running — or only just ended — is a pending month, not a failure:
-                # the next run simply retries it. Only a missing PAST month is real.
+                # cover it via the DAILY packages instead, and let a later run pick
+                # up the monthly package once it appears. Only a missing PAST
+                # month is a real failure.
                 month_end = dt.date(year, month, calendar.monthrange(year, month)[1])
                 if month_end >= dt.date.today() - dt.timedelta(days=PENDING_GRACE_DAYS):
-                    log(f"{label} package not yet published (month still pending) — "
-                        f"will retry on a later run")
+                    log(f"{label} monthly package not yet published — "
+                        f"covering via daily packages")
+                    d_totals, d_failures = fetch_pending_daily(
+                        year, month, out_dir, args.country, cpvs, cpv_re,
+                        args.date_from, args.date_to, scope, state,
+                        args.keep_archives)
+                    for k, v in d_totals.items():
+                        totals[k] += v
+                    failures.extend(d_failures)
                     continue
                 failures.append(f"{year}-{month:02d}: download did not complete")
                 continue

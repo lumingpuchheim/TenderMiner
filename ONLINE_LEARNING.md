@@ -89,7 +89,11 @@ Fetch the window given by `--last X` (days/weeks/months), widened to cover
 everything since `checkpoint.json` if that is older (the existing pattern from
 DATA_PIPELINE.md): new notice XMLs into the raw archive, then the offline extractor
 appends to the growing store — the same two parquets the notebook reads, now
-maintained instead of one-off:
+maintained instead of one-off. Finished months come from TED's monthly packages;
+the **running month** (whose monthly package does not exist yet) is covered by
+TED's **daily packages**, so a tender published on Tuesday is in Wednesday's run —
+when the monthly package appears later, re-processing it is harmless (notices
+dedup by ID):
 
 ```
 data/store/tenders.parquet   # every notice revision, roles in column metadata
