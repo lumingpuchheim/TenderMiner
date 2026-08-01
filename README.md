@@ -1,25 +1,152 @@
 # TenderMining
 
-Scripts for exploring public-procurement (tender) open data from two sources:
+Predicts, on the day a German construction tender is published, whether it will
+end with **0 or 1 bids** — a low-competition lot a contractor can win without a
+price war. Data comes from **TED** (*Tenders Electronic Daily*, the EU-wide
+publication service); the German *Bekanntmachungsservice*
+(oeffentlichevergabe.de) was explored as an alternative source.
 
-- **oeffentlichevergabe.de** — the German *Bekanntmachungsservice* (national + EU notices).
-- **TED** — *Tenders Electronic Daily*, the EU-wide service (above-threshold notices).
+Key documents: [`ONLINE_LEARNING.md`](ONLINE_LEARNING.md) (the running system),
+[`TRAINING.md`](TRAINING.md) (model recipe + leakage rules),
+[`FIELDS.md`](FIELDS.md) (every data field and its role),
+[`DATA_PIPELINE.md`](DATA_PIPELINE.md) (architecture),
+[`BUSINESS_CASE.md`](BUSINESS_CASE.md) (value case),
+[`train_single_bidder.ipynb`](train_single_bidder.ipynb) (the original
+experiment, fully explained in plain language).
 
-Findings are written up in [`FINDINGS_oeffentlichevergabe.md`](FINDINGS_oeffentlichevergabe.md)
-and [`FINDINGS_ted.md`](FINDINGS_ted.md). The sourced value case for the project is in
-[`BUSINESS_CASE.md`](BUSINESS_CASE.md).
+## The production pipeline — what runs and how
+
+```
+loop.py  (the weekly cycle — the ONE command you run)
+   ├─ calls bulk.py       download new notices from TED packages
+   ├─ calls features.py   parse notice XML -> the two parquet tables
+   └─ imports single_bidder.py   train / evaluate / predict functions
+```
+
+### loop.py — the weekly cycle
+
+One command executes the whole predict → grade → retrain cycle described in
+[`ONLINE_LEARNING.md`](ONLINE_LEARNING.md):
+
+```bash
+python loop.py run --last 7d
+```
+
+What one run does, in order:
+
+1. **Download** the last X days of notices (`--last 7d/2w/6m`; the window widens
+   automatically to cover any gap since the previous successful run).
+2. **Rebuild the store** — `data/store/tenders.parquet` + `awards.parquet` from
+   the raw XML archive.
+3. **Grade**: every past prediction whose award has now been published is marked
+   right/wrong in `data/ledger/grades.jsonl` — the verified track record.
+4. **Learn**: retrain a candidate model; it replaces the current champion only
+   if it passes the trust checks (leakage tripwires) *and* matches or beats the
+   champion's validation score. Models live in `models/<id>/`;
+   `models/CURRENT` names the champion.
+5. **Predict**: score every open lot (deadline not passed) with the champion;
+   append to `data/ledger/predictions.jsonl` (append-only, never rewritten).
+6. **Report**: write `data/reports/report_<date>.md` — track record first, then
+   the ranked list of open lots, then a health footer.
+
+Useful options (all windows are parameters, nothing is hard-coded):
+`--cpv 45` scope (default construction) · `--country DEU` · `--threshold 0.5`
+flag cut-off · `--val-window 8w` promotion-gate window · `--track-window 12w`
+track-record window · `--skip-download` offline run on the existing store ·
+`--data-dir` / `--models-dir` alternative locations.
+
+Scheduled on this machine as Windows task **"TenderMining weekly loop"**
+(Mondays 08:15, catches up if the machine was off; output appends to
+`data/logs/loop_scheduled.log`).
+
+### bulk.py — bulk notice download from TED packages
+
+Fetches every notice in a date window by downloading TED's prebuilt packages
+and filtering locally (country / CPV / date) — complete by construction, unlike
+the Search API, which silently truncates large result sets.
+
+```bash
+python bulk.py --from 20260101 --to 20260630 --country DEU --cpv 45
+```
+
+- Finished months come from **monthly packages**; the **running month** (whose
+  monthly package TED has not published yet) is covered by **daily packages**
+  automatically. Re-runs skip finished months/days (state in
+  `data/logs/bulk_state.json`); re-downloaded notices dedup by ID.
+- Output: one XML per notice in `data/raw/xml/` — the raw archive, the one
+  thing that must be backed up.
+- `--redo` reprocesses done months; `--keep-archives` keeps the tar.gz files;
+  `--cpv-re` regex scope instead of `--cpv`.
+
+### features.py — notice XML → the two parquet tables
+
+Parses the raw archive into the tables everything downstream reads. Each column
+carries a `role` tag in the parquet metadata (see [`FIELDS.md`](FIELDS.md));
+feature selection is driven by these roles, never by hand-picked lists.
+
+```bash
+python features.py --xml-dir data/raw/xml --cpv 45 \
+    --tenders-out data/store/tenders.parquet --awards-out data/store/awards.parquet
+```
+
+- `tenders.parquet` — one row per (procedure, lot) *per notice version*, call
+  time only. `awards.parquet` — one row per lot result (outcome + bid count).
+- `--from/--to/--nuts` narrow the scope; `--coverage` prints fill rates;
+  `--fields-doc` regenerates FIELDS.md.
+- **Do not use `--deduplicate` for training data** — every revision must stay a
+  row (TRAINING.md, leakage rule 3).
+
+### single_bidder.py — the model logic (importable module, no CLI)
+
+The training/estimation/prediction functions used by both the notebook and
+loop.py: `load_with_roles`, `assemble` (label + source firewall),
+`build_features` (role-driven), `temporal_split` (group-aware, 1/k weights),
+`train` / `predict` / `metrics`, `cpv4_baseline`, the tripwire helpers, and
+`open_tenders`. Import it; don't run it:
+
+```python
+import single_bidder as sb
+tenders, roles = sb.load_with_roles('data/store/tenders.parquet')
+```
+
+(`buyer_history` exists as a documented experiment only — deliberately not used
+by the pipeline.)
+
+### download.py — Search-API download job (alternative to bulk.py)
+
+The older network component (spec: `pipeline/download.md`): discovers notices
+via the TED Search API, fetches their XML, and attempts to retrieve GAEB
+bill-of-quantities files from the buyer platforms linked inside each notice.
+Use it when GAEB retrieval matters; **the loop uses bulk.py**, which is
+complete by construction and needs no discovery step.
+
+### extractor.py — quick stats on the raw archive
+
+```bash
+python extractor.py stats data/raw/xml     # per-lot bidder counts, summary
+```
 
 ## Requirements
 
-- **Python 3** (tested on 3.13). **No third-party packages** — standard library only
-  (`urllib`, `json`, `zipfile`). Nothing to `pip install`.
-- Internet access. Both APIs are public and need **no API key**.
+- **Python 3** (tested on 3.13).
+- The **exploration scripts** below need only the standard library.
+- The **production pipeline** (`loop.py`, `features.py`, `single_bidder.py`)
+  additionally needs: `pip install pandas pyarrow catboost scikit-learn`.
+- Internet access; all TED endpoints are public, **no API key**.
 - Run every command from the repository root. Downloaded data lands in `data/`
-  (git-ignored; safe to delete and re-fetch).
+  (git-ignored). `data/raw/` and `data/ledger/` are the two things worth backing
+  up — everything else is rebuildable.
 
 ```bash
 cd C:\Users\user\workspace\TenderMining
 ```
+
+---
+
+## Exploration scripts (one-off schema surveys, stdlib only)
+
+Findings are written up in [`FINDINGS_oeffentlichevergabe.md`](FINDINGS_oeffentlichevergabe.md)
+and [`FINDINGS_ted.md`](FINDINGS_ted.md).
 
 ---
 
