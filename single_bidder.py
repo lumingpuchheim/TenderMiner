@@ -199,14 +199,19 @@ class Split:
         return float(np.average(self.yte, weights=self.wte))
 
 
-def temporal_split(data, X, quantile=0.8):
+def temporal_split(data, X, quantile=0.8, threshold=None):
     """Temporal group-aware split (leakage rule 3): a lot goes wholly to train or
     test by its FIRST publication_date; rows weighted 1/k (k = revision count).
-    Asserts no lot straddles the boundary."""
+    Asserts no lot straddles the boundary.
+
+    threshold: explicit boundary date (lots first published after it go to test);
+    when omitted, the quantile of lot first-publication dates is used."""
     pub = pd.to_datetime(data['publication_date'])
     first_pub = pub.groupby([data[k] for k in KEY]).transform('min')
     lot_first = pub.groupby([data[k] for k in KEY]).min()
-    threshold = lot_first.quantile(quantile)
+    if threshold is None:
+        threshold = lot_first.quantile(quantile)
+    threshold = pd.Timestamp(threshold)
 
     is_train = (first_pub <= threshold).to_numpy()
     train_lots = set(map(tuple, data.loc[is_train, KEY].drop_duplicates().values))

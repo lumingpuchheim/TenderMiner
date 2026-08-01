@@ -76,9 +76,6 @@ Why this is the one component that must exist before anything else:
 2. **It is the sales asset.** "Of the lots we flagged in the last quarter whose
    outcome is now public, 39 of 100 ended with 0–1 bids, versus 17 by chance" is a
    sentence a buyer can verify. It can only be written from a ledger.
-3. **It feeds v2.** The buyer-history feature grows from exactly this kind of
-   date-stamped record; the loop is what un-starves it (see the v2 verdict in the
-   notebook: 14% coverage in training will rise mechanically every week).
 
 A lot gets a new ledger row each time it is scored — including re-scores after a
 corrigendum. Rows are never updated; grading joins ledger rows to outcomes at read
@@ -132,9 +129,11 @@ Grading rules that keep it honest:
 
 ### 3. Learn (retrain + promote)
 
-Retrain on **all labeled lots to date** using the notebook's exact recipe: features
-mechanically by role, every revision a row at 1/k weight, buyer history computed
-date-aware (rule 5), pure one-hot with the cardinality assertion.
+Retrain on **all labeled lots to date** using the notebook's v1 recipe: features
+mechanically by role from the notice only, every revision a row at 1/k weight,
+pure one-hot with the cardinality assertion. **No buyer-derived features** — the
+v2 buyer-history encoder stays a notebook experiment and is deliberately not
+wired into the loop (decision 2026-07-31: not worth the complexity).
 
 The fresh model is a **candidate**, not automatically the new model:
 
@@ -222,7 +221,7 @@ TRAINING.md rule 6 becomes code that gates promotion:
 | Shuffled-label run | monthly, and after any pipeline code change | shuffled PR-AUC > 1.5× base rate → block |
 | Base-rate drift | every cycle | single-bid rate outside historical band → warn in report |
 | Missingness drift | every cycle | a feature's null-rate jumps (source schema changed under us) → warn |
-| Award-latency drift | every cycle | median tender→award gap shifts materially → warn (affects grading delay and v2 coverage) |
+| Award-latency drift | every cycle | median tender→award gap shifts materially → warn (affects grading delay) |
 | Score-distribution drift | every cycle | this week's score histogram diverges from last month's → warn |
 
 Warnings appear in the report footer; blocks keep the champion and notify. Nothing
