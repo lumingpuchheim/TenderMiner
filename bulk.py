@@ -37,6 +37,9 @@ import urllib.request
 from download import (XML_DIR, LOG_DIR, append_jsonl, elapsed, log, now_iso)
 
 MONTHLY_URL = "https://ted.europa.eu/packages/monthly/{year}-{month}"
+# how many days after month end we still treat a missing monthly package as
+# "not yet published" rather than an error (TED lags a few days)
+PENDING_GRACE_DAYS = 5
 USER_AGENT = "TenderMining/0.1 (research; contact: repo lumingpuchheim/TenderMiner)"
 ARCHIVE_DIR = LOG_DIR.parent / "raw" / "packages"
 BULK_STATE = LOG_DIR / "bulk_state.json"
@@ -335,6 +338,15 @@ def main() -> None:
         if not archive.exists():
             if not download_package(MONTHLY_URL.format(year=year, month=month),
                                     archive, label):
+                # TED publishes a month's package only after the month ends (plus a
+                # few days of lag). A missing package for a month that is still
+                # running — or only just ended — is a pending month, not a failure:
+                # the next run simply retries it. Only a missing PAST month is real.
+                month_end = dt.date(year, month, calendar.monthrange(year, month)[1])
+                if month_end >= dt.date.today() - dt.timedelta(days=PENDING_GRACE_DAYS):
+                    log(f"{label} package not yet published (month still pending) — "
+                        f"will retry on a later run")
+                    continue
                 failures.append(f"{year}-{month:02d}: download did not complete")
                 continue
         else:
