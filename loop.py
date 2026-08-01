@@ -396,11 +396,13 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint):
 # -------------------------------------------------------------- step 4: predict
 
 def predict_open(paths, tenders, roles, aw, args):
-    """Score every open lot with the champion; append new rows to the ledger."""
+    """Score every open lot with the champion; append new rows to the ledger.
+    Returns (new_ledger_rows, all_scores_this_cycle) — the full score array
+    feeds the score-distribution drift monitor even when dedup writes no rows."""
     champ = current_champion(paths)
     if champ is None:
         print('[predict] no champion model — nothing to score')
-        return []
+        return [], np.array([])
     from catboost import CatBoostClassifier
     model = CatBoostClassifier()
     model.load_model(str(paths.models / champ['model_id'] / 'model.cbm'))
@@ -411,7 +413,7 @@ def predict_open(paths, tenders, roles, aw, args):
     open_t = open_t[(deadline.isna()) | (deadline.dt.date.astype(str) >= today)]
     if open_t.empty:
         print('[predict] no open lots')
-        return []
+        return [], np.array([])
     X_open, _, _, _ = sb.build_features(open_t, roles, list_frame=tenders)
     assert list(X_open.columns) == list(model.feature_names_), \
         'store schema no longer matches the champion model — retrain required'
@@ -448,12 +450,122 @@ def predict_open(paths, tenders, roles, aw, args):
     append_jsonl(paths.predictions, rows)
     print(f'[predict] {len(rows)} new ledger rows ({len(open_t)} open rows scored, '
           f'model {champ["model_id"]})')
-    return rows
+    return rows, scores
+
+
+# ------------------------------------------------------------- drift monitors
+
+
+def _psi(hist, now, bins=10):
+    """Population stability index of `now` vs `hist`, on hist's quantile bins.
+    ~0 = same shape; >0.25 is the conventional 'population has shifted' mark."""
+    edges = np.unique(np.quantile(hist, np.linspace(0, 1, bins + 1)))
+    if len(edges) < 3:
+        return None  # hist scores nearly constant — no meaningful histogram
+    edges[0], edges[-1] = -np.inf, np.inf
+    p = np.histogram(hist, bins=edges)[0] / len(hist)
+    q = np.histogram(now, bins=edges)[0] / len(now)
+    p, q = np.clip(p, 1e-4, None), np.clip(q, 1e-4, None)
+    return float(np.sum((q - p) * np.log(q / p)))
+
+
+def drift_monitors(tenders, aw, prior_predictions, scores_now, args):
+    """The four every-cycle drift monitors from ONLINE_LEARNING.md — pure
+    reads that WARN in the report footer, never block promotion. They are what
+    says "the market moved" before the track record sours.
+
+    Recent = the trailing --drift-window; each monitor skips itself (and says
+    so) when either side has too few rows to mean anything."""
+    checks, warnings = {}, []
+    cutoff = now_utc() - parse_window(args.drift_window)
+
+    def result(name, status, detail):
+        checks[name] = f'{status} ({detail})'
+        if status == 'WARN':
+            warnings.append(f'{name}: {detail}')
+
+    # base-rate drift: single-bid rate of recently awarded lots vs the band of
+    # monthly rates over history (mean ± max(2σ, 0.02) across qualifying months)
+    award_pub = pd.to_datetime(aw['publication_date'], errors='coerce')
+    recent_mask = award_pub >= pd.Timestamp(cutoff.date())
+    hist_lots, recent_lots = aw[~recent_mask], aw[recent_mask]
+    monthly = hist_lots.groupby(award_pub[~recent_mask].dt.to_period('M'))['label'] \
+        .agg(['mean', 'size'])
+    monthly = monthly[monthly['size'] >= args.drift_min_lots]
+    if len(monthly) < 3 or len(recent_lots) < args.drift_min_lots:
+        result('base_rate', 'skipped',
+               f'{len(monthly)} qualifying months, {len(recent_lots)} recent awards — too little history')
+    else:
+        mid, half = monthly['mean'].mean(), max(2 * monthly['mean'].std(), 0.02)
+        rate = recent_lots['label'].mean()
+        detail = (f'single-bid rate {rate:.3f} vs historical band '
+                  f'{mid - half:.3f}..{mid + half:.3f} over {len(monthly)} months')
+        result('base_rate', 'ok' if mid - half <= rate <= mid + half else 'WARN', detail)
+
+    # missingness drift: a notice field's null-rate jumping means the source
+    # schema changed under us — compare recent notices vs all earlier ones
+    tender_pub = pd.to_datetime(tenders['publication_date'], errors='coerce')
+    t_recent = tenders[tender_pub >= pd.Timestamp(cutoff.date())]
+    t_hist = tenders[tender_pub < pd.Timestamp(cutoff.date())]
+    if len(t_recent) < args.drift_min_lots or len(t_hist) < args.drift_min_lots:
+        result('missingness', 'skipped',
+               f'{len(t_recent)} recent / {len(t_hist)} historical notices — too few rows')
+    else:
+        jumps = (t_recent.isna().mean() - t_hist.isna().mean()).abs().sort_values(ascending=False)
+        moved = jumps[jumps > args.missing_jump]
+        if moved.empty:
+            result('missingness', 'ok',
+                   f'max null-rate change {jumps.iloc[0]:.2f} ({jumps.index[0]}), '
+                   f'threshold {args.missing_jump:.2f}')
+        else:
+            top = ', '.join(f'{c} {t_hist[c].isna().mean():.2f}->{t_recent[c].isna().mean():.2f}'
+                            for c in moved.index[:4])
+            result('missingness', 'WARN', f'{len(moved)} column(s) jumped: {top}')
+
+    # award-latency drift: median tender→award gap shifting stretches (or
+    # shortens) how long predictions stay ungraded — the report should say so
+    first_pub = tender_pub.groupby([tenders[k] for k in sb.KEY]).min() \
+        .rename('first_pub').reset_index()
+    joined = aw[sb.KEY].assign(award_pub=award_pub.to_numpy()) \
+        .merge(first_pub, on=sb.KEY, how='left')
+    gap_days = (joined['award_pub'] - joined['first_pub']).dt.days
+    g_recent = gap_days[recent_mask.to_numpy()].dropna()
+    g_hist = gap_days[~recent_mask.to_numpy()].dropna()
+    if len(g_recent) < args.drift_min_lots or len(g_hist) < args.drift_min_lots:
+        result('award_latency', 'skipped',
+               f'{len(g_recent)} recent / {len(g_hist)} historical gaps — too few awards')
+    else:
+        med_r, med_h = float(g_recent.median()), float(g_hist.median())
+        # material = a shift a human would call one: ≥14 days AND ≥25% of the norm
+        material = max(14.0, 0.25 * med_h)
+        detail = f'median gap {med_r:.0f}d recently vs {med_h:.0f}d historically'
+        result('award_latency', 'WARN' if abs(med_r - med_h) >= material else 'ok', detail)
+
+    # score-distribution drift: this cycle's scores vs the trailing month of
+    # ledger scores (before this run) — a shifted histogram means the open-lot
+    # population or the champion's view of it moved
+    ledger_cut = (now_utc() - timedelta(days=35)).isoformat(timespec='seconds')
+    hist_scores = np.array([r['score'] for r in prior_predictions if str(r['ts']) >= ledger_cut])
+    if len(scores_now) < args.drift_min_lots or len(hist_scores) < args.drift_min_lots:
+        result('score_distribution', 'skipped',
+               f'{len(scores_now)} scores this cycle / {len(hist_scores)} in trailing month — too few')
+    else:
+        psi = _psi(hist_scores, np.asarray(scores_now))
+        if psi is None:
+            result('score_distribution', 'skipped', 'trailing-month scores nearly constant')
+        else:
+            result('score_distribution', 'WARN' if psi >= args.psi_warn else 'ok',
+                   f'PSI {psi:.3f} vs trailing month ({len(hist_scores)} ledger scores), '
+                   f'warn at {args.psi_warn:.2f}')
+
+    for name, status in checks.items():
+        print(f'[drift] {name}: {status}')
+    return {'checks': checks, 'warnings': warnings}
 
 
 # --------------------------------------------------------------- step 5: report
 
-def report(paths, tenders, args, record, gate, model_id, n_graded, n_predicted):
+def report(paths, tenders, args, record, gate, drift, model_id, n_graded, n_predicted):
     predictions = read_jsonl(paths.predictions)
     latest_model = {}
     for r in predictions:
@@ -516,6 +628,11 @@ def report(paths, tenders, args, record, gate, model_id, n_graded, n_predicted):
             lines.append(f'- TRUST CHECK FAILED: {fmsg}')
         for wmsg in gate.get('warnings', []):
             lines.append(f'- WARNING: {wmsg}')
+    if drift:
+        for name, status in drift['checks'].items():
+            lines.append(f'- drift {name}: {status}')
+        for wmsg in drift['warnings']:
+            lines.append(f'- DRIFT WARNING: {wmsg}')
 
     paths.reports.mkdir(parents=True, exist_ok=True)
     out = paths.reports / f'report_{now_utc().date().isoformat()}.md'
@@ -545,8 +662,10 @@ def cmd_run(args):
     new_grades = grade(paths, tenders, aw, args)
     record = track_record(paths, args)
     model_id, gate = learn(paths, tenders, roles, data, aw, args, checkpoint)
-    rows = predict_open(paths, tenders, roles, aw, args)
-    report(paths, tenders, args, record, gate, model_id, len(new_grades), len(rows))
+    prior_predictions = read_jsonl(paths.predictions)  # snapshot before this cycle appends
+    rows, scores_now = predict_open(paths, tenders, roles, aw, args)
+    drift = drift_monitors(tenders, aw, prior_predictions, scores_now, args)
+    report(paths, tenders, args, record, gate, drift, model_id, len(new_grades), len(rows))
 
     try:
         import render_dashboard
@@ -589,6 +708,14 @@ def main():
                      help='minimum graded lots per trade before its track record is reported')
     run.add_argument('--promote-epsilon', type=float, default=0.005, dest='promote_epsilon',
                      help='candidate may trail the champion by this much and still promote')
+    run.add_argument('--drift-window', default='4w', dest='drift_window',
+                     help='"recent" window for the drift monitors (default 4w)')
+    run.add_argument('--drift-min-lots', type=int, default=30, dest='drift_min_lots',
+                     help='minimum rows on each side before a drift monitor speaks (default 30)')
+    run.add_argument('--missing-jump', type=float, default=0.15, dest='missing_jump',
+                     help='null-rate change that counts as missingness drift (default 0.15)')
+    run.add_argument('--psi-warn', type=float, default=0.25, dest='psi_warn',
+                     help='PSI above which the score distribution has drifted (default 0.25)')
     run.add_argument('--iterations', type=int, default=None,
                      help='CatBoost iterations override (testing)')
     run.add_argument('--report-top', type=int, default=30, dest='report_top',
