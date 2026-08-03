@@ -103,6 +103,7 @@ class Paths:
         self.deliveries = self.data / 'ledger' / 'deliveries.jsonl'
         self.subscriptions = self.data / 'subscriptions.jsonl'
         self.checkpoint = self.data / 'logs' / 'loop_checkpoint.json'
+        self.drift = self.data / 'logs' / 'drift_latest.json'
         self.reports = self.data / 'reports'
         self.models = Path(models_dir)
         self.registry = self.models / 'registry.jsonl'
@@ -866,6 +867,8 @@ def cmd_run(args):
     prior_predictions = read_jsonl(paths.predictions)  # snapshot before this cycle appends
     rows, scores_now, scored = predict_open(paths, tenders, roles, aw, args)
     drift = drift_monitors(tenders, aw, prior_predictions, scores_now, args)
+    # persisted so the dashboard can show the monitors (SUBSCRIPTIONS.md phase 5)
+    write_json(paths.drift, {'at': now_utc().isoformat(timespec='seconds'), **drift})
     report(paths, tenders, args, record, gate, drift, model_id, len(new_grades), len(rows))
     deliver(paths, scored, args)
 

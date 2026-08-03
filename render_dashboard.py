@@ -5,7 +5,7 @@
 Reads (all optional — missing files render as 'pending'):
   models/CURRENT, models/<id>/meta.json, models/registry.jsonl
   data/ledger/predictions.jsonl, data/ledger/grades.jsonl
-  data/logs/loop_checkpoint.json
+  data/logs/loop_checkpoint.json, data/logs/drift_latest.json
 
 Self-contained output: inline SVG, no external libraries, works offline.
 """
@@ -22,6 +22,8 @@ INK = '#111827'; INK2 = '#6b7280'; GRID = '#e5e7eb'; ACCENT = '#2563eb'; FILL = 
 
 SECTOR = {'450': 'general construction', '451': 'site preparation', '452': 'civil engineering',
           '453': 'building installation', '454': 'finishing trades'}
+
+MIN_SLICE = 25  # graded lots before a slice's stats are quoted (mirrors --min-slice-grades)
 
 
 def read_jsonl(path):
@@ -125,6 +127,49 @@ def table(headers, rows):
     return f'<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>'
 
 
+def slice_matrix(grades):
+    """One row per industry x region (NUTS-1) with graded outcomes: graded /
+    base / top-20% hit / lift. Slices under MIN_SLICE stay greyed with their
+    count — the new-branch credibility clock, visibly still running."""
+    by = {}
+    for g in grades:
+        if not g.get('cpv3'):
+            continue
+        region = str(g['place_nuts3'])[:3] if g.get('place_nuts3') else '?'
+        by.setdefault((g['cpv3'], region), []).append(g)
+    if not by:
+        return '<p class="muted">no graded outcomes with slicing keys yet</p>'
+    body = []
+    for (cpv3, region), rows in sorted(by.items(), key=lambda kv: -len(kv[1])):
+        name = f'{cpv3} {SECTOR.get(cpv3, "")}'.strip()
+        if len(rows) < MIN_SLICE:
+            body.append(f'<tr class="thin"><td>{esc(name)}</td><td>{esc(region)}</td>'
+                        f'<td>{len(rows)} (needs {MIN_SLICE})</td><td>—</td><td>—</td><td>—</td></tr>')
+            continue
+        rs = sorted(rows, key=lambda x: -x['score'])
+        k = max(1, len(rs) // 5)
+        base = sum(x['label'] for x in rs) / len(rs)
+        hit = sum(x['label'] for x in rs[:k]) / k
+        lift = f'{hit/base:.1f}x' if base else '—'
+        body.append(f'<tr><td>{esc(name)}</td><td>{esc(region)}</td><td>{len(rs)}</td>'
+                    f'<td>{base*100:.0f} in 100</td><td>{hit*100:.0f} in 100</td><td>{lift}</td></tr>')
+    head = ''.join(f'<th>{esc(h)}</th>' for h in
+                   ['industry', 'region', 'graded', 'base', 'top-20% of ranking', 'lift'])
+    return f'<table><thead><tr>{head}</tr></thead><tbody>{"".join(body)}</tbody></table>'
+
+
+def drift_panel(drift):
+    if not drift:
+        return '<p class="muted">no drift results yet — written by each loop cycle</p>'
+    rows = []
+    for name, status in drift.get('checks', {}).items():
+        cls = ' class="warn"' if str(status).startswith('WARN') else ''
+        rows.append(f'<tr{cls}><td>{esc(name)}</td><td>{esc(status)}</td></tr>')
+    head = '<th>monitor</th><th>status</th>'
+    return (f'<p class="muted">as of {esc(str(drift.get("at", "?"))[:16].replace("T", " "))} UTC</p>'
+            f'<table><thead><tr>{head}</tr></thead><tbody>{"".join(rows)}</tbody></table>')
+
+
 # ------------------------------------------------------------------- assemble
 
 def main(data_dir=None, models_dir=None):
@@ -136,6 +181,8 @@ def main(data_dir=None, models_dir=None):
     grades = read_jsonl(data / 'ledger' / 'grades.jsonl')
     checkpoint = json.loads((data / 'logs' / 'loop_checkpoint.json').read_text(encoding='utf-8')) \
         if (data / 'logs' / 'loop_checkpoint.json').exists() else {}
+    drift = json.loads((data / 'logs' / 'drift_latest.json').read_text(encoding='utf-8')) \
+        if (data / 'logs' / 'drift_latest.json').exists() else {}
     current = (models / 'CURRENT').read_text(encoding='utf-8').strip() \
         if (models / 'CURRENT').exists() else None
     meta = json.loads((models / current / 'meta.json').read_text(encoding='utf-8')) \
@@ -246,12 +293,19 @@ regenerate with <code>python render_dashboard.py</code></p>
 <h2>Track record</h2>
 {track}
 
+<h2>Slice matrix <span class="muted">(industry × region — which slices carry their weight)</span></h2>
+<div class="panel">{slice_matrix(grades)}</div>
+
+<h2>Drift monitors</h2>
+<div class="panel">{drift_panel(drift)}</div>
+
 <h2>Champion trust checks</h2>
 <div class="panel">{table(['check', 'result'], check_rows + fail_rows) if check_rows or fail_rows
                     else '<p class="muted">no champion meta found</p>'}</div>
 
 <p class="muted">Sources: models/registry.jsonl · models/{esc(current or '?')}/meta.json ·
-data/ledger/predictions.jsonl · data/ledger/grades.jsonl · data/logs/loop_checkpoint.json</p>
+data/ledger/predictions.jsonl · data/ledger/grades.jsonl · data/logs/loop_checkpoint.json ·
+data/logs/drift_latest.json</p>
 '''
 
     page = f'''<!doctype html><html><head><meta charset="utf-8">
@@ -272,6 +326,8 @@ data/ledger/predictions.jsonl · data/ledger/grades.jsonl · data/logs/loop_chec
   table {{ border-collapse: collapse; width: 100%; font-size: 12.5px; }}
   th, td {{ text-align: left; padding: 6px 10px; border-bottom: 1px solid {GRID}; }}
   th {{ color: {INK2}; font-weight: 600; }}
+  tr.thin td {{ color: {INK2}; }}
+  tr.warn td {{ color: #b45309; font-weight: 600; }}
   svg {{ width: 100%; height: auto; display: block; }}
   code {{ background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-size: 12px; }}
 </style></head><body>{body}</body></html>'''
