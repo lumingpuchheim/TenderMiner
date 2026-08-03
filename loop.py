@@ -593,12 +593,18 @@ def slice_record_lines(grades_recent, sub_deliveries, sub, args, today):
             continue
         stats = _top_slice_stats(rows, args.top_slice)
         lift = f"{stats['lift']:.1f}x" if stats['lift'] is not None else '—'
+        scope = 'your market' if i == 0 else desc
+        explain = ([f'*What "lift {lift}" means: pick a tender blindly from {scope} and '
+                    f'{stats["base"]*100:.0f} in 100 end with 0–1 bids; pick from the top '
+                    f'of our ranking and {stats["hit"]*100:.0f} in 100 do. With us, your '
+                    f'odds of facing (almost) no competition are {lift} better.*', '']
+                   if stats['lift'] is not None else [])
         if i == 0:
             lines = [f"In your market over the trailing {args.track_window}: "
                      f"**{stats['n']}** of our predictions got their outcome. Of the "
                      f"**top {args.top_slice:.0%} of our ranking for you** ({stats['k']} lots), "
                      f"**{stats['hit']*100:.0f} in 100 ended with 0–1 bids**, vs "
-                     f"{stats['base']*100:.0f} in 100 by chance — **lift {lift}**.", '']
+                     f"{stats['base']*100:.0f} in 100 by chance — **lift {lift}**.", ''] + explain
             grade_by_lot = {(g['procedure_id'], g['lot_id']): g for g in rows}
             by_lot = {}
             for d in sorted(sub_deliveries, key=lambda d: str(d['ts'])):
@@ -624,7 +630,7 @@ def slice_record_lines(grades_recent, sub_deliveries, sub, args, today):
         return [f'Your market has {n_slice} graded outcomes so far — too few to quote '
                 f'honestly. Across **{desc}** ({stats["n"]} outcomes): the top '
                 f'{args.top_slice:.0%} of our ranking hit {stats["hit"]*100:.0f} in 100, '
-                f'chance {stats["base"]*100:.0f} — lift {lift}.', '']
+                f'chance {stats["base"]*100:.0f} — lift {lift}.', ''] + explain
     return [f'No graded outcomes in the trailing {args.track_window} yet — '
             'grading starts as awards arrive.', '']
 
