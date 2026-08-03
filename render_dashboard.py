@@ -201,7 +201,7 @@ def main(data_dir=None, models_dir=None):
         track = (f'<div class="panel"><h3>Verified track record — rank-based (the product view)</h3>'
                  f'<p><b>{len(g)}</b> predicted lots have their outcome. Top 20% of our ranking '
                  f'({k} lots): <b>{hit*100:.0f} in 100</b> ended with 0–1 bids, vs {base*100:.0f} in 100 '
-                 f'across all graded lots — <b>lift {hit/base:.1f}x</b>.</p>'
+                 f'across all graded lots — <b>lift {f"{hit/base:.1f}x" if base else "—"}</b>.</p>'
                  + (table(['trade', 'graded lots', 'base', 'top-20% of ranking', 'lift'], trade_rows)
                     if trade_rows else '<p class="muted">per-trade rows appear at 10+ graded lots per trade</p>')
                  + '</div>')
