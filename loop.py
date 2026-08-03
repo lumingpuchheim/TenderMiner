@@ -100,6 +100,8 @@ class Paths:
         self.store_awards = self.data / 'store' / 'awards.parquet'
         self.predictions = self.data / 'ledger' / 'predictions.jsonl'
         self.grades = self.data / 'ledger' / 'grades.jsonl'
+        self.deliveries = self.data / 'ledger' / 'deliveries.jsonl'
+        self.subscriptions = self.data / 'subscriptions.jsonl'
         self.checkpoint = self.data / 'logs' / 'loop_checkpoint.json'
         self.reports = self.data / 'reports'
         self.models = Path(models_dir)
@@ -415,12 +417,14 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint):
 
 def predict_open(paths, tenders, roles, aw, args):
     """Score every open lot with the champion; append new rows to the ledger.
-    Returns (new_ledger_rows, all_scores_this_cycle) — the full score array
-    feeds the score-distribution drift monitor even when dedup writes no rows."""
+    Returns (new_ledger_rows, all_scores_this_cycle, scored) — the full score
+    array feeds the score-distribution drift monitor, and `scored` (one dict
+    per open lot, ledger-row shaped, dedup or not) feeds the subscription
+    renderer even on cycles where dedup writes no new ledger rows."""
     champ = current_champion(paths)
     if champ is None:
         print('[predict] no champion model — nothing to score')
-        return [], np.array([])
+        return [], np.array([]), []
     from catboost import CatBoostClassifier
     model = CatBoostClassifier()
     model.load_model(str(paths.models / champ['model_id'] / 'model.cbm'))
@@ -431,7 +435,7 @@ def predict_open(paths, tenders, roles, aw, args):
     open_t = open_t[(deadline.isna()) | (deadline.dt.date.astype(str) >= today)]
     if open_t.empty:
         print('[predict] no open lots')
-        return [], np.array([])
+        return [], np.array([]), []
     X_open, _, _, _ = sb.build_features(open_t, roles, list_frame=tenders)
     assert list(X_open.columns) == list(model.feature_names_), \
         'store schema no longer matches the champion model — retrain required'
@@ -451,13 +455,10 @@ def predict_open(paths, tenders, roles, aw, args):
     seen = {(r['procedure_id'], r['lot_id'], r.get('notice_id'), r['model'])
             for r in read_jsonl(paths.predictions)}
     ts = now_utc().isoformat(timespec='seconds')
-    rows = []
+    scored, rows = [], []
     for (idx, t), score, tier in zip(open_t.iterrows(), scores, tiers):
-        key = (t['procedure_id'], t['lot_id'], t.get('notice_id'), champ['model_id'])
-        if key in seen:
-            continue  # idempotent re-runs: same notice + same model scored once
         cpv = t.get('cpv_main')
-        rows.append({
+        row = {
             'ts': ts, 'model': champ['model_id'],
             'procedure_id': t['procedure_id'], 'lot_id': t['lot_id'],
             'notice_id': t.get('notice_id'),
@@ -473,11 +474,116 @@ def predict_open(paths, tenders, roles, aw, args):
             'buyer_name': stamp(t.get('buyer_name')),
             'est_value_lot': stamp(t.get('est_value_lot')),
             'title': stamp(t.get('title')),
-        })
+        }
+        scored.append(row)
+        key = (t['procedure_id'], t['lot_id'], t.get('notice_id'), champ['model_id'])
+        if key not in seen:  # idempotent re-runs: same notice + same model scored once
+            rows.append(row)
     append_jsonl(paths.predictions, rows)
     print(f'[predict] {len(rows)} new ledger rows ({len(open_t)} open rows scored, '
           f'model {champ["model_id"]})')
-    return rows, scores
+    return rows, scores, scored
+
+
+# --------------------------------------------------- step 4b: deliver to subs
+
+def load_subscriptions(path, today):
+    """Active subscription versions in force on `today` (SUBSCRIPTIONS.md:
+    versioned, never edited — the newest version with effective_from <= today
+    speaks for the subscription; active: false deactivates)."""
+    in_force = {}
+    for row in read_jsonl(path):
+        if str(row.get('effective_from', '')) > today:
+            continue
+        key = (str(row.get('effective_from', '')), int(row.get('version', 1)))
+        cur = in_force.get(row['sub_id'])
+        if cur is None or key >= cur[0]:
+            in_force[row['sub_id']] = (key, row)
+    return [row for _, row in in_force.values() if row.get('active', True)]
+
+
+def _matches(sub, row, today, min_days):
+    if sub.get('cpv_prefixes'):
+        if not row['cpv3'] or not any(str(row['cpv3']).startswith(str(p))
+                                      for p in sub['cpv_prefixes']):
+            return False
+    if sub.get('nuts_prefixes'):
+        if not row['place_nuts3'] or not any(str(row['place_nuts3']).startswith(str(p))
+                                             for p in sub['nuts_prefixes']):
+            return False
+    if min_days > 0:
+        # a deadline promise cannot be honored for an unknown deadline
+        deadline = pd.to_datetime(row.get('deadline_date'), errors='coerce')
+        if pd.isna(deadline) or (deadline.date() - today).days < min_days:
+            return False
+    return True
+
+
+def deliver(paths, scored, args):
+    """The dispatcher: one run, many views. Filter this cycle's scored open
+    lots per subscription, re-rank and re-tier WITHIN the slice, write the
+    customer's report, append delivery-ledger rows (the frozen record of what
+    this customer actually saw). Never a model call, never a store join."""
+    today = now_utc().date()
+    subs = load_subscriptions(paths.subscriptions, today.isoformat())
+    if not subs:
+        print('[deliver] no active subscriptions — skipped')
+        return 0
+    # latest revision per lot: a customer sees each lot once, as last published
+    latest = {}
+    for row in scored:
+        key = (row['procedure_id'], row['lot_id'])
+        if key not in latest or str(row['publication_date']) >= str(latest[key]['publication_date']):
+            latest[key] = row
+    already = {(d['sub_id'], d['procedure_id'], d['lot_id'], str(d['ts'])[:10])
+               for d in read_jsonl(paths.deliveries)}
+    ts = now_utc().isoformat(timespec='seconds')
+    n_rows = 0
+    for sub in subs:
+        min_days = int(sub.get('min_deadline_days', 0) or 0)
+        rows = sorted((r for r in latest.values() if _matches(sub, r, today, min_days)),
+                      key=lambda r: -r['score'])
+        n_high = max(1, round(len(rows) * args.tier_high))
+        n_med = max(1, round(len(rows) * args.tier_medium))
+        top = rows[:int(sub.get('top_n', args.report_top))]
+
+        lines = [f"# {sub.get('name', sub['sub_id'])} — TenderMining picks — {today.isoformat()}", '',
+                 'Your market: CPV ' + '|'.join(sub.get('cpv_prefixes') or ['all'])
+                 + ', region ' + '|'.join(sub.get('nuts_prefixes') or ['all'])
+                 + (f', ≥{min_days} days to deadline' if min_days else '') + '.', '']
+        if not rows:
+            lines += ['**0 open lots matched your filters this week.**', '']
+        else:
+            lines += [f'{len(rows)} open lots matched; your top {len(top)}, '
+                      'tiered within your market:', '',
+                      '| tier | score | deadline | est. value | buyer | title |',
+                      '|---|---|---|---|---|---|']
+        deliveries = []
+        for i, r in enumerate(top):
+            tier = 'HIGH' if i < n_high else ('MEDIUM' if i < n_high + n_med else 'LOW')
+            value = r.get('est_value_lot')
+            value = f'{value:,.0f}' if isinstance(value, (int, float)) else ''
+            lines.append(f"| {tier} | {r['score']:.2f} | {str(r.get('deadline_date'))[:10]} "
+                         f"| {value} | {str(r.get('buyer_name') or '')[:40]} "
+                         f"| {str(r.get('title') or '')[:60]} |")
+            if (sub['sub_id'], r['procedure_id'], r['lot_id'], ts[:10]) not in already:
+                deliveries.append({
+                    'ts': ts, 'sub_id': sub['sub_id'], 'sub_version': sub.get('version', 1),
+                    'procedure_id': r['procedure_id'], 'lot_id': r['lot_id'],
+                    'notice_id': r.get('notice_id'), 'model': r['model'],
+                    'score': r['score'], 'slice_rank': i + 1,
+                    'slice_size': len(rows), 'slice_tier': tier,
+                })
+        lines += ['', 'Track record for your market arrives with phase 4 '
+                       '(per-slice grades are already accumulating).']
+        out = paths.reports / 'subscriptions' / sub['sub_id'] / f'report_{today.isoformat()}.md'
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+        append_jsonl(paths.deliveries, deliveries)
+        n_rows += len(deliveries)
+        print(f"[deliver] {sub['sub_id']}: {len(top)} lots delivered "
+              f'({len(rows)} matched, {len(deliveries)} new delivery rows)')
+    return n_rows
 
 
 # ------------------------------------------------------------- drift monitors
@@ -690,9 +796,10 @@ def cmd_run(args):
     record = track_record(paths, args)
     model_id, gate = learn(paths, tenders, roles, data, aw, args, checkpoint)
     prior_predictions = read_jsonl(paths.predictions)  # snapshot before this cycle appends
-    rows, scores_now = predict_open(paths, tenders, roles, aw, args)
+    rows, scores_now, scored = predict_open(paths, tenders, roles, aw, args)
     drift = drift_monitors(tenders, aw, prior_predictions, scores_now, args)
     report(paths, tenders, args, record, gate, drift, model_id, len(new_grades), len(rows))
+    deliver(paths, scored, args)
 
     try:
         import render_dashboard
