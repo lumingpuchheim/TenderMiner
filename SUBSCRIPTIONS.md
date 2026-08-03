@@ -1,6 +1,7 @@
 # SUBSCRIPTIONS — one run, many customer views
 
-Status: specification, not yet implemented. Builds on the running loop
+Status: Phase 1 (slicing-key + publication-number stamping) implemented in
+[`loop.py`](loop.py); later phases not yet built. Builds on the running loop
 ([`ONLINE_LEARNING.md`](ONLINE_LEARNING.md)) and uses its vocabulary
 (**component** = a box that always runs; **phase** = build order in time, never
 a scope cut). Nothing here changes the loop's spine — download, grade, learn,
@@ -62,14 +63,21 @@ The prediction ledger row gains the columns a slice needs, written at the
 moment of scoring:
 
 ```
-cpv3           first 3 digits of cpv_main   (industry)
-place_nuts3    NUTS-3 of the place of performance
-buyer_name     for rendering, never for features
-est_value_lot  for rendering, never for features
-title          for rendering, never for features
+cpv3                first 3 digits of cpv_main   (industry)
+place_nuts3         NUTS-3 of the place of performance
+publication_number  the scored notice's TED publication number (audit link)
+buyer_name          for rendering, never for features
+est_value_lot       for rendering, never for features
+title               for rendering, never for features
 ```
 
-Grade rows already carry `cpv3`; they gain `place_nuts3` the same way.
+Grade rows already carry `cpv3`; they gain `place_nuts3` the same way, plus
+`award_publication_number` — the TED publication number of the award notice
+that supplied the outcome. The publication numbers make every ledger row one
+click from the EU's public record (`ted.europa.eu/en/notice/-/detail/<nr>`):
+a customer disputing a graded outcome is pointed at the official journal, not
+at our files. Stamped at write time for the same reason as the slicing keys —
+a dispute must never depend on a join against a rebuilt store.
 
 Why at write time and not by joining the store later: the ledger is the
 frozen record. A join against a rebuilt store can drift; a stamped row cannot.
