@@ -163,13 +163,14 @@ def grade(paths, tenders, aw, args):
 
     labeled = {(r.procedure_id, r.lot_id):
                (int(r.label), str(r.publication_date),
-                stamp(getattr(r, 'publication_number', None)))
+                stamp(getattr(r, 'publication_number', None)),
+                int(r.n_tenders))
                for r in aw.itertuples()}
     new_grades = []
     for lot, rows in by_lot.items():
         if lot in already or lot not in labeled:
             continue
-        label, award_pub, award_pub_nr = labeled[lot]
+        label, award_pub, award_pub_nr, n_tenders = labeled[lot]
         meta = lot_meta.get(lot, {})
         rows = sorted(rows, key=lambda r: r['ts'])
         before = [r for r in rows if str(r['ts'])[:10] <= award_pub[:10]]
@@ -178,7 +179,7 @@ def grade(paths, tenders, aw, args):
         new_grades.append({
             'graded_at': now_utc().isoformat(timespec='seconds'),
             'procedure_id': lot[0], 'lot_id': lot[1],
-            'label': label, 'award_pub': award_pub,
+            'label': label, 'n_tenders': n_tenders, 'award_pub': award_pub,
             'award_publication_number': award_pub_nr,
             'cpv3': meta.get('cpv3'), 'place_nuts3': meta.get('place_nuts3'),
             'score': last['score'], 'tier': last.get('tier'), 'flag': flag,
@@ -520,6 +521,55 @@ def _matches(sub, row, today, min_days):
     return True
 
 
+MAX_RECEIPTS = 15  # itemized reviewed picks shown per report; the rest is counted
+
+def receipt_lines(grades_recent, sub_deliveries, pred_info):
+    """Receipts before rates (SUBSCRIPTIONS.md): one line per delivered pick
+    whose outcome has arrived — tier said, bids that came, TED link as proof.
+    Misses render exactly like hits; the statistical record that follows is
+    what keeps this list honest."""
+    grade_by_lot = {(g['procedure_id'], g['lot_id']): g for g in grades_recent}
+    by_lot = {}
+    for d in sorted(sub_deliveries, key=lambda d: str(d['ts'])):
+        by_lot.setdefault((d['procedure_id'], d['lot_id']), []).append(d)
+    items = []
+    for lot, ds in by_lot.items():
+        g = grade_by_lot.get(lot)
+        if g is None:
+            continue
+        before = [d for d in ds if str(d['ts'])[:10] <= str(g['award_pub'])[:10]]
+        items.append(((before or ds)[-1], g))
+    if not items:
+        n_open = len(by_lot)
+        return [(f'All {n_open} picks we have sent you are on the record; none has '
+                 'its outcome yet — award notices trail deadlines by roughly three '
+                 'months. Meanwhile, the numbers below cover the wider market.')
+                if n_open else
+                'Your first picks are below — each one goes on the record, and its '
+                'outcome will be reviewed here when the award is published.', '']
+    items.sort(key=lambda ig: str(ig[1]['award_pub']), reverse=True)
+    lines = []
+    for d, g in items[:MAX_RECEIPTS]:
+        info = pred_info.get((g['procedure_id'], g['lot_id']), {})
+        title = str(d.get('title') or info.get('title') or f"lot {g['lot_id']}")[:60]
+        buyer = d.get('buyer_name') or info.get('buyer_name')
+        n = g.get('n_tenders')
+        outcome = (f"{int(n)} bid{'s' if n != 1 else ''}" if n is not None
+                   else ('0–1 bids' if g['label'] else 'more than 1 bid'))
+        verdict = ('almost nobody competed' if g['label'] else 'competitive after all')
+        nr = g.get('award_publication_number')
+        link = (f' · [TED {nr}](https://ted.europa.eu/en/notice/-/detail/{nr})'
+                if nr else '')
+        lines.append(f"- {'✓' if g['label'] else '✗'} **{d.get('slice_tier') or '—'}** "
+                     f"pick, {str(g['award_pub'])[:10]} — {title}"
+                     f"{f' ({str(buyer)[:40]})' if buyer else ''}: **{outcome}** — "
+                     f'{verdict}{link}')
+    if len(items) > MAX_RECEIPTS:
+        lines.append(f'- …and {len(items) - MAX_RECEIPTS} more graded picks in your '
+                     'delivery ledger.')
+    return lines + ['']
+
+
 def slice_record_lines(grades_recent, sub_deliveries, sub, args, today):
     """The customer report's track-record header: verified numbers for the
     subscription's slice, or — when the slice is too thin — the fallback
@@ -604,6 +654,10 @@ def deliver(paths, scored, args):
     cutoff = (now_utc() - parse_window(args.track_window)).date().isoformat()
     grades_recent = [g for g in read_jsonl(paths.grades)
                      if str(g['award_pub'])[:10] >= cutoff]
+    pred_info = {}  # receipt fallback for pre-stamp delivery rows (append-only file, safe to join)
+    for p in read_jsonl(paths.predictions):
+        if p.get('title') or p.get('buyer_name'):
+            pred_info[(p['procedure_id'], p['lot_id'])] = p
     ts = now_utc().isoformat(timespec='seconds')
     n_rows = 0
     for sub in subs:
@@ -618,7 +672,9 @@ def deliver(paths, scored, args):
                  'Your market: CPV ' + '|'.join(sub.get('cpv_prefixes') or ['all'])
                  + ', region ' + '|'.join(sub.get('nuts_prefixes') or ['all'])
                  + (f', ≥{min_days} days to deadline' if min_days else '') + '.', '',
-                 '## Verified track record', '']
+                 '## Your picks, reviewed', '']
+        lines += receipt_lines(grades_recent, by_sub.get(sub['sub_id'], []), pred_info)
+        lines += ['## The numbers behind it', '']
         lines += slice_record_lines(grades_recent, by_sub.get(sub['sub_id'], []),
                                     sub, args, today)
         lines += ["## This week's picks", '']
@@ -644,6 +700,8 @@ def deliver(paths, scored, args):
                     'notice_id': r.get('notice_id'), 'model': r['model'],
                     'score': r['score'], 'slice_rank': i + 1,
                     'slice_size': len(rows), 'slice_tier': tier,
+                    'publication_number': r.get('publication_number'),
+                    'buyer_name': r.get('buyer_name'), 'title': r.get('title'),
                 })
         out = paths.reports / 'subscriptions' / sub['sub_id'] / f'report_{today.isoformat()}.md'
         out.parent.mkdir(parents=True, exist_ok=True)
