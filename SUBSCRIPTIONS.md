@@ -1,9 +1,13 @@
 # SUBSCRIPTIONS — one run, many customer views
 
-Status: Phase 1 (slicing-key + publication-number stamping) and Phase 3
-(subscriptions, renderer, delivery ledger) implemented in [`loop.py`](loop.py);
-phases 4–5 not yet built, phase 2 (wider backfill) deferred with the
-beyond-construction scope. Builds on the running loop
+Status: Phases 1 (slicing-key + publication-number stamping), 3
+(subscriptions, renderer, delivery ledger) and 4 (per-slice track record with
+the fallback ladder) implemented in [`loop.py`](loop.py); phase 5 (operator
+matrix) not yet built, phase 2 (wider backfill) deferred with the
+beyond-construction scope. Grade rows have carried the slicing keys from
+before the first real grade was ever written, so the keyless-row fallback
+join is dead code territory — it was never needed and is not implemented.
+Builds on the running loop
 ([`ONLINE_LEARNING.md`](ONLINE_LEARNING.md)) and uses its vocabulary
 (**component** = a box that always runs; **phase** = build order in time, never
 a scope cut). Nothing here changes the loop's spine — download, grade, learn,
