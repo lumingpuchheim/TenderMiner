@@ -136,7 +136,24 @@ week" is the product promise; the delivery ledger is what keeps it honest.
 
 ## The per-slice track record, and the fallback ladder
 
-Each customer report leads with their verified numbers, computed from
+**Receipts before rates.** Humans reason story-first and are bad at
+statistics; the report does not fight that. The track-record section leads
+with the **itemized review**: every delivered pick whose outcome has arrived,
+one line each — what we said (slice tier), what happened (the actual bid
+count), and the award notice's TED link as the receipt — misses shown exactly
+like hits, newest first. The **statistical record** (the Weber sentence
+below) follows immediately as the honest summary: it is what protects the
+receipts from the "you only show your hits" objection, because the rate is
+computed over *all* graded picks and compared to chance.
+
+To make receipt lines renderable without joins: delivery rows additionally
+stamp `title`, `buyer_name` and `publication_number` at write time
+(rendering, never features), and grade rows stamp `n_tenders` — the outcome's
+concrete number ("1 bid" beats "label 1"). Rows written before these stamps
+fall back to a read-time join against the append-only prediction ledger; that
+file is itself frozen, so the rebuilt-store drift concern does not apply.
+
+Each customer report then quotes the verified numbers, computed from
 grades ⋈ deliveries over the track-record window: graded count, base rate in
 the slice, top-share hit rate and lift, per-`slice_tier` outcomes — the
 Weber sentence above.
