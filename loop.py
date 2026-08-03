@@ -519,6 +519,65 @@ def _matches(sub, row, today, min_days):
     return True
 
 
+def slice_record_lines(grades_recent, sub_deliveries, sub, args, today):
+    """The customer report's track-record header: verified numbers for the
+    subscription's slice, or — when the slice is too thin — the fallback
+    ladder (slice -> industry Germany-wide -> whole graded market), always
+    labeling the rung it stands on. Silence and unlabeled broad numbers are
+    both non-options (SUBSCRIPTIONS.md)."""
+    if not grades_recent:
+        return [f'No graded outcomes in the trailing {args.track_window} yet — '
+                'grading starts as awards arrive.', '']
+    rungs = [
+        ('your market', sub),
+        ('your industry Germany-wide', {**sub, 'nuts_prefixes': None}),
+        ('the whole graded market', {**sub, 'nuts_prefixes': None, 'cpv_prefixes': None}),
+    ]
+    n_slice = None
+    for i, (desc, s) in enumerate(rungs):
+        rows = [g for g in grades_recent if _matches(s, g, today, 0)]
+        if n_slice is None:
+            n_slice = len(rows)
+        if len(rows) < args.min_slice_grades and not (i == 2 and rows):
+            continue
+        stats = _top_slice_stats(rows, args.top_slice)
+        lift = f"{stats['lift']:.1f}x" if stats['lift'] is not None else '—'
+        if i == 0:
+            lines = [f"In your market over the trailing {args.track_window}: "
+                     f"**{stats['n']}** of our predictions got their outcome. Of the "
+                     f"**top {args.top_slice:.0%} of our ranking for you** ({stats['k']} lots), "
+                     f"**{stats['hit']*100:.0f} in 100 ended with 0–1 bids**, vs "
+                     f"{stats['base']*100:.0f} in 100 by chance — **lift {lift}**.", '']
+            grade_by_lot = {(g['procedure_id'], g['lot_id']): g for g in rows}
+            by_lot = {}
+            for d in sorted(sub_deliveries, key=lambda d: str(d['ts'])):
+                by_lot.setdefault((d['procedure_id'], d['lot_id']), []).append(d)
+            tiers = {}
+            for lot, ds in by_lot.items():
+                g = grade_by_lot.get(lot)
+                if g is None:
+                    continue
+                before = [d for d in ds if str(d['ts'])[:10] <= str(g['award_pub'])[:10]]
+                tiers.setdefault((before or ds)[-1].get('slice_tier'), []).append(g)
+            if tiers:
+                lines.append('What each tier really meant (graded outcomes of lots '
+                             'delivered to you):')
+                lines.append('')
+                for tier in ('HIGH', 'MEDIUM', 'LOW'):
+                    rs = tiers.get(tier)
+                    if rs:
+                        lines.append(f'- {tier}: {sum(g["label"] for g in rs)/len(rs)*100:.0f} '
+                                     f'in 100 ended with 0–1 bids ({len(rs)} graded lots)')
+                lines.append('')
+            return lines
+        return [f'Your market has {n_slice} graded outcomes so far — too few to quote '
+                f'honestly. Across **{desc}** ({stats["n"]} outcomes): the top '
+                f'{args.top_slice:.0%} of our ranking hit {stats["hit"]*100:.0f} in 100, '
+                f'chance {stats["base"]*100:.0f} — lift {lift}.', '']
+    return [f'No graded outcomes in the trailing {args.track_window} yet — '
+            'grading starts as awards arrive.', '']
+
+
 def deliver(paths, scored, args):
     """The dispatcher: one run, many views. Filter this cycle's scored open
     lots per subscription, re-rank and re-tier WITHIN the slice, write the
@@ -535,8 +594,15 @@ def deliver(paths, scored, args):
         key = (row['procedure_id'], row['lot_id'])
         if key not in latest or str(row['publication_date']) >= str(latest[key]['publication_date']):
             latest[key] = row
+    past = read_jsonl(paths.deliveries)
     already = {(d['sub_id'], d['procedure_id'], d['lot_id'], str(d['ts'])[:10])
-               for d in read_jsonl(paths.deliveries)}
+               for d in past}
+    by_sub = {}
+    for d in past:
+        by_sub.setdefault(d['sub_id'], []).append(d)
+    cutoff = (now_utc() - parse_window(args.track_window)).date().isoformat()
+    grades_recent = [g for g in read_jsonl(paths.grades)
+                     if str(g['award_pub'])[:10] >= cutoff]
     ts = now_utc().isoformat(timespec='seconds')
     n_rows = 0
     for sub in subs:
@@ -550,7 +616,11 @@ def deliver(paths, scored, args):
         lines = [f"# {sub.get('name', sub['sub_id'])} — TenderMining picks — {today.isoformat()}", '',
                  'Your market: CPV ' + '|'.join(sub.get('cpv_prefixes') or ['all'])
                  + ', region ' + '|'.join(sub.get('nuts_prefixes') or ['all'])
-                 + (f', ≥{min_days} days to deadline' if min_days else '') + '.', '']
+                 + (f', ≥{min_days} days to deadline' if min_days else '') + '.', '',
+                 '## Verified track record', '']
+        lines += slice_record_lines(grades_recent, by_sub.get(sub['sub_id'], []),
+                                    sub, args, today)
+        lines += ["## This week's picks", '']
         if not rows:
             lines += ['**0 open lots matched your filters this week.**', '']
         else:
@@ -574,8 +644,6 @@ def deliver(paths, scored, args):
                     'score': r['score'], 'slice_rank': i + 1,
                     'slice_size': len(rows), 'slice_tier': tier,
                 })
-        lines += ['', 'Track record for your market arrives with phase 4 '
-                       '(per-slice grades are already accumulating).']
         out = paths.reports / 'subscriptions' / sub['sub_id'] / f'report_{today.isoformat()}.md'
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text('\n'.join(lines) + '\n', encoding='utf-8')
@@ -840,6 +908,9 @@ def main():
                      help='share of the weekly ranking tiered MEDIUM, after HIGH (default 0.20)')
     run.add_argument('--min-trade-grades', type=int, default=25, dest='min_trade_grades',
                      help='minimum graded lots per trade before its track record is reported')
+    run.add_argument('--min-slice-grades', type=int, default=25, dest='min_slice_grades',
+                     help='minimum graded lots in a subscription slice before its own '
+                          'track record is quoted (below: the fallback ladder speaks)')
     run.add_argument('--promote-epsilon', type=float, default=0.005, dest='promote_epsilon',
                      help='candidate may trail the champion by this much and still promote')
     run.add_argument('--drift-window', default='4w', dest='drift_window',
