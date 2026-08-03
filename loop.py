@@ -678,6 +678,13 @@ def deliver(paths, scored, args):
                  'Your market: CPV ' + '|'.join(sub.get('cpv_prefixes') or ['all'])
                  + ', region ' + '|'.join(sub.get('nuts_prefixes') or ['all'])
                  + (f', ≥{min_days} days to deadline' if min_days else '') + '.', '',
+                 'Every week we read every public construction tender in Germany — this '
+                 f'week, **{len(rows)} in your market** — and rank them by the one '
+                 'question no one can answer by reading a single notice: **how many '
+                 'competitors will show up?** A **pick** is a tender where we expect few '
+                 'or none. Your team still decides what you can build and what it should '
+                 'cost. We add the missing piece: where bidding is worth the effort — as '
+                 'in poker, knowing which hands *not* to play is where the money is.', '',
                  '## Your picks, reviewed', '']
         lines += receipt_lines(grades_recent, by_sub.get(sub['sub_id'], []), pred_info)
         lines += ['## The numbers behind it', '']
@@ -709,6 +716,18 @@ def deliver(paths, scored, args):
                     'publication_number': r.get('publication_number'),
                     'buyer_name': r.get('buyer_name'), 'title': r.get('title'),
                 })
+        if rows:
+            lines += ['',
+                      '**score** — our competition estimate, 0 to 1: the higher, the '
+                      'fewer bidders we expect. The number itself is not a probability '
+                      'and has no meaning alone — whether high scores really mean empty '
+                      'rooms is exactly what "The numbers behind it" measures against '
+                      'published outcomes.', '',
+                      '**tier** — where the tender stands in this week\'s ranking of '
+                      f'*your* market: **HIGH** = top {args.tier_high:.0%}, **MEDIUM** = '
+                      f'next {args.tier_medium:.0%}, **LOW** = the rest. What a HIGH was '
+                      'actually worth is not our claim, it is verified above from real '
+                      'results.']
         out = paths.reports / 'subscriptions' / sub['sub_id'] / f'report_{today.isoformat()}.md'
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text('\n'.join(lines) + '\n', encoding='utf-8')
