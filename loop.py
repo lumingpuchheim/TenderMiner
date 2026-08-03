@@ -73,6 +73,14 @@ def read_jsonl(path):
     return [json.loads(line) for line in p.read_text(encoding='utf-8').splitlines() if line.strip()]
 
 
+def stamp(v):
+    """NaN/NaT -> None so ledger rows carry JSON null, never 'nan' strings."""
+    try:
+        return None if pd.isna(v) else v
+    except (TypeError, ValueError):
+        return v
+
+
 def append_jsonl(path, rows):
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -133,25 +141,33 @@ def download(paths, args, checkpoint):
 def grade(paths, tenders, aw, args):
     """Grade ledger predictions for lots whose award has now been published.
     The headline grades the LAST prediction made before the award appeared.
-    Each grade row is stamped with the lot's 3-digit trade code (cpv3) so the
-    track record can be sliced per trade."""
+    Each grade row is stamped with the slicing keys (cpv3 trade code,
+    place_nuts3) and the award notice's TED publication number, at write time
+    (SUBSCRIPTIONS.md: the ledger is the frozen record — a stamped row cannot
+    drift, a join against a rebuilt store can)."""
     predictions = read_jsonl(paths.predictions)
     already = {(g['procedure_id'], g['lot_id']) for g in read_jsonl(paths.grades)}
     by_lot = {}
     for row in predictions:
         by_lot.setdefault((row['procedure_id'], row['lot_id']), []).append(row)
 
-    cpv3 = {}
-    for r in tenders[sb.KEY + ['cpv_main']].dropna(subset=['cpv_main']).itertuples():
-        cpv3[(r.procedure_id, r.lot_id)] = str(r.cpv_main)[:3]
+    lot_meta = {}
+    for r in tenders[sb.KEY + ['cpv_main', 'place_nuts3']].itertuples():
+        lot_meta[(r.procedure_id, r.lot_id)] = {
+            'cpv3': str(r.cpv_main)[:3] if pd.notna(r.cpv_main) else None,
+            'place_nuts3': stamp(r.place_nuts3),
+        }
 
-    labeled = {(r.procedure_id, r.lot_id): (int(r.label), str(r.publication_date))
+    labeled = {(r.procedure_id, r.lot_id):
+               (int(r.label), str(r.publication_date),
+                stamp(getattr(r, 'publication_number', None)))
                for r in aw.itertuples()}
     new_grades = []
     for lot, rows in by_lot.items():
         if lot in already or lot not in labeled:
             continue
-        label, award_pub = labeled[lot]
+        label, award_pub, award_pub_nr = labeled[lot]
+        meta = lot_meta.get(lot, {})
         rows = sorted(rows, key=lambda r: r['ts'])
         before = [r for r in rows if str(r['ts'])[:10] <= award_pub[:10]]
         last = (before or rows)[-1]
@@ -159,7 +175,9 @@ def grade(paths, tenders, aw, args):
         new_grades.append({
             'graded_at': now_utc().isoformat(timespec='seconds'),
             'procedure_id': lot[0], 'lot_id': lot[1],
-            'label': label, 'award_pub': award_pub, 'cpv3': cpv3.get(lot),
+            'label': label, 'award_pub': award_pub,
+            'award_publication_number': award_pub_nr,
+            'cpv3': meta.get('cpv3'), 'place_nuts3': meta.get('place_nuts3'),
             'score': last['score'], 'tier': last.get('tier'), 'flag': flag,
             'correct': flag == bool(label), 'model': last['model'],
         })
@@ -438,6 +456,7 @@ def predict_open(paths, tenders, roles, aw, args):
         key = (t['procedure_id'], t['lot_id'], t.get('notice_id'), champ['model_id'])
         if key in seen:
             continue  # idempotent re-runs: same notice + same model scored once
+        cpv = t.get('cpv_main')
         rows.append({
             'ts': ts, 'model': champ['model_id'],
             'procedure_id': t['procedure_id'], 'lot_id': t['lot_id'],
@@ -446,6 +465,14 @@ def predict_open(paths, tenders, roles, aw, args):
             'deadline_date': str(t.get('deadline_date')),
             'score': float(score), 'threshold': args.threshold,
             'flag': bool(score >= args.threshold), 'tier': str(tier),
+            # slicing keys + audit link + rendering columns, stamped at write
+            # time (SUBSCRIPTIONS.md) — rendering columns never feed features
+            'cpv3': str(cpv)[:3] if pd.notna(cpv) else None,
+            'place_nuts3': stamp(t.get('place_nuts3')),
+            'publication_number': stamp(t.get('publication_number')),
+            'buyer_name': stamp(t.get('buyer_name')),
+            'est_value_lot': stamp(t.get('est_value_lot')),
+            'title': stamp(t.get('title')),
         })
     append_jsonl(paths.predictions, rows)
     print(f'[predict] {len(rows)} new ledger rows ({len(open_t)} open rows scored, '
