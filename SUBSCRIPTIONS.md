@@ -1,7 +1,9 @@
 # SUBSCRIPTIONS — one run, many customer views
 
-Status: Phase 1 (slicing-key + publication-number stamping) implemented in
-[`loop.py`](loop.py); later phases not yet built. Builds on the running loop
+Status: Phase 1 (slicing-key + publication-number stamping) and Phase 3
+(subscriptions, renderer, delivery ledger) implemented in [`loop.py`](loop.py);
+phases 4–5 not yet built, phase 2 (wider backfill) deferred with the
+beyond-construction scope. Builds on the running loop
 ([`ONLINE_LEARNING.md`](ONLINE_LEARNING.md)) and uses its vocabulary
 (**component** = a box that always runs; **phase** = build order in time, never
 a scope cut). Nothing here changes the loop's spine — download, grade, learn,
@@ -49,6 +51,10 @@ ledger — the repo is public):
   CPV starts with any listed prefix AND its NUTS starts with any listed
   prefix). Omitted filter = no constraint. `nuts_prefixes` is optional by
   design — region is a refinement, not a requirement.
+- **Unknown deadlines are excluded whenever `min_deadline_days` is set.** The
+  filter is a customer promise ("at least 14 days left to bid"), and a promise
+  cannot be honored for a lot whose deadline the notice does not state. With
+  `min_deadline_days: 0` (or omitted) such lots pass through.
 - **Versioned, never edited.** Widening Weber to all of CPV 45 in March is a
   new line with `version: 2, effective_from: …`. The question "what did Weber
   see on date D" is answered by the version in force on D. Deactivation is a
@@ -101,7 +107,9 @@ time — an append-only **delivery ledger**:
 ```
 
 One row per (subscription, cycle, delivered lot), written when the customer's
-report is rendered, never edited. Grading a customer's view is then a pure
+report is rendered, never edited. A cycle is a calendar day: re-running the
+loop on the same day re-renders the report but appends no duplicate delivery
+rows — the same idempotence rule the prediction ledger already follows. Grading a customer's view is then a pure
 join: grades (by lot) ⋈ deliveries (by lot + sub). No reconstruction, no
 "what would the filter have matched back then" — the row *is* what they saw.
 
