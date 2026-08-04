@@ -83,10 +83,16 @@ per-run cost.
   `model_tag` names the embedding model and version; switching models means
   a new directory and a full re-embed, never an in-place mutation — the same
   append-only discipline as every ledger.
-- **Encoding check (prerequisite)**: winner names print with mojibake in
-  some console paths; before the backfill, verify title/description bytes in
-  the store are clean UTF-8 end-to-end. Garbage in the text column poisons
-  every vector silently.
+- **Encoding check (verified 2026-08-04)**: the store is clean UTF-8
+  end-to-end — zero replacement characters across all 28,148
+  titles/descriptions; console mojibake was a display artifact. One
+  description (notice 00444708-2026) carries mojibake *from the official
+  source itself* (the raw XML contains a literal `Ã¼ber` — the buyer pasted
+  corrupted text; verified against `data/raw/xml/444708-2026.xml`). Rule:
+  the store preserves the source byte-for-byte; embedding text prep runs
+  `ftfy.fix_text()` to repair upstream mojibake before vectorizing. The
+  archive stays the official record; only the derived vectors see the
+  cleaned text.
 
 ## The profile — extending the subscription object
 
