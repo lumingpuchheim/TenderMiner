@@ -24,6 +24,7 @@ import json
 import re
 import subprocess
 import sys
+from html import escape
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -77,6 +78,37 @@ def clean_cell(v, width):
     """Markdown-table-safe cell: collapse all whitespace (newlines break table
     rows), replace pipes (they split cells), truncate."""
     return ' '.join(str(v).split()).replace('|', '/')[:width]
+
+
+# Customer artifacts are HTML (SUBSCRIPTIONS.md decision 2026-08-05):
+# self-contained, inline <style>, e-mail-body-ready.
+HTML_STYLE = '''
+ body { font-family:-apple-system,"Segoe UI",Roboto,sans-serif; color:#111827;
+        max-width:880px; margin:24px auto; padding:0 16px; line-height:1.5; }
+ h1 { font-size:20px; } h2 { font-size:15px; margin:26px 0 8px; }
+ table { border-collapse:collapse; width:100%; font-size:13.5px; }
+ th,td { text-align:left; padding:7px 9px; border-bottom:1px solid #e5e7eb; vertical-align:top; }
+ th { color:#6b7280; font-weight:600; }
+ a { color:#2563eb; text-decoration:none; }
+ ul { padding-left:20px; } li { margin:4px 0; }
+ .ok { color:#15803d; font-weight:700; } .miss { color:#b91c1c; font-weight:700; }
+ .muted { color:#6b7280; font-size:12.5px; }
+ td.v-green { background:#dcfce7; color:#166534; white-space:nowrap; }
+ td.v-yellow { background:#fef9c3; color:#854d0e; white-space:nowrap; }
+ td.v-red { background:#fee2e2; color:#991b1b; white-space:nowrap; }
+'''
+
+
+def html_page(title, body_parts):
+    return ('<!doctype html><html><head><meta charset="utf-8">\n'
+            f'<title>{escape(title)}</title>\n<style>{HTML_STYLE}</style></head>\n<body>\n'
+            + '\n'.join(body_parts) + '\n</body></html>\n')
+
+
+def table_html(headers, body_rows):
+    head = ''.join(f'<th>{h}</th>' for h in headers)
+    return (f'<table><thead><tr>{head}</tr></thead><tbody>'
+            + ''.join(body_rows) + '</tbody></table>')
 
 
 def stamp(v):
@@ -630,11 +662,11 @@ def _matches(sub, row, today, min_days):
 
 MAX_RECEIPTS = 15  # itemized reviewed picks shown per report; the rest is counted
 
-def receipt_lines(grades_recent, sub_deliveries, pred_info, kind='pick'):
+def receipt_html(grades_recent, sub_deliveries, pred_info, kind='pick'):
     """Receipts before rates (SUBSCRIPTIONS.md): one line per delivered pick
     (or, kind='avoid', per warning) whose outcome has arrived — what we said,
     the bids that came, TED link as proof. Misses render exactly like hits;
-    a warning is right when the lot ended contested."""
+    a warning is right when the lot ended contested. Returns an HTML block."""
     grade_by_lot = {(g['procedure_id'], g['lot_id']): g for g in grades_recent}
     by_lot = {}
     for d in sorted(sub_deliveries, key=lambda d: str(d['ts'])):
@@ -650,20 +682,22 @@ def receipt_lines(grades_recent, sub_deliveries, pred_info, kind='pick'):
             items.append((d, g))
     if not items:
         if kind == 'avoid':
-            return []  # section renders only once a warning has its outcome
+            return ''  # section renders only once a warning has its outcome
         n_open = sum(1 for ds in by_lot.values()
                      if ds[-1].get('kind', 'pick') == 'pick')
-        return [(f'All {n_open} picks we have sent you are on the record; none has '
-                 'its outcome yet — award notices trail deadlines by roughly three '
-                 'months. Meanwhile, the numbers below cover the wider market.')
-                if n_open else
-                'Your first picks are below — each one goes on the record, and its '
-                'outcome will be reviewed here when the award is published.', '']
+        return '<p>' + escape(
+            (f'All {n_open} picks we have sent you are on the record; none has '
+             'its outcome yet — award notices trail deadlines by roughly three '
+             'months. Meanwhile, the numbers below cover the wider market.')
+            if n_open else
+            'Your first picks are below — each one goes on the record, and its '
+            'outcome will be reviewed here when the award is published.') + '</p>'
     items.sort(key=lambda ig: str(ig[1]['award_pub']), reverse=True)
-    lines = []
+    lis = []
     for d, g in items[:MAX_RECEIPTS]:
         info = pred_info.get((g['procedure_id'], g['lot_id']), {})
-        title = clean_cell(d.get('title') or info.get('title') or f"lot {g['lot_id']}", 60)
+        title = escape(clean_cell(d.get('title') or info.get('title')
+                                  or f"lot {g['lot_id']}", 60))
         buyer = d.get('buyer_name') or info.get('buyer_name')
         n = g.get('n_tenders')
         outcome = (f"{int(n)} bid{'s' if n != 1 else ''}" if n is not None
@@ -677,31 +711,33 @@ def receipt_lines(grades_recent, sub_deliveries, pred_info, kind='pick'):
             verdict = 'almost nobody competed' if right else 'competitive after all'
             said = 'pick'
         nr = g.get('award_publication_number')
-        link = (f' · [TED {nr}](https://ted.europa.eu/en/notice/-/detail/{nr})'
-                if nr else '')
-        lines.append(f"- {'✓' if right else '✗'} {said}, {str(g['award_pub'])[:10]} — "
-                     f"{title}{f' ({clean_cell(buyer, 40)})' if buyer else ''}: "
-                     f'**{outcome}** — {verdict}{link}')
+        link = (f' · <a href="https://ted.europa.eu/en/notice/-/detail/{escape(str(nr))}">'
+                f'TED {escape(str(nr))}</a>' if nr else '')
+        mark = ('<span class="ok">✓</span>' if right else '<span class="miss">✗</span>')
+        buyer_s = f' ({escape(clean_cell(buyer, 40))})' if buyer else ''
+        lis.append(f"<li>{mark} {said}, {str(g['award_pub'])[:10]} — {title}{buyer_s}: "
+                   f'<b>{escape(outcome)}</b> — {escape(verdict)}{link}</li>')
     if len(items) > MAX_RECEIPTS:
-        lines.append(f'- …and {len(items) - MAX_RECEIPTS} more graded '
-                     f"{'warnings' if kind == 'avoid' else 'picks'} in your "
-                     'delivery ledger.')
+        lis.append(f'<li class="muted">…and {len(items) - MAX_RECEIPTS} more graded '
+                   f"{'warnings' if kind == 'avoid' else 'picks'} in your "
+                   'delivery ledger.</li>')
+    out = '<ul>' + ''.join(lis) + '</ul>'
     if kind == 'avoid':
         n_right = sum(1 for d, g in items if not g['label'])
-        lines.append('')
-        lines.append(f'So far {n_right} of {len(items)} warnings proved right.')
-    return lines + ['']
+        out += f'<p>So far {n_right} of {len(items)} warnings proved right.</p>'
+    return out
 
 
-def slice_record_lines(grades_recent, sub, args, today):
-    """The customer report's track-record header: verified numbers for the
+def numbers_html(grades_recent, sub, args, today):
+    """The customer report's track-record numbers: verified stats for the
     subscription's slice, or — when the slice is too thin — the fallback
     ladder (slice -> industry Germany-wide -> whole graded market), always
     labeling the rung it stands on. Silence and unlabeled broad numbers are
-    both non-options (SUBSCRIPTIONS.md)."""
+    both non-options (SUBSCRIPTIONS.md). Returns an HTML block."""
+    pending = (f'<p>No graded outcomes in the trailing {args.track_window} yet — '
+               'grading starts as awards arrive.</p>')
     if not grades_recent:
-        return [f'No graded outcomes in the trailing {args.track_window} yet — '
-                'grading starts as awards arrive.', '']
+        return pending
     rungs = [
         ('your market', sub),
         ('your industry Germany-wide', {**sub, 'nuts_prefixes': None}),
@@ -717,24 +753,24 @@ def slice_record_lines(grades_recent, sub, args, today):
         stats = _top_slice_stats(rows, args.top_slice)
         lift = f"{stats['lift']:.1f}x" if stats['lift'] is not None else '—'
         scope = 'your market' if i == 0 else desc
-        explain = ([f'*What "lift {lift}" means: pick a tender blindly from {scope} and '
-                    f'{stats["base"]*100:.0f} in 100 end with 0–1 bids; pick from the top '
-                    f'of our ranking and {stats["hit"]*100:.0f} in 100 do. With us, your '
-                    f'odds of facing (almost) no competition are {lift} better.*', '']
-                   if stats['lift'] is not None else [])
+        explain = ((f'<p class="muted"><em>What "lift {lift}" means: pick a tender '
+                    f'blindly from {scope} and {stats["base"]*100:.0f} in 100 end with '
+                    f'0–1 bids; pick from the top of our ranking and '
+                    f'{stats["hit"]*100:.0f} in 100 do. With us, your odds of facing '
+                    f'(almost) no competition are {lift} better.</em></p>')
+                   if stats['lift'] is not None else '')
         if i == 0:
-            lines = [f"In your market over the trailing {args.track_window}: "
-                     f"**{stats['n']}** of our predictions got their outcome. Of the "
-                     f"**top {args.top_slice:.0%} of our ranking for you** ({stats['k']} lots), "
-                     f"**{stats['hit']*100:.0f} in 100 ended with 0–1 bids**, vs "
-                     f"{stats['base']*100:.0f} in 100 by chance — **lift {lift}**.", ''] + explain
-            return lines
-        return [f'Your market has {n_slice} graded outcomes so far — too few to quote '
-                f'honestly. Across **{desc}** ({stats["n"]} outcomes): the top '
+            return (f'<p>In your market over the trailing {args.track_window}: '
+                    f"<b>{stats['n']}</b> of our predictions got their outcome. Of the "
+                    f"<b>top {args.top_slice:.0%} of our ranking for you</b> "
+                    f"({stats['k']} lots), <b>{stats['hit']*100:.0f} in 100 ended with "
+                    f"0–1 bids</b>, vs {stats['base']*100:.0f} in 100 by chance — "
+                    f'<b>lift {lift}</b>.</p>') + explain
+        return (f'<p>Your market has {n_slice} graded outcomes so far — too few to '
+                f'quote honestly. Across <b>{desc}</b> ({stats["n"]} outcomes): the top '
                 f'{args.top_slice:.0%} of our ranking hit {stats["hit"]*100:.0f} in 100, '
-                f'chance {stats["base"]*100:.0f} — lift {lift}.', ''] + explain
-    return [f'No graded outcomes in the trailing {args.track_window} yet — '
-            'grading starts as awards arrive.', '']
+                f'chance {stats["base"]*100:.0f} — lift {lift}.</p>') + explain
+    return pending
 
 
 def deliver(paths, scored, args):
@@ -780,51 +816,56 @@ def deliver(paths, scored, args):
         top = [r for r in rows if r.get('flag')][:max_picks]
 
         def tender_cell(r):
-            title = clean_cell(r.get('title') or f"lot {r['lot_id']}", 60)
+            title = escape(clean_cell(r.get('title') or f"lot {r['lot_id']}", 70))
             nr = r.get('publication_number')
-            return (f'[{title}](https://ted.europa.eu/en/notice/-/detail/{nr})'
-                    if nr else title)
+            return (f'<a href="https://ted.europa.eu/en/notice/-/detail/{escape(str(nr))}">'
+                    f'{title}</a>' if nr else title)
 
-        lines = [f"# {sub.get('name', sub['sub_id'])} — TenderMining picks — {today.isoformat()}", '',
-                 'Your market: CPV ' + '|'.join(sub.get('cpv_prefixes') or ['all'])
-                 + ', region ' + '|'.join(sub.get('nuts_prefixes') or ['all'])
-                 + (f', ≥{min_days} days to deadline' if min_days else '') + '.', '',
-                 'Every week we read every public construction tender in Germany — this '
-                 f'week, **{len(rows)} in your market** — and rank them by the one '
-                 'question no one can answer by reading a single notice: **how many '
-                 'competitors will show up?** A **pick** is a tender where we expect few '
-                 'or none. Your team still decides what you can build and what it should '
-                 'cost. We add the missing piece: where bidding is worth the effort — as '
-                 'in poker, knowing which hands *not* to play is where the money is. '
-                 f'You get at most {max_picks} picks a week; when nothing qualifies, we '
-                 'say so instead of padding the list.', '',
-                 '## Your picks, reviewed', '']
-        lines += receipt_lines(grades_recent, by_sub.get(sub['sub_id'], []), pred_info)
-        warn_receipts = receipt_lines(grades_recent, by_sub.get(sub['sub_id'], []),
-                                      pred_info, kind='avoid')
+        def buyer_cell(r):
+            return escape(clean_cell(r.get('buyer_name') or '', 40))
+
+        name = sub.get('name', sub['sub_id'])
+        market = ('CPV ' + '/'.join(sub.get('cpv_prefixes') or ['all'])
+                  + ', region ' + '/'.join(sub.get('nuts_prefixes') or ['all'])
+                  + (f', ≥{min_days} days to deadline' if min_days else ''))
+        body = [f'<h1>{escape(name)} — TenderMining picks — {today.isoformat()}</h1>',
+                f'<p class="muted">Your market: {escape(market)}.</p>',
+                '<p>Every week we read every public construction tender in Germany — '
+                f'this week, <b>{len(rows)} in your market</b> — and rank them by the '
+                'one question no one can answer by reading a single notice: <b>how many '
+                'competitors will show up?</b> A <b>pick</b> is a tender where we expect '
+                'few or none. Your team still decides what you can build and what it '
+                'should cost. We add the missing piece: where bidding is worth the '
+                'effort — as in poker, knowing which hands <em>not</em> to play is '
+                f'where the money is. You get at most {max_picks} picks a week; when '
+                'nothing qualifies, we say so instead of padding the list.</p>',
+                '<h2>Your picks, reviewed</h2>',
+                receipt_html(grades_recent, by_sub.get(sub['sub_id'], []), pred_info)]
+        warn_receipts = receipt_html(grades_recent, by_sub.get(sub['sub_id'], []),
+                                     pred_info, kind='avoid')
         if warn_receipts:
-            lines += ['## Our warnings, reviewed', ''] + warn_receipts
-        lines += ['## The numbers behind it', '']
-        lines += slice_record_lines(grades_recent, sub, args, today)
-        lines += ["## This week's picks", '']
+            body += ['<h2>Our warnings, reviewed</h2>', warn_receipts]
+        body += ['<h2>The numbers behind it</h2>',
+                 numbers_html(grades_recent, sub, args, today)]
+        body += ["<h2>This week's picks</h2>"]
         if not rows:
-            lines += ['**0 open tenders matched your filters this week.**', '']
+            body += ['<p><b>0 open tenders matched your filters this week.</b></p>']
         elif not top:
-            lines += [f'**No pick this week.** None of the {len(rows)} open tenders in '
-                      'your market looks lonely enough to be worth your bid budget. Not '
-                      'bidding into a crowd is the product working, not failing.', '']
+            body += [f'<p><b>No pick this week.</b> None of the {len(rows)} open '
+                     'tenders in your market looks lonely enough to be worth your bid '
+                     'budget. Not bidding into a crowd is the product working, not '
+                     'failing.</p>']
         else:
-            lines += [f'Out of {len(rows)} open tenders in your market, these '
-                      f'{len(top)} look the loneliest. Click a tender to read the '
-                      'official notice and get the documents; mind the deadline.', '',
-                      '| deadline | buyer | tender | why we expect few bidders |',
-                      '|---|---|---|---|']
-        deliveries = []
+            body += [f'<p>Out of {len(rows)} open tenders in your market, these '
+                     f'{len(top)} look the loneliest. Click a tender to read the '
+                     'official notice and get the documents; mind the deadline.</p>']
+        deliveries, pick_trs = [], []
         for i, r in enumerate(top):
             tier = 'HIGH' if i < n_high else ('MEDIUM' if i < n_high + n_med else 'LOW')
-            lines.append(f"| {str(r.get('deadline_date'))[:10]} "
-                         f"| {clean_cell(r.get('buyer_name') or '', 40)} | {tender_cell(r)} "
-                         f"| {', '.join((r.get('why_lonely') or [])[:2])} |")
+            pick_trs.append(f"<tr><td>{tender_cell(r)}</td>"
+                            f"<td>{str(r.get('deadline_date'))[:10]}</td>"
+                            f'<td>{buyer_cell(r)}</td>'
+                            f"<td>{escape(', '.join((r.get('why_lonely') or [])[:2]))}</td></tr>")
             if (sub['sub_id'], r['procedure_id'], r['lot_id'], ts[:10]) not in already:
                 deliveries.append({
                     'ts': ts, 'sub_id': sub['sub_id'], 'sub_version': sub.get('version', 1),
@@ -836,22 +877,25 @@ def deliver(paths, scored, args):
                     'buyer_name': r.get('buyer_name'), 'title': r.get('title'),
                     'kind': 'pick',
                 })
+        if pick_trs:
+            body += [table_html(['tender', 'deadline', 'buyer',
+                                 'why we expect few bidders'], pick_trs)]
         avoid_n = int(sub.get('avoid_n', 5) or 0)
         avoid = (list(reversed(rows[-avoid_n:]))
                  if avoid_n and len(rows) > len(top) + avoid_n else [])
+        avoid_trs = []
         if avoid:
-            lines += ['', "## Don't go there this week", '',
-                      f'The {len(avoid)} most contested-looking lots in your market — '
-                      'our model expects a crowd. The entry fee (your bid preparation) '
-                      'is the same as anywhere; the odds are not. We put these warnings '
-                      'on the record and grade them when the outcome is published, '
-                      'exactly like the picks.', '',
-                      '| deadline | buyer | tender | why we expect a crowd |',
-                      '|---|---|---|---|']
+            body += ["<h2>Don't go there this week</h2>",
+                     f'<p>The {len(avoid)} most contested-looking lots in your market — '
+                     'our model expects a crowd. The entry fee (your bid preparation) '
+                     'is the same as anywhere; the odds are not. We put these warnings '
+                     'on the record and grade them when the outcome is published, '
+                     'exactly like the picks.</p>']
             for i, r in enumerate(avoid):
-                lines.append(f"| {str(r.get('deadline_date'))[:10]} "
-                             f"| {clean_cell(r.get('buyer_name') or '', 40)} | {tender_cell(r)} "
-                             f"| {', '.join((r.get('why_crowded') or [])[:2])} |")
+                avoid_trs.append(f'<tr><td>{tender_cell(r)}</td>'
+                                 f"<td>{str(r.get('deadline_date'))[:10]}</td>"
+                                 f'<td>{buyer_cell(r)}</td>'
+                                 f"<td>{escape(', '.join((r.get('why_crowded') or [])[:2]))}</td></tr>")
                 if (sub['sub_id'], r['procedure_id'], r['lot_id'], ts[:10]) not in already:
                     deliveries.append({
                         'ts': ts, 'sub_id': sub['sub_id'], 'sub_version': sub.get('version', 1),
@@ -863,6 +907,9 @@ def deliver(paths, scored, args):
                         'buyer_name': r.get('buyer_name'), 'title': r.get('title'),
                         'kind': 'avoid',
                     })
+        if avoid_trs:
+            body += [table_html(['tender', 'deadline', 'buyer',
+                                 'why we expect a crowd'], avoid_trs)]
         # the annex: every open tender in the slice (deadline filter ignored —
         # a candidate with 10 days left still deserves its verdict), so the
         # customer can check THEIR candidates, not just ours
@@ -872,36 +919,42 @@ def deliver(paths, scored, args):
         verdicts = {}
         for rank, r in enumerate(annex_rows):
             if r.get('flag'):
-                verdicts[id(r)] = ('few bidders likely', (r.get('why_lonely') or [])[:2])
+                verdicts[id(r)] = ('v-green', 'few bidders likely',
+                                   (r.get('why_lonely') or [])[:2])
             elif rank >= len(annex_rows) - n_crowd:
-                verdicts[id(r)] = ('expect a crowd', (r.get('why_crowded') or [])[:2])
+                verdicts[id(r)] = ('v-red', 'expect a crowd',
+                                   (r.get('why_crowded') or [])[:2])
             else:
-                verdicts[id(r)] = ('average odds', [])
-        annex_name = f'annex_{today.isoformat()}.md'
-        lines += ['', '## Check any tender before you bid', '',
-                  f'The [annex]({annex_name}) lists **all {len(annex_rows)} open '
-                  'tenders in your market** with our verdict on each. Before any '
-                  'bid/no-bid decision, find your tender there — the money-saving '
-                  'moment is before the calculation starts, not after. Considering '
-                  'a tender outside your market filters? Reply with its TED number.']
-        annex = [f"# {sub.get('name', sub['sub_id'])} — full market annex — "
-                 f'{today.isoformat()}', '',
-                 f'All {len(annex_rows)} open tenders in your market '
-                 '(CPV ' + '|'.join(sub.get('cpv_prefixes') or ['all'])
-                 + ', region ' + '|'.join(sub.get('nuts_prefixes') or ['all'])
-                 + '), sorted by deadline. Look up any tender you are considering; '
-                 'the verdict is the same model that produces your weekly picks, '
-                 'verified in your report.', '',
-                 '| verdict | deadline | buyer | tender | why |', '|---|---|---|---|---|']
+                verdicts[id(r)] = ('v-yellow', 'average odds', [])
+        annex_name = f'annex_{today.isoformat()}.html'
+        body += ['<h2>Check any tender before you bid</h2>',
+                 f'<p>The <a href="{annex_name}">annex</a> lists <b>all '
+                 f'{len(annex_rows)} open tenders in your market</b> with our verdict '
+                 'on each. Before any bid/no-bid decision, find your tender there — '
+                 'the money-saving moment is before the calculation starts, not after. '
+                 'Considering a tender outside your market filters? Reply with its TED '
+                 'number.</p>']
+        annex_trs = []
         for r in sorted(annex_rows, key=lambda r: str(r.get('deadline_date'))):
-            verdict, why = verdicts[id(r)]
-            annex.append(f"| {verdict} | {str(r.get('deadline_date'))[:10]} "
-                         f"| {clean_cell(r.get('buyer_name') or '', 40)} | {tender_cell(r)} "
-                         f"| {', '.join(why)} |")
-        out = paths.reports / 'subscriptions' / sub['sub_id'] / f'report_{today.isoformat()}.md'
+            cls, verdict, why = verdicts[id(r)]
+            annex_trs.append(f'<tr><td>{tender_cell(r)}</td>'
+                             f"<td>{str(r.get('deadline_date'))[:10]}</td>"
+                             f'<td>{buyer_cell(r)}</td>'
+                             f'<td class="{cls}">{verdict}</td>'
+                             f"<td>{escape(', '.join(why))}</td></tr>")
+        annex_body = [f'<h1>{escape(name)} — full market annex — {today.isoformat()}</h1>',
+                      f'<p>All {len(annex_rows)} open tenders in your market '
+                      f'({escape(market)}), sorted by deadline. Look up any tender you '
+                      'are considering; the verdict is the same model that produces '
+                      'your weekly picks, verified in your report.</p>',
+                      table_html(['tender', 'deadline', 'buyer', 'verdict', 'why'],
+                                 annex_trs)]
+        out = paths.reports / 'subscriptions' / sub['sub_id'] / f'report_{today.isoformat()}.html'
         out.parent.mkdir(parents=True, exist_ok=True)
-        (out.parent / annex_name).write_text('\n'.join(annex) + '\n', encoding='utf-8')
-        out.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+        (out.parent / annex_name).write_text(
+            html_page(f'{name} — annex {today.isoformat()}', annex_body), encoding='utf-8')
+        out.write_text(html_page(f'{name} — TenderMining picks {today.isoformat()}', body),
+                       encoding='utf-8')
         append_jsonl(paths.deliveries, deliveries)
         n_rows += len(deliveries)
         print(f"[deliver] {sub['sub_id']}: {len(top)} lots delivered "
