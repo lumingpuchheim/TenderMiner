@@ -1211,6 +1211,12 @@ def cmd_run(args):
     print(f'[store] {len(tenders)} tender rows, {len(awards)} award rows, '
           f'{data.groupby(sb.KEY).ngroups} labeled lots ({n_dropped} reporting errors dropped)')
 
+    try:
+        import embed
+        embed.ensure_embeddings(paths.data, tenders)
+    except Exception as e:  # nothing reads the sidecar until RELEVANCE.md phase 3; never fail a cycle over it
+        print(f'[embed] sidecar update failed: {e}')
+
     new_grades = grade(paths, tenders, aw, args)
     record = track_record(paths, args)
     model_id, gate = learn(paths, tenders, roles, data, aw, args, checkpoint)
