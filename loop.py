@@ -568,7 +568,7 @@ def receipt_lines(grades_recent, sub_deliveries, pred_info, kind='pick'):
             said = 'warning'
         else:
             verdict = 'almost nobody competed' if right else 'competitive after all'
-            said = f"**{d.get('slice_tier') or '—'}** pick"
+            said = 'pick'
         nr = g.get('award_publication_number')
         link = (f' · [TED {nr}](https://ted.europa.eu/en/notice/-/detail/{nr})'
                 if nr else '')
@@ -586,7 +586,7 @@ def receipt_lines(grades_recent, sub_deliveries, pred_info, kind='pick'):
     return lines + ['']
 
 
-def slice_record_lines(grades_recent, sub_deliveries, sub, args, today):
+def slice_record_lines(grades_recent, sub, args, today):
     """The customer report's track-record header: verified numbers for the
     subscription's slice, or — when the slice is too thin — the fallback
     ladder (slice -> industry Germany-wide -> whole graded market), always
@@ -621,27 +621,6 @@ def slice_record_lines(grades_recent, sub_deliveries, sub, args, today):
                      f"**top {args.top_slice:.0%} of our ranking for you** ({stats['k']} lots), "
                      f"**{stats['hit']*100:.0f} in 100 ended with 0–1 bids**, vs "
                      f"{stats['base']*100:.0f} in 100 by chance — **lift {lift}**.", ''] + explain
-            grade_by_lot = {(g['procedure_id'], g['lot_id']): g for g in rows}
-            by_lot = {}
-            for d in sorted(sub_deliveries, key=lambda d: str(d['ts'])):
-                by_lot.setdefault((d['procedure_id'], d['lot_id']), []).append(d)
-            tiers = {}
-            for lot, ds in by_lot.items():
-                g = grade_by_lot.get(lot)
-                if g is None:
-                    continue
-                before = [d for d in ds if str(d['ts'])[:10] <= str(g['award_pub'])[:10]]
-                tiers.setdefault((before or ds)[-1].get('slice_tier'), []).append(g)
-            if tiers:
-                lines.append('What each tier really meant (graded outcomes of lots '
-                             'delivered to you):')
-                lines.append('')
-                for tier in ('HIGH', 'MEDIUM', 'LOW'):
-                    rs = tiers.get(tier)
-                    if rs:
-                        lines.append(f'- {tier}: {sum(g["label"] for g in rs)/len(rs)*100:.0f} '
-                                     f'in 100 ended with 0–1 bids ({len(rs)} graded lots)')
-                lines.append('')
             return lines
         return [f'Your market has {n_slice} graded outcomes so far — too few to quote '
                 f'honestly. Across **{desc}** ({stats["n"]} outcomes): the top '
@@ -688,7 +667,16 @@ def deliver(paths, scored, args):
                       key=lambda r: -r['score'])
         n_high = max(1, round(len(rows) * args.tier_high))
         n_med = max(1, round(len(rows) * args.tier_medium))
-        top = rows[:int(sub.get('top_n', args.report_top))]
+        # a pick must be flagged (the quality floor); max_picks caps the list —
+        # a short actionable list beats homework, and zero picks is a message
+        max_picks = int(sub.get('max_picks', 5) or 0)
+        top = [r for r in rows if r.get('flag')][:max_picks]
+
+        def tender_cell(r):
+            title = str(r.get('title') or f"lot {r['lot_id']}")[:60].replace('|', '/')
+            nr = r.get('publication_number')
+            return (f'[{title}](https://ted.europa.eu/en/notice/-/detail/{nr})'
+                    if nr else title)
 
         lines = [f"# {sub.get('name', sub['sub_id'])} — TenderMining picks — {today.isoformat()}", '',
                  'Your market: CPV ' + '|'.join(sub.get('cpv_prefixes') or ['all'])
@@ -700,7 +688,9 @@ def deliver(paths, scored, args):
                  'competitors will show up?** A **pick** is a tender where we expect few '
                  'or none. Your team still decides what you can build and what it should '
                  'cost. We add the missing piece: where bidding is worth the effort — as '
-                 'in poker, knowing which hands *not* to play is where the money is.', '',
+                 'in poker, knowing which hands *not* to play is where the money is. '
+                 f'You get at most {max_picks} picks a week; when nothing qualifies, we '
+                 'say so instead of padding the list.', '',
                  '## Your picks, reviewed', '']
         lines += receipt_lines(grades_recent, by_sub.get(sub['sub_id'], []), pred_info)
         warn_receipts = receipt_lines(grades_recent, by_sub.get(sub['sub_id'], []),
@@ -708,24 +698,24 @@ def deliver(paths, scored, args):
         if warn_receipts:
             lines += ['## Our warnings, reviewed', ''] + warn_receipts
         lines += ['## The numbers behind it', '']
-        lines += slice_record_lines(grades_recent, by_sub.get(sub['sub_id'], []),
-                                    sub, args, today)
+        lines += slice_record_lines(grades_recent, sub, args, today)
         lines += ["## This week's picks", '']
         if not rows:
-            lines += ['**0 open lots matched your filters this week.**', '']
+            lines += ['**0 open tenders matched your filters this week.**', '']
+        elif not top:
+            lines += [f'**No pick this week.** None of the {len(rows)} open tenders in '
+                      'your market looks lonely enough to be worth your bid budget. Not '
+                      'bidding into a crowd is the product working, not failing.', '']
         else:
-            lines += [f'{len(rows)} open lots matched; your top {len(top)}, '
-                      'tiered within your market:', '',
-                      '| tier | score | deadline | est. value | buyer | title |',
-                      '|---|---|---|---|---|---|']
+            lines += [f'Out of {len(rows)} open tenders in your market, these '
+                      f'{len(top)} look the loneliest. Click a tender to read the '
+                      'official notice and get the documents; mind the deadline.', '',
+                      '| deadline | buyer | tender |', '|---|---|---|']
         deliveries = []
         for i, r in enumerate(top):
             tier = 'HIGH' if i < n_high else ('MEDIUM' if i < n_high + n_med else 'LOW')
-            value = r.get('est_value_lot')
-            value = f'{value:,.0f}' if isinstance(value, (int, float)) else ''
-            lines.append(f"| {tier} | {r['score']:.2f} | {str(r.get('deadline_date'))[:10]} "
-                         f"| {value} | {str(r.get('buyer_name') or '')[:40]} "
-                         f"| {str(r.get('title') or '')[:60]} |")
+            lines.append(f"| {str(r.get('deadline_date'))[:10]} "
+                         f"| {str(r.get('buyer_name') or '')[:40]} | {tender_cell(r)} |")
             if (sub['sub_id'], r['procedure_id'], r['lot_id'], ts[:10]) not in already:
                 deliveries.append({
                     'ts': ts, 'sub_id': sub['sub_id'], 'sub_version': sub.get('version', 1),
@@ -747,14 +737,10 @@ def deliver(paths, scored, args):
                       'is the same as anywhere; the odds are not. We put these warnings '
                       'on the record and grade them when the outcome is published, '
                       'exactly like the picks.', '',
-                      '| score | deadline | est. value | buyer | title |',
-                      '|---|---|---|---|---|']
+                      '| deadline | buyer | tender |', '|---|---|---|']
             for i, r in enumerate(avoid):
-                value = r.get('est_value_lot')
-                value = f'{value:,.0f}' if isinstance(value, (int, float)) else ''
-                lines.append(f"| {r['score']:.2f} | {str(r.get('deadline_date'))[:10]} "
-                             f"| {value} | {str(r.get('buyer_name') or '')[:40]} "
-                             f"| {str(r.get('title') or '')[:60]} |")
+                lines.append(f"| {str(r.get('deadline_date'))[:10]} "
+                             f"| {str(r.get('buyer_name') or '')[:40]} | {tender_cell(r)} |")
                 if (sub['sub_id'], r['procedure_id'], r['lot_id'], ts[:10]) not in already:
                     deliveries.append({
                         'ts': ts, 'sub_id': sub['sub_id'], 'sub_version': sub.get('version', 1),
@@ -766,18 +752,6 @@ def deliver(paths, scored, args):
                         'buyer_name': r.get('buyer_name'), 'title': r.get('title'),
                         'kind': 'avoid',
                     })
-        if rows:
-            lines += ['',
-                      '**score** — our competition estimate, 0 to 1: the higher, the '
-                      'fewer bidders we expect. The number itself is not a probability '
-                      'and has no meaning alone — whether high scores really mean empty '
-                      'rooms is exactly what "The numbers behind it" measures against '
-                      'published outcomes.', '',
-                      '**tier** — where the tender stands in this week\'s ranking of '
-                      f'*your* market: **HIGH** = top {args.tier_high:.0%}, **MEDIUM** = '
-                      f'next {args.tier_medium:.0%}, **LOW** = the rest. What a HIGH was '
-                      'actually worth is not our claim, it is verified above from real '
-                      'results.']
         out = paths.reports / 'subscriptions' / sub['sub_id'] / f'report_{today.isoformat()}.md'
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text('\n'.join(lines) + '\n', encoding='utf-8')
