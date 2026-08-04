@@ -237,6 +237,29 @@ the operator matrix below shows base rate per slice; the global drift
 monitors stay global, and a per-branch base-rate drift view joins the matrix
 rather than multiplying alarm channels.
 
+## The annex — ship all the answers (decision 2026-08-04)
+
+The curated report cannot intercept a bad bid on a tender *we* didn't
+list — and the founding pain lives in the tenders the customer finds
+themselves. An inquiry service is unnecessary because every possible answer
+is precomputed weekly; so we ship them all: alongside each report, an
+**annex file** (`annex_<date>.md`) listing **every** open tender matching
+the subscription's CPV/NUTS filters (the deadline filter is deliberately
+ignored — a candidate with 10 days left still deserves its verdict), one
+line each with a plain-word verdict:
+
+- **few bidders likely** — flagged by the model (same floor as picks),
+- **expect a crowd** — bottom fifth of the slice ranking,
+- **average odds** — everything else,
+
+plus the top plain-language reasons for the non-average rows, deadline,
+buyer, TED link. The report instructs: *before any bid/no-bid decision,
+find your tender in the annex.* Annex rows are **not** delivery-ledger
+rows (hundreds per customer per cycle would drown the ledger); a disputed
+annex verdict traces through the prediction ledger, which froze the same
+score with the same model id, and the dated annex file itself. The curated
+report stays the product's face; the annex is the reference behind it.
+
 ## Rendering and delivery
 
 Per cycle, after the global report:
