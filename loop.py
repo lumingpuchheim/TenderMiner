@@ -857,8 +857,44 @@ def deliver(paths, scored, args):
                         'buyer_name': r.get('buyer_name'), 'title': r.get('title'),
                         'kind': 'avoid',
                     })
+        # the annex: every open tender in the slice (deadline filter ignored —
+        # a candidate with 10 days left still deserves its verdict), so the
+        # customer can check THEIR candidates, not just ours
+        annex_rows = sorted((r for r in latest.values() if _matches(sub, r, today, 0)),
+                            key=lambda r: -r['score'])
+        n_crowd = max(1, round(len(annex_rows) * args.top_slice))
+        verdicts = {}
+        for rank, r in enumerate(annex_rows):
+            if r.get('flag'):
+                verdicts[id(r)] = ('few bidders likely', (r.get('why_lonely') or [])[:2])
+            elif rank >= len(annex_rows) - n_crowd:
+                verdicts[id(r)] = ('expect a crowd', (r.get('why_crowded') or [])[:2])
+            else:
+                verdicts[id(r)] = ('average odds', [])
+        annex_name = f'annex_{today.isoformat()}.md'
+        lines += ['', '## Check any tender before you bid', '',
+                  f'The [annex]({annex_name}) lists **all {len(annex_rows)} open '
+                  'tenders in your market** with our verdict on each. Before any '
+                  'bid/no-bid decision, find your tender there — the money-saving '
+                  'moment is before the calculation starts, not after. Considering '
+                  'a tender outside your market filters? Reply with its TED number.']
+        annex = [f"# {sub.get('name', sub['sub_id'])} — full market annex — "
+                 f'{today.isoformat()}', '',
+                 f'All {len(annex_rows)} open tenders in your market '
+                 '(CPV ' + '|'.join(sub.get('cpv_prefixes') or ['all'])
+                 + ', region ' + '|'.join(sub.get('nuts_prefixes') or ['all'])
+                 + '), sorted by deadline. Look up any tender you are considering; '
+                 'the verdict is the same model that produces your weekly picks, '
+                 'verified in your report.', '',
+                 '| verdict | deadline | buyer | tender | why |', '|---|---|---|---|---|']
+        for r in sorted(annex_rows, key=lambda r: str(r.get('deadline_date'))):
+            verdict, why = verdicts[id(r)]
+            annex.append(f"| {verdict} | {str(r.get('deadline_date'))[:10]} "
+                         f"| {str(r.get('buyer_name') or '')[:40]} | {tender_cell(r)} "
+                         f"| {', '.join(why)} |")
         out = paths.reports / 'subscriptions' / sub['sub_id'] / f'report_{today.isoformat()}.md'
         out.parent.mkdir(parents=True, exist_ok=True)
+        (out.parent / annex_name).write_text('\n'.join(annex) + '\n', encoding='utf-8')
         out.write_text('\n'.join(lines) + '\n', encoding='utf-8')
         append_jsonl(paths.deliveries, deliveries)
         n_rows += len(deliveries)
