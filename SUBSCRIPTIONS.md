@@ -49,7 +49,7 @@ ledger — the repo is public):
 {"sub_id": "weber-tiefbau", "version": 1, "effective_from": "2026-09-01",
  "name": "Weber Tiefbau GmbH",
  "cpv_prefixes": ["452"], "nuts_prefixes": ["DE2"],
- "min_deadline_days": 14, "top_n": 12, "avoid_n": 5, "active": true}
+ "min_deadline_days": 14, "max_picks": 5, "avoid_n": 5, "active": true}
 ```
 
 - **Filters compose by AND; each list composes by OR** (a lot matches if its
@@ -65,8 +65,16 @@ ledger — the repo is public):
   see on date D" is answered by the version in force on D. Deactivation is a
   new version with `active: false`.
 - The filter vocabulary is deliberately small (CPV prefix, NUTS prefix,
-  minimum days to deadline, top-N). Value bands, buyer types, keyword filters
-  are future *versions of this format*, not future architecture.
+  minimum days to deadline, max picks). Value bands, buyer types, keyword
+  filters are future *versions of this format*, not future architecture.
+- **`max_picks` (default 5, decision 2026-08-04) caps the list; the flag is
+  the floor.** A pick must be *flagged* (score at or above the model's
+  cut-off) — being top of a weak week is not enough. At most `max_picks`
+  flagged lots are delivered; when none qualify, the report says **"no pick
+  this week"** outright. A short list a customer can actually act on beats a
+  long one that becomes homework; an empty list that says "keep your money"
+  is the product's founding promise, not a failure state. (`top_n` is the
+  retired name of this field and is ignored.)
 
 ## Ledger changes: stamp the slicing keys at write time
 
@@ -145,6 +153,14 @@ outcomes of delivered rows carrying that `slice_tier`.
 Why slice-relative and not global: a customer in a low-scoring trade would
 otherwise receive an empty HIGH bucket forever. "Top 10% of your market this
 week" is the product promise; the delivery ledger is what keeps it honest.
+
+**Tiers and scores are internal (decision 2026-08-04).** They are recorded
+on every delivery row and verified through the graded joins, but the
+customer report never shows them: no score column, no tier column, no
+legend. A customer sees tenders — deadline, buyer, title linked to the
+official TED notice page (the clear next action: read the notice, get the
+documents) — and verified outcomes in plain words. Our vocabulary is our
+mental load, not the customer's.
 
 ## The per-slice track record, and the fallback ladder
 
