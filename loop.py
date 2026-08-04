@@ -415,6 +415,104 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint):
     return model_id, gate
 
 
+# ----------------------------------------------- plain-language pick reasons
+
+# The customer boundary for model internals (SUBSCRIPTIONS.md): feature
+# groups -> plain phrases; None = technical, never surfaces.
+WHY_PHRASES = {
+    'notice_kind': None, 'notice_subtype': None, 'quality_flags': None,
+    'est_value_lot_currency': None, 'est_value_procedure_currency': None,
+    'span__issue_date': None,
+    'procedure_type': 'the procedure used', 'accelerated': 'the procedure used',
+    'award_criterion_kind': 'how bids are scored', 'price_weight_pct': 'how bids are scored',
+    'contract_type': 'the kind of contract',
+    'buyer_legal_type': 'the kind of buyer', 'buyer_activity': 'the kind of buyer',
+    'buyer_is_cpb_awarding': 'the kind of buyer', 'buyer_is_cpb_acquiring': 'the kind of buyer',
+    'service_provider_type': 'the kind of buyer', 'buyer_country': 'where the buyer sits',
+    'eu_funded': 'the funding setup', 'funding_programs': 'the funding setup',
+    'duration_source': 'the contract duration', 'duration_unit_raw': 'the contract duration',
+    'duration_measure_raw': 'the contract duration', 'duration_days': 'the contract duration',
+    'span__period_start': 'the contract duration', 'span__period_end': 'the contract duration',
+    'est_value_lot': 'the contract size', 'est_value_procedure': 'the contract size',
+    'selection_criteria_types': 'the qualification requirements',
+    'n_selection_criteria': 'the qualification requirements',
+    'n_criteria_suitability': 'the qualification requirements',
+    'n_criteria_financial': 'the qualification requirements',
+    'n_criteria_technical': 'the qualification requirements',
+    'n_criteria_other': 'the qualification requirements',
+    'bid_bond_required': 'the bid-bond requirement',
+    'bid_validity_unit': 'the required bid validity',
+    'bid_validity_days': 'the required bid validity',
+    'bid_validity_raw': 'the required bid validity',
+    'exclusion_grounds': 'the exclusion rules', 'n_exclusion_grounds': 'the exclusion rules',
+    'cv_required': 'the CV requirements', 'legal_form_required': 'the required legal form',
+    'security_clearance_required': 'the security-clearance requirement',
+    'docs_restricted': 'restricted tender documents',
+    'variants': 'the bid-format rules', 'multiple_bids': 'the bid-format rules',
+    'esubmission': 'the submission method', 'sme_suitable': 'its fit for smaller firms',
+    'framework_type': 'the framework setup', 'is_framework': 'the framework setup',
+    'procurement_additional_types': 'special procurement conditions',
+    'is_strategic': 'special procurement conditions',
+    'procedure_languages': 'the language requirements',
+    'gpa_covered': 'international-agreement coverage',
+    'recurring': 'it recurs regularly', 'eauction': 'the e-auction format',
+    'is_corrigendum': 'its correction history', 'change_reasons': 'its correction history',
+    'n_corrections_so_far': 'its correction history',
+    'platform_name': 'the procurement platform used',
+    'deadline_days': 'the bidding timeline', 'deadline_days_published': 'the bidding timeline',
+    'span__deadline_date': 'the bidding timeline',
+    'span__bid_opening_date': 'the procedural timetable',
+    'span__question_deadline_date': 'the procedural timetable',
+    'question_window_days': 'the procedural timetable',
+    'opening_lag_days': 'the procedural timetable',
+    'n_lots': 'how the project is split into lots',
+    'n_doc_references': 'the documentation volume',
+}
+WHY_PREFIXES = [
+    (('cpv_main__', 'cpv_additional__'), 'the specialised type of work'),
+    (('place_nuts3__', 'place_postal_zone__'), 'the location — fewer firms bid there'),
+    (('buyer_nuts__', 'buyer_postal_zone__'), 'where the buyer sits'),
+]
+
+
+def _why_phrase(feat):
+    if feat in WHY_PHRASES:
+        return WHY_PHRASES[feat]
+    for prefixes, phrase in WHY_PREFIXES:
+        if feat.startswith(prefixes):
+            return phrase
+    return None
+
+
+def explain_rows(model, X, cat_cols, k=3):
+    """Per-row top-k plain-language reasons the model leans lonely (positive
+    SHAP) and crowded (negative), deduped through the phrase book."""
+    from catboost import Pool
+    shap = model.get_feature_importance(type='ShapValues',
+                                        data=Pool(X, cat_features=cat_cols))
+    feats = list(X.columns)
+
+    def collect(contrib, order, sign):
+        phrases = []
+        for j in order:
+            if sign * contrib[j] <= 0:
+                break
+            p = _why_phrase(feats[j])
+            if p and p not in phrases:
+                phrases.append(p)
+            if len(phrases) == k:
+                break
+        return phrases
+
+    lonely, crowded = [], []
+    for row in shap:
+        contrib = row[:-1]
+        order = np.argsort(-contrib)
+        lonely.append(collect(contrib, order, 1))
+        crowded.append(collect(contrib, order[::-1], -1))
+    return lonely, crowded
+
+
 # -------------------------------------------------------------- step 4: predict
 
 def predict_open(paths, tenders, roles, aw, args):
@@ -438,10 +536,11 @@ def predict_open(paths, tenders, roles, aw, args):
     if open_t.empty:
         print('[predict] no open lots')
         return [], np.array([]), []
-    X_open, _, _, _ = sb.build_features(open_t, roles, list_frame=tenders)
+    X_open, cats_open, _, _ = sb.build_features(open_t, roles, list_frame=tenders)
     assert list(X_open.columns) == list(model.feature_names_), \
         'store schema no longer matches the champion model — retrain required'
     scores = sb.predict(model, X_open)
+    why_lonely, why_crowded = explain_rows(model, X_open, cats_open)
 
     # rank-based tiers ("is it a good one?"), never probabilities: HIGH = top
     # tier_high share of this batch's ranking, MEDIUM = next tier_medium share,
@@ -458,7 +557,8 @@ def predict_open(paths, tenders, roles, aw, args):
             for r in read_jsonl(paths.predictions)}
     ts = now_utc().isoformat(timespec='seconds')
     scored, rows = [], []
-    for (idx, t), score, tier in zip(open_t.iterrows(), scores, tiers):
+    for (idx, t), score, tier, w_l, w_c in zip(open_t.iterrows(), scores, tiers,
+                                               why_lonely, why_crowded):
         cpv = t.get('cpv_main')
         row = {
             'ts': ts, 'model': champ['model_id'],
@@ -476,6 +576,7 @@ def predict_open(paths, tenders, roles, aw, args):
             'buyer_name': stamp(t.get('buyer_name')),
             'est_value_lot': stamp(t.get('est_value_lot')),
             'title': stamp(t.get('title')),
+            'why_lonely': w_l, 'why_crowded': w_c,
         }
         scored.append(row)
         key = (t['procedure_id'], t['lot_id'], t.get('notice_id'), champ['model_id'])
@@ -710,12 +811,14 @@ def deliver(paths, scored, args):
             lines += [f'Out of {len(rows)} open tenders in your market, these '
                       f'{len(top)} look the loneliest. Click a tender to read the '
                       'official notice and get the documents; mind the deadline.', '',
-                      '| deadline | buyer | tender |', '|---|---|---|']
+                      '| deadline | buyer | tender | why we expect few bidders |',
+                      '|---|---|---|---|']
         deliveries = []
         for i, r in enumerate(top):
             tier = 'HIGH' if i < n_high else ('MEDIUM' if i < n_high + n_med else 'LOW')
             lines.append(f"| {str(r.get('deadline_date'))[:10]} "
-                         f"| {str(r.get('buyer_name') or '')[:40]} | {tender_cell(r)} |")
+                         f"| {str(r.get('buyer_name') or '')[:40]} | {tender_cell(r)} "
+                         f"| {', '.join((r.get('why_lonely') or [])[:2])} |")
             if (sub['sub_id'], r['procedure_id'], r['lot_id'], ts[:10]) not in already:
                 deliveries.append({
                     'ts': ts, 'sub_id': sub['sub_id'], 'sub_version': sub.get('version', 1),
@@ -737,10 +840,12 @@ def deliver(paths, scored, args):
                       'is the same as anywhere; the odds are not. We put these warnings '
                       'on the record and grade them when the outcome is published, '
                       'exactly like the picks.', '',
-                      '| deadline | buyer | tender |', '|---|---|---|']
+                      '| deadline | buyer | tender | why we expect a crowd |',
+                      '|---|---|---|---|']
             for i, r in enumerate(avoid):
                 lines.append(f"| {str(r.get('deadline_date'))[:10]} "
-                             f"| {str(r.get('buyer_name') or '')[:40]} | {tender_cell(r)} |")
+                             f"| {str(r.get('buyer_name') or '')[:40]} | {tender_cell(r)} "
+                             f"| {', '.join((r.get('why_crowded') or [])[:2])} |")
                 if (sub['sub_id'], r['procedure_id'], r['lot_id'], ts[:10]) not in already:
                     deliveries.append({
                         'ts': ts, 'sub_id': sub['sub_id'], 'sub_version': sub.get('version', 1),
