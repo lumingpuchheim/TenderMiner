@@ -1,6 +1,8 @@
 # RELEVANCE — recommend only the customer's business
 
-Status: specification. Builds on the running loop
+Status: phases 1 (embedding sidecar — `embed.py`, wired into the loop) and
+2 (calibration + trusted codes — `calibrate.py`, receipts committed per
+`model_tag`) implemented; phases 3–4 specification. Builds on the running loop
 ([`ONLINE_LEARNING.md`](ONLINE_LEARNING.md)) and the subscription layer
 ([`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md)); uses their vocabulary
 (**component** = a box that always runs; **phase** = build order in time,
@@ -143,8 +145,42 @@ customer sees, never dilute it. n is small (single digits for years), so max
 costs nothing.
 
 The gate: a lot enters the customer's slice iff
-`relevance(c) ≥ min_relevance`. Below the gate a lot is invisible to picks,
-warnings, *and* the annex — with one exception, the borderline band (below).
+`relevance(c) ≥ min_relevance` **or** it auto-passes on a trusted code
+(next section). Below the gate a lot is invisible to picks, warnings, *and*
+the annex — with one exception, the borderline band (below).
+
+## Trusted codes — CPV earns its way back in (decision 2026-08-04)
+
+Deep CPV codes are sometimes precise and sometimes nonsense, and no rule of
+thumb separates them (building-type vs. trade branches was tested and
+refuted — both average the same). So no code is *assumed* meaningful; every
+code **proves itself on data**:
+
+- **Cohesion**: for every deep code (digits 5–8 carry information) with
+  ≥ `trust_min_lots` lots in the store, measure the mean pairwise cosine of
+  its lots' embeddings. A code filled honestly names one trade, and its
+  tenders read alike (measured range in the current store: 0.32–0.73 against
+  a 0.404 random baseline — some deep codes are *less* coherent than random).
+- **Trusted** = cohesion ≥ `trust_cohesion_min`. The trusted-code list is a
+  committed artifact next to the calibration receipt, recomputed per
+  `model_tag` and as the store grows. An untrusted deep code is treated
+  exactly like `45000000`: ignored, the lot is judged by its text alone.
+
+Trusted codes are used in three places, always under one asymmetry — **a
+code can add evidence, but no code can ever veto the text**:
+
+1. **Auto-pass**: a candidate deep-coded with a trusted code that also
+   appears (trusted) among the profile references passes the gate outright,
+   regardless of embedding score.
+2. **Profile expansion**: other lots under a trusted code from the
+   customer's wins become **pseudo-references**, widening a handful of wins
+   into the trade's full textual variety. Guard at the lot level: a lot
+   whose mean similarity to its code siblings falls clearly below the
+   code's cohesion — past the halfway point toward the random baseline —
+   is an outlier (a Speyer hiding inside a good code) and is not used as a
+   pseudo-reference.
+3. **Calibration negatives** (next section): only trusted codes may label a
+   lot "definitely another trade" — an untrusted label is no label.
 
 ## Calibrating `min_relevance` — from the data, not from taste
 
@@ -152,16 +188,31 @@ The awards store already contains everything needed, no customers required:
 
 1. For every repeat winner (≥3 wins in the store — 528 firms today), hold
    out each win and score it against the firm's remaining wins: the
-   **positive** distribution.
-2. Score each held-out win against random other lots in the same CPV
-   division: the **negative** distribution.
-3. Pick the default threshold where the distributions separate (target: ≥90%
-   of held-out wins pass their own firm's gate; report the achieved
-   false-pass rate alongside).
+   **positive** distribution. The default threshold is set from this
+   distribution alone — the 10th percentile, i.e. the recall promise "90% of
+   a firm's own wins pass their own gate." No negative labels required.
+2. **Wrong-trade leakage** is measured against *clean* negatives only: lots
+   carrying a **trusted** deep code (previous section) in a *different*
+   class than all of the firm's wins. Untrusted deep codes may not label
+   negatives — measured against naively deep-coded negatives the leakage
+   number mixes model errors with label errors (an electrical lot deep-coded
+   as hospital construction counts as "leakage" when the model correctly
+   recognises electrical work). Random lots are NOT negatives either: a
+   random lot won by another firm of the same trade is a competitor's win —
+   a tender the gate *must* pass, since the customer should have bid on it.
+   A threshold tuned to reject those would systematically hide competitor
+   territory, the most valuable part of the feed (both flaws found
+   2026-08-04, before phase 2 was built).
+3. The pass-rate over random same-division lots is still computed, but
+   reported as **admitted market volume** ("this profile lets through X% of
+   the division") — a sizing number, never an error rate.
 
-This is a one-notebook calibration run, repeated once per embedding
-`model_tag`, with the resulting curves committed to the repo as the
-threshold's receipt. Per-subscription overrides of `min_relevance` are a
+The run (`calibrate.py`) reports the gate in three configurations so every
+design choice carries its own number: text-only against naive negatives
+(the historical baseline), text-only against trusted negatives (label noise
+removed), and the full hybrid (profile expansion + auto-pass). It is
+repeated once per embedding `model_tag`, with the resulting curves committed
+to the repo as the threshold's receipt. Per-subscription overrides of `min_relevance` are a
 format field, not new architecture — a customer in a text-poor trade may
 need a looser gate, and the borderline band catches the cost of guessing
 wrong.
@@ -253,6 +304,11 @@ is untouched at every phase, so nothing ships as a flag-day.
   German, ONNX-friendly); decide at Phase 1 and pin as `model_tag`.
 - **Borderline margin** — 0.05 below `min_relevance` proposed; revisit after
   the calibration curves exist.
+- **Trust parameters** — `trust_min_lots` (10 proposed: below that, cohesion
+  is too noisy to certify a code) and `trust_cohesion_min` (proposed at the
+  measured random baseline + 0.15; the calibration receipt shows the
+  sensitivity). Both recomputed per `model_tag`, both parameters like every
+  window in this system.
 - **Annex volume under a coarse prefix** — widening `cpv_prefixes` to `45`
   multiplies annex candidates; the gate shrinks them again, but if annexes
   balloon for text-poor profiles, cap the annex at the top-N by relevance
@@ -261,3 +317,7 @@ is untouched at every phase, so nothing ships as a flag-day.
 - **`profile_texts` weight** — references from real wins and references
   from free text currently score identically; if free text proves noisier,
   a per-reference weight is a format field away.
+- **Competitor detection (idea, not scoped)** — profile similarity between
+  firms is competitor identification for free: the same sidecar over award
+  data answers "who competes with whom" per niche. Possible future
+  analytics product; noted here so it is not re-derived from scratch.
