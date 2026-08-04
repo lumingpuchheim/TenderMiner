@@ -523,11 +523,11 @@ def _matches(sub, row, today, min_days):
 
 MAX_RECEIPTS = 15  # itemized reviewed picks shown per report; the rest is counted
 
-def receipt_lines(grades_recent, sub_deliveries, pred_info):
+def receipt_lines(grades_recent, sub_deliveries, pred_info, kind='pick'):
     """Receipts before rates (SUBSCRIPTIONS.md): one line per delivered pick
-    whose outcome has arrived — tier said, bids that came, TED link as proof.
-    Misses render exactly like hits; the statistical record that follows is
-    what keeps this list honest."""
+    (or, kind='avoid', per warning) whose outcome has arrived — what we said,
+    the bids that came, TED link as proof. Misses render exactly like hits;
+    a warning is right when the lot ended contested."""
     grade_by_lot = {(g['procedure_id'], g['lot_id']): g for g in grades_recent}
     by_lot = {}
     for d in sorted(sub_deliveries, key=lambda d: str(d['ts'])):
@@ -538,9 +538,14 @@ def receipt_lines(grades_recent, sub_deliveries, pred_info):
         if g is None:
             continue
         before = [d for d in ds if str(d['ts'])[:10] <= str(g['award_pub'])[:10]]
-        items.append(((before or ds)[-1], g))
+        d = (before or ds)[-1]
+        if d.get('kind', 'pick') == kind:
+            items.append((d, g))
     if not items:
-        n_open = len(by_lot)
+        if kind == 'avoid':
+            return []  # section renders only once a warning has its outcome
+        n_open = sum(1 for ds in by_lot.values()
+                     if ds[-1].get('kind', 'pick') == 'pick')
         return [(f'All {n_open} picks we have sent you are on the record; none has '
                  'its outcome yet — award notices trail deadlines by roughly three '
                  'months. Meanwhile, the numbers below cover the wider market.')
@@ -556,17 +561,28 @@ def receipt_lines(grades_recent, sub_deliveries, pred_info):
         n = g.get('n_tenders')
         outcome = (f"{int(n)} bid{'s' if n != 1 else ''}" if n is not None
                    else ('0–1 bids' if g['label'] else 'more than 1 bid'))
-        verdict = ('almost nobody competed' if g['label'] else 'competitive after all')
+        right = (not g['label']) if kind == 'avoid' else bool(g['label'])
+        if kind == 'avoid':
+            verdict = ('crowded, as we warned — bid money saved' if right
+                       else 'ended quiet after all — this warning cost you a chance')
+            said = 'warning'
+        else:
+            verdict = 'almost nobody competed' if right else 'competitive after all'
+            said = f"**{d.get('slice_tier') or '—'}** pick"
         nr = g.get('award_publication_number')
         link = (f' · [TED {nr}](https://ted.europa.eu/en/notice/-/detail/{nr})'
                 if nr else '')
-        lines.append(f"- {'✓' if g['label'] else '✗'} **{d.get('slice_tier') or '—'}** "
-                     f"pick, {str(g['award_pub'])[:10]} — {title}"
-                     f"{f' ({str(buyer)[:40]})' if buyer else ''}: **{outcome}** — "
-                     f'{verdict}{link}')
+        lines.append(f"- {'✓' if right else '✗'} {said}, {str(g['award_pub'])[:10]} — "
+                     f"{title}{f' ({str(buyer)[:40]})' if buyer else ''}: "
+                     f'**{outcome}** — {verdict}{link}')
     if len(items) > MAX_RECEIPTS:
-        lines.append(f'- …and {len(items) - MAX_RECEIPTS} more graded picks in your '
+        lines.append(f'- …and {len(items) - MAX_RECEIPTS} more graded '
+                     f"{'warnings' if kind == 'avoid' else 'picks'} in your "
                      'delivery ledger.')
+    if kind == 'avoid':
+        n_right = sum(1 for d, g in items if not g['label'])
+        lines.append('')
+        lines.append(f'So far {n_right} of {len(items)} warnings proved right.')
     return lines + ['']
 
 
@@ -687,6 +703,10 @@ def deliver(paths, scored, args):
                  'in poker, knowing which hands *not* to play is where the money is.', '',
                  '## Your picks, reviewed', '']
         lines += receipt_lines(grades_recent, by_sub.get(sub['sub_id'], []), pred_info)
+        warn_receipts = receipt_lines(grades_recent, by_sub.get(sub['sub_id'], []),
+                                      pred_info, kind='avoid')
+        if warn_receipts:
+            lines += ['## Our warnings, reviewed', ''] + warn_receipts
         lines += ['## The numbers behind it', '']
         lines += slice_record_lines(grades_recent, by_sub.get(sub['sub_id'], []),
                                     sub, args, today)
@@ -715,7 +735,37 @@ def deliver(paths, scored, args):
                     'slice_size': len(rows), 'slice_tier': tier,
                     'publication_number': r.get('publication_number'),
                     'buyer_name': r.get('buyer_name'), 'title': r.get('title'),
+                    'kind': 'pick',
                 })
+        avoid_n = int(sub.get('avoid_n', 5) or 0)
+        avoid = (list(reversed(rows[-avoid_n:]))
+                 if avoid_n and len(rows) > len(top) + avoid_n else [])
+        if avoid:
+            lines += ['', "## Don't go there this week", '',
+                      f'The {len(avoid)} most contested-looking lots in your market — '
+                      'our model expects a crowd. The entry fee (your bid preparation) '
+                      'is the same as anywhere; the odds are not. We put these warnings '
+                      'on the record and grade them when the outcome is published, '
+                      'exactly like the picks.', '',
+                      '| score | deadline | est. value | buyer | title |',
+                      '|---|---|---|---|---|']
+            for i, r in enumerate(avoid):
+                value = r.get('est_value_lot')
+                value = f'{value:,.0f}' if isinstance(value, (int, float)) else ''
+                lines.append(f"| {r['score']:.2f} | {str(r.get('deadline_date'))[:10]} "
+                             f"| {value} | {str(r.get('buyer_name') or '')[:40]} "
+                             f"| {str(r.get('title') or '')[:60]} |")
+                if (sub['sub_id'], r['procedure_id'], r['lot_id'], ts[:10]) not in already:
+                    deliveries.append({
+                        'ts': ts, 'sub_id': sub['sub_id'], 'sub_version': sub.get('version', 1),
+                        'procedure_id': r['procedure_id'], 'lot_id': r['lot_id'],
+                        'notice_id': r.get('notice_id'), 'model': r['model'],
+                        'score': r['score'], 'slice_rank': i + 1,
+                        'slice_size': len(rows), 'slice_tier': 'AVOID',
+                        'publication_number': r.get('publication_number'),
+                        'buyer_name': r.get('buyer_name'), 'title': r.get('title'),
+                        'kind': 'avoid',
+                    })
         if rows:
             lines += ['',
                       '**score** — our competition estimate, 0 to 1: the higher, the '
