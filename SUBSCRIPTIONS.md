@@ -49,7 +49,7 @@ ledger — the repo is public):
 {"sub_id": "weber-tiefbau", "version": 1, "effective_from": "2026-09-01",
  "name": "Weber Tiefbau GmbH",
  "cpv_prefixes": ["452"], "nuts_prefixes": ["DE2"],
- "min_deadline_days": 14, "top_n": 12, "active": true}
+ "min_deadline_days": 14, "top_n": 12, "avoid_n": 5, "active": true}
 ```
 
 - **Filters compose by AND; each list composes by OR** (a lot matches if its
@@ -114,7 +114,19 @@ time — an append-only **delivery ledger**:
 One row per (subscription, cycle, delivered lot), written when the customer's
 report is rendered, never edited. A cycle is a calendar day: re-running the
 loop on the same day re-renders the report but appends no duplicate delivery
-rows — the same idempotence rule the prediction ledger already follows. Grading a customer's view is then a pure
+rows — the same idempotence rule the prediction ledger already follows.
+
+**The negative list.** The product's founding problem is customers bidding
+into crowds; the report therefore also delivers the **`avoid_n` most
+contested-looking lots** of the slice — the *bottom* of the same ranking —
+as an explicit "don't go there" list. Warnings are delivery rows like any
+other, marked `kind: "avoid"` (`slice_tier: "AVOID"`, `slice_rank` counted
+from the crowded end; rows without a `kind` predate the field and are
+picks). They are graded by the same join and reviewed in their own receipts
+block — a warning is **right when the lot ends contested**, and a warning
+that ended with 0–1 bids is shown as the miss it is. The list only renders
+when the slice is large enough that picks and warnings cannot overlap
+(`slice_size > top_n + avoid_n`). Grading a customer's view is then a pure
 join: grades (by lot) ⋈ deliveries (by lot + sub). No reconstruction, no
 "what would the filter have matched back then" — the row *is* what they saw.
 
