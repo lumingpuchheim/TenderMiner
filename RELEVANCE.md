@@ -1,8 +1,10 @@
 # RELEVANCE — recommend only the customer's business
 
-Status: phases 1 (embedding sidecar — `embed.py`, wired into the loop) and
+Status: phases 1 (embedding sidecar — `embed.py`, wired into the loop),
 2 (calibration + trusted codes — `calibrate.py`, receipts committed per
-`model_tag`) implemented; phases 3–4 specification. Builds on the running loop
+`model_tag`) and 3 (gate in the renderer — `relevance.py`, wired into
+`deliver`; pilot subscription live) implemented; phase 4 specification.
+Builds on the running loop
 ([`ONLINE_LEARNING.md`](ONLINE_LEARNING.md)) and the subscription layer
 ([`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md)); uses their vocabulary
 (**component** = a box that always runs; **phase** = build order in time,

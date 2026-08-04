@@ -629,6 +629,7 @@ def predict_open(paths, tenders, roles, aw, args):
             # slicing keys + audit link + rendering columns, stamped at write
             # time (SUBSCRIPTIONS.md) — rendering columns never feed features
             'cpv3': str(cpv)[:3] if pd.notna(cpv) else None,
+            'cpv_main': stamp(cpv),  # full code for the relevance code channel
             'place_nuts3': stamp(t.get('place_nuts3')),
             'publication_number': stamp(t.get('publication_number')),
             'buyer_name': stamp(t.get('buyer_name')),
@@ -664,13 +665,16 @@ def load_subscriptions(path, today):
 
 
 def _matches(sub, row, today, min_days):
+    # .get: rows written before a slicing key was stamped cannot prove they
+    # are in the slice and therefore do not match (SUBSCRIPTIONS.md keyless-row
+    # rule; the fallback ladder absorbs the resulting thin slices)
     if sub.get('cpv_prefixes'):
-        if not row['cpv3'] or not any(str(row['cpv3']).startswith(str(p))
-                                      for p in sub['cpv_prefixes']):
+        if not row.get('cpv3') or not any(str(row['cpv3']).startswith(str(p))
+                                          for p in sub['cpv_prefixes']):
             return False
     if sub.get('nuts_prefixes'):
-        if not row['place_nuts3'] or not any(str(row['place_nuts3']).startswith(str(p))
-                                             for p in sub['nuts_prefixes']):
+        if not row.get('place_nuts3') or not any(str(row['place_nuts3']).startswith(str(p))
+                                                 for p in sub['nuts_prefixes']):
             return False
     if min_days > 0:
         # a deadline promise cannot be honored for an unknown deadline
@@ -678,6 +682,17 @@ def _matches(sub, row, today, min_days):
         if pd.isna(deadline) or (deadline.date() - today).days < min_days:
             return False
     return True
+
+
+def _gate_stamp(profile, scores):
+    """Delivery-row stamps for gated subscriptions (RELEVANCE.md phase 3);
+    empty for ungated ones so their rows stay byte-identical to before."""
+    if not profile or scores is None:
+        return {}
+    from embed import MODEL_TAG
+    text, code = scores
+    return {'relevance_score': text, 'code_relevance': code,
+            'profile_version': profile['version'], 'embed_model_tag': MODEL_TAG}
 
 
 MAX_RECEIPTS = 15  # itemized reviewed picks shown per report; the rest is counted
@@ -835,10 +850,41 @@ def deliver(paths, scored, args):
         if p.get('title') or p.get('buyer_name'):
             pred_info[(p['procedure_id'], p['lot_id'])] = p
     ts = now_utc().isoformat(timespec='seconds')
+    # relevance gate (RELEVANCE.md phase 3): loaded once per cycle, only when a
+    # subscription asks for it; unavailable sidecars degrade to ungated delivery
+    # with a loud line, never a failed cycle
+    gate = None
+    try:
+        import relevance as rel
+        if any(rel.wants_gate(s) for s in subs):
+            gate = rel.Gate(paths.data)
+    except Exception as e:
+        print(f'[deliver] relevance gate unavailable ({e}) — delivering ungated')
+        gate = None
     n_rows = 0
     for sub in subs:
         min_days = int(sub.get('min_deadline_days', 0) or 0)
-        rows = sorted((r for r in latest.values() if _matches(sub, r, today, min_days)),
+        profile, judged, borderline = None, {}, []
+        if gate is not None and rel.wants_gate(sub):
+            try:
+                profile = rel.build_profile(gate, sub)
+            except Exception as e:
+                print(f"[deliver] {sub['sub_id']}: profile error ({e}) — "
+                      f'delivering ungated')
+        # gate the widest candidate set (deadline ignored — the annex needs a
+        # verdict for short-deadline lots too); near-misses render separately
+        cand = [r for r in latest.values() if _matches(sub, r, today, 0)]
+        if profile:
+            kept = []
+            for r in cand:
+                ok, near, t_score, c_score = rel.judge(gate, profile, r)
+                judged[id(r)] = (t_score, c_score)
+                if ok:
+                    kept.append(r)
+                elif near:
+                    borderline.append(r)
+            cand = kept
+        rows = sorted((r for r in cand if _matches(sub, r, today, min_days)),
                       key=lambda r: -r['score'])
         n_high = max(1, round(len(rows) * args.tier_high))
         n_med = max(1, round(len(rows) * args.tier_medium))
@@ -860,6 +906,13 @@ def deliver(paths, scored, args):
         market = ('CPV ' + '/'.join(sub.get('cpv_prefixes') or ['alle'])
                   + ', Region ' + '/'.join(sub.get('nuts_prefixes') or ['alle'])
                   + (f', ≥{min_days} Tage bis zur Angebotsfrist' if min_days else ''))
+        if profile:
+            n_refs = len(sub.get('profile_refs') or [])
+            n_texts = len(sub.get('profile_texts') or [])
+            market += (', gefiltert auf Ihr Profil ('
+                       + ' + '.join([f'{n_refs} gewonnene Ausschreibungen'] * (n_refs > 0)
+                                    + [f'{n_texts} Beschreibung(en)'] * (n_texts > 0))
+                       + ')')
         body = [f'<h1>{escape(name)} — TenderMining Wochenbericht — {date_de(today.isoformat())}</h1>',
                 f'<p class="muted">Ihr Markt: {escape(market)}.</p>',
                 '<p>Jede Woche lesen wir jede öffentliche Bauausschreibung in '
@@ -914,6 +967,7 @@ def deliver(paths, scored, args):
                     'publication_number': r.get('publication_number'),
                     'buyer_name': r.get('buyer_name'), 'title': r.get('title'),
                     'kind': 'pick',
+                    **_gate_stamp(profile, judged.get(id(r))),
                 })
         if pick_trs:
             body += [table_html(['Ausschreibung', 'Frist', 'Auftraggeber',
@@ -945,15 +999,16 @@ def deliver(paths, scored, args):
                         'publication_number': r.get('publication_number'),
                         'buyer_name': r.get('buyer_name'), 'title': r.get('title'),
                         'kind': 'avoid',
+                        **_gate_stamp(profile, judged.get(id(r))),
                     })
         if avoid_trs:
             body += [table_html(['Ausschreibung', 'Frist', 'Auftraggeber',
                                  'warum wir viele Bieter erwarten'], avoid_trs)]
         # the annex: every open tender in the slice (deadline filter ignored —
         # a candidate with 10 days left still deserves its verdict), so the
-        # customer can check THEIR candidates, not just ours
-        annex_rows = sorted((r for r in latest.values() if _matches(sub, r, today, 0)),
-                            key=lambda r: -r['score'])
+        # customer can check THEIR candidates, not just ours; `cand` is already
+        # relevance-gated when the subscription has a profile
+        annex_rows = sorted(cand, key=lambda r: -r['score'])
         n_crowd = max(1, round(len(annex_rows) * args.top_slice))
         verdicts = {}
         for rank, r in enumerate(annex_rows):
@@ -990,6 +1045,23 @@ def deliver(paths, scored, args):
                       'wird in Ihrem Bericht überprüft.</p>',
                       table_html(['Ausschreibung', 'Frist', 'Auftraggeber', 'Urteil',
                                   'warum'], annex_trs)]
+        if borderline:
+            # the borderline band (RELEVANCE.md): near-misses just under the
+            # profile gate stay visible, so a miscalibrated gate is discovered
+            # by reading, not by silence
+            near_trs = [f'<tr><td>{tender_cell(r)}</td>'
+                        f"<td>{date_de(r.get('deadline_date'))}</td>"
+                        f'<td>{buyer_cell(r)}</td></tr>'
+                        for r in sorted(borderline,
+                                        key=lambda r: str(r.get('deadline_date')))]
+            annex_body += ['<h2>Knapp aussortiert</h2>',
+                           f'<p>Diese {len(borderline)} Ausschreibungen lagen knapp '
+                           'unter der Ähnlichkeitsschwelle zu Ihrem Profil und wurden '
+                           'deshalb nicht in Ihren Markt aufgenommen. Ist eine davon '
+                           'doch Ihr Geschäft? Antworten Sie mit der TED-Nummer — '
+                           'Ihr Profil lernt daraus.</p>',
+                           table_html(['Ausschreibung', 'Frist', 'Auftraggeber'],
+                                      near_trs)]
         out = paths.reports / 'subscriptions' / sub['sub_id'] / f'report_{today.isoformat()}.html'
         out.parent.mkdir(parents=True, exist_ok=True)
         (out.parent / annex_name).write_text(
