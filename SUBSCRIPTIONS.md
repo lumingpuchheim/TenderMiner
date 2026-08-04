@@ -154,6 +154,17 @@ Why slice-relative and not global: a customer in a low-scoring trade would
 otherwise receive an empty HIGH bucket forever. "Top 10% of your market this
 week" is the product promise; the delivery ledger is what keeps it honest.
 
+**Every pick says why, in plain words (decision 2026-08-04).** Each scored
+lot carries a short "why" — the model's own per-prediction feature
+attributions (SHAP), passed through a fixed phrase book that translates
+feature groups into customer language ("the location — fewer firms bid
+there", "the qualification requirements", "the specialised type of work").
+Deliberately lossy: technical features (notice subtype, currency codes,
+CPV digit positions) map to nothing and never surface. The picks table
+shows the top reasons the lot looks lonely; the warnings table the top
+reasons it looks crowded. The full attribution stays in the model; the
+phrase book is the customer boundary.
+
 **Tiers and scores are internal (decision 2026-08-04).** They are recorded
 on every delivery row and verified through the graded joins, but the
 customer report never shows them: no score column, no tier column, no
