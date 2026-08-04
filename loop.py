@@ -99,6 +99,23 @@ HTML_STYLE = '''
 '''
 
 
+def date_de(iso):
+    """'2026-08-31' -> '31.08.2026'; anything unparseable -> em dash."""
+    m = re.fullmatch(r'(\d{4})-(\d{2})-(\d{2})', str(iso)[:10])
+    return f'{m.group(3)}.{m.group(2)}.{m.group(1)}' if m else '—'
+
+
+def window_de(spec):
+    """'12w' -> '12 Wochen' (customer copy; the spec format stays technical)."""
+    m = re.fullmatch(r'(\d+)([dwm])', str(spec).strip().lower())
+    if not m:
+        return str(spec)
+    n = int(m.group(1))
+    one, many = {'d': ('Tag', 'Tagen'), 'w': ('Woche', 'Wochen'),
+                 'm': ('Monat', 'Monaten')}[m.group(2)]
+    return f'{n} {many if n != 1 else one}'
+
+
 def html_page(title, body_parts):
     return ('<!doctype html><html><head><meta charset="utf-8">\n'
             f'<title>{escape(title)}</title>\n<style>{HTML_STYLE}</style></head>\n<body>\n'
@@ -461,55 +478,58 @@ WHY_PHRASES = {
     'notice_kind': None, 'notice_subtype': None, 'quality_flags': None,
     'est_value_lot_currency': None, 'est_value_procedure_currency': None,
     'span__issue_date': None,
-    'procedure_type': 'the procedure used', 'accelerated': 'the procedure used',
-    'award_criterion_kind': 'how bids are scored', 'price_weight_pct': 'how bids are scored',
-    'contract_type': 'the kind of contract',
-    'buyer_legal_type': 'the kind of buyer', 'buyer_activity': 'the kind of buyer',
-    'buyer_is_cpb_awarding': 'the kind of buyer', 'buyer_is_cpb_acquiring': 'the kind of buyer',
-    'service_provider_type': 'the kind of buyer', 'buyer_country': 'where the buyer sits',
-    'eu_funded': 'the funding setup', 'funding_programs': 'the funding setup',
-    'duration_source': 'the contract duration', 'duration_unit_raw': 'the contract duration',
-    'duration_measure_raw': 'the contract duration', 'duration_days': 'the contract duration',
-    'span__period_start': 'the contract duration', 'span__period_end': 'the contract duration',
-    'est_value_lot': 'the contract size', 'est_value_procedure': 'the contract size',
-    'selection_criteria_types': 'the qualification requirements',
-    'n_selection_criteria': 'the qualification requirements',
-    'n_criteria_suitability': 'the qualification requirements',
-    'n_criteria_financial': 'the qualification requirements',
-    'n_criteria_technical': 'the qualification requirements',
-    'n_criteria_other': 'the qualification requirements',
-    'bid_bond_required': 'the bid-bond requirement',
-    'bid_validity_unit': 'the required bid validity',
-    'bid_validity_days': 'the required bid validity',
-    'bid_validity_raw': 'the required bid validity',
-    'exclusion_grounds': 'the exclusion rules', 'n_exclusion_grounds': 'the exclusion rules',
-    'cv_required': 'the CV requirements', 'legal_form_required': 'the required legal form',
-    'security_clearance_required': 'the security-clearance requirement',
-    'docs_restricted': 'restricted tender documents',
-    'variants': 'the bid-format rules', 'multiple_bids': 'the bid-format rules',
-    'esubmission': 'the submission method', 'sme_suitable': 'its fit for smaller firms',
-    'framework_type': 'the framework setup', 'is_framework': 'the framework setup',
-    'procurement_additional_types': 'special procurement conditions',
-    'is_strategic': 'special procurement conditions',
-    'procedure_languages': 'the language requirements',
-    'gpa_covered': 'international-agreement coverage',
-    'recurring': 'it recurs regularly', 'eauction': 'the e-auction format',
-    'is_corrigendum': 'its correction history', 'change_reasons': 'its correction history',
-    'n_corrections_so_far': 'its correction history',
-    'platform_name': 'the procurement platform used',
-    'deadline_days': 'the bidding timeline', 'deadline_days_published': 'the bidding timeline',
-    'span__deadline_date': 'the bidding timeline',
-    'span__bid_opening_date': 'the procedural timetable',
-    'span__question_deadline_date': 'the procedural timetable',
-    'question_window_days': 'the procedural timetable',
-    'opening_lag_days': 'the procedural timetable',
-    'n_lots': 'how the project is split into lots',
-    'n_doc_references': 'the documentation volume',
+    'procedure_type': 'das Vergabeverfahren', 'accelerated': 'das Vergabeverfahren',
+    'award_criterion_kind': 'die Zuschlagskriterien', 'price_weight_pct': 'die Zuschlagskriterien',
+    'contract_type': 'die Vertragsart',
+    'buyer_legal_type': 'die Art des Auftraggebers', 'buyer_activity': 'die Art des Auftraggebers',
+    'buyer_is_cpb_awarding': 'die Art des Auftraggebers',
+    'buyer_is_cpb_acquiring': 'die Art des Auftraggebers',
+    'service_provider_type': 'die Art des Auftraggebers',
+    'buyer_country': 'der Sitz des Auftraggebers',
+    'eu_funded': 'die Finanzierung', 'funding_programs': 'die Finanzierung',
+    'duration_source': 'die Vertragslaufzeit', 'duration_unit_raw': 'die Vertragslaufzeit',
+    'duration_measure_raw': 'die Vertragslaufzeit', 'duration_days': 'die Vertragslaufzeit',
+    'span__period_start': 'die Vertragslaufzeit', 'span__period_end': 'die Vertragslaufzeit',
+    'est_value_lot': 'das Auftragsvolumen', 'est_value_procedure': 'das Auftragsvolumen',
+    'selection_criteria_types': 'die Eignungsanforderungen',
+    'n_selection_criteria': 'die Eignungsanforderungen',
+    'n_criteria_suitability': 'die Eignungsanforderungen',
+    'n_criteria_financial': 'die Eignungsanforderungen',
+    'n_criteria_technical': 'die Eignungsanforderungen',
+    'n_criteria_other': 'die Eignungsanforderungen',
+    'bid_bond_required': 'die geforderte Bietersicherheit',
+    'bid_validity_unit': 'die geforderte Bindefrist',
+    'bid_validity_days': 'die geforderte Bindefrist',
+    'bid_validity_raw': 'die geforderte Bindefrist',
+    'exclusion_grounds': 'die Ausschlussgründe', 'n_exclusion_grounds': 'die Ausschlussgründe',
+    'cv_required': 'die geforderten Qualifikationsnachweise',
+    'legal_form_required': 'die geforderte Rechtsform',
+    'security_clearance_required': 'die geforderte Sicherheitsüberprüfung',
+    'docs_restricted': 'der beschränkte Zugang zu den Unterlagen',
+    'variants': 'die Vorgaben zur Angebotsform', 'multiple_bids': 'die Vorgaben zur Angebotsform',
+    'esubmission': 'der Einreichungsweg', 'sme_suitable': 'die Eignung für kleinere Betriebe',
+    'framework_type': 'die Rahmenvereinbarung', 'is_framework': 'die Rahmenvereinbarung',
+    'procurement_additional_types': 'besondere Vergabebedingungen',
+    'is_strategic': 'besondere Vergabebedingungen',
+    'procedure_languages': 'die Sprachanforderungen',
+    'gpa_covered': 'die internationale Ausschreibungspflicht',
+    'recurring': 'die regelmäßige Wiederkehr', 'eauction': 'das E-Auktions-Format',
+    'is_corrigendum': 'die bisherigen Korrekturen', 'change_reasons': 'die bisherigen Korrekturen',
+    'n_corrections_so_far': 'die bisherigen Korrekturen',
+    'platform_name': 'die genutzte Vergabeplattform',
+    'deadline_days': 'die Angebotsfrist', 'deadline_days_published': 'die Angebotsfrist',
+    'span__deadline_date': 'die Angebotsfrist',
+    'span__bid_opening_date': 'der Verfahrenszeitplan',
+    'span__question_deadline_date': 'der Verfahrenszeitplan',
+    'question_window_days': 'der Verfahrenszeitplan',
+    'opening_lag_days': 'der Verfahrenszeitplan',
+    'n_lots': 'der Loszuschnitt',
+    'n_doc_references': 'der Umfang der Unterlagen',
 }
 WHY_PREFIXES = [
-    (('cpv_main__', 'cpv_additional__'), 'the specialised type of work'),
-    (('place_nuts3__', 'place_postal_zone__'), 'the location — fewer firms bid there'),
-    (('buyer_nuts__', 'buyer_postal_zone__'), 'where the buyer sits'),
+    (('cpv_main__', 'cpv_additional__'), 'das spezialisierte Gewerk'),
+    (('place_nuts3__', 'place_postal_zone__'), 'der Standort — dort bieten weniger Firmen'),
+    (('buyer_nuts__', 'buyer_postal_zone__'), 'der Sitz des Auftraggebers'),
 ]
 
 
@@ -686,45 +706,48 @@ def receipt_html(grades_recent, sub_deliveries, pred_info, kind='pick'):
         n_open = sum(1 for ds in by_lot.values()
                      if ds[-1].get('kind', 'pick') == 'pick')
         return '<p>' + escape(
-            (f'All {n_open} picks we have sent you are on the record; none has '
-             'its outcome yet — award notices trail deadlines by roughly three '
-             'months. Meanwhile, the numbers below cover the wider market.')
+            (f'Alle {n_open} Empfehlungen, die wir Ihnen geschickt haben, sind '
+             'dokumentiert; für keine liegt bisher das Ergebnis vor — '
+             'Zuschlagsbekanntmachungen folgen den Fristen um etwa drei Monate. '
+             'Die Zahlen unten beziehen sich einstweilen auf den breiteren Markt.')
             if n_open else
-            'Your first picks are below — each one goes on the record, and its '
-            'outcome will be reviewed here when the award is published.') + '</p>'
+            'Ihre ersten Empfehlungen stehen unten — jede wird dokumentiert, und '
+            'ihr Ergebnis wird hier bewertet, sobald der Zuschlag veröffentlicht '
+            'ist.') + '</p>'
     items.sort(key=lambda ig: str(ig[1]['award_pub']), reverse=True)
     lis = []
     for d, g in items[:MAX_RECEIPTS]:
         info = pred_info.get((g['procedure_id'], g['lot_id']), {})
         title = escape(clean_cell(d.get('title') or info.get('title')
-                                  or f"lot {g['lot_id']}", 60))
+                                  or f"Los {g['lot_id']}", 60))
         buyer = d.get('buyer_name') or info.get('buyer_name')
         n = g.get('n_tenders')
-        outcome = (f"{int(n)} bid{'s' if n != 1 else ''}" if n is not None
-                   else ('0–1 bids' if g['label'] else 'more than 1 bid'))
+        outcome = (f"{int(n)} Angebot{'e' if n != 1 else ''}" if n is not None
+                   else ('0–1 Angebote' if g['label'] else 'mehr als 1 Angebot'))
         right = (not g['label']) if kind == 'avoid' else bool(g['label'])
         if kind == 'avoid':
-            verdict = ('crowded, as we warned — bid money saved' if right
-                       else 'ended quiet after all — this warning cost you a chance')
-            said = 'warning'
+            verdict = ('umkämpft wie gewarnt — Angebotskosten gespart' if right
+                       else 'am Ende doch ruhig — diese Warnung hat Sie eine '
+                            'Chance gekostet')
+            said = 'Warnung'
         else:
-            verdict = 'almost nobody competed' if right else 'competitive after all'
-            said = 'pick'
+            verdict = 'kaum Wettbewerb' if right else 'doch umkämpft'
+            said = 'Empfehlung'
         nr = g.get('award_publication_number')
-        link = (f' · <a href="https://ted.europa.eu/en/notice/-/detail/{escape(str(nr))}">'
+        link = (f' · <a href="https://ted.europa.eu/de/notice/-/detail/{escape(str(nr))}">'
                 f'TED {escape(str(nr))}</a>' if nr else '')
         mark = ('<span class="ok">✓</span>' if right else '<span class="miss">✗</span>')
         buyer_s = f' ({escape(clean_cell(buyer, 40))})' if buyer else ''
-        lis.append(f"<li>{mark} {said}, {str(g['award_pub'])[:10]} — {title}{buyer_s}: "
+        lis.append(f"<li>{mark} {said}, {date_de(g['award_pub'])} — {title}{buyer_s}: "
                    f'<b>{escape(outcome)}</b> — {escape(verdict)}{link}</li>')
     if len(items) > MAX_RECEIPTS:
-        lis.append(f'<li class="muted">…and {len(items) - MAX_RECEIPTS} more graded '
-                   f"{'warnings' if kind == 'avoid' else 'picks'} in your "
-                   'delivery ledger.</li>')
+        lis.append(f'<li class="muted">…und {len(items) - MAX_RECEIPTS} weitere '
+                   f"bewertete {'Warnungen' if kind == 'avoid' else 'Empfehlungen'} "
+                   'in Ihrem Lieferprotokoll.</li>')
     out = '<ul>' + ''.join(lis) + '</ul>'
     if kind == 'avoid':
         n_right = sum(1 for d, g in items if not g['label'])
-        out += f'<p>So far {n_right} of {len(items)} warnings proved right.</p>'
+        out += f'<p>Bisher trafen {n_right} von {len(items)} Warnungen zu.</p>'
     return out
 
 
@@ -734,42 +757,50 @@ def numbers_html(grades_recent, sub, args, today):
     ladder (slice -> industry Germany-wide -> whole graded market), always
     labeling the rung it stands on. Silence and unlabeled broad numbers are
     both non-options (SUBSCRIPTIONS.md). Returns an HTML block."""
-    pending = (f'<p>No graded outcomes in the trailing {args.track_window} yet — '
-               'grading starts as awards arrive.</p>')
+    window = window_de(args.track_window)
+    share = f'{args.top_slice * 100:.0f} %'
+    pending = (f'<p>Für die letzten {window} liegen noch keine bewerteten Ergebnisse '
+               'vor — die Bewertung beginnt, sobald Zuschläge veröffentlicht '
+               'werden.</p>')
     if not grades_recent:
         return pending
     rungs = [
-        ('your market', sub),
-        ('your industry Germany-wide', {**sub, 'nuts_prefixes': None}),
-        ('the whole graded market', {**sub, 'nuts_prefixes': None, 'cpv_prefixes': None}),
+        ('Ihrem Markt', 'Ihren Markt', sub),
+        ('Ihrer Branche deutschlandweit', 'Ihre Branche deutschlandweit',
+         {**sub, 'nuts_prefixes': None}),
+        ('dem gesamten bewerteten Markt', 'den gesamten bewerteten Markt',
+         {**sub, 'nuts_prefixes': None, 'cpv_prefixes': None}),
     ]
     n_slice = None
-    for i, (desc, s) in enumerate(rungs):
+    for i, (scope_dat, scope_acc, s) in enumerate(rungs):
         rows = [g for g in grades_recent if _matches(s, g, today, 0)]
         if n_slice is None:
             n_slice = len(rows)
         if len(rows) < args.min_slice_grades and not (i == 2 and rows):
             continue
         stats = _top_slice_stats(rows, args.top_slice)
-        lift = f"{stats['lift']:.1f}x" if stats['lift'] is not None else '—'
-        scope = 'your market' if i == 0 else desc
-        explain = ((f'<p class="muted"><em>What "lift {lift}" means: pick a tender '
-                    f'blindly from {scope} and {stats["base"]*100:.0f} in 100 end with '
-                    f'0–1 bids; pick from the top of our ranking and '
-                    f'{stats["hit"]*100:.0f} in 100 do. With us, your odds of facing '
-                    f'(almost) no competition are {lift} better.</em></p>')
+        lift = (f"{stats['lift']:.1f}".replace('.', ',') + '×'
+                if stats['lift'] is not None else '—')
+        explain = ((f'<p class="muted"><em>Was „Faktor {lift}“ bedeutet: Wählen Sie '
+                    f'blind eine Ausschreibung aus {scope_dat}, enden '
+                    f'{stats["base"]*100:.0f} von 100 mit höchstens einem Angebot; '
+                    f'wählen Sie aus der Spitze unserer Rangliste, sind es '
+                    f'{stats["hit"]*100:.0f} von 100. Mit uns ist Ihre Chance auf '
+                    f'(fast) konkurrenzloses Bieten um Faktor {lift} höher.</em></p>')
                    if stats['lift'] is not None else '')
         if i == 0:
-            return (f'<p>In your market over the trailing {args.track_window}: '
-                    f"<b>{stats['n']}</b> of our predictions got their outcome. Of the "
-                    f"<b>top {args.top_slice:.0%} of our ranking for you</b> "
-                    f"({stats['k']} lots), <b>{stats['hit']*100:.0f} in 100 ended with "
-                    f"0–1 bids</b>, vs {stats['base']*100:.0f} in 100 by chance — "
-                    f'<b>lift {lift}</b>.</p>') + explain
-        return (f'<p>Your market has {n_slice} graded outcomes so far — too few to '
-                f'quote honestly. Across <b>{desc}</b> ({stats["n"]} outcomes): the top '
-                f'{args.top_slice:.0%} of our ranking hit {stats["hit"]*100:.0f} in 100, '
-                f'chance {stats["base"]*100:.0f} — lift {lift}.</p>') + explain
+            return (f'<p>In Ihrem Markt in den letzten {window}: '
+                    f"<b>{stats['n']}</b> unserer Vorhersagen haben ihr Ergebnis "
+                    f'erhalten. Von den <b>besten {share} unserer Rangliste für '
+                    f"Sie</b> ({stats['k']} Ausschreibungen) endeten "
+                    f"<b>{stats['hit']*100:.0f} von 100 mit höchstens einem "
+                    f"Angebot</b>, gegenüber {stats['base']*100:.0f} von 100 nach "
+                    f'Zufall — <b>Faktor {lift}</b>.</p>') + explain
+        return (f'<p>Ihr Markt hat bisher {n_slice} bewertete Ergebnisse — zu wenige '
+                f'für eine ehrliche Aussage. Der breitere Blick auf '
+                f'<b>{scope_acc}</b> ({stats["n"]} Ergebnisse): Die besten {share} '
+                f'unserer Rangliste trafen {stats["hit"]*100:.0f} von 100, Zufall '
+                f'{stats["base"]*100:.0f} — Faktor {lift}.</p>') + explain
     return pending
 
 
@@ -816,54 +847,60 @@ def deliver(paths, scored, args):
         top = [r for r in rows if r.get('flag')][:max_picks]
 
         def tender_cell(r):
-            title = escape(clean_cell(r.get('title') or f"lot {r['lot_id']}", 70))
+            title = escape(clean_cell(r.get('title') or f"Los {r['lot_id']}", 70))
             nr = r.get('publication_number')
-            return (f'<a href="https://ted.europa.eu/en/notice/-/detail/{escape(str(nr))}">'
+            return (f'<a href="https://ted.europa.eu/de/notice/-/detail/{escape(str(nr))}">'
                     f'{title}</a>' if nr else title)
 
         def buyer_cell(r):
             return escape(clean_cell(r.get('buyer_name') or '', 40))
 
         name = sub.get('name', sub['sub_id'])
-        market = ('CPV ' + '/'.join(sub.get('cpv_prefixes') or ['all'])
-                  + ', region ' + '/'.join(sub.get('nuts_prefixes') or ['all'])
-                  + (f', ≥{min_days} days to deadline' if min_days else ''))
-        body = [f'<h1>{escape(name)} — TenderMining picks — {today.isoformat()}</h1>',
-                f'<p class="muted">Your market: {escape(market)}.</p>',
-                '<p>Every week we read every public construction tender in Germany — '
-                f'this week, <b>{len(rows)} in your market</b> — and rank them by the '
-                'one question no one can answer by reading a single notice: <b>how many '
-                'competitors will show up?</b> A <b>pick</b> is a tender where we expect '
-                'few or none. Your team still decides what you can build and what it '
-                'should cost. We add the missing piece: where bidding is worth the '
-                'effort — as in poker, knowing which hands <em>not</em> to play is '
-                f'where the money is. You get at most {max_picks} picks a week; when '
-                'nothing qualifies, we say so instead of padding the list.</p>',
-                '<h2>Your picks, reviewed</h2>',
+        market = ('CPV ' + '/'.join(sub.get('cpv_prefixes') or ['alle'])
+                  + ', Region ' + '/'.join(sub.get('nuts_prefixes') or ['alle'])
+                  + (f', ≥{min_days} Tage bis zur Angebotsfrist' if min_days else ''))
+        body = [f'<h1>{escape(name)} — TenderMining Wochenbericht — {date_de(today.isoformat())}</h1>',
+                f'<p class="muted">Ihr Markt: {escape(market)}.</p>',
+                '<p>Jede Woche lesen wir jede öffentliche Bauausschreibung in '
+                f'Deutschland — diese Woche <b>{len(rows)} in Ihrem Markt</b> — und '
+                'sortieren sie nach der einen Frage, die keine einzelne '
+                'Bekanntmachung beantwortet: <b>Wie viele Wettbewerber werden '
+                'mitbieten?</b> Eine <b>Empfehlung</b> ist eine Ausschreibung, bei '
+                'der wir wenige oder keine erwarten. Was Sie bauen können und zu '
+                'welchem Preis, entscheidet weiterhin Ihr Team. Wir liefern das '
+                'fehlende Stück: wo sich das Bieten lohnt — wie beim Poker liegt das '
+                'Geld darin zu wissen, welche Hände man <em>nicht</em> spielt. Sie '
+                f'erhalten höchstens {max_picks} Empfehlungen pro Woche; wenn nichts '
+                'überzeugt, sagen wir das, statt die Liste aufzufüllen.</p>',
+                '<h2>Ihre Empfehlungen im Rückblick</h2>',
                 receipt_html(grades_recent, by_sub.get(sub['sub_id'], []), pred_info)]
         warn_receipts = receipt_html(grades_recent, by_sub.get(sub['sub_id'], []),
                                      pred_info, kind='avoid')
         if warn_receipts:
-            body += ['<h2>Our warnings, reviewed</h2>', warn_receipts]
-        body += ['<h2>The numbers behind it</h2>',
+            body += ['<h2>Unsere Warnungen im Rückblick</h2>', warn_receipts]
+        body += ['<h2>Die Zahlen dahinter</h2>',
                  numbers_html(grades_recent, sub, args, today)]
-        body += ["<h2>This week's picks</h2>"]
+        body += ['<h2>Empfehlungen dieser Woche</h2>']
         if not rows:
-            body += ['<p><b>0 open tenders matched your filters this week.</b></p>']
+            body += ['<p><b>0 offene Ausschreibungen entsprachen diese Woche Ihren '
+                     'Filtern.</b></p>']
         elif not top:
-            body += [f'<p><b>No pick this week.</b> None of the {len(rows)} open '
-                     'tenders in your market looks lonely enough to be worth your bid '
-                     'budget. Not bidding into a crowd is the product working, not '
-                     'failing.</p>']
+            body += [f'<p><b>Diese Woche keine Empfehlung.</b> Keine der {len(rows)} '
+                     'offenen Ausschreibungen in Ihrem Markt verspricht so wenig '
+                     'Wettbewerb, dass sie Ihr Angebotsbudget wert wäre. Nicht in '
+                     'einen überfüllten Wettbewerb zu bieten heißt: das Produkt '
+                     'funktioniert.</p>']
         else:
-            body += [f'<p>Out of {len(rows)} open tenders in your market, these '
-                     f'{len(top)} look the loneliest. Click a tender to read the '
-                     'official notice and get the documents; mind the deadline.</p>']
+            body += [f'<p>Von {len(rows)} offenen Ausschreibungen in Ihrem Markt '
+                     f'sehen diese {len(top)} nach dem wenigsten Wettbewerb aus. '
+                     'Klicken Sie eine Ausschreibung an, um die offizielle '
+                     'Bekanntmachung zu lesen und die Vergabeunterlagen zu erhalten; '
+                     'beachten Sie die Frist.</p>']
         deliveries, pick_trs = [], []
         for i, r in enumerate(top):
             tier = 'HIGH' if i < n_high else ('MEDIUM' if i < n_high + n_med else 'LOW')
             pick_trs.append(f"<tr><td>{tender_cell(r)}</td>"
-                            f"<td>{str(r.get('deadline_date'))[:10]}</td>"
+                            f"<td>{date_de(r.get('deadline_date'))}</td>"
                             f'<td>{buyer_cell(r)}</td>'
                             f"<td>{escape(', '.join((r.get('why_lonely') or [])[:2]))}</td></tr>")
             if (sub['sub_id'], r['procedure_id'], r['lot_id'], ts[:10]) not in already:
@@ -878,22 +915,23 @@ def deliver(paths, scored, args):
                     'kind': 'pick',
                 })
         if pick_trs:
-            body += [table_html(['tender', 'deadline', 'buyer',
-                                 'why we expect few bidders'], pick_trs)]
+            body += [table_html(['Ausschreibung', 'Frist', 'Auftraggeber',
+                                 'warum wir wenige Bieter erwarten'], pick_trs)]
         avoid_n = int(sub.get('avoid_n', 5) or 0)
         avoid = (list(reversed(rows[-avoid_n:]))
                  if avoid_n and len(rows) > len(top) + avoid_n else [])
         avoid_trs = []
         if avoid:
-            body += ["<h2>Don't go there this week</h2>",
-                     f'<p>The {len(avoid)} most contested-looking lots in your market — '
-                     'our model expects a crowd. The entry fee (your bid preparation) '
-                     'is the same as anywhere; the odds are not. We put these warnings '
-                     'on the record and grade them when the outcome is published, '
-                     'exactly like the picks.</p>']
+            body += ['<h2>Diese Woche besser meiden</h2>',
+                     f'<p>Die {len(avoid)} am stärksten umkämpft wirkenden '
+                     'Ausschreibungen in Ihrem Markt — unser Modell erwartet viele '
+                     'Bieter. Der Einsatz (Ihre Angebotserstellung) ist derselbe wie '
+                     'überall; die Chancen sind es nicht. Wir dokumentieren diese '
+                     'Warnungen und bewerten sie bei Veröffentlichung des Ergebnisses '
+                     '— genau wie die Empfehlungen.</p>']
             for i, r in enumerate(avoid):
                 avoid_trs.append(f'<tr><td>{tender_cell(r)}</td>'
-                                 f"<td>{str(r.get('deadline_date'))[:10]}</td>"
+                                 f"<td>{date_de(r.get('deadline_date'))}</td>"
                                  f'<td>{buyer_cell(r)}</td>'
                                  f"<td>{escape(', '.join((r.get('why_crowded') or [])[:2]))}</td></tr>")
                 if (sub['sub_id'], r['procedure_id'], r['lot_id'], ts[:10]) not in already:
@@ -908,8 +946,8 @@ def deliver(paths, scored, args):
                         'kind': 'avoid',
                     })
         if avoid_trs:
-            body += [table_html(['tender', 'deadline', 'buyer',
-                                 'why we expect a crowd'], avoid_trs)]
+            body += [table_html(['Ausschreibung', 'Frist', 'Auftraggeber',
+                                 'warum wir viele Bieter erwarten'], avoid_trs)]
         # the annex: every open tender in the slice (deadline filter ignored —
         # a candidate with 10 days left still deserves its verdict), so the
         # customer can check THEIR candidates, not just ours
@@ -919,42 +957,46 @@ def deliver(paths, scored, args):
         verdicts = {}
         for rank, r in enumerate(annex_rows):
             if r.get('flag'):
-                verdicts[id(r)] = ('v-green', 'few bidders likely',
+                verdicts[id(r)] = ('v-green', 'wenige Bieter erwartet',
                                    (r.get('why_lonely') or [])[:2])
             elif rank >= len(annex_rows) - n_crowd:
-                verdicts[id(r)] = ('v-red', 'expect a crowd',
+                verdicts[id(r)] = ('v-red', 'viele Bieter erwartet',
                                    (r.get('why_crowded') or [])[:2])
             else:
-                verdicts[id(r)] = ('v-yellow', 'average odds', [])
+                verdicts[id(r)] = ('v-yellow', 'durchschnittliche Chancen', [])
         annex_name = f'annex_{today.isoformat()}.html'
-        body += ['<h2>Check any tender before you bid</h2>',
-                 f'<p>The <a href="{annex_name}">annex</a> lists <b>all '
-                 f'{len(annex_rows)} open tenders in your market</b> with our verdict '
-                 'on each. Before any bid/no-bid decision, find your tender there — '
-                 'the money-saving moment is before the calculation starts, not after. '
-                 'Considering a tender outside your market filters? Reply with its TED '
-                 'number.</p>']
+        body += ['<h2>Prüfen Sie jede Ausschreibung, bevor Sie bieten</h2>',
+                 f'<p>Die <a href="{annex_name}">Marktübersicht</a> listet <b>alle '
+                 f'{len(annex_rows)} offenen Ausschreibungen in Ihrem Markt</b> mit '
+                 'unserem Urteil zu jeder. Suchen Sie vor jeder '
+                 'Bid/No-Bid-Entscheidung Ihre Ausschreibung dort — der Moment, der '
+                 'Geld spart, liegt vor Beginn der Kalkulation, nicht danach. Sie '
+                 'erwägen eine Ausschreibung außerhalb Ihrer Marktfilter? Antworten '
+                 'Sie mit der TED-Nummer.</p>']
         annex_trs = []
         for r in sorted(annex_rows, key=lambda r: str(r.get('deadline_date'))):
             cls, verdict, why = verdicts[id(r)]
             annex_trs.append(f'<tr><td>{tender_cell(r)}</td>'
-                             f"<td>{str(r.get('deadline_date'))[:10]}</td>"
+                             f"<td>{date_de(r.get('deadline_date'))}</td>"
                              f'<td>{buyer_cell(r)}</td>'
                              f'<td class="{cls}">{verdict}</td>'
                              f"<td>{escape(', '.join(why))}</td></tr>")
-        annex_body = [f'<h1>{escape(name)} — full market annex — {today.isoformat()}</h1>',
-                      f'<p>All {len(annex_rows)} open tenders in your market '
-                      f'({escape(market)}), sorted by deadline. Look up any tender you '
-                      'are considering; the verdict is the same model that produces '
-                      'your weekly picks, verified in your report.</p>',
-                      table_html(['tender', 'deadline', 'buyer', 'verdict', 'why'],
-                                 annex_trs)]
+        annex_body = [f'<h1>{escape(name)} — Marktübersicht — {date_de(today.isoformat())}</h1>',
+                      f'<p>Alle {len(annex_rows)} offenen Ausschreibungen in Ihrem '
+                      f'Markt ({escape(market)}), sortiert nach Frist. Schlagen Sie '
+                      'jede Ausschreibung nach, die Sie erwägen; das Urteil stammt '
+                      'aus demselben Modell wie Ihre wöchentlichen Empfehlungen und '
+                      'wird in Ihrem Bericht überprüft.</p>',
+                      table_html(['Ausschreibung', 'Frist', 'Auftraggeber', 'Urteil',
+                                  'warum'], annex_trs)]
         out = paths.reports / 'subscriptions' / sub['sub_id'] / f'report_{today.isoformat()}.html'
         out.parent.mkdir(parents=True, exist_ok=True)
         (out.parent / annex_name).write_text(
-            html_page(f'{name} — annex {today.isoformat()}', annex_body), encoding='utf-8')
-        out.write_text(html_page(f'{name} — TenderMining picks {today.isoformat()}', body),
-                       encoding='utf-8')
+            html_page(f'{name} — Marktübersicht {date_de(today.isoformat())}', annex_body),
+            encoding='utf-8')
+        out.write_text(
+            html_page(f'{name} — TenderMining Wochenbericht {date_de(today.isoformat())}', body),
+            encoding='utf-8')
         append_jsonl(paths.deliveries, deliveries)
         n_rows += len(deliveries)
         print(f"[deliver] {sub['sub_id']}: {len(top)} lots delivered "

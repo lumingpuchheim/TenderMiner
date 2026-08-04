@@ -268,6 +268,13 @@ Per cycle, after the global report:
 data/reports/subscriptions/<sub_id>/report_<date>.md
 ```
 
+**Customer artifacts are German (decision 2026-08-05).** The customers are
+German contractors; every customer-facing string — copy, table headers,
+verdicts, the "why" phrase book, dates (DD.MM.YYYY), decimal commas — is
+German. Operator artifacts (global report, dashboard, console output) stay
+English. There is no i18n layer; German is hardcoded until a non-German
+customer exists.
+
 **Customer artifacts are HTML (decision 2026-08-05).** Markdown was the
 prototyping format; the shipped customer files are `report_<date>.html` and
 `annex_<date>.html` — self-contained, inline-styled, e-mail-body-ready:
