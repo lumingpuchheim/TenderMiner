@@ -268,12 +268,18 @@ Per cycle, after the global report:
 data/reports/subscriptions/<sub_id>/report_<date>.md
 ```
 
-— track-record header (with ladder), then the slice's open lots in slice-tier
-order, same columns as the global shortlist. Markdown first; e-mail/HTML is
-presentation, not architecture (unchanged principle). The renderer is one
-loop over active subscriptions doing filter → rank → tier → write report →
-append delivery rows; a hundred subscriptions is milliseconds, which is the
-entire point of one-run-many-views.
+**Customer artifacts are HTML (decision 2026-08-05).** Markdown was the
+prototyping format; the shipped customer files are `report_<date>.html` and
+`annex_<date>.html` — self-contained, inline-styled, e-mail-body-ready:
+true traffic-light verdict colors (green / yellow / red cells, not emoji),
+tender titles as links, tables that survive long buyer names. One format
+per audience: customers get HTML only (no per-customer markdown — every
+copy change would otherwise be made twice); the operator keeps the global
+markdown report and the dashboard; auditors keep the JSONL ledgers. The
+annex column order is tender · deadline · buyer · verdict · why. The
+renderer is one loop over active subscriptions doing filter → rank → write
+report → append delivery rows; a hundred subscriptions is milliseconds,
+which is the entire point of one-run-many-views.
 
 ## The operator view
 
