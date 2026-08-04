@@ -706,10 +706,11 @@ def receipt_html(grades_recent, sub_deliveries, pred_info, kind='pick'):
         n_open = sum(1 for ds in by_lot.values()
                      if ds[-1].get('kind', 'pick') == 'pick')
         return '<p>' + escape(
-            (f'Alle {n_open} Empfehlungen, die wir Ihnen geschickt haben, sind '
-             'dokumentiert; für keine liegt bisher das Ergebnis vor — '
-             'Zuschlagsbekanntmachungen folgen den Fristen um etwa drei Monate. '
-             'Die Zahlen unten beziehen sich einstweilen auf den breiteren Markt.')
+            (f'In Ihren bisherigen Wochenberichten haben wir insgesamt {n_open} '
+             'verschiedene Ausschreibungen empfohlen — jede ist dokumentiert, und '
+             'für keine liegt bisher das Ergebnis vor: Zuschlagsbekanntmachungen '
+             'folgen den Fristen um etwa drei Monate. Die Zahlen unten beziehen '
+             'sich einstweilen auf den breiteren Markt.')
             if n_open else
             'Ihre ersten Empfehlungen stehen unten — jede wird dokumentiert, und '
             'ihr Ergebnis wird hier bewertet, sobald der Zuschlag veröffentlicht '
