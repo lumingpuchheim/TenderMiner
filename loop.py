@@ -73,6 +73,12 @@ def read_jsonl(path):
     return [json.loads(line) for line in p.read_text(encoding='utf-8').splitlines() if line.strip()]
 
 
+def clean_cell(v, width):
+    """Markdown-table-safe cell: collapse all whitespace (newlines break table
+    rows), replace pipes (they split cells), truncate."""
+    return ' '.join(str(v).split()).replace('|', '/')[:width]
+
+
 def stamp(v):
     """NaN/NaT -> None so ledger rows carry JSON null, never 'nan' strings."""
     try:
@@ -657,7 +663,7 @@ def receipt_lines(grades_recent, sub_deliveries, pred_info, kind='pick'):
     lines = []
     for d, g in items[:MAX_RECEIPTS]:
         info = pred_info.get((g['procedure_id'], g['lot_id']), {})
-        title = str(d.get('title') or info.get('title') or f"lot {g['lot_id']}")[:60]
+        title = clean_cell(d.get('title') or info.get('title') or f"lot {g['lot_id']}", 60)
         buyer = d.get('buyer_name') or info.get('buyer_name')
         n = g.get('n_tenders')
         outcome = (f"{int(n)} bid{'s' if n != 1 else ''}" if n is not None
@@ -674,7 +680,7 @@ def receipt_lines(grades_recent, sub_deliveries, pred_info, kind='pick'):
         link = (f' · [TED {nr}](https://ted.europa.eu/en/notice/-/detail/{nr})'
                 if nr else '')
         lines.append(f"- {'✓' if right else '✗'} {said}, {str(g['award_pub'])[:10]} — "
-                     f"{title}{f' ({str(buyer)[:40]})' if buyer else ''}: "
+                     f"{title}{f' ({clean_cell(buyer, 40)})' if buyer else ''}: "
                      f'**{outcome}** — {verdict}{link}')
     if len(items) > MAX_RECEIPTS:
         lines.append(f'- …and {len(items) - MAX_RECEIPTS} more graded '
@@ -774,7 +780,7 @@ def deliver(paths, scored, args):
         top = [r for r in rows if r.get('flag')][:max_picks]
 
         def tender_cell(r):
-            title = str(r.get('title') or f"lot {r['lot_id']}")[:60].replace('|', '/')
+            title = clean_cell(r.get('title') or f"lot {r['lot_id']}", 60)
             nr = r.get('publication_number')
             return (f'[{title}](https://ted.europa.eu/en/notice/-/detail/{nr})'
                     if nr else title)
@@ -817,7 +823,7 @@ def deliver(paths, scored, args):
         for i, r in enumerate(top):
             tier = 'HIGH' if i < n_high else ('MEDIUM' if i < n_high + n_med else 'LOW')
             lines.append(f"| {str(r.get('deadline_date'))[:10]} "
-                         f"| {str(r.get('buyer_name') or '')[:40]} | {tender_cell(r)} "
+                         f"| {clean_cell(r.get('buyer_name') or '', 40)} | {tender_cell(r)} "
                          f"| {', '.join((r.get('why_lonely') or [])[:2])} |")
             if (sub['sub_id'], r['procedure_id'], r['lot_id'], ts[:10]) not in already:
                 deliveries.append({
@@ -844,7 +850,7 @@ def deliver(paths, scored, args):
                       '|---|---|---|---|']
             for i, r in enumerate(avoid):
                 lines.append(f"| {str(r.get('deadline_date'))[:10]} "
-                             f"| {str(r.get('buyer_name') or '')[:40]} | {tender_cell(r)} "
+                             f"| {clean_cell(r.get('buyer_name') or '', 40)} | {tender_cell(r)} "
                              f"| {', '.join((r.get('why_crowded') or [])[:2])} |")
                 if (sub['sub_id'], r['procedure_id'], r['lot_id'], ts[:10]) not in already:
                     deliveries.append({
@@ -890,7 +896,7 @@ def deliver(paths, scored, args):
         for r in sorted(annex_rows, key=lambda r: str(r.get('deadline_date'))):
             verdict, why = verdicts[id(r)]
             annex.append(f"| {verdict} | {str(r.get('deadline_date'))[:10]} "
-                         f"| {str(r.get('buyer_name') or '')[:40]} | {tender_cell(r)} "
+                         f"| {clean_cell(r.get('buyer_name') or '', 40)} | {tender_cell(r)} "
                          f"| {', '.join(why)} |")
         out = paths.reports / 'subscriptions' / sub['sub_id'] / f'report_{today.isoformat()}.md'
         out.parent.mkdir(parents=True, exist_ok=True)
