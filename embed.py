@@ -17,6 +17,7 @@ Usage:
 import argparse
 import hashlib
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -28,9 +29,20 @@ from ftfy import fix_text
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
-MODEL_NAME = 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'
-MODEL_TAG = 'minilm-l12-v2'  # names the sidecar directory; new model = new tag
-DIM = 384
+# Known embedding models. The active one is picked by the EMBED_MODEL env var
+# (sidecar tag); the default flips only by an explicit commit, never as a side
+# effect of a backfill in progress.
+MODELS = {
+    'minilm-l12-v2': {
+        'name': 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2',
+        'dim': 384},
+    'jina-v2-base-de': {
+        'name': 'jinaai/jina-embeddings-v2-base-de',
+        'dim': 768},
+}
+MODEL_TAG = os.environ.get('EMBED_MODEL', 'minilm-l12-v2')
+MODEL_NAME = MODELS[MODEL_TAG]['name']
+DIM = MODELS[MODEL_TAG]['dim']
 # The model attends to ~128 tokens; the trade-defining vocabulary sits in the title
 # and the opening of the description, so a generous character cut loses nothing.
 MAX_CHARS = 2000
@@ -166,39 +178,39 @@ def ensure_embeddings(data_dir, tenders):
         print(f'[embed] sidecar current: {len(rows)} lots, nothing new')
         return 0
 
-    # Lots of one procedure often share their text; embed each distinct text once.
-    by_hash = {}
-    for t in todo:
-        by_hash.setdefault(t['text_hash'], t['text'])
-    hashes = list(by_hash)
-    t0 = time.time()
-    chunks, step = [], 2000
-    for i in range(0, len(hashes), step):
-        chunks.append(embed_texts([by_hash[h] for h in hashes[i:i + step]]))
-        done = min(i + step, len(hashes))
-        if len(hashes) > step:
-            rate = done / (time.time() - t0)
-            print(f'[embed] {done}/{len(hashes)} texts '
-                  f'({done / len(hashes):.0%}, ~{(len(hashes) - done) / rate:.0f}s left)')
-    unique_vecs = np.vstack(chunks)
-    vec_of = dict(zip(hashes, unique_vecs))
-    new_mat = np.stack([vec_of[t['text_hash']] for t in todo])
-    print(f'[embed] {len(todo)} new lots ({len(hashes)} distinct texts) '
-          f'in {time.time() - t0:.1f}s')
-
-    # Row i of lots.npy is line i of lots_index.jsonl — write the matrix first
-    # via atomic replace: a crash before the index append leaves an over-long
-    # matrix, which load_sidecar truncates (a short one would be corruption).
-    full = np.vstack([mat, new_mat]) if len(mat) else new_mat
-    tmp = d / 'lots.tmp.npy'  # np.save appends .npy to names not ending in it
-    np.save(tmp, full)
-    tmp.replace(d / 'lots.npy')
-    with open(d / 'lots_index.jsonl', 'a', encoding='utf-8') as f:
-        for t in todo:
-            f.write(json.dumps({k: t[k] for k in
-                                ('procedure_id', 'lot_id', 'notice_id',
-                                 'publication_number', 'text_hash')},
-                               ensure_ascii=False) + '\n')
+    # Checkpointed in chunks: a multi-hour backfill interrupted at hour 5 keeps
+    # everything flushed so far, and the next run resumes with the remainder.
+    # Within a chunk, lots of one procedure often share their text — each
+    # distinct text is embedded once (cross-chunk duplicates re-embed; rare and
+    # harmless). Row i of lots.npy is line i of lots_index.jsonl — the matrix is
+    # written first via atomic replace: a crash before the index append leaves
+    # an over-long matrix, which load_sidecar truncates (a short one would be
+    # corruption).
+    print(f'[embed] {len(todo)} new lots to embed ({MODEL_TAG})')
+    t0, step = time.time(), 1000
+    for k in range(0, len(todo), step):
+        chunk = todo[k:k + step]
+        by_hash = {}
+        for t in chunk:
+            by_hash.setdefault(t['text_hash'], t['text'])
+        hashes = list(by_hash)
+        vec_of = dict(zip(hashes, embed_texts([by_hash[h] for h in hashes])))
+        new_mat = np.stack([vec_of[t['text_hash']] for t in chunk])
+        _, mat_now = load_sidecar(data_dir)
+        full = np.vstack([mat_now, new_mat]) if len(mat_now) else new_mat
+        tmp = d / 'lots.tmp.npy'  # np.save appends .npy to names not ending in it
+        np.save(tmp, full)
+        tmp.replace(d / 'lots.npy')
+        with open(d / 'lots_index.jsonl', 'a', encoding='utf-8') as f:
+            for t in chunk:
+                f.write(json.dumps({key: t[key] for key in
+                                    ('procedure_id', 'lot_id', 'notice_id',
+                                     'publication_number', 'text_hash')},
+                                   ensure_ascii=False) + '\n')
+        done = k + len(chunk)
+        rate = done / (time.time() - t0)
+        print(f'[embed] {done}/{len(todo)} lots ({done / len(todo):.0%}, '
+              f'~{(len(todo) - done) / rate / 60:.0f} min left)', flush=True)
     return len(todo)
 
 
