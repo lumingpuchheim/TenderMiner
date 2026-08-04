@@ -71,6 +71,54 @@ def embed_texts(texts, batch_size=64):
     return vecs / np.maximum(norms, 1e-12)
 
 
+CPV_CSV = Path(__file__).resolve().parent / 'cpv_2008_de.csv'
+
+
+def read_cpv_labels():
+    """code -> German label from the committed CPV 2008 codelist."""
+    import csv
+    with open(CPV_CSV, encoding='utf-8') as f:
+        rows = csv.reader(line for line in f if not line.startswith('#'))
+        header = next(rows)
+        return {code: label for code, label in rows}
+
+
+def build_label_sidecar(data_dir):
+    """Embed every CPV label into the lot space (RELEVANCE.md code-label
+    channel). Idempotent: skips when the sidecar matches the codelist."""
+    d = sidecar_dir(data_dir)
+    d.mkdir(parents=True, exist_ok=True)
+    labels = read_cpv_labels()
+    npy, idx = d / 'cpv_labels.npy', d / 'cpv_labels_index.jsonl'
+    if npy.exists() and idx.exists():
+        with open(idx, encoding='utf-8') as f:
+            n = sum(1 for line in f if line.strip())
+        if n == len(labels):
+            print(f'[embed] label sidecar current: {n} codes')
+            return 0
+    codes = sorted(labels)
+    t0 = time.time()
+    vecs = embed_texts([fix_text(labels[c]) for c in codes])
+    np.save(d / 'cpv_labels.npy', vecs)
+    with open(idx, 'w', encoding='utf-8') as f:
+        for c in codes:
+            f.write(json.dumps({'code': c, 'label_de': labels[c]},
+                               ensure_ascii=False) + '\n')
+    print(f'[embed] label sidecar: {len(codes)} codes in {time.time() - t0:.1f}s')
+    return len(codes)
+
+
+def load_label_sidecar(data_dir):
+    """(code -> row position, label rows, matrix); build first via --labels."""
+    d = sidecar_dir(data_dir)
+    with open(d / 'cpv_labels_index.jsonl', encoding='utf-8') as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+    mat = np.load(d / 'cpv_labels.npy')
+    if len(rows) != len(mat):
+        raise RuntimeError(f'label sidecar misaligned — delete {d} and re-run')
+    return {r['code']: i for i, r in enumerate(rows)}, rows, mat
+
+
 def load_sidecar(data_dir):
     """(index rows, matrix) — aligned by position; ([], empty) before first run."""
     d = sidecar_dir(data_dir)
@@ -158,7 +206,11 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--data-dir', default='data')
+    ap.add_argument('--labels', action='store_true',
+                    help='also (re)build the CPV label sidecar')
     args = ap.parse_args()
+    if args.labels:
+        build_label_sidecar(args.data_dir)
     tenders = pd.read_parquet(Path(args.data_dir) / 'store' / 'tenders.parquet')
     n = ensure_embeddings(args.data_dir, tenders)
     rows, mat = load_sidecar(args.data_dir)

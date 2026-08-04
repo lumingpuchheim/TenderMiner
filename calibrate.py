@@ -1,11 +1,11 @@
 """TenderMining calibration — RELEVANCE.md phase 2.
 
-Derives the default `min_relevance` gate threshold and the trusted-code list from
-the data, no customers required.
+Derives the default gate thresholds and the trusted-code list from the data, no
+customers required.
 
-Positives: each repeat winner's held-out win scored (max cosine) against the firm's
-remaining references — the threshold is set so the recall promise holds ("90% of a
-firm's own wins pass their own gate").
+Positives: each repeat winner's held-out win scored against the firm's remaining
+references — thresholds are set so the recall promise holds ("90% of a firm's own
+wins pass their own gate").
 
 Random lots are NOT negatives (decision 2026-08-04): a random lot won by another
 firm of the same trade is a competitor's win, which the gate must pass. And naively
@@ -14,14 +14,15 @@ codes that prove themselves (cohesion: their lots read alike) may label a lot
 "definitely another trade". The pass-rate over random lots is reported as admitted
 market volume, never as an error rate.
 
-The gate is reported in three configurations (RELEVANCE.md):
+The gate is reported in four configurations (RELEVANCE.md):
   A  text-only vs naively deep-coded negatives   (historical baseline, label noise)
   B  text-only vs trusted negatives              (label noise removed)
-  C  hybrid: profile expansion + auto-pass       (the shipping configuration)
+  C  hybrid: profile expansion + auto-pass
+  D  hybrid + code-label channel                 (the shipping configuration)
 
 Artifacts: calibration_<model_tag>.md (receipt) and trusted_codes_<model_tag>.json.
-Re-run only when the embedding model (MODEL_TAG) changes or the store has grown
-substantially.
+Requires both sidecars (python embed.py --labels). Re-run only when the embedding
+model (MODEL_TAG) changes or the store has grown substantially.
 
 Usage:
     python calibrate.py                   # writes both artifacts
@@ -37,7 +38,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from embed import KEY, MODEL_TAG, load_sidecar
+from embed import KEY, MODEL_TAG, load_label_sidecar, load_sidecar
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -50,6 +51,8 @@ TRUST_MIN_LOTS = 10     # below this, cohesion is too noisy to certify a code
 TRUST_MARGIN = 0.15     # trusted = cohesion >= random baseline + this
 COHESION_SAMPLE = 60    # lots sampled per code for the cohesion estimate
 PSEUDO_REF_CAP = 200    # pseudo-references kept per trusted code (closest first)
+FP_K = 8                # trade-fingerprint size (top label matches)
+CODE_GRID = np.arange(0.70, 1.0, 0.025)  # code-channel thresholds tried
 SEED = 7
 
 
@@ -102,6 +105,25 @@ def pseudo_refs(mat, cpv, trusted, cohesion, baseline):
     return pools
 
 
+def fingerprint(win_rows, win_codes, mat, lmat, lpos, trusted):
+    """Label rows of the profile's trade fingerprint: the FP_K labels closest to
+    any reference text, plus the references' own trusted codes."""
+    sims = (lmat @ mat[win_rows].T).max(axis=1)
+    fp = set(np.argsort(-sims)[:FP_K].tolist())
+    for c in win_codes:
+        if c in trusted and c in lpos:
+            fp.add(lpos[c])
+    return np.fromiter(fp, int, len(fp))
+
+
+def code_score(code, fp_rows, lmat, lpos):
+    """Code channel: best label-to-label cosine between the candidate's deep code
+    and the fingerprint. A code outside the dictionary contributes nothing."""
+    if is_deep(code) and code in lpos:
+        return float((lmat[fp_rows] @ lmat[lpos[code]]).max())
+    return 0.0
+
+
 def threshold_for_recall(scores, n_auto, target):
     """Threshold on embedding scores such that (auto-passes + scores above it)
     reach the recall target over the whole positive set."""
@@ -113,6 +135,7 @@ def threshold_for_recall(scores, n_auto, target):
 
 def calibrate(data_dir):
     rows, mat = load_sidecar(data_dir)
+    lpos, lrows, lmat = load_label_sidecar(data_dir)
     pos_of = {(r['procedure_id'], r['lot_id']): i for i, r in enumerate(rows)}
     tenders = pd.read_parquet(Path(data_dir) / 'store' / 'tenders.parquet')
     awards = pd.read_parquet(Path(data_dir) / 'store' / 'awards.parquet')
@@ -138,84 +161,145 @@ def calibrate(data_dir):
           f'{len(trusted)}/{len(cohesion)} deep codes trusted')
     pools = pseudo_refs(mat, all_cpv, trusted, cohesion, baseline)
 
-    pos_text, pos_hyb, auto_pass = [], [], 0
-    neg_naive, neg_trust, neg_hyb, volumes = [], [], [], []
+    pos_plain, pos_auto, pos_text, pos_code = [], [], [], []
+    neg_naive, neg_trust = [], []
+    neg_hyb_text, neg_code_s, vol_text, vol_code = [], [], [], []
     for name, g in by_firm.items():
         idx = g['row'].to_numpy()
         codes = g['cpv_main'].to_numpy(dtype=object)
         sims = mat[idx] @ mat[idx].T
         np.fill_diagonal(sims, -1.0)
-        pos_text.extend(sims.max(axis=1))
+        pos_plain.extend(sims.max(axis=1))
 
-        # hybrid positives: held-out win vs other wins + their trusted-code pools
+        full_ref = idx
+        for c in {c for c in codes if c in trusted}:
+            full_ref = np.concatenate([full_ref, pools[c]])
+        full_ref = np.unique(full_ref)
+        full_fp = fingerprint(idx, codes, mat, lmat, lpos, trusted)
+
         for i in range(len(idx)):
             others = np.delete(idx, i)
-            other_codes = {c for c in np.delete(codes, i) if c in trusted}
-            if isinstance(codes[i], str) and codes[i] in other_codes:
-                auto_pass += 1
-                continue
-            ref = others
-            for c in other_codes:
-                ref = np.concatenate([ref, pools[c][pools[c] != idx[i]]])
-            pos_hyb.append(float((mat[ref] @ mat[idx[i]]).max()))
+            other_codes = np.delete(codes, i)
+            other_trusted = {c for c in other_codes if c in trusted}
+            auto = isinstance(codes[i], str) and codes[i] in other_trusted
+            pos_auto.append(auto)
+            if auto:
+                pos_text.append(np.inf)
+            else:
+                ref = others
+                for c in other_trusted:
+                    ref = np.concatenate([ref, pools[c][pools[c] != idx[i]]])
+                pos_text.append(float((mat[ref] @ mat[idx[i]]).max()))
+            fp_i = fingerprint(others, other_codes, mat, lmat, lpos, trusted)
+            pos_code.append(code_score(codes[i], fp_i, lmat, lpos))
 
-        # negatives: deep different-class (naive) vs trusted-only (clean)
         firm_classes = {c[:4] for c in codes if isinstance(c, str)}
         off_class = ~np.isin(all_class, list(firm_classes))
         naive_pool = np.flatnonzero(deep_mask & off_class)
         trust_pool = np.flatnonzero(
             np.isin(all_cpv.astype(str), list(trusted)) & off_class)
-        full_ref = idx
-        for c in {c for c in codes if c in trusted}:
-            full_ref = np.concatenate([full_ref, pools[c]])
-        full_ref = np.unique(full_ref)
         for pool, sink, ref in ((naive_pool, neg_naive, idx),
-                                (trust_pool, neg_trust, idx),
-                                (trust_pool, neg_hyb, full_ref)):
+                                (trust_pool, neg_trust, idx)):
             pool = pool[~np.isin(pool, idx)]
             if len(pool):
                 pick = rng.choice(pool, min(NEG_PER_FIRM, len(pool)), replace=False)
                 sink.append((mat[pick] @ mat[ref].T).max(axis=1))
+        pool = trust_pool[~np.isin(trust_pool, idx)]
+        if len(pool):
+            pick = rng.choice(pool, min(NEG_PER_FIRM, len(pool)), replace=False)
+            neg_hyb_text.append((mat[pick] @ mat[full_ref].T).max(axis=1))
+            neg_code_s.extend(code_score(all_cpv[p], full_fp, lmat, lpos)
+                              for p in pick)
 
         vol = rng.choice(len(mat), VOL_PER_FIRM, replace=False)
-        volumes.append((mat[vol] @ mat[full_ref].T).max(axis=1))
+        vol_text.append((mat[vol] @ mat[full_ref].T).max(axis=1))
+        vol_code.extend(code_score(all_cpv[p], full_fp, lmat, lpos) for p in vol)
 
+    pos_plain = np.array(pos_plain)
+    pos_auto = np.array(pos_auto)
     pos_text = np.array(pos_text)
-    pos_hyb = np.array(pos_hyb)
-    neg = {k: np.concatenate(v) for k, v in
-           (('naive', neg_naive), ('trusted', neg_trust), ('hybrid', neg_hyb))}
-    volumes = np.concatenate(volumes)
+    pos_code = np.array(pos_code)
+    neg = {'naive': np.concatenate(neg_naive), 'trusted': np.concatenate(neg_trust)}
+    neg_hyb_text = np.concatenate(neg_hyb_text)
+    neg_code_s = np.array(neg_code_s)
+    vol_text = np.concatenate(vol_text)
+    vol_code = np.array(vol_code)
+    n_pos = len(pos_text)
+    n_auto = int(pos_auto.sum())
 
-    thr_text = float(np.quantile(pos_text, 1 - RECALL_TARGET))
-    thr_hyb = threshold_for_recall(pos_hyb, auto_pass, RECALL_TARGET)
-    n_pos = len(pos_hyb) + auto_pass
+    thr_plain = float(np.quantile(pos_plain, 1 - RECALL_TARGET))
+    thr_c_text = threshold_for_recall(pos_text[~pos_auto], n_auto, RECALL_TARGET)
+
+    # configuration D: joint grid over the code-channel threshold; for each, the
+    # text threshold is set so the two channels together keep the recall promise,
+    # and the pair with the least wrong-trade leakage wins.
+    best = None
+    for tc in CODE_GRID:
+        code_pass = pos_code >= tc
+        rem = pos_text[~code_pass]
+        needed = RECALL_TARGET * n_pos - code_pass.sum()
+        tt = (float(np.quantile(rem[np.isfinite(rem)],
+                                max(0.0, 1 - needed / max((np.isfinite(rem)).sum(), 1))))
+              if needed > 0 else np.inf)
+        recall = float((code_pass | (pos_text >= tt)).mean())
+        leak = float(((neg_hyb_text >= tt) | (neg_code_s >= tc)).mean())
+        vol = float(((vol_text >= tt) | (vol_code >= tc)).mean())
+        if best is None or leak < best['leakage']:
+            best = {'threshold': tt, 'code_threshold': float(tc), 'recall': recall,
+                    'leakage': leak, 'volume': vol,
+                    'code_share': float(code_pass.mean())}
+
     return {
-        'n_firms': len(by_firm), 'n_positives': len(pos_text),
+        'n_firms': len(by_firm), 'n_positives': n_pos,
         'baseline': baseline, 'trust_cut': cut, 'n_deep_codes': len(cohesion),
         'n_trusted': len(trusted), 'cohesion': cohesion,
-        'pos_text': pos_text, 'pos_hyb': pos_hyb, 'auto_pass': auto_pass,
-        'neg': neg, 'volumes': volumes,
+        'pos_text': pos_text, 'pos_auto': pos_auto, 'pos_code': pos_code,
+        'neg_hyb_text': neg_hyb_text, 'neg_code': neg_code_s,
         'configs': {
             'A text-only, naive negatives': {
-                'threshold': thr_text,
-                'recall': float((pos_text >= thr_text).mean()),
-                'leakage': float((neg['naive'] >= thr_text).mean())},
+                'threshold': thr_plain,
+                'recall': float((pos_plain >= thr_plain).mean()),
+                'leakage': float((neg['naive'] >= thr_plain).mean())},
             'B text-only, trusted negatives': {
-                'threshold': thr_text,
-                'recall': float((pos_text >= thr_text).mean()),
-                'leakage': float((neg['trusted'] >= thr_text).mean())},
+                'threshold': thr_plain,
+                'recall': float((pos_plain >= thr_plain).mean()),
+                'leakage': float((neg['trusted'] >= thr_plain).mean())},
             'C hybrid (expansion + auto-pass)': {
-                'threshold': thr_hyb,
+                'threshold': thr_c_text,
                 'recall': float(
-                    (auto_pass + (pos_hyb >= thr_hyb).sum()) / n_pos),
-                'auto_pass_share': float(auto_pass / n_pos),
-                'leakage': float((neg['hybrid'] >= thr_hyb).mean()),
-                'volume': float((volumes >= thr_hyb).mean())},
+                    (pos_auto | (pos_text >= thr_c_text)).mean()),
+                'leakage': float((neg_hyb_text >= thr_c_text).mean()),
+                'volume': float((vol_text >= thr_c_text).mean())},
+            'D hybrid + code channel': best,
         },
     }
 
 
+def trade_fingerprint_demo(data_dir, firm_name=None):
+    """Console demo: a real firm's trade fingerprint, named in official CPV
+    vocabulary. Not written to any committed artifact."""
+    rows, mat = load_sidecar(data_dir)
+    lpos, lrows, lmat = load_label_sidecar(data_dir)
+    pos_of = {(r['procedure_id'], r['lot_id']): i for i, r in enumerate(rows)}
+    tenders = pd.read_parquet(Path(data_dir) / 'store' / 'tenders.parquet')
+    awards = pd.read_parquet(Path(data_dir) / 'store' / 'awards.parquet')
+    wins = firm_win_rows(awards, tenders)
+    wins['row'] = [pos_of.get((p, l)) for p, l in zip(wins['procedure_id'], wins['lot_id'])]
+    wins = wins.dropna(subset=['row']).astype({'row': int})
+    if firm_name is None:
+        firm_name = wins['winner_names'].value_counts().index[0]
+    g = wins[wins['winner_names'] == firm_name]
+    if g.empty:
+        print(f'[fingerprint] no embedded wins for {firm_name!r}')
+        return
+    sims = (lmat @ mat[g['row'].to_numpy()].T).max(axis=1)
+    print(f'[fingerprint] {firm_name} ({len(g)} embedded wins):')
+    for i in np.argsort(-sims)[:FP_K]:
+        print(f"    {sims[i]:.3f}  {lrows[i]['code']}  {lrows[i]['label_de']}")
+
+
 def hist_lines(scores, threshold, lo=0.2, hi=1.0, bins=16, width=40):
+    scores = scores[np.isfinite(scores)]
     counts, edges = np.histogram(scores, bins=bins, range=(lo, hi))
     peak = counts.max() or 1
     out = []
@@ -227,7 +311,7 @@ def hist_lines(scores, threshold, lo=0.2, hi=1.0, bins=16, width=40):
 
 
 def write_receipt(path, r):
-    c = r['configs']['C hybrid (expansion + auto-pass)']
+    d = r['configs']['D hybrid + code channel']
     lines = [
         f'# Calibration receipt — {MODEL_TAG}',
         '',
@@ -240,30 +324,38 @@ def write_receipt(path, r):
         f'- Trusted codes: **{r["n_trusted"]}** of {r["n_deep_codes"]} deep codes '
         f'with >= {TRUST_MIN_LOTS} lots (cohesion >= {r["trust_cut"]:.3f}; '
         f'random baseline {r["baseline"]:.3f})',
-        f'- **Default `min_relevance` = {c["threshold"]:.3f}** '
-        f'(hybrid gate, recall promise {RECALL_TARGET:.0%})',
+        f'- **Defaults: `min_relevance` = {d["threshold"]:.3f}, '
+        f'`min_code_relevance` = {d["code_threshold"]:.3f}** '
+        f'(configuration D, recall promise {RECALL_TARGET:.0%})',
         '',
-        '| configuration | threshold | recall | wrong-trade leakage |',
-        '| --- | --- | --- | --- |',
+        '| configuration | text thr | code thr | recall | wrong-trade leakage |',
+        '| --- | --- | --- | --- | --- |',
     ]
     for name, v in r['configs'].items():
-        lines.append(f'| {name} | {v["threshold"]:.3f} | {v["recall"]:.1%} '
-                     f'| {v["leakage"]:.1%} |')
+        lines.append(
+            f'| {name} | {v["threshold"]:.3f} '
+            f'| {v.get("code_threshold", float("nan")):.3f} '
+            f'| {v["recall"]:.1%} | {v["leakage"]:.1%} |')
     lines += [
         '',
-        f'- Hybrid auto-pass covers {c["auto_pass_share"]:.1%} of positives '
-        f'(trusted code shared with the profile — no embedding needed).',
-        f'- Admitted market volume at the hybrid gate: {c["volume"]:.1%} of random '
-        f'lots (a sizing number, not an error rate).',
+        f'- Code channel alone passes {d["code_share"]:.1%} of positives.',
+        f'- Admitted market volume at configuration D: {d["volume"]:.1%} of '
+        f'random lots (a sizing number, not an error rate).',
         '',
-        'Hybrid positive scores (held-out win vs expanded profile, '
+        'Text-channel positive scores (held-out win vs expanded profile, '
         'auto-passes excluded):',
         '',
-        *hist_lines(r['pos_hyb'], c['threshold']),
+        *hist_lines(r['pos_text'], d['threshold']),
         '',
-        'Trusted-negative scores vs expanded profiles:',
+        'Trusted-negative text scores vs expanded profiles:',
         '',
-        *hist_lines(r['neg']['hybrid'], c['threshold']),
+        *hist_lines(r['neg_hyb_text'], d['threshold']),
+        '',
+        'Code-channel scores — positives vs negatives share one axis:',
+        '',
+        *hist_lines(r['pos_code'], d['code_threshold']),
+        '',
+        *hist_lines(r['neg_code'], d['code_threshold']),
         '',
     ]
     path.write_text('\n'.join(lines), encoding='utf-8')
@@ -273,7 +365,12 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--data-dir', default='data')
+    ap.add_argument('--fingerprint', metavar='FIRM', nargs='?', const='',
+                    help='print a trade-fingerprint demo (optionally for FIRM) and exit')
     args = ap.parse_args()
+    if args.fingerprint is not None:
+        trade_fingerprint_demo(args.data_dir, args.fingerprint or None)
+        return
     r = calibrate(args.data_dir)
     receipt = Path(f'calibration_{MODEL_TAG}.md')
     write_receipt(receipt, r)
@@ -287,7 +384,9 @@ def main():
                    for k, v in sorted(r['cohesion'].items())}},
         indent=1), encoding='utf-8')
     for name, v in r['configs'].items():
-        extra = (f', volume {v["volume"]:.1%}' if 'volume' in v else '')
+        extra = ''.join([f', volume {v["volume"]:.1%}' if 'volume' in v else '',
+                         f', code thr {v["code_threshold"]:.3f}'
+                         if 'code_threshold' in v else ''])
         print(f'[calibrate] {name}: thr={v["threshold"]:.3f} '
               f'recall={v["recall"]:.1%} leakage={v["leakage"]:.1%}{extra}')
     print(f'[calibrate] receipts -> {receipt}, {codes}')

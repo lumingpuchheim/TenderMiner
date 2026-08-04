@@ -182,6 +182,46 @@ code can add evidence, but no code can ever veto the text**:
 3. **Calibration negatives** (next section): only trusted codes may label a
    lot "definitely another trade" — an untrusted label is no label.
 
+## The code-label channel and the trade fingerprint (decision 2026-08-04)
+
+CPV codes are not only match keys — the official codelist gives every code a
+**name** ("45312310 = Blitzschutzarbeiten"), and those names live in the same
+language as the tenders. This adds a second, independently-failing channel
+next to the win-text channel: tender text is rich but fuzzy (it drags in
+project context — the school-newbuild problem), a code label is poor but
+precise (it says the trade and nothing else). A candidate that clears both
+channels is a far safer pass than either alone.
+
+- **The dictionary** is the official EU CPV 2008 codelist, committed as
+  `cpv_2008_de.csv` (code, German label; provenance noted in the file
+  header) — a static reference, not downloaded at run time.
+- **Label embeddings**: every label is embedded with the same `model_tag`
+  and stored beside the lot sidecar (`cpv_labels.npy` + index). Same space,
+  same model, rebuilt on model change like everything else.
+- **The trade fingerprint** of a profile: rank all CPV entries by the
+  similarity of their label embeddings to the profile's reference texts,
+  union the references' own trusted codes, keep the top entries. The
+  fingerprint is the profile *named in official vocabulary* — it feeds
+  (a) the code channel below, (b) the customer report's profile line
+  ("Ihr Profil: Blitzschutzarbeiten, Elektroinstallation"), (c) the mapping
+  target for free-text onboarding, and (d) the count of trade areas the
+  pricing model needs.
+- **The code channel**: for a deep-coded candidate, score = the best
+  label-to-label cosine between the candidate's code and the fingerprint's
+  codes. This grades across sibling codes (45312311 Blitzableiterbau scores
+  near 45312310 Blitzschutzarbeiten) where the exact-match auto-pass is
+  binary. The gate becomes an OR: pass if the text channel clears
+  `min_relevance` **or** the code channel clears `min_code_relevance` —
+  both fitted jointly in calibration to the same recall promise
+  (configuration D; whether the channel should require *trusted* candidate
+  codes is decided there empirically, not by taste).
+- **The asymmetry survives**: the code channel adds evidence, never
+  vetoes. A nonsense candidate code points at no fingerprint entry and
+  contributes nothing — the text channel decides, which is yesterday's
+  behaviour. The residual risk is a wrong code pointing *toward* the
+  customer's own trade (a false pass into "read the notice" territory),
+  bounded by the feedback loop like every other gate error.
+
 ## Calibrating `min_relevance` — from the data, not from taste
 
 The awards store already contains everything needed, no customers required:
