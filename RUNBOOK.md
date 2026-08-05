@@ -14,7 +14,9 @@ python loop.py run --last 7d
 One cycle does everything, in order: download the window's notices → rebuild
 the store → **update the embedding sidecar** (new lots only, ~5 min) → grade
 outcomes → retrain/promote the model → score open lots → write the operator
-report → **render every active customer** → refresh the dashboard.
+report → **render every active customer** → **simulate every winner company**
+(picks to `data/ledger/simulations.jsonl`, ~2 s, see
+[`SIMULATION.md`](SIMULATION.md)) → refresh the dashboard.
 
 - Run it on the cadence you already use (weekly `--last 7d`; daily `--last 2d`
   also works — deliveries are idempotent per day, nothing double-sends).
@@ -31,6 +33,20 @@ Re-run a cycle without re-downloading (e.g. after editing a subscription):
 ```
 python loop.py run --last 7d --skip-download
 ```
+
+**Scheduled on this laptop** (Windows Task Scheduler, task
+`TenderMining weekly loop`): every **Monday 08:15**, the cycle above
+followed by the simulation scorecard —
+
+```
+python loop.py run --last 7d          >> data\logs\loop_scheduled.log
+python simulation.py check           >> data\logs\simcheck.log
+```
+
+The simcheck log accumulates one dated block per week; watch the hit rate
+firm up there as awards publish (~90-day median lag). Nothing else is
+scheduled by design: calibration and backtests are event-driven (§4, §3),
+and the embedding sidecar rides inside the cycle.
 
 ## 2. Customers: add, change, render
 
@@ -158,10 +174,10 @@ reviewable commit, and rolling back is flipping the constant back.
 | `data/store/*.parquet` | the two tables (tenders, awards) | no (rebuildable) |
 | `data/embeddings/<tag>/` | vectors: lots + CPV labels, per model | no (rebuildable) |
 | `data/subscriptions.jsonl` | customers, versioned | **no — private** |
-| `data/ledger/*.jsonl` | predictions, grades, deliveries (append-only) | no |
+| `data/ledger/*.jsonl` | predictions, grades, deliveries, simulations (append-only) | no |
 | `data/reports/…` | operator report, dashboard, customer HTML | no |
 | `calibration_<tag>.md`, `trusted_codes_<tag>.json` | study receipts | **yes** |
 | `cpv_2008_de.csv` | official CPV dictionary (German) | yes |
-| `embed.py` / `calibrate.py` / `relevance.py` / `loop.py` | the programs | yes |
+| `embed.py` / `calibrate.py` / `relevance.py` / `loop.py` / `simulation.py` | the programs | yes |
 | `tryout.py` / `explain.py` / `playback.py` / `backtest.py` | the test tools (§3) | yes |
 | `data/tryout/`, `data/playback_asof/`, `data/backtest_world/` | disposable test sandboxes | no |
