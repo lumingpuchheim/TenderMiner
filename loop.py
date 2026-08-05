@@ -690,7 +690,7 @@ def _gate_stamp(profile, scores):
     if not profile or scores is None:
         return {}
     from embed import MODEL_TAG
-    text, code = scores
+    text, code = scores[0], scores[1]
     return {'relevance_score': text, 'code_relevance': code,
             'profile_version': profile['version'], 'embed_model_tag': MODEL_TAG}
 
@@ -877,8 +877,8 @@ def deliver(paths, scored, args):
         if profile:
             kept = []
             for r in cand:
-                ok, near, t_score, c_score = rel.judge(gate, profile, r)
-                judged[id(r)] = (t_score, c_score)
+                ok, near, t_score, c_score, why = rel.judge(gate, profile, r)
+                judged[id(r)] = (t_score, c_score, why)
                 if ok:
                     kept.append(r)
                 elif near:
@@ -888,10 +888,15 @@ def deliver(paths, scored, args):
                       key=lambda r: -r['score'])
         n_high = max(1, round(len(rows) * args.tier_high))
         n_med = max(1, round(len(rows) * args.tier_medium))
-        # a pick must be flagged (the quality floor); max_picks caps the list —
-        # a short actionable list beats homework, and zero picks is a message
+        # a pick must be flagged (the quality floor) AND, for gated subs,
+        # relevance-confident (PICK_MARGIN above the gate — a scrape-over
+        # pass stays in the market view but is never recommended); max_picks
+        # caps the list — a short actionable list beats homework, and zero
+        # picks is a message
         max_picks = int(sub.get('max_picks', 5) or 0)
-        top = [r for r in rows if r.get('flag')][:max_picks]
+        top = [r for r in rows if r.get('flag')
+               and (not profile
+                    or rel.is_confident(profile, *judged[id(r)][:2]))][:max_picks]
 
         def tender_cell(r):
             title = escape(clean_cell(r.get('title') or f"Los {r['lot_id']}", 70))
@@ -913,18 +918,21 @@ def deliver(paths, scored, args):
                        + ' + '.join([f'{n_refs} gewonnene Ausschreibungen'] * (n_refs > 0)
                                     + [f'{n_texts} Beschreibung(en)'] * (n_texts > 0))
                        + ')')
+        # the report never cites how many lots we checked or matched — the
+        # size of our haystack is our business, not the customer's (decision
+        # 2026-08-05); the product is the short list itself
         body = [f'<h1>{escape(name)} — TenderMining Wochenbericht — {date_de(today.isoformat())}</h1>',
                 f'<p class="muted">Ihr Markt: {escape(market)}.</p>',
                 '<p>Jede Woche lesen wir jede öffentliche Bauausschreibung in '
-                f'Deutschland — diese Woche <b>{len(rows)} in Ihrem Markt</b> — und '
-                'sortieren sie nach der einen Frage, die keine einzelne '
-                'Bekanntmachung beantwortet: <b>Wie viele Wettbewerber werden '
-                'mitbieten?</b> Eine <b>Empfehlung</b> ist eine Ausschreibung, bei '
-                'der wir wenige oder keine erwarten. Was Sie bauen können und zu '
-                'welchem Preis, entscheidet weiterhin Ihr Team. Wir liefern das '
-                'fehlende Stück: wo sich das Bieten lohnt — wie beim Poker liegt das '
-                'Geld darin zu wissen, welche Hände man <em>nicht</em> spielt. Sie '
-                f'erhalten höchstens {max_picks} Empfehlungen pro Woche; wenn nichts '
+                'Deutschland, prüfen, welche zu Ihrem Betrieb passen, und sortieren '
+                'diese nach der einen Frage, die keine einzelne Bekanntmachung '
+                'beantwortet: <b>Wie viele Wettbewerber werden mitbieten?</b> Eine '
+                '<b>Empfehlung</b> ist eine Ausschreibung, bei der wir wenige oder '
+                'keine erwarten. Was Sie bauen können und zu welchem Preis, '
+                'entscheidet weiterhin Ihr Team. Wir liefern das fehlende Stück: wo '
+                'sich das Bieten lohnt — wie beim Poker liegt das Geld darin zu '
+                'wissen, welche Hände man <em>nicht</em> spielt. Sie erhalten '
+                f'höchstens {max_picks} Empfehlungen pro Woche; wenn nichts '
                 'überzeugt, sagen wir das, statt die Liste aufzufüllen.</p>',
                 '<h2>Ihre Empfehlungen im Rückblick</h2>',
                 receipt_html(grades_recent, by_sub.get(sub['sub_id'], []), pred_info)]
@@ -935,27 +943,41 @@ def deliver(paths, scored, args):
         body += ['<h2>Die Zahlen dahinter</h2>',
                  numbers_html(grades_recent, sub, args, today)]
         body += ['<h2>Empfehlungen dieser Woche</h2>']
-        if not rows:
-            body += ['<p><b>0 offene Ausschreibungen entsprachen diese Woche Ihren '
-                     'Filtern.</b></p>']
-        elif not top:
-            body += [f'<p><b>Diese Woche keine Empfehlung.</b> Keine der {len(rows)} '
-                     'offenen Ausschreibungen in Ihrem Markt verspricht so wenig '
-                     'Wettbewerb, dass sie Ihr Angebotsbudget wert wäre. Nicht in '
-                     'einen überfüllten Wettbewerb zu bieten heißt: das Produkt '
-                     'funktioniert.</p>']
+        if not top:
+            body += ['<p><b>Diese Woche keine Empfehlung.</b> Keine offene '
+                     'Ausschreibung passte diese Woche eindeutig zu Ihrem Betrieb '
+                     'und versprach zugleich so wenig Wettbewerb, dass sie Ihr '
+                     'Angebotsbudget wert wäre. Nicht in einen überfüllten '
+                     'Wettbewerb zu bieten heißt: das Produkt funktioniert.</p>']
         else:
-            body += [f'<p>Von {len(rows)} offenen Ausschreibungen in Ihrem Markt '
-                     f'sehen diese {len(top)} nach dem wenigsten Wettbewerb aus. '
-                     'Klicken Sie eine Ausschreibung an, um die offizielle '
-                     'Bekanntmachung zu lesen und die Vergabeunterlagen zu erhalten; '
-                     'beachten Sie die Frist.</p>']
+            body += [f'<p>Diese {len(top)} Ausschreibungen passen zu Ihrem Betrieb '
+                     'und sehen nach dem wenigsten Wettbewerb aus. Klicken Sie eine '
+                     'Ausschreibung an, um die offizielle Bekanntmachung zu lesen '
+                     'und die Vergabeunterlagen zu erhalten; beachten Sie die '
+                     'Frist.</p>']
+
+        def why_mine_cell(r):
+            """Plain-language reason a pick is the customer's business — words
+            instead of the (internal) score, so a marginal case is judgeable
+            at a glance."""
+            why = (judged.get(id(r)) or (None, None, None))[2]
+            if not why:
+                return ''
+            kind, detail = why
+            if kind == 'ref' and detail:
+                return escape(f'ähnelt Ihrem Auftrag „{clean_cell(detail, 50)}“')
+            if kind == 'ref':
+                return 'ähnelt Ihrem Profil'
+            return escape(f'CPV-Code passt: {clean_cell(detail, 50)}')
+
         deliveries, pick_trs = [], []
         for i, r in enumerate(top):
             tier = 'HIGH' if i < n_high else ('MEDIUM' if i < n_high + n_med else 'LOW')
+            why_cells = (f'<td>{why_mine_cell(r)}</td>' if profile else '')
             pick_trs.append(f"<tr><td>{tender_cell(r)}</td>"
                             f"<td>{date_de(r.get('deadline_date'))}</td>"
                             f'<td>{buyer_cell(r)}</td>'
+                            f'{why_cells}'
                             f"<td>{escape(', '.join((r.get('why_lonely') or [])[:2]))}</td></tr>")
             if (sub['sub_id'], r['procedure_id'], r['lot_id'], ts[:10]) not in already:
                 deliveries.append({
@@ -970,8 +992,11 @@ def deliver(paths, scored, args):
                     **_gate_stamp(profile, judged.get(id(r))),
                 })
         if pick_trs:
-            body += [table_html(['Ausschreibung', 'Frist', 'Auftraggeber',
-                                 'warum wir wenige Bieter erwarten'], pick_trs)]
+            headers = ['Ausschreibung', 'Frist', 'Auftraggeber']
+            if profile:
+                headers.append('warum Ihr Geschäft')
+            headers.append('warum wir wenige Bieter erwarten')
+            body += [table_html(headers, pick_trs)]
         avoid_n = int(sub.get('avoid_n', 5) or 0)
         avoid = (list(reversed(rows[-avoid_n:]))
                  if avoid_n and len(rows) > len(top) + avoid_n else [])

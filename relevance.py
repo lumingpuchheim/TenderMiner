@@ -28,6 +28,11 @@ from embed import KEY, MODEL_TAG, load_label_sidecar, load_sidecar
 DEFAULT_MIN_RELEVANCE = 0.482
 DEFAULT_MIN_CODE_RELEVANCE = 0.700
 BORDERLINE_MARGIN = 0.05  # near-misses below the gate render as "knapp aussortiert"
+# A pass is not a pick: recommendations must clear the gate with room to
+# spare (a 0.007-margin pass looks identical to a 0.3-margin pass once
+# scores are hidden, so confidence must be enforced structurally). Code
+# passes need no margin — a code is precise whenever it speaks at all.
+PICK_MARGIN = 0.05
 # Profile expansion via trusted-code pools measurably HURTS under
 # jina-v2-base-de (config C/D vs E in the receipt: 41.3% vs 26.5% leakage) —
 # in a sharp embedding space, pseudo-references widen a profile more than
@@ -60,11 +65,16 @@ class Gate:
                            lots['cpv_main']))
         key_buyer = dict(zip(zip(lots['procedure_id'], lots['lot_id']),
                              lots['buyer_name']))
+        key_title = dict(zip(zip(lots['procedure_id'], lots['lot_id']),
+                             lots['title']))
         self.all_cpv = np.array(
             [key_cpv.get((r['procedure_id'], r['lot_id'])) for r in self.rows],
             dtype=object)
         self.all_buyer = np.array(
             [key_buyer.get((r['procedure_id'], r['lot_id'])) for r in self.rows],
+            dtype=object)
+        self.all_title = np.array(
+            [key_title.get((r['procedure_id'], r['lot_id'])) for r in self.rows],
             dtype=object)
         self._pools = None
 
@@ -120,8 +130,14 @@ def build_profile(gate, sub):
     for c in ref_codes:
         if c in gate.trusted and c in gate.lpos:
             fp.add(gate.lpos[c])
+    # titles aligned with the leading rows of ref_matrix (references, then
+    # free texts); pseudo-reference rows beyond them have no title and fall
+    # back to a generic "why" — they exist only when USE_EXPANSION is on
+    ref_titles = ([str(gate.all_title[i] or '') for i in ref_rows]
+                  + [str(t) for t in (sub.get('profile_texts') or [])])
     return {
         'ref_matrix': np.vstack(expanded),
+        'ref_titles': ref_titles,
         'fp_rows': np.fromiter(fp, int, len(fp)),
         'ref_buyers': {b for b in (_norm_buyer(gate.all_buyer[i])
                                    for i in ref_rows) if b},
@@ -158,23 +174,46 @@ def judge(gate, profile, scored_row):
     """
     i = gate.by_key.get((scored_row['procedure_id'], scored_row['lot_id']))
     if i is None:
-        return True, False, None, None  # rule 1: fail-open
-    text = float((profile['ref_matrix'] @ gate.mat[i]).max())
+        return True, False, None, None, None  # rule 1: fail-open
+    sims = profile['ref_matrix'] @ gate.mat[i]
+    text = float(sims.max())
     code = scored_row.get('cpv_main')
     # None = the code cannot speak; 0.0 would conflate "silent" with "far"
     c_score = (code_score(code, profile['fp_rows'], gate.lmat, gate.lpos)
                if isinstance(code, str) and is_deep(code) else None)
 
+    def why_text():
+        j = int(np.argmax(sims))
+        titles = profile['ref_titles']
+        return ('ref', titles[j]) if j < len(titles) and titles[j] else ('ref', None)
+
+    def why_code():
+        best = profile['fp_rows'][int(np.argmax(gate.lmat[profile['fp_rows']]
+                                                @ gate.lmat[gate.lpos[code]]))]
+        return ('code', gate.lrows[best]['label_de'])
+
     if _norm_buyer(scored_row.get('buyer_name')) in profile['ref_buyers']:
         # rule 2: text score is still computed and stamped for audit, but it
         # must not decide — only the code may
         if c_score is None:
-            return False, True, text, 0.0
-        return c_score >= profile['min_code_relevance'], False, text, c_score
+            return False, True, text, 0.0, None
+        passed = c_score >= profile['min_code_relevance']
+        return passed, False, text, c_score, (why_code() if passed else None)
 
     # rule 3
-    passed = (text >= profile['min_relevance']
-              or (c_score or 0.0) >= profile['min_code_relevance'])
+    code_pass = (c_score or 0.0) >= profile['min_code_relevance']
+    passed = text >= profile['min_relevance'] or code_pass
     borderline = (not passed
                   and text >= profile['min_relevance'] - BORDERLINE_MARGIN)
-    return passed, borderline, text, c_score or 0.0
+    why = (why_text() if text >= profile['min_relevance']
+           else why_code() if code_pass else None)
+    return passed, borderline, text, c_score or 0.0, why
+
+
+def is_confident(profile, text, c_score):
+    """Pick-worthy (PICK_MARGIN above the gate, or a code pass, or fail-open).
+    A pass below this stays in the market view but never becomes a pick."""
+    if text is None:
+        return True  # fail-open rows carry no scores to be confident about
+    return (text >= profile['min_relevance'] + PICK_MARGIN
+            or (c_score or 0.0) >= profile['min_code_relevance'])

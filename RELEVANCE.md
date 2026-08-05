@@ -254,6 +254,27 @@ text still decides and a code still cannot veto. Cross-buyer template reuse
 remains the open weakness; sentence-level template stripping is its specced
 fix if the calibration diagnostic stays ugly.
 
+## Pick confidence and the relevance "why" (decision 2026-08-05)
+
+A lot that clears the gate by 0.007 and one that clears it by 0.3 must not
+look identical in the report. Two rules:
+
+- **Pick margin**: a gated lot may enter the customer's market view at
+  `min_relevance`, but a **recommendation** must be confident — text at
+  least `min_relevance + pick_margin` (default 0.05, mirroring the
+  borderline margin below the gate), or a code-channel pass (codes are
+  precise when they speak; no margin needed). Scrape-overs stay in the
+  market, never in the picks — "no pick this week" beats a weak pick.
+- **The relevance "why"**: every gated pick carries a plain-language reason
+  it is in the customer's market — "ähnelt Ihrem Auftrag „…‟" (nearest
+  reference) or "CPV-Code passt: <label>" — next to the existing
+  competition "why". Scores stay internal (decision 2026-08-04); the words
+  let a customer judge a marginal case in one glance.
+
+Report copy consequence: the report no longer cites how many lots were
+checked or matched — the product is the list, and the size of our haystack
+is our business, not the customer's.
+
 ## Calibrating `min_relevance` — from the data, not from taste
 
 The awards store already contains everything needed, no customers required:
