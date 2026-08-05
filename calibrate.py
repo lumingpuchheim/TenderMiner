@@ -62,11 +62,28 @@ def is_deep(cpv):
 
 
 def firm_win_rows(awards, tenders):
-    """(winner_name, procedure_id, lot_id, cpv_main) — one row per embedded win."""
+    """(winner_name, procedure_id, lot_id, cpv_main, cpv_additional) — one row
+    per embedded win."""
     aw = awards[awards['winner_names'].apply(lambda x: x is not None and len(x) > 0)]
     w = aw.explode('winner_names')[['winner_names'] + KEY]
-    cpv = tenders.drop_duplicates(subset=KEY)[KEY + ['cpv_main']]
+    cpv = tenders.drop_duplicates(subset=KEY)[KEY + ['cpv_main', 'cpv_additional']]
     return w.merge(cpv, on=KEY, how='inner')
+
+
+def lot_codes(main, add):
+    """All of a lot's CPV codes, main + additional — the channel must see both
+    (buyers often put the real trade in the additional codes)."""
+    out = [main] if isinstance(main, str) else []
+    if add is not None and not isinstance(add, float):
+        out.extend(str(a) for a in add)
+    return out
+
+
+def best_code_score(codes, fp_rows, lmat, lpos):
+    """Code channel over a code list: best deep, dictionary-known code wins."""
+    scores = [code_score(c, fp_rows, lmat, lpos)
+              for c in codes if is_deep(c) and c in lpos]
+    return max(scores) if scores else 0.0
 
 
 def code_trust(mat, cpv, rng):
@@ -150,8 +167,13 @@ def calibrate(data_dir):
 
     lots = tenders.drop_duplicates(subset=KEY)
     key_cpv = dict(zip(zip(lots['procedure_id'], lots['lot_id']), lots['cpv_main']))
+    key_add = dict(zip(zip(lots['procedure_id'], lots['lot_id']),
+                       lots['cpv_additional']))
     all_cpv = np.array([key_cpv.get((r['procedure_id'], r['lot_id'])) for r in rows],
                        dtype=object)
+    all_codes = [lot_codes(key_cpv.get((r['procedure_id'], r['lot_id'])),
+                           key_add.get((r['procedure_id'], r['lot_id'])))
+                 for r in rows]
     deep_mask = np.array([is_deep(c) for c in all_cpv])
     all_class = np.array([c[:4] if isinstance(c, str) else '' for c in all_cpv])
 
@@ -166,22 +188,25 @@ def calibrate(data_dir):
     neg_hyb_text, neg_code_s, vol_plain, vol_text, vol_code = [], [], [], [], []
     for name, g in by_firm.items():
         idx = g['row'].to_numpy()
-        codes = g['cpv_main'].to_numpy(dtype=object)
+        win_codes = [lot_codes(m, a) for m, a in
+                     zip(g['cpv_main'], g['cpv_additional'])]
+        flat_codes = [c for cs in win_codes for c in cs]
         sims = mat[idx] @ mat[idx].T
         np.fill_diagonal(sims, -1.0)
         pos_plain.extend(sims.max(axis=1))
 
         full_ref = idx
-        for c in {c for c in codes if c in trusted}:
+        for c in {c for c in flat_codes if c in trusted}:
             full_ref = np.concatenate([full_ref, pools[c]])
         full_ref = np.unique(full_ref)
-        full_fp = fingerprint(idx, codes, mat, lmat, lpos, trusted)
+        full_fp = fingerprint(idx, flat_codes, mat, lmat, lpos, trusted)
 
         for i in range(len(idx)):
             others = np.delete(idx, i)
-            other_codes = np.delete(codes, i)
+            other_codes = [c for j, cs in enumerate(win_codes) if j != i
+                           for c in cs]
             other_trusted = {c for c in other_codes if c in trusted}
-            auto = isinstance(codes[i], str) and codes[i] in other_trusted
+            auto = any(c in other_trusted for c in win_codes[i])
             pos_auto.append(auto)
             if auto:
                 pos_text.append(np.inf)
@@ -191,9 +216,9 @@ def calibrate(data_dir):
                     ref = np.concatenate([ref, pools[c][pools[c] != idx[i]]])
                 pos_text.append(float((mat[ref] @ mat[idx[i]]).max()))
             fp_i = fingerprint(others, other_codes, mat, lmat, lpos, trusted)
-            pos_code.append(code_score(codes[i], fp_i, lmat, lpos))
+            pos_code.append(best_code_score(win_codes[i], fp_i, lmat, lpos))
 
-        firm_classes = {c[:4] for c in codes if isinstance(c, str)}
+        firm_classes = {c[:4] for c in flat_codes}
         off_class = ~np.isin(all_class, list(firm_classes))
         naive_pool = np.flatnonzero(deep_mask & off_class)
         naive_pool = naive_pool[~np.isin(naive_pool, idx)]
@@ -211,13 +236,14 @@ def calibrate(data_dir):
                               replace=False)
             neg_trust.append((mat[pick] @ mat[idx].T).max(axis=1))
             neg_hyb_text.append((mat[pick] @ mat[full_ref].T).max(axis=1))
-            neg_code_s.extend(code_score(all_cpv[p], full_fp, lmat, lpos)
+            neg_code_s.extend(best_code_score(all_codes[p], full_fp, lmat, lpos)
                               for p in pick)
 
         vol = rng.choice(len(mat), VOL_PER_FIRM, replace=False)
         vol_plain.append((mat[vol] @ mat[idx].T).max(axis=1))
         vol_text.append((mat[vol] @ mat[full_ref].T).max(axis=1))
-        vol_code.extend(code_score(all_cpv[p], full_fp, lmat, lpos) for p in vol)
+        vol_code.extend(best_code_score(all_codes[p], full_fp, lmat, lpos)
+                        for p in vol)
 
     pos_plain = np.array(pos_plain)
     pos_auto = np.array(pos_auto)

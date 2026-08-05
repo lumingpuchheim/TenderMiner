@@ -25,7 +25,7 @@ from embed import KEY, MODEL_TAG, load_label_sidecar, load_sidecar
 # Defaults from calibration_<MODEL_TAG>.md (best two-channel configuration —
 # E under jina-v2-base-de); a subscription may override min_relevance per
 # line. Revisit on every model_tag flip.
-DEFAULT_MIN_RELEVANCE = 0.482
+DEFAULT_MIN_RELEVANCE = 0.503
 DEFAULT_MIN_CODE_RELEVANCE = 0.700
 BORDERLINE_MARGIN = 0.05  # near-misses below the gate render as "knapp aussortiert"
 # A pass is not a pick: recommendations must clear the gate with room to
@@ -67,8 +67,18 @@ class Gate:
                              lots['buyer_name']))
         key_title = dict(zip(zip(lots['procedure_id'], lots['lot_id']),
                              lots['title']))
+        key_add = dict(zip(zip(lots['procedure_id'], lots['lot_id']),
+                           lots['cpv_additional']))
+        key_ctype = dict(zip(zip(lots['procedure_id'], lots['lot_id']),
+                             lots['contract_type']))
         self.all_cpv = np.array(
             [key_cpv.get((r['procedure_id'], r['lot_id'])) for r in self.rows],
+            dtype=object)
+        self.all_cpv_add = np.array(
+            [key_add.get((r['procedure_id'], r['lot_id'])) for r in self.rows],
+            dtype=object)
+        self.all_ctype = np.array(
+            [key_ctype.get((r['procedure_id'], r['lot_id'])) for r in self.rows],
             dtype=object)
         self.all_buyer = np.array(
             [key_buyer.get((r['procedure_id'], r['lot_id'])) for r in self.rows],
@@ -84,6 +94,19 @@ class Gate:
             self._pools = pseudo_refs(self.mat, self.all_cpv, self.trusted,
                                       self.cohesion, self.baseline)
         return self._pools
+
+
+def _codes_of(gate, i):
+    """ALL of a lot's CPV codes — main plus additional. Buyers often put the
+    real trade in the additional codes (Lübeck: Gleisbau main,
+    Baustellenüberwachung additional); the channel must see both."""
+    out = []
+    if isinstance(gate.all_cpv[i], str):
+        out.append(gate.all_cpv[i])
+    add = gate.all_cpv_add[i]
+    if add is not None and not isinstance(add, float):
+        out.extend(str(a) for a in add)
+    return out
 
 
 def _norm_buyer(name):
@@ -117,7 +140,7 @@ def build_profile(gate, sub):
     if not len(ref_vecs):
         raise ValueError('gated subscription has an empty profile')
 
-    ref_codes = [gate.all_cpv[i] for i in ref_rows]
+    ref_codes = [c for i in ref_rows for c in _codes_of(gate, i)]
     expanded = [ref_vecs]
     if USE_EXPANSION:
         for c in {c for c in ref_codes if c in gate.trusted}:
@@ -141,6 +164,8 @@ def build_profile(gate, sub):
         'fp_rows': np.fromiter(fp, int, len(fp)),
         'ref_buyers': {b for b in (_norm_buyer(gate.all_buyer[i])
                                    for i in ref_rows) if b},
+        'ref_types': {t for t in (gate.all_ctype[i] for i in ref_rows)
+                      if isinstance(t, str) and t},
         'min_relevance': float(sub.get('min_relevance', DEFAULT_MIN_RELEVANCE)),
         'min_code_relevance': float(sub.get('min_code_relevance',
                                             DEFAULT_MIN_CODE_RELEVANCE)),
@@ -163,24 +188,34 @@ def judge(gate, profile, scored_row):
     Ladder, top rule wins:
       1. Lot not in the sidecar yet -> pass ungated (fail-open: an
          infrastructure gap must never hide a tender).
-      2. Same buyer as a profile reference -> text ABSTAINS (similarity
+      2. Contract type (works/services/supplies) known on both sides and
+         matching NO reference -> borderline band. Coarse but hard
+         information; borderline and not out, because adjacent types can
+         be real business (works-profile firm, services-coded maintenance).
+      3. Same buyer as a profile reference -> text ABSTAINS (similarity
          between two documents the same office wrote is self-plagiarism,
          not evidence) and the code decides alone; if the code cannot
          speak (shallow / not in the dictionary) -> borderline band,
          visibly undecided rather than decided by a meaningless signal.
-      3. Independent buyer -> text decides; a code may add a pass (OR),
+      4. Independent buyer -> text decides; a code may add a pass (OR),
          never veto — codes lie in both directions (Speyer), text is what
          the bidder actually reads.
+
+    The code channel reads ALL the lot's codes (main + additional) and
+    takes the best; a code is "silent" only if none is deep and known.
     """
     i = gate.by_key.get((scored_row['procedure_id'], scored_row['lot_id']))
     if i is None:
         return True, False, None, None, None  # rule 1: fail-open
     sims = profile['ref_matrix'] @ gate.mat[i]
     text = float(sims.max())
-    code = scored_row.get('cpv_main')
-    # None = the code cannot speak; 0.0 would conflate "silent" with "far"
-    c_score = (code_score(code, profile['fp_rows'], gate.lmat, gate.lpos)
-               if isinstance(code, str) and is_deep(code) else None)
+    # None = no code can speak; 0.0 would conflate "silent" with "far"
+    best_code, c_score = None, None
+    for code in _codes_of(gate, i):
+        if is_deep(code) and code in gate.lpos:
+            s = code_score(code, profile['fp_rows'], gate.lmat, gate.lpos)
+            if c_score is None or s > c_score:
+                best_code, c_score = code, s
 
     def why_text():
         j = int(np.argmax(sims))
@@ -189,18 +224,23 @@ def judge(gate, profile, scored_row):
 
     def why_code():
         best = profile['fp_rows'][int(np.argmax(gate.lmat[profile['fp_rows']]
-                                                @ gate.lmat[gate.lpos[code]]))]
+                                                @ gate.lmat[gate.lpos[best_code]]))]
         return ('code', gate.lrows[best]['label_de'])
 
+    ctype = gate.all_ctype[i]
+    if (profile['ref_types'] and isinstance(ctype, str) and ctype
+            and ctype not in profile['ref_types']):
+        return False, True, text, c_score or 0.0, None  # rule 2
+
     if _norm_buyer(scored_row.get('buyer_name')) in profile['ref_buyers']:
-        # rule 2: text score is still computed and stamped for audit, but it
+        # rule 3: text score is still computed and stamped for audit, but it
         # must not decide — only the code may
         if c_score is None:
             return False, True, text, 0.0, None
         passed = c_score >= profile['min_code_relevance']
         return passed, False, text, c_score, (why_code() if passed else None)
 
-    # rule 3
+    # rule 4
     code_pass = (c_score or 0.0) >= profile['min_code_relevance']
     passed = text >= profile['min_relevance'] or code_pass
     borderline = (not passed

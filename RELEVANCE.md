@@ -219,9 +219,13 @@ channels is a far safer pass than either alone.
   ("Ihr Profil: Blitzschutzarbeiten, Elektroinstallation"), (c) the mapping
   target for free-text onboarding, and (d) the count of trade areas the
   pricing model needs.
-- **The code channel**: for a deep-coded candidate, score = the best
-  label-to-label cosine between the candidate's code and the fingerprint's
-  codes. This grades across sibling codes (45312311 Blitzableiterbau scores
+- **The code channel** reads **all** of a lot's codes — `cpv_main` and
+  `cpv_additional` — and scores the best label-to-label cosine between any
+  of them and the fingerprint's codes (decision 2026-08-05: buyers often
+  put the real trade in the additional codes; the Lübeck Gleisbau case
+  carried `71521000 Baustellenüberwachung` there). Reference lots
+  contribute their additional trusted codes to the fingerprint the same
+  way. This grades across sibling codes (45312311 Blitzableiterbau scores
   near 45312310 Blitzschutzarbeiten) where the exact-match auto-pass is
   binary. The gate becomes an OR: pass if the text channel clears
   `min_relevance` **or** the code channel clears `min_code_relevance` —
@@ -253,6 +257,17 @@ meaningless signal. The asymmetry is untouched for independent buyers: there
 text still decides and a code still cannot veto. Cross-buyer template reuse
 remains the open weakness; sentence-level template stripping is its specced
 fix if the calibration diagnostic stays ugly.
+
+## The contract-type rule (decision 2026-08-05)
+
+`contract_type` ("Art des Auftrags": works / services / supplies) is stored
+and hard information, so the gate uses it — conservatively: a candidate
+whose type is known and matches **none** of the profile references' types
+goes to the **borderline band**, never a silent pass or drop. Borderline
+and not out, because adjacent types can be real business (a works-profile
+firm may bid a services-coded maintenance tender); visible-undecided is the
+correct verdict for a signal this coarse. Unknown types on either side
+disable the rule (a promise needs data on both sides).
 
 ## Pick confidence and the relevance "why" (decision 2026-08-05)
 
