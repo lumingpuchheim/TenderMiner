@@ -1,8 +1,14 @@
 # SIMULATION — every winner is a simulated customer
 
-Status: implemented in [`loop.py`](loop.py) (`simulate` step in the cycle,
-`simcheck` subcommand). Companion to [`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md)
-(the real-customer layer); uses its vocabulary.
+Status: implemented in [`simulation.py`](simulation.py) — a self-contained
+sidecar module (same pattern as `embed.py`). The loop calls
+`simulation.simulate(...)` once per cycle; standalone use:
+
+    python simulation.py check   # join simulations vs grades, print hit rates
+    python simulation.py run     # one pass from the champion's ledger rows
+
+Companion to [`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md) (the real-customer
+layer); uses its vocabulary.
 
 ## Purpose
 
@@ -53,7 +59,7 @@ week, less after dedup). No delivery-ledger rows, no customer artifacts.
 
 ## The check
 
-`python loop.py simcheck` joins simulations ⋈ grades (both append-only) and
+`python simulation.py check` joins simulations ⋈ grades (both append-only) and
 prints: simulated/graded pick counts, overall hit rate ("ended with 0–1
 bids") vs the graded market's base rate, a per-trade table, and the
 company-level view — among companies with ≥ `--min-company-picks` graded
