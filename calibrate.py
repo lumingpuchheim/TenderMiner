@@ -415,6 +415,10 @@ def calibrate(data_dir):
             'F hard/soft codes + floor/consensus': best_f,
         },
         'f_pareto': f_pareto,
+        # raw score arrays for ad-hoc analyses (pick-level metrics etc.)
+        'arrays': {'pos_plain': pos_plain, 'pos_codechan': pos_code,
+                   'pos_hard': pos_hard_a, 'neg_trusted': neg['trusted'],
+                   'neg_codechan': neg_code_s, 'neg_hard': neg_hard_a},
     }
 
 
