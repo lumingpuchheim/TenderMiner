@@ -172,12 +172,13 @@ def replay(data_dir, step_days, sub_ids):
                 if ok:
                     sub_market[s].add(lot)
                     if ok_dl:
-                        d.update(text=tx, hard=ch,
-                                 confident=rel.is_confident(profile, tx, ch))
+                        d.update(text=tx, hard=ch)
                         cand.append(d)
+            # ONE bar (RELEVANCE.md decision 2026-08-05): gate passed means
+            # recommendable; a pick just needs the competition flag on top
             cand.sort(key=lambda d: -d['score'])
             for d in [c for c in cand
-                      if c['score'] >= FLAG_THRESHOLD and c['confident']][:MAX_PICKS]:
+                      if c['score'] >= FLAG_THRESHOLD][:MAX_PICKS]:
                 sub_picks[s].setdefault(
                     (d['procedure_id'], d['lot_id']),
                     {'week': str(D.date()), **{k2: d[k2] for k2 in

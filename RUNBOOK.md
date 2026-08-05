@@ -50,7 +50,7 @@ one `profile_texts` sentence does it:
  "min_deadline_days": 14, "max_picks": 5, "avoid_n": 5, "active": true}
 ```
 
-Leave `min_relevance` at the receipt default (see §3) unless feedback says
+Leave `min_relevance` at the receipt default (see §4) unless feedback says
 otherwise. Omitting it entirely disables the relevance gate for that customer
 (pure CPV/region filter, old behaviour).
 
@@ -71,7 +71,40 @@ deliberately no per-customer switch: every render also appends the delivery
 ledger rows that make the track record auditable, and those must stay
 complete for every active customer.
 
-## 3. The study side: embeddings, calibration, trust
+## 3. Testing a change against the pilot
+
+Four committed tools, ordered by cost. Reach for the cheapest one that
+answers your question; none of them touches the real ledgers or reports.
+
+| Question | Run | Cost |
+| --- | --- | --- |
+| What would customer X's report look like if a subscription field changed? | `python tryout.py --sub <sub_id> --set FIELD=VALUE` | seconds |
+| Why did lot Y pass / fail X's gate? What trade does its text read as? | `python explain.py --sub <sub_id> <TED-number> …` | seconds |
+| Would we have recommended this firm's historical solo win, knowing only the past? | `python playback.py --firm "Firma GmbH"` | ~10 min |
+| Does a gate/model change make picks better overall? | `python backtest.py` | hours |
+
+- **`tryout.py`** re-renders one customer from the last cycle's prediction
+  ledger inside a disposable sandbox (`data/tryout/<sub_id>/`, recreated per
+  run) and prints the picks with their gate scores. `--set` is repeatable
+  (`--set min_deadline_days=0 --set min_relevance=0.6`); `--keep-expired`
+  also shows lots whose deadline has passed. The real subscription file is
+  never modified — overrides live only in the sandbox.
+- **`explain.py`** prints the profile fingerprint (hard/soft labels), each
+  lot's pass path through the gate ladder, and its text→label projections.
+  With no TED numbers it explains the profile references themselves — the
+  sanity check that a profile reads as the customer's trade.
+- **`playback.py`** rebuilds an as-of world before the target's deadline
+  (store, trust list, thresholds, model — all time-isolated) and replays
+  that cycle: was the win in the market, was it a pick.
+- **`backtest.py`** replays every weekly cutoff and grades all picks
+  against published outcomes; its report lands in
+  `data/reports/backtest_<date>.md`.
+
+Rule of thumb: after editing a subscription, `tryout.py`; when a verdict
+surprises you, `explain.py`; before shipping a gate change, `backtest.py`
+(and `calibrate.py` for the receipt).
+
+## 4. The study side: embeddings, calibration, trust
 
 These are **event-driven, not scheduled**. The loop reads their last
 committed output; nothing waits on them.
@@ -97,7 +130,7 @@ python embed.py --labels        # full backfill: ~40 min labels+lots MiniLM,
                                 # 1000 lots, safe to interrupt and re-run
 ```
 
-## 4. Switching the embedding model
+## 5. Switching the embedding model
 
 The active model is the committed default `MODEL_TAG` in `embed.py`; the
 `EMBED_MODEL` env var overrides it per-run so a new sidecar can build while
@@ -117,7 +150,7 @@ New models must first be added to the `MODELS` registry in `embed.py`
 (name + dimensions). Old sidecars stay on disk untouched — a flip is one
 reviewable commit, and rolling back is flipping the constant back.
 
-## 5. Where things live (quick reference)
+## 6. Where things live (quick reference)
 
 | Path | What | In git? |
 | --- | --- | --- |
@@ -129,3 +162,5 @@ reviewable commit, and rolling back is flipping the constant back.
 | `calibration_<tag>.md`, `trusted_codes_<tag>.json` | study receipts | **yes** |
 | `cpv_2008_de.csv` | official CPV dictionary (German) | yes |
 | `embed.py` / `calibrate.py` / `relevance.py` / `loop.py` | the programs | yes |
+| `tryout.py` / `explain.py` / `playback.py` / `backtest.py` | the test tools (§3) | yes |
+| `data/tryout/`, `data/playback_asof/`, `data/backtest_world/` | disposable test sandboxes | no |
