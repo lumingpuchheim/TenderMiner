@@ -40,7 +40,7 @@ MODELS = {
         'name': 'jinaai/jina-embeddings-v2-base-de',
         'dim': 768},
 }
-MODEL_TAG = os.environ.get('EMBED_MODEL', 'minilm-l12-v2')
+MODEL_TAG = os.environ.get('EMBED_MODEL', 'jina-v2-base-de')
 MODEL_NAME = MODELS[MODEL_TAG]['name']
 DIM = MODELS[MODEL_TAG]['dim']
 # The model attends to ~128 tokens; the trade-defining vocabulary sits in the title

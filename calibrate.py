@@ -163,7 +163,7 @@ def calibrate(data_dir):
 
     pos_plain, pos_auto, pos_text, pos_code = [], [], [], []
     neg_naive, neg_trust = [], []
-    neg_hyb_text, neg_code_s, vol_text, vol_code = [], [], [], []
+    neg_hyb_text, neg_code_s, vol_plain, vol_text, vol_code = [], [], [], [], []
     for name, g in by_firm.items():
         idx = g['row'].to_numpy()
         codes = g['cpv_main'].to_numpy(dtype=object)
@@ -196,22 +196,26 @@ def calibrate(data_dir):
         firm_classes = {c[:4] for c in codes if isinstance(c, str)}
         off_class = ~np.isin(all_class, list(firm_classes))
         naive_pool = np.flatnonzero(deep_mask & off_class)
+        naive_pool = naive_pool[~np.isin(naive_pool, idx)]
+        if len(naive_pool):
+            pick = rng.choice(naive_pool, min(NEG_PER_FIRM, len(naive_pool)),
+                              replace=False)
+            neg_naive.append((mat[pick] @ mat[idx].T).max(axis=1))
+        # ONE trusted pick, scored three ways (plain refs / expanded refs /
+        # code channel) so every configuration compares on identical negatives
         trust_pool = np.flatnonzero(
             np.isin(all_cpv.astype(str), list(trusted)) & off_class)
-        for pool, sink, ref in ((naive_pool, neg_naive, idx),
-                                (trust_pool, neg_trust, idx)):
-            pool = pool[~np.isin(pool, idx)]
-            if len(pool):
-                pick = rng.choice(pool, min(NEG_PER_FIRM, len(pool)), replace=False)
-                sink.append((mat[pick] @ mat[ref].T).max(axis=1))
-        pool = trust_pool[~np.isin(trust_pool, idx)]
-        if len(pool):
-            pick = rng.choice(pool, min(NEG_PER_FIRM, len(pool)), replace=False)
+        trust_pool = trust_pool[~np.isin(trust_pool, idx)]
+        if len(trust_pool):
+            pick = rng.choice(trust_pool, min(NEG_PER_FIRM, len(trust_pool)),
+                              replace=False)
+            neg_trust.append((mat[pick] @ mat[idx].T).max(axis=1))
             neg_hyb_text.append((mat[pick] @ mat[full_ref].T).max(axis=1))
             neg_code_s.extend(code_score(all_cpv[p], full_fp, lmat, lpos)
                               for p in pick)
 
         vol = rng.choice(len(mat), VOL_PER_FIRM, replace=False)
+        vol_plain.append((mat[vol] @ mat[idx].T).max(axis=1))
         vol_text.append((mat[vol] @ mat[full_ref].T).max(axis=1))
         vol_code.extend(code_score(all_cpv[p], full_fp, lmat, lpos) for p in vol)
 
@@ -222,6 +226,7 @@ def calibrate(data_dir):
     neg = {'naive': np.concatenate(neg_naive), 'trusted': np.concatenate(neg_trust)}
     neg_hyb_text = np.concatenate(neg_hyb_text)
     neg_code_s = np.array(neg_code_s)
+    vol_plain = np.concatenate(vol_plain)
     vol_text = np.concatenate(vol_text)
     vol_code = np.array(vol_code)
     n_pos = len(pos_text)
@@ -230,24 +235,30 @@ def calibrate(data_dir):
     thr_plain = float(np.quantile(pos_plain, 1 - RECALL_TARGET))
     thr_c_text = threshold_for_recall(pos_text[~pos_auto], n_auto, RECALL_TARGET)
 
-    # configuration D: joint grid over the code-channel threshold; for each, the
-    # text threshold is set so the two channels together keep the recall promise,
-    # and the pair with the least wrong-trade leakage wins.
-    best = None
-    for tc in CODE_GRID:
-        code_pass = pos_code >= tc
-        rem = pos_text[~code_pass]
-        needed = RECALL_TARGET * n_pos - code_pass.sum()
-        tt = (float(np.quantile(rem[np.isfinite(rem)],
-                                max(0.0, 1 - needed / max((np.isfinite(rem)).sum(), 1))))
-              if needed > 0 else np.inf)
-        recall = float((code_pass | (pos_text >= tt)).mean())
-        leak = float(((neg_hyb_text >= tt) | (neg_code_s >= tc)).mean())
-        vol = float(((vol_text >= tt) | (vol_code >= tc)).mean())
-        if best is None or leak < best['leakage']:
-            best = {'threshold': tt, 'code_threshold': float(tc), 'recall': recall,
-                    'leakage': leak, 'volume': vol,
-                    'code_share': float(code_pass.mean())}
+    # configurations D and E: joint grid over the code-channel threshold; for
+    # each, the text threshold is set so the two channels together keep the
+    # recall promise, and the pair with the least wrong-trade leakage wins.
+    # D uses the expanded profile as text channel, E the plain references.
+    def joint_best(text_pos, text_neg, text_vol):
+        best = None
+        for tc in CODE_GRID:
+            code_pass = pos_code >= tc
+            rem = text_pos[~code_pass]
+            needed = RECALL_TARGET * n_pos - code_pass.sum()
+            tt = (float(np.quantile(rem[np.isfinite(rem)],
+                                    max(0.0, 1 - needed / max((np.isfinite(rem)).sum(), 1))))
+                  if needed > 0 else np.inf)
+            recall = float((code_pass | (text_pos >= tt)).mean())
+            leak = float(((text_neg >= tt) | (neg_code_s >= tc)).mean())
+            vol = float(((text_vol >= tt) | (vol_code >= tc)).mean())
+            if best is None or leak < best['leakage']:
+                best = {'threshold': tt, 'code_threshold': float(tc),
+                        'recall': recall, 'leakage': leak, 'volume': vol,
+                        'code_share': float(code_pass.mean())}
+        return best
+
+    best_d = joint_best(pos_text, neg_hyb_text, vol_text)
+    best_e = joint_best(pos_plain, neg['trusted'], vol_plain)
 
     return {
         'n_firms': len(by_firm), 'n_positives': n_pos,
@@ -270,7 +281,8 @@ def calibrate(data_dir):
                     (pos_auto | (pos_text >= thr_c_text)).mean()),
                 'leakage': float((neg_hyb_text >= thr_c_text).mean()),
                 'volume': float((vol_text >= thr_c_text).mean())},
-            'D hybrid + code channel': best,
+            'D hybrid + code channel': best_d,
+            'E plain refs + code channel': best_e,
         },
     }
 
@@ -311,7 +323,8 @@ def hist_lines(scores, threshold, lo=0.2, hi=1.0, bins=16, width=40):
 
 
 def write_receipt(path, r):
-    d = r['configs']['D hybrid + code channel']
+    two_channel = {k: v for k, v in r['configs'].items() if 'code_threshold' in v}
+    best_name, d = min(two_channel.items(), key=lambda kv: kv[1]['leakage'])
     lines = [
         f'# Calibration receipt — {MODEL_TAG}',
         '',
@@ -326,7 +339,8 @@ def write_receipt(path, r):
         f'random baseline {r["baseline"]:.3f})',
         f'- **Defaults: `min_relevance` = {d["threshold"]:.3f}, '
         f'`min_code_relevance` = {d["code_threshold"]:.3f}** '
-        f'(configuration D, recall promise {RECALL_TARGET:.0%})',
+        f'(best two-channel configuration: {best_name}; '
+        f'recall promise {RECALL_TARGET:.0%})',
         '',
         '| configuration | text thr | code thr | recall | wrong-trade leakage |',
         '| --- | --- | --- | --- | --- |',

@@ -4,6 +4,12 @@ Status: phases 1 (embedding sidecar — `embed.py`, wired into the loop),
 2 (calibration + trusted codes — `calibrate.py`, receipts committed per
 `model_tag`) and 3 (gate in the renderer — `relevance.py`, wired into
 `deliver`; pilot subscription live) implemented; phase 4 specification.
+Default embedding model: `jina-v2-base-de` (flipped 2026-08-05 after a
+full-store A/B; shipping gate is configuration E — plain references +
+code channel, expansion off). Known open weakness: same-buyer template
+text still lifts sibling lots of other trades over the gate (weakened
+but not solved by the model flip); mitigation is specced only as a
+diagnostic for now, with phase 4 feedback as the backstop.
 Builds on the running loop
 ([`ONLINE_LEARNING.md`](ONLINE_LEARNING.md)) and the subscription layer
 ([`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md)); uses their vocabulary
@@ -180,7 +186,12 @@ code can add evidence, but no code can ever veto the text**:
    whose mean similarity to its code siblings falls clearly below the
    code's cohesion — past the halfway point toward the random baseline —
    is an outlier (a Speyer hiding inside a good code) and is not used as a
-   pseudo-reference.
+   pseudo-reference. **Off by default (decision 2026-08-05):** under
+   `jina-v2-base-de` expansion measurably hurts (receipt: 41.3% leakage
+   with vs 26.5% without) — in a sharp embedding space pseudo-references
+   widen a profile more than they help. The mechanism stays implemented
+   and measured per calibration (configurations C/D vs E); it returns only
+   if a future model's receipt favors it.
 3. **Calibration negatives** (next section): only trusted codes may label a
    lot "definitely another trade" — an untrusted label is no label.
 

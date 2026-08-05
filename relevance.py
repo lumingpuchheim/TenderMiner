@@ -22,11 +22,17 @@ import pandas as pd
 from calibrate import code_score, fingerprint, is_deep, pseudo_refs
 from embed import KEY, MODEL_TAG, load_label_sidecar, load_sidecar
 
-# Defaults from calibration_<MODEL_TAG>.md (configuration D); a subscription
-# may override min_relevance per line. Revisit on every model_tag flip.
-DEFAULT_MIN_RELEVANCE = 0.521
-DEFAULT_MIN_CODE_RELEVANCE = 0.750
+# Defaults from calibration_<MODEL_TAG>.md (best two-channel configuration —
+# E under jina-v2-base-de); a subscription may override min_relevance per
+# line. Revisit on every model_tag flip.
+DEFAULT_MIN_RELEVANCE = 0.482
+DEFAULT_MIN_CODE_RELEVANCE = 0.700
 BORDERLINE_MARGIN = 0.05  # near-misses below the gate render as "knapp aussortiert"
+# Profile expansion via trusted-code pools measurably HURTS under
+# jina-v2-base-de (config C/D vs E in the receipt: 41.3% vs 26.5% leakage) —
+# in a sharp embedding space, pseudo-references widen a profile more than
+# they help. Off until a calibration proves otherwise for a future model.
+USE_EXPANSION = False
 
 TRUSTED_CODES = Path(__file__).resolve().parent / f'trusted_codes_{MODEL_TAG}.json'
 
@@ -89,10 +95,11 @@ def build_profile(gate, sub):
 
     ref_codes = [gate.all_cpv[i] for i in ref_rows]
     expanded = [ref_vecs]
-    for c in {c for c in ref_codes if c in gate.trusted}:
-        pool = gate.pools[c][~np.isin(gate.pools[c], ref_rows)]
-        if len(pool):
-            expanded.append(gate.mat[pool])
+    if USE_EXPANSION:
+        for c in {c for c in ref_codes if c in gate.trusted}:
+            pool = gate.pools[c][~np.isin(gate.pools[c], ref_rows)]
+            if len(pool):
+                expanded.append(gate.mat[pool])
     # fingerprint over the reference vectors + trusted reference codes
     sims = (gate.lmat @ ref_vecs.T).max(axis=1)
     fp = set(np.argsort(-sims)[:8].tolist())
