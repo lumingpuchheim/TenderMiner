@@ -211,9 +211,22 @@ channels is a far safer pass than either alone.
 - **Label embeddings**: every label is embedded with the same `model_tag`
   and stored beside the lot sidecar (`cpv_labels.npy` + index). Same space,
   same model, rebuilt on model change like everything else.
-- **The trade fingerprint** of a profile: rank all CPV entries by the
-  similarity of their label embeddings to the profile's reference texts,
-  union the references' own trusted codes, keep the top entries. The
+- **The trade fingerprint** of a profile is **two-tiered by origin
+  (decision 2026-08-05, configuration F)**. **Hard** codes are facts:
+  trusted codes on the customer's actual won lots — full match authority.
+  **Soft** labels are our own guesses: CPV entries ranked by label-embedding
+  similarity to the reference texts, kept only above a floor with a
+  reference-consensus requirement, and held to their own calibrated
+  threshold. A soft match may pass a lot into the market but **never makes
+  it pick-confident** — a guess that something matches exactly is still a
+  guess (the Polderwand case: a coastal-protection label entered one
+  profile via a 0.585 single-reference association and exact-matched a
+  candidate's additional code at 1.0). The calibration pareto showed strict
+  membership (floor .50 / consensus 2) costs ~4 points of leakage — a
+  multi-trade firm's minority trade is often backed by a single win — so
+  the searched optimum keeps loose membership, raises the hard bar
+  instead, and the no-confidence rule contains what loose membership lets
+  through. The
   fingerprint is the profile *named in official vocabulary* — it feeds
   (a) the code channel below, (b) the customer report's profile line
   ("Ihr Profil: Blitzschutzarbeiten, Elektroinstallation"), (c) the mapping
@@ -277,9 +290,10 @@ look identical in the report. Two rules:
 - **Pick margin**: a gated lot may enter the customer's market view at
   `min_relevance`, but a **recommendation** must be confident — text at
   least `min_relevance + pick_margin` (default 0.05, mirroring the
-  borderline margin below the gate), or a code-channel pass (codes are
-  precise when they speak; no margin needed). Scrape-overs stay in the
-  market, never in the picks — "no pick this week" beats a weak pick.
+  borderline margin below the gate), or a **hard** code-channel pass
+  (facts from wins; soft/guessed labels never confer confidence).
+  Scrape-overs stay in the market, never in the picks — "no pick this
+  week" beats a weak pick.
 - **The relevance "why"**: every gated pick carries a plain-language reason
   it is in the customer's market — "ähnelt Ihrem Auftrag „…‟" (nearest
   reference) or "CPV-Code passt: <label>" — next to the existing

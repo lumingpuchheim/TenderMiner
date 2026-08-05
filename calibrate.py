@@ -53,6 +53,17 @@ COHESION_SAMPLE = 60    # lots sampled per code for the cohesion estimate
 PSEUDO_REF_CAP = 200    # pseudo-references kept per trusted code (closest first)
 FP_K = 8                # trade-fingerprint size (top label matches)
 CODE_GRID = np.arange(0.70, 1.0, 0.025)  # code-channel thresholds tried
+# configuration F: the fingerprint splits by origin. HARD codes are facts
+# (trusted codes on the customer's actual won lots); SOFT labels are our own
+# guesses (dictionary labels near the reference texts) and must earn
+# membership — at least `consensus` references above `floor` — and even then
+# never carry exact-match certainty (their threshold is searched separately;
+# 2.0 in the grid = soft channel off).
+SOFT_FLOORS = (0.45, 0.50, 0.55, 0.60)
+SOFT_CONSENSUS = (1, 2)
+# starts at CODE_GRID's floor so the search space nests configuration E
+# (single threshold for both origins); 2.0 = soft channel off
+SOFT_GRID = np.concatenate([np.arange(0.70, 1.0, 0.025), [2.0]])
 SEED = 7
 
 
@@ -183,9 +194,26 @@ def calibrate(data_dir):
           f'{len(trusted)}/{len(cohesion)} deep codes trusted')
     pools = pseudo_refs(mat, all_cpv, trusted, cohesion, baseline)
 
+    # label-to-label similarities once for configuration F (~350 MB float32,
+    # freed with the function; turns every code-vs-fingerprint score into a
+    # table lookup)
+    LL = lmat @ lmat.T
+    fk = [(f, k) for f in SOFT_FLOORS for k in SOFT_CONSENSUS]
+
+    def label_rows(codes):
+        return [lpos[c] for c in codes if is_deep(c) and c in lpos]
+
+    def best_ll(cand_rows, fp_rows):
+        if not cand_rows or not len(fp_rows):
+            return 0.0
+        return float(LL[np.ix_(cand_rows, fp_rows)].max())
+
     pos_plain, pos_auto, pos_text, pos_code = [], [], [], []
     neg_naive, neg_trust = [], []
     neg_hyb_text, neg_code_s, vol_plain, vol_text, vol_code = [], [], [], [], []
+    pos_hard, pos_soft = [], {key: [] for key in fk}
+    neg_hard, neg_soft = [], {key: [] for key in fk}
+    vol_hard, vol_soft = [], {key: [] for key in fk}
     for name, g in by_firm.items():
         idx = g['row'].to_numpy()
         win_codes = [lot_codes(m, a) for m, a in
@@ -200,6 +228,26 @@ def calibrate(data_dir):
             full_ref = np.concatenate([full_ref, pools[c]])
         full_ref = np.unique(full_ref)
         full_fp = fingerprint(idx, flat_codes, mat, lmat, lpos, trusted)
+
+        # configuration F structures: HARD = trusted codes on the wins (facts);
+        # SOFT = labels near the reference texts, requiring `consensus` refs
+        # above `floor` (guesses that earned membership). Per-holdout variants
+        # drop the held-out win's contribution from both.
+        R = lmat @ mat[idx].T
+        floors_ge = {f: R >= f for f in SOFT_FLOORS}
+        row_max = R.max(axis=1)
+        row_arg = R.argmax(axis=1)
+        row_2nd = (np.partition(R, -2, axis=1)[:, -2] if R.shape[1] >= 2
+                   else np.full(len(R), -np.inf))
+        hard_full = sorted({lpos[c] for c in flat_codes
+                            if c in trusted and c in lpos})
+
+        def soft_rows(counts, maxes, f, k):
+            ok = np.flatnonzero(counts >= k)
+            return ok[np.argsort(-maxes[ok])][:FP_K]
+
+        soft_full = {(f, k): soft_rows(floors_ge[f].sum(axis=1), row_max, f, k)
+                     for f, k in fk}
 
         for i in range(len(idx)):
             others = np.delete(idx, i)
@@ -217,6 +265,16 @@ def calibrate(data_dir):
                 pos_text.append(float((mat[ref] @ mat[idx[i]]).max()))
             fp_i = fingerprint(others, other_codes, mat, lmat, lpos, trusted)
             pos_code.append(best_code_score(win_codes[i], fp_i, lmat, lpos))
+
+            cand = label_rows(win_codes[i])
+            hard_i = sorted({lpos[c] for c in other_codes
+                             if c in trusted and c in lpos})
+            pos_hard.append(best_ll(cand, np.array(hard_i, dtype=int)))
+            max_wo = np.where(row_arg == i, row_2nd, row_max)
+            for f, k in fk:
+                counts_wo = floors_ge[f].sum(axis=1) - floors_ge[f][:, i]
+                pos_soft[(f, k)].append(
+                    best_ll(cand, soft_rows(counts_wo, max_wo, f, k)))
 
         firm_classes = {c[:4] for c in flat_codes}
         off_class = ~np.isin(all_class, list(firm_classes))
@@ -238,12 +296,24 @@ def calibrate(data_dir):
             neg_hyb_text.append((mat[pick] @ mat[full_ref].T).max(axis=1))
             neg_code_s.extend(best_code_score(all_codes[p], full_fp, lmat, lpos)
                               for p in pick)
+            hf = np.array(hard_full, dtype=int)
+            for p in pick:
+                cand = label_rows(all_codes[p])
+                neg_hard.append(best_ll(cand, hf))
+                for key in fk:
+                    neg_soft[key].append(best_ll(cand, soft_full[key]))
 
         vol = rng.choice(len(mat), VOL_PER_FIRM, replace=False)
         vol_plain.append((mat[vol] @ mat[idx].T).max(axis=1))
         vol_text.append((mat[vol] @ mat[full_ref].T).max(axis=1))
         vol_code.extend(best_code_score(all_codes[p], full_fp, lmat, lpos)
                         for p in vol)
+        hf = np.array(hard_full, dtype=int)
+        for p in vol:
+            cand = label_rows(all_codes[p])
+            vol_hard.append(best_ll(cand, hf))
+            for key in fk:
+                vol_soft[key].append(best_ll(cand, soft_full[key]))
 
     pos_plain = np.array(pos_plain)
     pos_auto = np.array(pos_auto)
@@ -286,6 +356,39 @@ def calibrate(data_dir):
     best_d = joint_best(pos_text, neg_hyb_text, vol_text)
     best_e = joint_best(pos_plain, neg['trusted'], vol_plain)
 
+    # configuration F: like E, but the code channel splits by origin — hard
+    # codes (facts from wins) and soft labels (earned guesses) get separate
+    # thresholds; floor/consensus/thresholds jointly searched, recall promise
+    # enforced by percentile at every grid point, least leakage wins.
+    pos_hard_a = np.array(pos_hard)
+    neg_hard_a = np.array(neg_hard)
+    vol_hard_a = np.array(vol_hard)
+    best_f, f_pareto = None, {}
+    for key in fk:
+        ps = np.array(pos_soft[key])
+        ns = np.array(neg_soft[key])
+        vs = np.array(vol_soft[key])
+        for ht in CODE_GRID:
+            hp, hn, hv = pos_hard_a >= ht, neg_hard_a >= ht, vol_hard_a >= ht
+            for st in SOFT_GRID:
+                code_pass = hp | (ps >= st)
+                rem = pos_plain[~code_pass]
+                needed = RECALL_TARGET * n_pos - code_pass.sum()
+                tt = (float(np.quantile(rem, max(0.0, 1 - needed / max(len(rem), 1))))
+                      if needed > 0 else np.inf)
+                recall = float((code_pass | (pos_plain >= tt)).mean())
+                leak = float(((neg['trusted'] >= tt) | hn | (ns >= st)).mean())
+                volu = float(((vol_plain >= tt) | hv | (vs >= st)).mean())
+                point = {'threshold': tt, 'code_threshold': float(ht),
+                         'soft_threshold': float(st),
+                         'soft_floor': key[0], 'soft_consensus': key[1],
+                         'recall': recall, 'leakage': leak, 'volume': volu,
+                         'code_share': float(code_pass.mean())}
+                if key not in f_pareto or leak < f_pareto[key]['leakage']:
+                    f_pareto[key] = point
+                if best_f is None or leak < best_f['leakage']:
+                    best_f = point
+
     return {
         'n_firms': len(by_firm), 'n_positives': n_pos,
         'baseline': baseline, 'trust_cut': cut, 'n_deep_codes': len(cohesion),
@@ -309,7 +412,9 @@ def calibrate(data_dir):
                 'volume': float((vol_text >= thr_c_text).mean())},
             'D hybrid + code channel': best_d,
             'E plain refs + code channel': best_e,
+            'F hard/soft codes + floor/consensus': best_f,
         },
+        'f_pareto': f_pareto,
     }
 
 
@@ -426,9 +531,18 @@ def main():
     for name, v in r['configs'].items():
         extra = ''.join([f', volume {v["volume"]:.1%}' if 'volume' in v else '',
                          f', code thr {v["code_threshold"]:.3f}'
-                         if 'code_threshold' in v else ''])
+                         if 'code_threshold' in v else '',
+                         f', soft thr {v["soft_threshold"]:.3f} '
+                         f'(floor {v["soft_floor"]:.2f}, consensus '
+                         f'{v["soft_consensus"]})'
+                         if 'soft_threshold' in v else ''])
         print(f'[calibrate] {name}: thr={v["threshold"]:.3f} '
               f'recall={v["recall"]:.1%} leakage={v["leakage"]:.1%}{extra}')
+    print('[calibrate] F pareto (best per membership rule):')
+    for (f, k), v in sorted(r['f_pareto'].items()):
+        print(f'  floor {f:.2f} consensus {k}: leakage {v["leakage"]:.1%} '
+              f'(text {v["threshold"]:.3f}, hard {v["code_threshold"]:.3f}, '
+              f'soft {v["soft_threshold"]:.3f})')
     print(f'[calibrate] receipts -> {receipt}, {codes}')
 
 

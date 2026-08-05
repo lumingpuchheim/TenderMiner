@@ -877,8 +877,8 @@ def deliver(paths, scored, args):
         if profile:
             kept = []
             for r in cand:
-                ok, near, t_score, c_score, why = rel.judge(gate, profile, r)
-                judged[id(r)] = (t_score, c_score, why)
+                ok, near, t_score, c_score, why, c_hard = rel.judge(gate, profile, r)
+                judged[id(r)] = (t_score, c_score, why, c_hard)
                 if ok:
                     kept.append(r)
                 elif near:
@@ -896,7 +896,8 @@ def deliver(paths, scored, args):
         max_picks = int(sub.get('max_picks', 5) or 0)
         top = [r for r in rows if r.get('flag')
                and (not profile
-                    or rel.is_confident(profile, *judged[id(r)][:2]))][:max_picks]
+                    or rel.is_confident(profile, judged[id(r)][0],
+                                        judged[id(r)][3]))][:max_picks]
 
         def tender_cell(r):
             title = escape(clean_cell(r.get('title') or f"Los {r['lot_id']}", 70))

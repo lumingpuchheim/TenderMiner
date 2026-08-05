@@ -19,14 +19,27 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from calibrate import code_score, fingerprint, is_deep, pseudo_refs
+from calibrate import is_deep, pseudo_refs
 from embed import KEY, MODEL_TAG, load_label_sidecar, load_sidecar
 
-# Defaults from calibration_<MODEL_TAG>.md (best two-channel configuration —
-# E under jina-v2-base-de); a subscription may override min_relevance per
-# line. Revisit on every model_tag flip.
+# Defaults from calibration_<MODEL_TAG>.md (configuration F under
+# jina-v2-base-de); a subscription may override min_relevance per line.
+# Revisit on every model_tag flip.
 DEFAULT_MIN_RELEVANCE = 0.503
-DEFAULT_MIN_CODE_RELEVANCE = 0.700
+# The fingerprint splits by origin (configuration F). HARD codes are facts —
+# trusted codes on the customer's actual won lots. SOFT labels are our own
+# guesses — dictionary labels near the reference texts, kept when at least
+# SOFT_CONSENSUS references sit above SOFT_FLOOR. The calibration pareto
+# showed strict membership (floor .50/consensus 2) costs ~4 points of
+# leakage because a multi-trade firm's minority trade is often backed by a
+# single win; the searched optimum keeps loose membership and instead holds
+# hard matches to a higher bar. A soft match may pass a lot into the market
+# but NEVER makes it pick-confident (see is_confident) — a guess that
+# something matches exactly is still a guess.
+DEFAULT_MIN_CODE_HARD = 0.825
+DEFAULT_MIN_CODE_SOFT = 0.700
+SOFT_FLOOR = 0.45
+SOFT_CONSENSUS = 1
 BORDERLINE_MARGIN = 0.05  # near-misses below the gate render as "knapp aussortiert"
 # A pass is not a pick: recommendations must clear the gate with room to
 # spare (a 0.007-margin pass looks identical to a 0.3-margin pass once
@@ -147,12 +160,12 @@ def build_profile(gate, sub):
             pool = gate.pools[c][~np.isin(gate.pools[c], ref_rows)]
             if len(pool):
                 expanded.append(gate.mat[pool])
-    # fingerprint over the reference vectors + trusted reference codes
-    sims = (gate.lmat @ ref_vecs.T).max(axis=1)
-    fp = set(np.argsort(-sims)[:8].tolist())
-    for c in ref_codes:
-        if c in gate.trusted and c in gate.lpos:
-            fp.add(gate.lpos[c])
+    # the two-tier fingerprint (configuration F): hard = facts, soft = guesses
+    hard_rows = sorted({gate.lpos[c] for c in ref_codes
+                        if c in gate.trusted and c in gate.lpos})
+    R = gate.lmat @ ref_vecs.T
+    ok = np.flatnonzero((R >= SOFT_FLOOR).sum(axis=1) >= SOFT_CONSENSUS)
+    soft_rows = ok[np.argsort(-R.max(axis=1)[ok])][:8]
     # titles aligned with the leading rows of ref_matrix (references, then
     # free texts); pseudo-reference rows beyond them have no title and fall
     # back to a generic "why" — they exist only when USE_EXPANSION is on
@@ -161,14 +174,15 @@ def build_profile(gate, sub):
     return {
         'ref_matrix': np.vstack(expanded),
         'ref_titles': ref_titles,
-        'fp_rows': np.fromiter(fp, int, len(fp)),
+        'hard_rows': np.array(hard_rows, dtype=int),
+        'soft_rows': soft_rows.astype(int),
         'ref_buyers': {b for b in (_norm_buyer(gate.all_buyer[i])
                                    for i in ref_rows) if b},
         'ref_types': {t for t in (gate.all_ctype[i] for i in ref_rows)
                       if isinstance(t, str) and t},
         'min_relevance': float(sub.get('min_relevance', DEFAULT_MIN_RELEVANCE)),
-        'min_code_relevance': float(sub.get('min_code_relevance',
-                                            DEFAULT_MIN_CODE_RELEVANCE)),
+        'min_code_hard': float(sub.get('min_code_hard', DEFAULT_MIN_CODE_HARD)),
+        'min_code_soft': float(sub.get('min_code_soft', DEFAULT_MIN_CODE_SOFT)),
         'version': sub.get('version', 1),
     }
 
@@ -201,21 +215,40 @@ def judge(gate, profile, scored_row):
          never veto — codes lie in both directions (Speyer), text is what
          the bidder actually reads.
 
-    The code channel reads ALL the lot's codes (main + additional) and
-    takes the best; a code is "silent" only if none is deep and known.
+    The code channel reads ALL the lot's codes (main + additional), scored
+    separately against the HARD fingerprint (trusted codes on actual wins —
+    facts) and the SOFT one (labels inferred from reference texts — guesses,
+    higher bar via calibration, and never pick-confident). A code is
+    "silent" only if none is deep and known.
+
+    Returns (passed, borderline, text, code, why, code_hard) — code is the
+    stamped best of both tiers, code_hard feeds is_confident.
     """
     i = gate.by_key.get((scored_row['procedure_id'], scored_row['lot_id']))
     if i is None:
-        return True, False, None, None, None  # rule 1: fail-open
+        return True, False, None, None, None, 0.0  # rule 1: fail-open
     sims = profile['ref_matrix'] @ gate.mat[i]
     text = float(sims.max())
-    # None = no code can speak; 0.0 would conflate "silent" with "far"
-    best_code, c_score = None, None
-    for code in _codes_of(gate, i):
-        if is_deep(code) and code in gate.lpos:
-            s = code_score(code, profile['fp_rows'], gate.lmat, gate.lpos)
-            if c_score is None or s > c_score:
-                best_code, c_score = code, s
+    cand_rows = [gate.lpos[c] for c in _codes_of(gate, i)
+                 if is_deep(c) and c in gate.lpos]
+    c_hard = c_soft = 0.0
+    hard_label = soft_label = None
+    for cr in cand_rows:
+        if len(profile['hard_rows']):
+            s = gate.lmat[profile['hard_rows']] @ gate.lmat[cr]
+            j = int(np.argmax(s))
+            if s[j] > c_hard:
+                c_hard, hard_label = float(s[j]), int(profile['hard_rows'][j])
+        if len(profile['soft_rows']):
+            s = gate.lmat[profile['soft_rows']] @ gate.lmat[cr]
+            j = int(np.argmax(s))
+            if s[j] > c_soft:
+                c_soft, soft_label = float(s[j]), int(profile['soft_rows'][j])
+    silent = not cand_rows
+    hard_pass = c_hard >= profile['min_code_hard']
+    soft_pass = c_soft >= profile['min_code_soft']
+    code_pass = hard_pass or soft_pass
+    c_score = max(c_hard, c_soft)
 
     def why_text():
         j = int(np.argmax(sims))
@@ -223,37 +256,36 @@ def judge(gate, profile, scored_row):
         return ('ref', titles[j]) if j < len(titles) and titles[j] else ('ref', None)
 
     def why_code():
-        best = profile['fp_rows'][int(np.argmax(gate.lmat[profile['fp_rows']]
-                                                @ gate.lmat[gate.lpos[best_code]]))]
-        return ('code', gate.lrows[best]['label_de'])
+        row = hard_label if hard_pass else soft_label
+        return ('code', gate.lrows[row]['label_de'])
 
     ctype = gate.all_ctype[i]
     if (profile['ref_types'] and isinstance(ctype, str) and ctype
             and ctype not in profile['ref_types']):
-        return False, True, text, c_score or 0.0, None  # rule 2
+        return False, True, text, c_score, None, c_hard  # rule 2
 
     if _norm_buyer(scored_row.get('buyer_name')) in profile['ref_buyers']:
         # rule 3: text score is still computed and stamped for audit, but it
         # must not decide — only the code may
-        if c_score is None:
-            return False, True, text, 0.0, None
-        passed = c_score >= profile['min_code_relevance']
-        return passed, False, text, c_score, (why_code() if passed else None)
+        if silent:
+            return False, True, text, 0.0, None, 0.0
+        return code_pass, False, text, c_score, (why_code() if code_pass else None), c_hard
 
     # rule 4
-    code_pass = (c_score or 0.0) >= profile['min_code_relevance']
     passed = text >= profile['min_relevance'] or code_pass
     borderline = (not passed
                   and text >= profile['min_relevance'] - BORDERLINE_MARGIN)
     why = (why_text() if text >= profile['min_relevance']
            else why_code() if code_pass else None)
-    return passed, borderline, text, c_score or 0.0, why
+    return passed, borderline, text, c_score, why, c_hard
 
 
-def is_confident(profile, text, c_score):
-    """Pick-worthy (PICK_MARGIN above the gate, or a code pass, or fail-open).
-    A pass below this stays in the market view but never becomes a pick."""
+def is_confident(profile, text, c_hard):
+    """Pick-worthy: PICK_MARGIN above the text gate, or a HARD code pass, or
+    fail-open. Soft (guessed-label) passes are deliberately excluded — a
+    guess matching exactly is still a guess; it may put a lot in the market
+    view but never behind a recommendation."""
     if text is None:
         return True  # fail-open rows carry no scores to be confident about
     return (text >= profile['min_relevance'] + PICK_MARGIN
-            or (c_score or 0.0) >= profile['min_code_relevance'])
+            or (c_hard or 0.0) >= profile['min_code_hard'])
