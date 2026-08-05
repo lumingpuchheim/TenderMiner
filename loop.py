@@ -156,6 +156,7 @@ class Paths:
         self.predictions = self.data / 'ledger' / 'predictions.jsonl'
         self.grades = self.data / 'ledger' / 'grades.jsonl'
         self.deliveries = self.data / 'ledger' / 'deliveries.jsonl'
+        self.simulations = self.data / 'ledger' / 'simulations.jsonl'
         self.subscriptions = self.data / 'subscriptions.jsonl'
         self.checkpoint = self.data / 'logs' / 'loop_checkpoint.json'
         self.drift = self.data / 'logs' / 'drift_latest.json'
@@ -1098,6 +1099,136 @@ def deliver(paths, scored, args):
     return n_rows
 
 
+# --------------------------------------------------- step 4c: winner simulation
+
+def simulate(paths, scored, tenders, aw, args):
+    """Every winner company in the awards store is a simulated customer
+    (SIMULATION.md): derive their market from what they won, write their
+    would-be picks to an append-only ledger — no rendering, no HTML. Checked
+    later by joining grades.jsonl (loop.py simcheck)."""
+    import heapq
+    today = now_utc().date()
+    lot_meta = {}
+    for r in tenders[sb.KEY + ['cpv_main', 'place_nuts3']].itertuples():
+        lot_meta[(r.procedure_id, r.lot_id)] = (
+            str(r.cpv_main)[:3] if pd.notna(r.cpv_main) else None,
+            str(r.place_nuts3)[:3] if pd.notna(r.place_nuts3) else None)
+
+    profiles = {}
+    for r in aw.itertuples():
+        names = getattr(r, 'winner_names', None)
+        if names is None or (isinstance(names, float) and pd.isna(names)):
+            continue
+        cpv3, nuts1 = lot_meta.get((r.procedure_id, r.lot_id), (None, None))
+        for nm in ([names] if isinstance(names, str) else list(names)):
+            nm = ' '.join(str(nm).split())
+            if not nm:
+                continue
+            p = profiles.setdefault(nm, {'cpv3': set(), 'nuts1': set()})
+            if cpv3:
+                p['cpv3'].add(cpv3)
+            if nuts1:
+                p['nuts1'].add(nuts1)
+
+    # product-faithful candidate pool: latest revision per lot, flagged,
+    # enough days to the deadline — the same floor a real subscriber gets
+    latest = {}
+    for row in scored:
+        key = (row['procedure_id'], row['lot_id'])
+        if key not in latest or str(row['publication_date']) >= str(latest[key]['publication_date']):
+            latest[key] = row
+    min_deadline = (today + timedelta(days=args.sim_min_deadline_days)).isoformat()
+    buckets = {}
+    for r in latest.values():
+        deadline = pd.to_datetime(r.get('deadline_date'), errors='coerce')
+        if not r.get('flag') or not r.get('cpv3') or pd.isna(deadline) \
+                or deadline.date().isoformat() < min_deadline:
+            continue
+        buckets.setdefault(r['cpv3'], []).append(r)
+    for rows_ in buckets.values():
+        rows_.sort(key=lambda r: -r['score'])
+
+    seen = {(s['company'], s['procedure_id'], s['lot_id'])
+            for s in read_jsonl(paths.simulations)}
+    ts = now_utc().isoformat(timespec='seconds')
+    new_rows, n_companies = [], 0
+    for company, p in profiles.items():
+        merged = heapq.merge(*[buckets.get(c, []) for c in sorted(p['cpv3'])],
+                             key=lambda r: -r['score'])
+        picked = 0
+        for r in merged:
+            if picked >= args.sim_max_picks:
+                break
+            nuts1 = str(r.get('place_nuts3') or '')[:3]
+            if p['nuts1'] and (not nuts1 or nuts1 not in p['nuts1']):
+                continue
+            key = (company, r['procedure_id'], r['lot_id'])
+            if key in seen:
+                picked += 1  # already on record from an earlier cycle
+                continue
+            seen.add(key)
+            new_rows.append({
+                'ts': ts, 'company': company,
+                'procedure_id': r['procedure_id'], 'lot_id': r['lot_id'],
+                'notice_id': r.get('notice_id'), 'model': r['model'],
+                'score': r['score'], 'cpv3': r.get('cpv3'),
+                'place_nuts3': r.get('place_nuts3'),
+                'publication_number': r.get('publication_number'),
+                'deadline_date': r.get('deadline_date'),
+            })
+            picked += 1
+        if picked:
+            n_companies += 1
+    append_jsonl(paths.simulations, new_rows)
+    print(f'[simulate] {len(new_rows)} new simulated picks for {n_companies} '
+          f'winner companies ({len(profiles)} profiles, '
+          f'{sum(len(b) for b in buckets.values())} eligible lots)')
+    return new_rows
+
+
+def cmd_simcheck(args):
+    """Join simulations against grades and print the market-scale answer."""
+    paths = Paths(args.data_dir, args.models_dir)
+    sims = read_jsonl(paths.simulations)
+    grades = {(g['procedure_id'], g['lot_id']): g for g in read_jsonl(paths.grades)}
+    if not sims:
+        print('no simulation rows yet — run a cycle first')
+        return
+    graded = [(s, grades[(s['procedure_id'], s['lot_id'])]) for s in sims
+              if (s['procedure_id'], s['lot_id']) in grades]
+    companies = {s['company'] for s in sims}
+    print(f'{len(sims)} simulated picks · {len(companies)} companies · '
+          f'{len(graded)} picks graded so far')
+    if not graded:
+        print('no graded picks yet — outcomes arrive with the award notices '
+              '(~90-day median lag)')
+        return
+    hit = sum(g['label'] for _, g in graded) / len(graded)
+    all_grades = read_jsonl(paths.grades)
+    base = (sum(g['label'] for g in all_grades) / len(all_grades)) if all_grades else 0
+    print(f'picks that ended with 0-1 bids: {hit*100:.0f} in 100 '
+          f'(graded market base rate: {base*100:.0f} in 100)')
+    by_trade = {}
+    for s, g in graded:
+        by_trade.setdefault(s.get('cpv3'), []).append(g['label'])
+    for cpv3, labels in sorted(by_trade.items()):
+        print(f'  {cpv3} {SECTOR.get(cpv3, ""):24s} {len(labels):5d} graded  '
+              f'{sum(labels)/len(labels)*100:3.0f} in 100')
+    by_company = {}
+    for s, g in graded:
+        by_company.setdefault(s['company'], []).append(g['label'])
+    enough = {c: ls for c, ls in by_company.items()
+              if len(ls) >= args.min_company_picks}
+    if enough:
+        rates = sorted(sum(ls) / len(ls) for ls in enough.values())
+        majority = sum(1 for r in rates if r > 0.5)
+        print(f'companies with >= {args.min_company_picks} graded picks: {len(enough)} · '
+              f'median hit rate {rates[len(rates)//2]*100:.0f} in 100 · '
+              f'majority-right for {majority} ({majority/len(enough)*100:.0f}%)')
+    else:
+        print(f'no company has {args.min_company_picks}+ graded picks yet')
+
+
 # ------------------------------------------------------------- drift monitors
 
 
@@ -1320,6 +1451,7 @@ def cmd_run(args):
     write_json(paths.drift, {'at': now_utc().isoformat(timespec='seconds'), **drift})
     report(paths, tenders, args, record, gate, drift, model_id, len(new_grades), len(rows))
     deliver(paths, scored, args)
+    simulate(paths, scored, tenders, aw, args)
 
     try:
         import render_dashboard
@@ -1377,11 +1509,23 @@ def main():
                      help='CatBoost iterations override (testing)')
     run.add_argument('--report-top', type=int, default=30, dest='report_top',
                      help='open lots listed in the report')
+    run.add_argument('--sim-max-picks', type=int, default=5, dest='sim_max_picks',
+                     help='picks per simulated winner company per cycle (default 5)')
+    run.add_argument('--sim-min-deadline-days', type=int, default=14,
+                     dest='sim_min_deadline_days',
+                     help='deadline floor for simulated picks, like the product default')
     run.add_argument('--data-dir', default='data', dest='data_dir')
     run.add_argument('--models-dir', default='models', dest='models_dir')
     run.add_argument('--skip-download', action='store_true', dest='skip_download',
                      help='reuse the existing store (offline run)')
     run.set_defaults(func=cmd_run)
+    chk = sub.add_parser('simcheck',
+                         help='join winner simulations against grades and print hit rates')
+    chk.add_argument('--min-company-picks', type=int, default=3, dest='min_company_picks',
+                     help='graded picks a company needs before its rate is counted')
+    chk.add_argument('--data-dir', default='data', dest='data_dir')
+    chk.add_argument('--models-dir', default='models', dest='models_dir')
+    chk.set_defaults(func=cmd_simcheck)
     args = ap.parse_args()
     args.func(args)
 
