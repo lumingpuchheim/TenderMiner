@@ -39,10 +39,17 @@ MODELS = {
     'jina-v2-base-de': {
         'name': 'jinaai/jina-embeddings-v2-base-de',
         'dim': 768},
+    # phase 6 (RELEVANCE.md): same model, but descriptions lose their
+    # boilerplate sentences before embedding (strip.py); own sidecar dir,
+    # own calibration receipt, flips in like any model change
+    'jina-v2-base-de-strip': {
+        'name': 'jinaai/jina-embeddings-v2-base-de',
+        'dim': 768, 'strip': True},
 }
 MODEL_TAG = os.environ.get('EMBED_MODEL', 'jina-v2-base-de')
 MODEL_NAME = MODELS[MODEL_TAG]['name']
 DIM = MODELS[MODEL_TAG]['dim']
+STRIP = bool(MODELS[MODEL_TAG].get('strip'))
 # The model attends to ~128 tokens; the trade-defining vocabulary sits in the title
 # and the opening of the description, so a generous character cut loses nothing.
 MAX_CHARS = 2000
@@ -56,7 +63,12 @@ def sidecar_dir(data_dir):
 
 def prep_text(title, description):
     """The exact text a lot is embedded as — one definition for store rows and,
-    later, for profile_texts (RELEVANCE.md: same model, same space)."""
+    later, for profile_texts (RELEVANCE.md: same model, same space). Under a
+    strip tag the description loses its boilerplate sentences first (phase 6);
+    the title is never stripped."""
+    if STRIP:
+        import strip
+        description = strip.distinctive(description)
     parts = [p for p in ((title or '').strip(), (description or '').strip()) if p]
     return fix_text('\n'.join(parts))[:MAX_CHARS]
 
@@ -156,6 +168,11 @@ def ensure_embeddings(data_dir, tenders):
     silently re-embedded (append-only discipline — the drift is detectable)."""
     d = sidecar_dir(data_dir)
     d.mkdir(parents=True, exist_ok=True)
+    if STRIP:
+        # frozen next to the sidecar so already-embedded texts stay
+        # byte-stable across incremental runs (strip.py)
+        import strip
+        strip.load_or_build(d / 'strip_ledger.json', tenders)
     rows, mat = load_sidecar(data_dir)
     known = {(r['procedure_id'], r['lot_id']): r['text_hash'] for r in rows}
 
