@@ -52,15 +52,19 @@ class Gate:
             self.by_pub.setdefault(r['publication_number'], i)
         self.by_key = {(r['procedure_id'], r['lot_id']): i
                        for i, r in enumerate(self.rows)}
-        # cpv per sidecar row for the pseudo-reference pools (store read at
-        # load time — profile building is model-side runtime, not a customer-
-        # number reconstruction)
+        # cpv + buyer per sidecar row (store read at load time — profile
+        # building is model-side runtime, not a customer-number reconstruction)
         lots = pd.read_parquet(Path(data_dir) / 'store' / 'tenders.parquet'
                                ).drop_duplicates(subset=KEY)
         key_cpv = dict(zip(zip(lots['procedure_id'], lots['lot_id']),
                            lots['cpv_main']))
+        key_buyer = dict(zip(zip(lots['procedure_id'], lots['lot_id']),
+                             lots['buyer_name']))
         self.all_cpv = np.array(
             [key_cpv.get((r['procedure_id'], r['lot_id'])) for r in self.rows],
+            dtype=object)
+        self.all_buyer = np.array(
+            [key_buyer.get((r['procedure_id'], r['lot_id'])) for r in self.rows],
             dtype=object)
         self._pools = None
 
@@ -70,6 +74,16 @@ class Gate:
             self._pools = pseudo_refs(self.mat, self.all_cpv, self.trusted,
                                       self.cohesion, self.baseline)
         return self._pools
+
+
+def _norm_buyer(name):
+    """Buyer identity for the same-buyer guard. Name equality after whitespace/
+    case normalisation — deliberately simple; a buyer using two spellings
+    merely loses the guard for one of them (falls back to the normal path),
+    never the other way around."""
+    if name is None or (isinstance(name, float) and np.isnan(name)):
+        return None
+    return ' '.join(str(name).casefold().split()) or None
 
 
 def wants_gate(sub):
@@ -109,6 +123,8 @@ def build_profile(gate, sub):
     return {
         'ref_matrix': np.vstack(expanded),
         'fp_rows': np.fromiter(fp, int, len(fp)),
+        'ref_buyers': {b for b in (_norm_buyer(gate.all_buyer[i])
+                                   for i in ref_rows) if b},
         'min_relevance': float(sub.get('min_relevance', DEFAULT_MIN_RELEVANCE)),
         'min_code_relevance': float(sub.get('min_code_relevance',
                                             DEFAULT_MIN_CODE_RELEVANCE)),
@@ -119,18 +135,46 @@ def build_profile(gate, sub):
 def judge(gate, profile, scored_row):
     """(passed, borderline, text_score, code_score) for one scored open lot.
 
-    Fail-open: a lot missing from the sidecar (embedding step behind the
-    store) passes ungated with scores None — the gate must never hide a
-    tender because of an infrastructure gap."""
+    The gate juggles two imperfect signals, and every rule here says when to
+    trust which:
+
+      TEXT — rich, but worthless when the buyer copy-pasted one template
+             across all their lots (measured: 311 heavy-templater buyers,
+             14% of stored lots, incl. the biggest serial builders).
+      CODE — precise, but only when the clerk coded honestly and deeply
+             (measured per code via cohesion; nonsense codes exist).
+
+    Ladder, top rule wins:
+      1. Lot not in the sidecar yet -> pass ungated (fail-open: an
+         infrastructure gap must never hide a tender).
+      2. Same buyer as a profile reference -> text ABSTAINS (similarity
+         between two documents the same office wrote is self-plagiarism,
+         not evidence) and the code decides alone; if the code cannot
+         speak (shallow / not in the dictionary) -> borderline band,
+         visibly undecided rather than decided by a meaningless signal.
+      3. Independent buyer -> text decides; a code may add a pass (OR),
+         never veto — codes lie in both directions (Speyer), text is what
+         the bidder actually reads.
+    """
     i = gate.by_key.get((scored_row['procedure_id'], scored_row['lot_id']))
     if i is None:
-        return True, False, None, None
+        return True, False, None, None  # rule 1: fail-open
     text = float((profile['ref_matrix'] @ gate.mat[i]).max())
     code = scored_row.get('cpv_main')
+    # None = the code cannot speak; 0.0 would conflate "silent" with "far"
     c_score = (code_score(code, profile['fp_rows'], gate.lmat, gate.lpos)
-               if isinstance(code, str) and is_deep(code) else 0.0)
+               if isinstance(code, str) and is_deep(code) else None)
+
+    if _norm_buyer(scored_row.get('buyer_name')) in profile['ref_buyers']:
+        # rule 2: text score is still computed and stamped for audit, but it
+        # must not decide — only the code may
+        if c_score is None:
+            return False, True, text, 0.0
+        return c_score >= profile['min_code_relevance'], False, text, c_score
+
+    # rule 3
     passed = (text >= profile['min_relevance']
-              or c_score >= profile['min_code_relevance'])
+              or (c_score or 0.0) >= profile['min_code_relevance'])
     borderline = (not passed
                   and text >= profile['min_relevance'] - BORDERLINE_MARGIN)
-    return passed, borderline, text, c_score
+    return passed, borderline, text, c_score or 0.0

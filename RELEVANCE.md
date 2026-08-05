@@ -235,6 +235,25 @@ channels is a far safer pass than either alone.
   customer's own trade (a false pass into "read the notice" territory),
   bounded by the feedback loop like every other gate error.
 
+## The same-buyer guard (decision 2026-08-05)
+
+Serial buyers copy-paste one text template across all lots of all their
+projects (measured: 311 of 1,166 multi-trade buyers do it heavily — 14% of
+stored lots, including the largest public builders). Between two documents
+written by the same office, text similarity is self-plagiarism, not
+evidence. The same measurement shows these buyers code *better* than the
+market (78% deep-coded): industrialized procurement templates the prose but
+disciplines the dropdown.
+
+The rule: **for a candidate sharing a buyer with any profile reference, the
+text channel abstains and the code-label channel decides alone.** A
+same-buyer lot whose code cannot speak (shallow or outside the dictionary)
+goes to the borderline band — visibly undecided, never silently passed on a
+meaningless signal. The asymmetry is untouched for independent buyers: there
+text still decides and a code still cannot veto. Cross-buyer template reuse
+remains the open weakness; sentence-level template stripping is its specced
+fix if the calibration diagnostic stays ugly.
+
 ## Calibrating `min_relevance` — from the data, not from taste
 
 The awards store already contains everything needed, no customers required:
