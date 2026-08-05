@@ -25,7 +25,7 @@ from embed import KEY, MODEL_TAG, load_label_sidecar, load_sidecar
 # Defaults from calibration_<MODEL_TAG>.md (configuration F under
 # jina-v2-base-de); a subscription may override min_relevance per line.
 # Revisit on every model_tag flip.
-DEFAULT_MIN_RELEVANCE = 0.503
+DEFAULT_MIN_RELEVANCE = 0.680
 # The fingerprint splits by origin (configuration F). HARD codes are facts —
 # trusted codes on the customer's actual won lots. SOFT labels are our own
 # guesses — dictionary labels near the reference texts, kept when at least
@@ -37,15 +37,17 @@ DEFAULT_MIN_RELEVANCE = 0.503
 # but NEVER makes it pick-confident (see is_confident) — a guess that
 # something matches exactly is still a guess.
 DEFAULT_MIN_CODE_HARD = 0.825
-DEFAULT_MIN_CODE_SOFT = 0.700
-SOFT_FLOOR = 0.45
+DEFAULT_MIN_CODE_SOFT = 0.750
+SOFT_FLOOR = 0.60
 SOFT_CONSENSUS = 1
+# ONE bar (decision 2026-08-05, configuration G): a lot that passes the gate
+# is recommendable, full stop — there is no separate "pick confidence"; the
+# earlier margin was the only uncalibrated number in the system and cost a
+# documented false rejection. The bar is precision-first: calibrated by
+# minimising wrong-trade leakage (2.1% in the receipt) subject only to the
+# volume floor (a typical week must still have candidates); the resulting
+# recall (58% of a firm's own wins) is reported, never promised.
 BORDERLINE_MARGIN = 0.05  # near-misses below the gate render as "knapp aussortiert"
-# A pass is not a pick: recommendations must clear the gate with room to
-# spare (a 0.007-margin pass looks identical to a 0.3-margin pass once
-# scores are hidden, so confidence must be enforced structurally). Code
-# passes need no margin — a code is precise whenever it speaks at all.
-PICK_MARGIN = 0.05
 # Profile expansion via trusted-code pools measurably HURTS under
 # jina-v2-base-de (config C/D vs E in the receipt: 41.3% vs 26.5% leakage) —
 # in a sharp embedding space, pseudo-references widen a profile more than
@@ -280,12 +282,3 @@ def judge(gate, profile, scored_row):
     return passed, borderline, text, c_score, why, c_hard
 
 
-def is_confident(profile, text, c_hard):
-    """Pick-worthy: PICK_MARGIN above the text gate, or a HARD code pass, or
-    fail-open. Soft (guessed-label) passes are deliberately excluded — a
-    guess matching exactly is still a guess; it may put a lot in the market
-    view but never behind a recommendation."""
-    if text is None:
-        return True  # fail-open rows carry no scores to be confident about
-    return (text >= profile['min_relevance'] + PICK_MARGIN
-            or (c_hard or 0.0) >= profile['min_code_hard'])

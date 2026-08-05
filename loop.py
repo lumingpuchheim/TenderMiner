@@ -888,16 +888,11 @@ def deliver(paths, scored, args):
                       key=lambda r: -r['score'])
         n_high = max(1, round(len(rows) * args.tier_high))
         n_med = max(1, round(len(rows) * args.tier_medium))
-        # a pick must be flagged (the quality floor) AND, for gated subs,
-        # relevance-confident (PICK_MARGIN above the gate — a scrape-over
-        # pass stays in the market view but is never recommended); max_picks
-        # caps the list — a short actionable list beats homework, and zero
-        # picks is a message
+        # ONE bar (RELEVANCE.md decision 2026-08-05): passing the gate means
+        # recommendable — a pick just needs the competition flag on top;
+        # max_picks caps the list, and zero picks is a message
         max_picks = int(sub.get('max_picks', 5) or 0)
-        top = [r for r in rows if r.get('flag')
-               and (not profile
-                    or rel.is_confident(profile, judged[id(r)][0],
-                                        judged[id(r)][3]))][:max_picks]
+        top = [r for r in rows if r.get('flag')][:max_picks]
 
         def tender_cell(r):
             title = escape(clean_cell(r.get('title') or f"Los {r['lot_id']}", 70))

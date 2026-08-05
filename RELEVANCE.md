@@ -282,27 +282,36 @@ firm may bid a services-coded maintenance tender); visible-undecided is the
 correct verdict for a signal this coarse. Unknown types on either side
 disable the rule (a promise needs data on both sides).
 
-## Pick confidence and the relevance "why" (decision 2026-08-05)
+## One bar (decision 2026-08-05, supersedes the pick margin)
 
-A lot that clears the gate by 0.007 and one that clears it by 0.3 must not
-look identical in the report. Two rules:
+The earlier design had two thresholds on the relevance score: a loose one
+for the market view and a stricter "pick confidence" one (threshold +
+hand-picked margin) for recommendations. With the market view demoted from
+product to appendix, the loose bar guarded an audience that does not exist,
+and the margin was the one number in the system never backed by a
+calibration receipt — it cost a documented false rejection (a €131k solo
+win at rank 5). Superseded by a **single calibrated bar**: a lot that
+passes the gate is recommendable, full stop; the pick list is the flagged
+gated lots, capped at `max_picks`.
 
-- **Pick margin**: a gated lot may enter the customer's market view at
-  `min_relevance`, but a **recommendation** must be confident — text at
-  least `min_relevance + pick_margin` (default 0.05, mirroring the
-  borderline margin below the gate), or a **hard** code-channel pass
-  (facts from wins; soft/guessed labels never confer confidence).
-  Scrape-overs stay in the market, never in the picks — "no pick this
-  week" beats a weak pick.
-- **The relevance "why"**: every gated pick carries a plain-language reason
-  it is in the customer's market — "ähnelt Ihrem Auftrag „…‟" (nearest
-  reference) or "CPV-Code passt: <label>" — next to the existing
-  competition "why". Scores stay internal (decision 2026-08-04); the words
-  let a customer judge a marginal case in one glance.
+The bar's calibration objective changes with it (configuration G). The
+product principle — a short list where the customer finds their business
+and it is likely lonely — contains no recall promise, so none is imposed:
+the search **maximises list precision (minimises wrong-trade leakage) and
+is stopped only by the constraint that a typical customer's week still has
+candidates** (admitted market volume above a floor derived from the pilot
+replays). The recall that falls out is *reported* in the receipt, not
+promised.
 
-Report copy consequence: the report no longer cites how many lots were
-checked or matched — the product is the list, and the size of our haystack
-is our business, not the customer's.
+**The relevance "why" stays**: every pick carries a plain-language reason —
+"ähnelt Ihrem Auftrag „…‟" or "CPV-Code passt: <label>" — next to the
+competition "why". Scores stay internal (decision 2026-08-04). The
+borderline band below the single bar also stays, as a display-and-feedback
+surface only.
+
+Report copy consequence (unchanged): the report never cites how many lots
+were checked or matched — the product is the list, and the size of our
+haystack is our business, not the customer's.
 
 ## Calibrating `min_relevance` — from the data, not from taste
 

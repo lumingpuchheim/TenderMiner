@@ -64,6 +64,13 @@ SOFT_CONSENSUS = (1, 2)
 # starts at CODE_GRID's floor so the search space nests configuration E
 # (single threshold for both origins); 2.0 = soft channel off
 SOFT_GRID = np.concatenate([np.arange(0.70, 1.0, 0.025), [2.0]])
+# configuration G (one bar, decision 2026-08-05): no recall promise — the
+# text threshold is searched too, list precision is maximised, and the only
+# stop is the volume floor: a typical customer's week must still have
+# candidates. 5% of a Jebsen-scale wide net (~300-550 lots/week) leaves
+# ~15-30 admitted lots — enough to fill a 5-pick list with room to rank.
+TEXT_GRID = np.arange(0.44, 0.71, 0.01)
+VOL_FLOOR = 0.05
 SEED = 7
 
 
@@ -356,6 +363,40 @@ def calibrate(data_dir):
     best_d = joint_best(pos_text, neg_hyb_text, vol_text)
     best_e = joint_best(pos_plain, neg['trusted'], vol_plain)
 
+    # configuration G: single bar, no recall promise. Minimise leakage subject
+    # to the volume floor (the list must not be chronically empty); the recall
+    # that falls out is reported, never promised. Tie-break: higher recall.
+    def single_bar():
+        best = None
+        for key in fk:
+            ps = np.array(pos_soft[key])
+            ns = np.array(neg_soft[key])
+            vs = np.array(vol_soft[key])
+            for ht in CODE_GRID:
+                hp = np.array(pos_hard) >= ht
+                hn = np.array(neg_hard) >= ht
+                hv = np.array(vol_hard) >= ht
+                for st in SOFT_GRID:
+                    cp, cn, cv = hp | (ps >= st), hn | (ns >= st), hv | (vs >= st)
+                    for tt in TEXT_GRID:
+                        vol = float((cv | (vol_plain >= tt)).mean())
+                        if vol < VOL_FLOOR:
+                            continue
+                        leak = float((cn | (neg['trusted'] >= tt)).mean())
+                        recall = float((cp | (pos_plain >= tt)).mean())
+                        cand = {'threshold': float(tt), 'code_threshold': float(ht),
+                                'soft_threshold': float(st),
+                                'soft_floor': key[0], 'soft_consensus': key[1],
+                                'recall': recall, 'leakage': leak, 'volume': vol,
+                                'code_share': float(cp.mean())}
+                        if (best is None or leak < best['leakage']
+                                or (leak == best['leakage']
+                                    and recall > best['recall'])):
+                            best = cand
+        return best
+
+    best_g = single_bar()
+
     # configuration F: like E, but the code channel splits by origin — hard
     # codes (facts from wins) and soft labels (earned guesses) get separate
     # thresholds; floor/consensus/thresholds jointly searched, recall promise
@@ -413,6 +454,7 @@ def calibrate(data_dir):
             'D hybrid + code channel': best_d,
             'E plain refs + code channel': best_e,
             'F hard/soft codes + floor/consensus': best_f,
+            'G single bar (precision-first)': best_g,
         },
         'f_pareto': f_pareto,
         # raw score arrays for ad-hoc analyses (pick-level metrics etc.)
