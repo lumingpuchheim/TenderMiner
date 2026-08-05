@@ -117,10 +117,11 @@ committed output; nothing waits on them.
 
 **Reading the receipt** (`calibration_<tag>.md`): the configuration table's
 last rows are the shipping gate; "leakage" = share of wrong-trade lots that
-would pass at the 90%-recall promise; "volume" = share of the whole market
-the average profile admits. If a recalibration moves the defaults, update
-`DEFAULT_MIN_RELEVANCE` / `DEFAULT_MIN_CODE_RELEVANCE` in `relevance.py` in
-the same commit as the receipt.
+would pass; "volume" = share of the whole market the average profile
+admits. If a recalibration moves the defaults, update the `DEFAULT_*`,
+`SOFT_*` and `TRADE_READ_*` constants in `relevance.py` in the same commit
+as the receipt, and append new subscription versions for customers with an
+explicit `min_relevance`.
 
 **Rebuild everything from scratch** (new machine; sidecar deleted):
 

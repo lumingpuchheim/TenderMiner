@@ -64,6 +64,12 @@ SOFT_CONSENSUS = (1, 2)
 # starts at CODE_GRID's floor so the search space nests configuration E
 # (single threshold for both origins); 2.0 = soft channel off
 SOFT_GRID = np.concatenate([np.arange(0.70, 1.0, 0.025), [2.0]])
+# configuration H (RELEVANCE.md phase 5): trade-read corroboration of
+# soft-only passes. H1 = absolute floor on sim(candidate text, best hard
+# label); H2 = contrast — the hard label must come within delta of the
+# candidate's best read anywhere in the dictionary.
+H1_GRID = np.arange(0.30, 0.625, 0.025)
+H2_GRID = np.arange(0.00, 0.325, 0.025)
 # configuration G (one bar, decision 2026-08-05): no recall promise — the
 # text threshold is searched too, list precision is maximised, and the only
 # stop is the volume floor: a typical customer's week must still have
@@ -221,6 +227,12 @@ def calibrate(data_dir):
     pos_hard, pos_soft = [], {key: [] for key in fk}
     neg_hard, neg_soft = [], {key: [] for key in fk}
     vol_hard, vol_soft = [], {key: [] for key in fk}
+    # configuration H arrays: trade_read (candidate text vs the profile's hard
+    # labels), world_read (vs any label), nohard (no fact to corroborate
+    # against — the rule is inactive there, RELEVANCE.md phase 5)
+    pos_tread, pos_world, pos_nohard = [], [], []
+    neg_tread, neg_world, neg_nohard = [], [], []
+    vol_tread, vol_world, vol_nohard = [], [], []
     for name, g in by_firm.items():
         idx = g['row'].to_numpy()
         win_codes = [lot_codes(m, a) for m, a in
@@ -277,6 +289,11 @@ def calibrate(data_dir):
             hard_i = sorted({lpos[c] for c in other_codes
                              if c in trusted and c in lpos})
             pos_hard.append(best_ll(cand, np.array(hard_i, dtype=int)))
+            # trade-read of the held-out win, against the leave-one-out hard
+            # labels (R = lmat @ mat[idx].T already holds its label reads)
+            pos_world.append(float(R[:, i].max()))
+            pos_tread.append(float(R[hard_i, i].max()) if hard_i else 0.0)
+            pos_nohard.append(not hard_i)
             max_wo = np.where(row_arg == i, row_2nd, row_max)
             for f, k in fk:
                 counts_wo = floors_ge[f].sum(axis=1) - floors_ge[f][:, i]
@@ -304,6 +321,10 @@ def calibrate(data_dir):
             neg_code_s.extend(best_code_score(all_codes[p], full_fp, lmat, lpos)
                               for p in pick)
             hf = np.array(hard_full, dtype=int)
+            NR = lmat @ mat[pick].T
+            neg_world.extend(NR.max(axis=0))
+            neg_tread.extend(NR[hf].max(axis=0) if len(hf) else np.zeros(len(pick)))
+            neg_nohard.extend([not hard_full] * len(pick))
             for p in pick:
                 cand = label_rows(all_codes[p])
                 neg_hard.append(best_ll(cand, hf))
@@ -316,6 +337,10 @@ def calibrate(data_dir):
         vol_code.extend(best_code_score(all_codes[p], full_fp, lmat, lpos)
                         for p in vol)
         hf = np.array(hard_full, dtype=int)
+        VR = lmat @ mat[vol].T
+        vol_world.extend(VR.max(axis=0))
+        vol_tread.extend(VR[hf].max(axis=0) if len(hf) else np.zeros(len(vol)))
+        vol_nohard.extend([not hard_full] * len(vol))
         for p in vol:
             cand = label_rows(all_codes[p])
             vol_hard.append(best_ll(cand, hf))
@@ -430,6 +455,75 @@ def calibrate(data_dir):
                 if best_f is None or leak < best_f['leakage']:
                     best_f = point
 
+    # configuration H (RELEVANCE.md phase 5): G plus trade-read corroboration
+    # of soft-only passes — a lot passing on the soft channel alone must also
+    # READ as one of the profile's hard trade labels, else it demotes to the
+    # borderline band (counted as not passing here; the band is display-only).
+    # Membership, soft threshold, text bar and the corroboration form/param
+    # are fitted jointly; the hard threshold is searched only in G's
+    # neighbourhood — corroboration touches soft-only passes, it cannot move
+    # the hard channel's optimum. 'off' nests G as a sanity anchor.
+    pos_tread_a, pos_world_a = np.array(pos_tread), np.array(pos_world)
+    neg_tread_a, neg_world_a = np.array(neg_tread), np.array(neg_world)
+    vol_tread_a, vol_world_a = np.array(vol_tread), np.array(vol_world)
+    pos_nh, neg_nh, vol_nh = (np.array(pos_nohard), np.array(neg_nohard),
+                              np.array(vol_nohard))
+    corr_opts = ([('off', 0.0)]
+                 + [('H1', float(b)) for b in H1_GRID]
+                 + [('H2', float(d)) for d in H2_GRID])
+
+    def corr_masks(form, par):
+        if form == 'off':
+            return (np.ones(len(pos_tread_a), bool),
+                    np.ones(len(neg_tread_a), bool),
+                    np.ones(len(vol_tread_a), bool))
+        if form == 'H1':
+            return (pos_nh | (pos_tread_a >= par),
+                    neg_nh | (neg_tread_a >= par),
+                    vol_nh | (vol_tread_a >= par))
+        return (pos_nh | (pos_tread_a >= pos_world_a - par),
+                neg_nh | (neg_tread_a >= neg_world_a - par),
+                vol_nh | (vol_tread_a >= vol_world_a - par))
+
+    ht_neigh = [round(best_g['code_threshold'] + d, 3)
+                for d in (-0.025, 0.0, 0.025)]
+    ptext_ge = {tt: pos_plain >= tt for tt in TEXT_GRID}
+    ntext_ge = {tt: neg['trusted'] >= tt for tt in TEXT_GRID}
+    vtext_ge = {tt: vol_plain >= tt for tt in TEXT_GRID}
+    best_h, h_pareto = None, {}
+    for form, par in corr_opts:
+        pc_, nc_, vc_ = corr_masks(form, par)
+        for key in fk:
+            ps = np.array(pos_soft[key])
+            ns = np.array(neg_soft[key])
+            vs = np.array(vol_soft[key])
+            for ht in ht_neigh:
+                hp = pos_hard_a >= ht
+                hn = neg_hard_a >= ht
+                hv = vol_hard_a >= ht
+                for st in SOFT_GRID:
+                    cp = hp | ((ps >= st) & pc_)
+                    cn = hn | ((ns >= st) & nc_)
+                    cv = hv | ((vs >= st) & vc_)
+                    for tt in TEXT_GRID:
+                        volu = float((cv | vtext_ge[tt]).mean())
+                        if volu < VOL_FLOOR:
+                            continue
+                        leak = float((cn | ntext_ge[tt]).mean())
+                        recall = float((cp | ptext_ge[tt]).mean())
+                        point = {'threshold': float(tt), 'code_threshold': float(ht),
+                                 'soft_threshold': float(st),
+                                 'soft_floor': key[0], 'soft_consensus': key[1],
+                                 'corr_form': form, 'corr_param': par,
+                                 'recall': recall, 'leakage': leak, 'volume': volu,
+                                 'code_share': float(cp.mean())}
+                        if key not in h_pareto or leak < h_pareto[key]['leakage']:
+                            h_pareto[key] = point
+                        if (best_h is None or leak < best_h['leakage']
+                                or (leak == best_h['leakage']
+                                    and recall > best_h['recall'])):
+                            best_h = point
+
     return {
         'n_firms': len(by_firm), 'n_positives': n_pos,
         'baseline': baseline, 'trust_cut': cut, 'n_deep_codes': len(cohesion),
@@ -455,8 +549,10 @@ def calibrate(data_dir):
             'E plain refs + code channel': best_e,
             'F hard/soft codes + floor/consensus': best_f,
             'G single bar (precision-first)': best_g,
+            'H single bar + trade-read corroboration': best_h,
         },
         'f_pareto': f_pareto,
+        'h_pareto': h_pareto,
         # raw score arrays for ad-hoc analyses (pick-level metrics etc.)
         'arrays': {'pos_plain': pos_plain, 'pos_codechan': pos_code,
                    'pos_hard': pos_hard_a, 'neg_trusted': neg['trusted'],
@@ -527,6 +623,17 @@ def write_receipt(path, r):
             f'| {name} | {v["threshold"]:.3f} '
             f'| {v.get("code_threshold", float("nan")):.3f} '
             f'| {v["recall"]:.1%} | {v["leakage"]:.1%} |')
+    h = r['configs'].get('H single bar + trade-read corroboration')
+    if h:
+        lines += [
+            '',
+            f'- **Configuration H (phase 5 shipping gate)**: text '
+            f'{h["threshold"]:.3f}, hard {h["code_threshold"]:.3f}, soft '
+            f'{h["soft_threshold"]:.3f} (floor {h["soft_floor"]:.2f}, '
+            f'consensus {h["soft_consensus"]}), corroboration '
+            f'**{h["corr_form"]} @ {h["corr_param"]:.3f}** — leakage '
+            f'{h["leakage"]:.1%}, volume {h["volume"]:.1%}, recall '
+            f'{h["recall"]:.1%} (reported, not promised).']
     lines += [
         '',
         f'- Code channel alone passes {d["code_share"]:.1%} of positives.',
@@ -581,7 +688,9 @@ def main():
                          f', soft thr {v["soft_threshold"]:.3f} '
                          f'(floor {v["soft_floor"]:.2f}, consensus '
                          f'{v["soft_consensus"]})'
-                         if 'soft_threshold' in v else ''])
+                         if 'soft_threshold' in v else '',
+                         f', corr {v["corr_form"]}@{v["corr_param"]:.3f}'
+                         if 'corr_form' in v else ''])
         print(f'[calibrate] {name}: thr={v["threshold"]:.3f} '
               f'recall={v["recall"]:.1%} leakage={v["leakage"]:.1%}{extra}')
     print('[calibrate] F pareto (best per membership rule):')
@@ -589,6 +698,12 @@ def main():
         print(f'  floor {f:.2f} consensus {k}: leakage {v["leakage"]:.1%} '
               f'(text {v["threshold"]:.3f}, hard {v["code_threshold"]:.3f}, '
               f'soft {v["soft_threshold"]:.3f})')
+    print('[calibrate] H pareto (best per membership rule, corroboration on):')
+    for (f, k), v in sorted(r['h_pareto'].items()):
+        print(f'  floor {f:.2f} consensus {k}: leakage {v["leakage"]:.1%} '
+              f'(text {v["threshold"]:.3f}, hard {v["code_threshold"]:.3f}, '
+              f'soft {v["soft_threshold"]:.3f}, '
+              f'corr {v["corr_form"]}@{v["corr_param"]:.3f})')
     print(f'[calibrate] receipts -> {receipt}, {codes}')
 
 

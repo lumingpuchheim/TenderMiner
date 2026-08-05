@@ -22,24 +22,21 @@ import pandas as pd
 from calibrate import is_deep, pseudo_refs
 from embed import KEY, MODEL_TAG, load_label_sidecar, load_sidecar
 
-# Defaults from calibration_<MODEL_TAG>.md (configuration F under
-# jina-v2-base-de); a subscription may override min_relevance per line.
-# Revisit on every model_tag flip.
-DEFAULT_MIN_RELEVANCE = 0.680
+# Defaults from calibration_<MODEL_TAG>.md (configuration H under
+# jina-v2-base-de, 2026-08-05); a subscription may override min_relevance
+# per line. Revisit on every model_tag flip.
+DEFAULT_MIN_RELEVANCE = 0.700
 # The fingerprint splits by origin (configuration F). HARD codes are facts —
 # trusted codes on the customer's actual won lots. SOFT labels are our own
 # guesses — dictionary labels near the reference texts, kept when at least
-# SOFT_CONSENSUS references sit above SOFT_FLOOR. The calibration pareto
-# showed strict membership (floor .50/consensus 2) costs ~4 points of
-# leakage because a multi-trade firm's minority trade is often backed by a
-# single win; the searched optimum keeps loose membership and instead holds
-# hard matches to a higher bar. A soft match may pass a lot into the market
-# but NEVER makes it pick-confident (see is_confident) — a guess that
-# something matches exactly is still a guess.
+# SOFT_CONSENSUS references sit above SOFT_FLOOR. With phase-5 corroboration
+# guarding soft-only passes, the searched optimum relaxed membership to
+# floor .45 / consensus 2 (the corroboration contains what loose membership
+# lets through — receipt: leakage 2.1% -> 1.5%, recall 58.4% -> 60.3%).
 DEFAULT_MIN_CODE_HARD = 0.825
-DEFAULT_MIN_CODE_SOFT = 0.750
-SOFT_FLOOR = 0.60
-SOFT_CONSENSUS = 1
+DEFAULT_MIN_CODE_SOFT = 0.725
+SOFT_FLOOR = 0.45
+SOFT_CONSENSUS = 2
 # ONE bar (decision 2026-08-05, configuration G): a lot that passes the gate
 # is recommendable, full stop — there is no separate "pick confidence"; the
 # earlier margin was the only uncalibrated number in the system and cost a
@@ -53,6 +50,15 @@ BORDERLINE_MARGIN = 0.05  # near-misses below the gate render as "knapp aussorti
 # in a sharp embedding space, pseudo-references widen a profile more than
 # they help. Off until a calibration proves otherwise for a future model.
 USE_EXPANSION = False
+# Phase 5 (RELEVANCE.md): trade-read corroboration of soft-only passes. A
+# lot passing on the soft channel alone (a guess matched against a guess —
+# the Rettungswache leak) must also READ as one of the profile's hard trade
+# labels, else it demotes to the borderline band. H1 = absolute floor on
+# sim(candidate text, best hard label); H2 = the hard label must come
+# within PARAM of the candidate's best read anywhere. Receipt 2026-08-05:
+# H2 @ 0.000 — the hard label must BE the candidate's top read.
+TRADE_READ_FORM = 'H2'
+TRADE_READ_PARAM = 0.0
 
 TRUSTED_CODES = Path(__file__).resolve().parent / f'trusted_codes_{MODEL_TAG}.json'
 
@@ -189,6 +195,29 @@ def build_profile(gate, sub):
     }
 
 
+def trade_read(gate, profile, i):
+    """Phase-5 signal: what the candidate's OWN text reads as, in official
+    vocabulary. Returns (best sim to the profile's hard trade labels, best
+    sim to any label in the dictionary)."""
+    reads = gate.lmat @ gate.mat[i]
+    world = float(reads.max())
+    hard = (float(reads[profile['hard_rows']].max())
+            if len(profile['hard_rows']) else 0.0)
+    return hard, world
+
+
+def corroborated(gate, profile, i):
+    """Phase 5: may a soft-only code pass stand? Only if the candidate's own
+    text reads as one of the profile's hard trade labels. Without hard labels
+    (cold start) there is no fact to corroborate against — rule inactive."""
+    if TRADE_READ_FORM == 'off' or not len(profile['hard_rows']):
+        return True
+    tread, world = trade_read(gate, profile, i)
+    if TRADE_READ_FORM == 'H1':
+        return tread >= TRADE_READ_PARAM
+    return tread >= world - TRADE_READ_PARAM
+
+
 def judge(gate, profile, scored_row):
     """(passed, borderline, text_score, code_score) for one scored open lot.
 
@@ -216,6 +245,14 @@ def judge(gate, profile, scored_row):
       4. Independent buyer -> text decides; a code may add a pass (OR),
          never veto — codes lie in both directions (Speyer), text is what
          the bidder actually reads.
+      5. (phase 5, across rules 3 and 4) A pass carried by the SOFT channel
+         alone is a guess matched against a guess (the Rettungswache leak:
+         a building label entered the fingerprint via one reference text,
+         then matched the candidate's building code). It stands only if the
+         candidate's own text also reads as one of the profile's hard trade
+         labels (see corroborated()); otherwise borderline band. Text
+         passes and hard-code passes are untouched — a derived signal may
+         demote a guess, never override a fact.
 
     The code channel reads ALL the lot's codes (main + additional), scored
     separately against the HARD fingerprint (trusted codes on actual wins —
@@ -266,15 +303,22 @@ def judge(gate, profile, scored_row):
             and ctype not in profile['ref_types']):
         return False, True, text, c_score, None, c_hard  # rule 2
 
+    soft_only = code_pass and not hard_pass
+
     if _norm_buyer(scored_row.get('buyer_name')) in profile['ref_buyers']:
         # rule 3: text score is still computed and stamped for audit, but it
         # must not decide — only the code may
         if silent:
             return False, True, text, 0.0, None, 0.0
+        if soft_only and not corroborated(gate, profile, i):
+            return False, True, text, c_score, None, c_hard  # rule 5
         return code_pass, False, text, c_score, (why_code() if code_pass else None), c_hard
 
     # rule 4
     passed = text >= profile['min_relevance'] or code_pass
+    if (passed and text < profile['min_relevance'] and soft_only
+            and not corroborated(gate, profile, i)):
+        return False, True, text, c_score, None, c_hard  # rule 5
     borderline = (not passed
                   and text >= profile['min_relevance'] - BORDERLINE_MARGIN)
     why = (why_text() if text >= profile['min_relevance']

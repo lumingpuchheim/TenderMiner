@@ -6,10 +6,18 @@ Status: phases 1 (embedding sidecar — `embed.py`, wired into the loop),
 `deliver`; pilot subscription live) implemented; phase 4 specification.
 Default embedding model: `jina-v2-base-de` (flipped 2026-08-05 after a
 full-store A/B; shipping gate is configuration E — plain references +
-code channel, expansion off). Known open weakness: same-buyer template
-text still lifts sibling lots of other trades over the gate (weakened
-but not solved by the model flip); mitigation is specced only as a
-diagnostic for now, with phase 4 feedback as the backstop.
+code channel, expansion off). Known open weaknesses, both diagnosed on
+the pilot 2026-08-05 (the Rettungswache replay): (a) the **soft
+fingerprint can acquire object labels** — a building label entered via
+one reference text and passed two Generalunternehmer lots label-to-label
+(the Polderwand mechanism, second occurrence); (b) **project vocabulary
+outweighs trade vocabulary** in tender prose, inflating cross-buyer text
+similarity and polluting projections. Weakness (a) is closed: phase 5
+(projection corroboration, below) shipped 2026-08-05 as configuration H
+(receipt: leakage 2.1% → 1.5%, recall 58.4% → 60.3%; delivery-row
+`trade_read` stamps pending a loop.py touch). Weakness (b) remains, with
+phase 6 (sentence-level template stripping) specified below; phase 4
+feedback stays the backstop.
 Builds on the running loop
 ([`ONLINE_LEARNING.md`](ONLINE_LEARNING.md)) and the subscription layer
 ([`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md)); uses their vocabulary
@@ -268,8 +276,8 @@ same-buyer lot whose code cannot speak (shallow or outside the dictionary)
 goes to the borderline band — visibly undecided, never silently passed on a
 meaningless signal. The asymmetry is untouched for independent buyers: there
 text still decides and a code still cannot veto. Cross-buyer template reuse
-remains the open weakness; sentence-level template stripping is its specced
-fix if the calibration diagnostic stays ugly.
+is the residual weakness this guard cannot see; its fix is sentence-level
+template stripping, specified as phase 6 below.
 
 ## The contract-type rule (decision 2026-08-05)
 
@@ -281,6 +289,139 @@ and not out, because adjacent types can be real business (a works-profile
 firm may bid a services-coded maintenance tender); visible-undecided is the
 correct verdict for a signal this coarse. Unknown types on either side
 disable the rule (a promise needs data on both sides).
+
+## Reading the trade from the text — projection corroboration (phase 5, implemented 2026-08-05)
+
+The Rettungswache diagnostic (2026-08-05, replayed on the pilot profile
+with the deadline promise off) pinned the week's leakage to one door.
+Not the text channel — at the pilot's 0.68 bar no wrong-trade lot passed
+on raw text — but the **soft fingerprint**: the Sprinkenhof reference's
+text ("Erdungs- und Blitzschutzanlagen", written inside a
+laboratory-building project) reads as the label *45216120 Bauarbeiten an
+Gebäuden für Not- und Rettungsdienste* at 0.618, just above the loose
+membership floor (.60/k1, kept deliberately by the pareto), so the
+profile acquired a **building label**; two Generalunternehmer-
+Rettungswache lots then matched it label-to-label at 0.902 ≥ 0.750 —
+soft-only passes (their text scores were 0.540/0.559, their hard score
+0.438). The Polderwand case, second occurrence, now with a receipt.
+
+The fix reads the label sidecar in the other direction. Score a
+**candidate's text** against all label embeddings and ask *what trade
+does this text read as*. Measured on the week's lots, this projection
+separates exactly where the fingerprint failed: "Los 12
+Blitzschutzanlagen" reads as *Blitzschutzarbeiten* top-1 (0.568); the
+Rettungswache lots read as *Bau von Rettungsdienststationen* (0.62–0.63)
+with the profile's trade label nowhere in reach. But the same
+measurement forbids using the projection as a classifier or a general
+veto: it is project-contaminated too. The Schönkirchen lot — genuinely
+Blitzschutz, the title says so — projects onto school-building labels
+(0.579) with *Blitzschutzarbeiten* below its top-3, and one of the
+pilot's own six references (HafenCity, the biggest-project text) shows
+no trade label in its top-3 at all.
+
+The rule that fits both findings, under the standing asymmetry (a
+derived signal may demote a guess, never override a fact):
+
+> **A lot whose only pass is a soft code match must be corroborated by
+> its own text: the candidate's projection onto the profile's hard trade
+> labels must clear the corroboration bar, else the lot goes to the
+> borderline band** — visibly undecided, never silently dropped.
+
+Text passes and hard-code passes are untouched — the text the bidder
+actually reads and a trusted code on the lot both outrank our guesses.
+Profiles without hard labels (cold start, no wins yet) keep today's
+behaviour: the rule needs a fact to corroborate against. Effect on the
+worked week: both Rettungswache lots demote to borderline (also the
+honest verdict — a Generalunternehmer newbuild genuinely contains
+Blitzschutz as a sub-scope, so "undecided, read the notice" is correct);
+Schönkirchen, Bordesholm and Los 12 (hard 1.0 each) are untouched.
+
+**Calibration (configuration H).** The corroboration bar is fitted like
+every threshold in this system, never hand-picked. Two forms are
+measured and the receipt decides: **H1**, an absolute floor on
+sim(candidate text, best hard label); **H2**, a contrast form — the
+profile's hard label must rank within the candidate's top-k projections
+(or within δ of its best projection anywhere), which self-adjusts for
+text-poor lots. Objective as in G: minimise leakage under the
+admitted-volume floor; recall reported, not promised. The run also
+re-reports the soft-membership pareto with H active — if corroboration
+contains what loose membership lets through, floor/consensus may stay
+loose or relax, which is the direction the multi-trade-firm evidence
+wants.
+
+**Plumbing.** No new sidecar, no new model, no per-notice cost — the
+label matrix already exists; the projection is one matrix-vector product
+at judge time. Delivery rows gain `trade_read` and the matched label id
+when the rule fired. Report copy is unchanged (scores stay internal); a
+demoted lot renders in the borderline band, whose annex copy widens from
+"knapp unter der Ähnlichkeitsschwelle" to also cover "nicht eindeutig
+Ihrem Gewerk zuzuordnen".
+
+**Receipt (2026-08-05, shipped).** The joint search chose **H2 @ 0.000**
+— the strictest contrast form: a soft-only pass stands only when the
+profile's hard trade label is the candidate text's *top* read in the
+whole dictionary. Against configuration G: leakage 2.1% → **1.5%**,
+recall 58.4% → **60.3%**, volume 5.0% → 5.1% — better on all three
+axes, which is the signature of a rule that removes noise rather than
+trading it. The soft-membership pareto re-ran with H active and relaxed
+exactly as predicted: floor 0.60/consensus 1 → **0.45/consensus 2**,
+soft threshold 0.750 → 0.725, text bar 0.680 → 0.700 (`relevance.py`
+constants updated in the same commit; pilot subscription bumped to v6).
+Verified on the worked week via `explain.py`/`tryout.py`: both
+Rettungswache lots demote to the borderline band ("SOFT pass 1.000, NOT
+corroborated — reads as Bau von Rettungsdienststationen"), Los 12 and
+Bordesholm keep their hard passes, the pick list is unchanged.
+Implementation note: the rule and its constants live entirely in
+`relevance.py::judge` (rule 5 in the ladder); the delivery-row
+`trade_read` stamp and the widened annex copy are the one remaining
+loop.py touch, deferred while loop.py carries unrelated in-flight work
+(SIMULATION.md).
+
+## Sentence-level template stripping (specified 2026-08-05, phase 6)
+
+The remaining text pathologies are one pathology: tender prose describes
+the *project around the trade*, and whole-document embeddings average
+the two. The measured symptoms, all from the same diagnostic: the
+borderline cluster at 0.66–0.68 (Klassenhaus, Heizung, Technische
+Außenanlagen — other trades of serial school builders pressing against
+the bar from below, cross-buyer, so the same-buyer guard cannot see
+them); the Schönkirchen projection above; and the HafenCity reference's
+noisy projection. Phase 5 contains the damage at the gate; this phase
+attacks the cause in the vectors.
+
+- **Segmentation**: split `title + description` into sentences (simple
+  splitter, German abbreviation guard). Title always survives.
+- **The boilerplate ledger**: normalise each sentence (whitespace,
+  case), hash it, count distinct procedures it appears in across the
+  store. A sentence spanning ≥ `strip_min_procs` procedures (proposal:
+  5) is a boilerplate *candidate*. Frequency alone cannot be the
+  verdict: standard trade phrases ("Blitzschutzanlage nach DIN EN
+  62305") are frequent too, and they ARE the signal. The guard reuses
+  the cohesion idea at sentence level — a frequent sentence is stripped
+  only if its host lots are **heterogeneous** (spread across many cpv3
+  trades); a frequent sentence whose hosts are homogeneous is trade
+  vocabulary and stays. The ledger is derived data, rebuilt with the
+  store, never committed.
+- **Distinctive text** = what remains after stripping, on **both sides
+  symmetrically** — references and candidates get the same treatment. A
+  lot whose text is entirely boilerplate is honestly text-poor: its
+  distinctive text is the title, and where that is thin too, the score
+  is honestly low and the code channel decides — today's ladder,
+  unchanged.
+- **Storage**: a new sidecar directory `<model_tag>-strip`, full
+  re-embed, exactly the append-only discipline of a model flip — old
+  vectors untouched, rollback is flipping back. Cost: hashing is
+  negligible; the re-embed is one checkpointed backfill (hours under
+  jina); disk doubles per tag.
+- **Calibration**: configuration **I** (stripped text channel replacing
+  the plain one) and **J** (H + I together), same objective as G. The
+  flip ships only on a winning receipt, like every model change.
+- **Per-sentence max scoring** (scoring each surviving sentence against
+  the profile and taking the max) is measured as a *diagnostic only*:
+  it converts "contains my trade as a sub-scope" into a strong signal,
+  which for Generalunternehmer lots is precisely the ambiguity whose
+  honest verdict is borderline, not pass. If it ever ships, it feeds
+  the borderline band, never a full pass.
 
 ## One bar (decision 2026-08-05, supersedes the pick margin)
 
@@ -425,6 +566,15 @@ is defined: *"Ihr Profil: 6 gewonnene Ausschreibungen + 1 Beschreibung."*
    Jebsen (version 2, CPV widened to `45`) is the pilot subscription.*
 4. **Feedback file + review loop** — markers, missed-tender intake, the
    automatic profile-ref proposal from new wins. *The gate starts learning.*
+5. **Projection corroboration** — configuration H in `calibrate.py`, the
+   soft-only corroboration rule + `trade_read` stamps in `relevance.py`,
+   widened borderline copy. *No new infrastructure; kills the
+   soft-fingerprint leak (Rettungswache class) at the gate.* **Shipped
+   2026-08-05** (H2 @ 0.000; stamps + annex copy pending, see receipt
+   note above).
+6. **Template stripping** — boilerplate ledger, `<model_tag>-strip`
+   sidecar backfill, configurations I/J; flip only on a winning receipt.
+   *Attacks the project-vocabulary cause in the vectors themselves.*
 
 Each phase leaves a running system; a subscription without `min_relevance`
 is untouched at every phase, so nothing ships as a flag-day.
@@ -448,6 +598,13 @@ is untouched at every phase, so nothing ships as a flag-day.
 - **`profile_texts` weight** — references from real wins and references
   from free text currently score identically; if free text proves noisier,
   a per-reference weight is a format field away.
+- **Corroboration form (phase 5)** — *decided 2026-08-05 by the receipt*:
+  H2 @ 0.000 (contrast form, strictest setting) beat every H1 floor; the
+  soft membership relaxed to floor 0.45/consensus 2 in the same search.
+  Reopens only on a model_tag flip, like every threshold.
+- **Stripping parameters (phase 6)** — `strip_min_procs` (5 proposed)
+  and the host-heterogeneity cut for the trade-phrase guard; both
+  reported with sensitivity in the receipt, like the trust parameters.
 - **Competitor detection (idea, not scoped)** — profile similarity between
   firms is competitor identification for free: the same sidecar over award
   data answers "who competes with whom" per niche. Possible future

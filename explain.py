@@ -76,6 +76,12 @@ def explain_lot(gate, profile, i):
     top = np.argsort(-sims)[:3]
     proj = '; '.join(f"{gate.lrows[t]['label_de'][:38]} {sims[t]:.3f}"
                      for t in top)
+    if len(profile['hard_rows']):
+        tread, world = rel.trade_read(gate, profile, i)
+        corr = rel.corroborated(gate, profile, i)
+        path.append(f'trade-read {tread:.3f}/{world:.3f} '
+                    f'{"corroborated" if corr else "NOT corroborated"} '
+                    f'({rel.TRADE_READ_FORM}@{rel.TRADE_READ_PARAM})')
     print(f'{title!r} | {buyer}')
     print(f'   verdict ok={ok} borderline={near} '
           f'text={tx if tx is None else round(tx, 3)}'
