@@ -97,6 +97,7 @@ answers your question; none of them touches the real ledgers or reports.
 | What would customer X's report look like if a subscription field changed? | `python tryout.py --sub <sub_id> --set FIELD=VALUE` | seconds |
 | Why did lot Y pass / fail X's gate? What trade does its text read as? | `python explain.py --sub <sub_id> <TED-number> …` | seconds |
 | Would we have recommended this firm's historical solo win, knowing only the past? | `python playback.py --firm "Firma GmbH"` | ~10 min |
+| Show me a real prediction report AND the later report that checks it (the "Rückblick" demo) | `python replay.py --sub <sub_id> --cutoff YYYY-MM-DD` | ~15 min |
 | Does a gate/model change make picks better overall? | `python backtest.py` | hours |
 
 - **`tryout.py`** re-renders one customer from the last cycle's prediction
@@ -112,6 +113,15 @@ answers your question; none of them touches the real ledgers or reports.
 - **`playback.py`** rebuilds an as-of world before the target's deadline
   (store, trust list, thresholds, model — all time-isolated) and replays
   that cycle: was the win in the market, was it a pick.
+- **`replay.py`** renders TWO real customer reports across time: the weekly
+  report as it would have looked at `--cutoff` (picks by a model that could
+  not see past that date), and a check report at `--check-date` (default
+  today) whose "Ihre Empfehlungen im Rückblick" grades those picks against
+  the since-published outcomes. Output under `data/replay/<sub_id>/`; real
+  ledgers untouched. Pick a cutoff 3–6 months back (awards lag ~3 months);
+  the backtest report lists pick weeks with outcomes if you want a
+  guaranteed-graded cutoff. This is the sales/demo artifact for "how do I
+  know your predictions are any good".
 - **`backtest.py`** replays every weekly cutoff and grades all picks
   against published outcomes; its report lands in
   `data/reports/backtest_<date>.md`.
@@ -182,10 +192,28 @@ template noise the corroboration cannot see.
 | `data/store/*.parquet` | the two tables (tenders, awards) | no (rebuildable) |
 | `data/embeddings/<tag>/` | vectors: lots + CPV labels, per model | no (rebuildable) |
 | `data/subscriptions.jsonl` | customers, versioned | **no — private** |
+| `data/outreach/targets.csv` | cold-contact target list (§7) | **no — private** |
 | `data/ledger/*.jsonl` | predictions, grades, deliveries, simulations (append-only) | no |
 | `data/reports/…` | operator report, dashboard, customer HTML | no |
 | `calibration_<tag>.md`, `trusted_codes_<tag>.json` | study receipts | **yes** |
 | `cpv_2008_de.csv` | official CPV dictionary (German) | yes |
 | `embed.py` / `calibrate.py` / `relevance.py` / `loop.py` / `simulation.py` | the programs | yes |
 | `tryout.py` / `explain.py` / `playback.py` / `backtest.py` | the test tools (§3) | yes |
+| `outreach.py` | target-list builder (§7) | yes |
 | `data/tryout/`, `data/playback_asof/`, `data/backtest_world/` | disposable test sandboxes | no |
+
+## 7. Outreach: the cold-contact target list
+
+The go-to-market side ([`GO_TO_MARKET.md`](GO_TO_MARKET.md)). One command
+rebuilds the list of small repeat-winner firms with their contact details,
+win history and current simulated-pick volume:
+
+```
+python outreach.py                    # small/micro, >=2 wins -> data/outreach/targets.csv
+python outreach.py --sizes small micro medium --min-wins 1
+```
+
+Re-run after a backfill or when the awards store has grown. The CSV is
+private (personal data, gitignored). Which trades to campaign in comes from
+the backtest's per-trade table (§3); the channel decision (letters, not
+e-mail — §7 UWG) is documented in GO_TO_MARKET.md.
