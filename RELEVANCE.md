@@ -15,8 +15,11 @@ outweighs trade vocabulary** in tender prose, inflating cross-buyer text
 similarity and polluting projections. Weakness (a) is closed: phase 5
 (projection corroboration, below) shipped 2026-08-05 as configuration H
 (receipt: leakage 2.1% → 1.5%, recall 58.4% → 60.3%; delivery-row
-`trade_read` stamps pending a loop.py touch). Weakness (b) remains, with
-phase 6 (sentence-level template stripping) specified below; phase 4
+`trade_read` stamps pending a loop.py touch). Weakness (b) was attacked by
+phase 6 (sentence-level template stripping): built and measured
+2026-08-06, mechanism validated on the raw text channel, but its receipt
+lost to configuration H at the shipping operating point (1.9% vs 1.5%
+leakage) — not shipped, re-measured at the next model flip; phase 4
 feedback stays the backstop.
 Builds on the running loop
 ([`ONLINE_LEARNING.md`](ONLINE_LEARNING.md)) and the subscription layer
@@ -377,7 +380,7 @@ Implementation note: the rule and its constants live entirely in
 loop.py touch, deferred while loop.py carries unrelated in-flight work
 (SIMULATION.md).
 
-## Sentence-level template stripping (specified 2026-08-05, phase 6)
+## Sentence-level template stripping (phase 6, measured 2026-08-06 — not shipped)
 
 The remaining text pathologies are one pathology: tender prose describes
 the *project around the trade*, and whole-document embeddings average
@@ -422,6 +425,24 @@ attacks the cause in the vectors.
   which for Generalunternehmer lots is precisely the ambiguity whose
   honest verdict is borderline, not pass. If it ever ships, it feeds
   the borderline band, never a full pass.
+
+**Receipt (2026-08-06, not shipped).** Built and measured end-to-end:
+`strip.py` + the `jina-v2-base-de-strip` sidecar (23,354 lots re-embedded;
+boilerplate = 1.0% of distinct sentences carrying 10.3% of store text).
+The mechanism is validated where it acts — the raw text channel's leakage
+at the 90%-recall promise drops (A 32.1% → 28.6%, B 37.1% → 34.8%), and
+ten more deep codes reach trust (56 → 66; sharper vectors, sharper
+cohesion). But at the shipping operating point it loses: configuration I
+(stripping alone) lands at **1.9% leakage / 61.4% recall**, and in
+configuration J the search turned the corroboration off — stripping and
+phase-5 corroboration attack the *same* template noise, so they are
+substitutes, not complements, and neither combination beats the
+unstripped gate's **1.5% / 60.3%**. Per the standing rule (flip only on
+a winning receipt, as with USE_EXPANSION) the stripped sidecar stays
+unshipped; receipts are committed, the sidecar and frozen ledger stay on
+disk (rebuildable), and the configuration re-runs at the next model_tag
+flip. Comparability caveat, disclosed: trust lists are computed per tag,
+so the two receipts' clean-negative pools differ slightly.
 
 ## One bar (decision 2026-08-05, supersedes the pick margin)
 
@@ -575,6 +596,8 @@ is defined: *"Ihr Profil: 6 gewonnene Ausschreibungen + 1 Beschreibung."*
 6. **Template stripping** — boilerplate ledger, `<model_tag>-strip`
    sidecar backfill, configurations I/J; flip only on a winning receipt.
    *Attacks the project-vocabulary cause in the vectors themselves.*
+   **Measured 2026-08-06: receipt lost to configuration H — not shipped**
+   (see receipt note above).
 
 Each phase leaves a running system; a subscription without `min_relevance`
 is untouched at every phase, so nothing ships as a flag-day.
