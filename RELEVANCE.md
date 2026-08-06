@@ -823,6 +823,92 @@ is the fallback if leakage ever binds; K>=1 is the max-recall option.
 `GATE_MODE` remains 'embedding' — the flip is the operator's decision,
 now with the evidence gate ahead on recall for the first time.
 
+## Phase 8d — the borderline band: guessing vs reading (2026-08-06)
+
+The operator's objection to the band was structural: *"a customer is only
+interested in if it is his business, yes or no"*. The band is not a third
+verdict — it is a flagged **no**, the cases where the gate's signals
+conflict. The question this phase answers: **what does it buy to guess on
+them, and what would it buy to read them?**
+
+**Band composition (from the 8c receipt).** Of the evidence gate's
+judgments at K>=2, the band holds **22.7pt of true wins** (visible recall
+74.2% − pass 51.5%) and **15.6pt of wrong-trade lots** (visible leakage
+18.3% − 2.7%). Admitting the band with probability *p* therefore moves in
+a straight line, with no free lunch:
+
+    recall(p)  = 51.5% + p * 22.7
+    leakage(p) = 2.7%  + p * 15.6
+    volume(p)  = 4.4%  + p * 15.7
+
+**Every recall point costs ~0.69 leakage points.** An uninformed policy
+can only slide along this line; it cannot bend it. Random guessing is
+strictly dominated by the measured rules — K>=1 delivers 55.3% recall at
+3.7% leakage, while a coin tuned to the same recall (p≈0.17) leaks 5.3%.
+
+**Chosen operating point: `BORDERLINE_ADMIT_P = 0.375`** — the smallest
+*p* clearing the operator's 60% recall bar. The draw is a deterministic
+hash of the lot identity (`relevance._band_draw`), not a live random
+number: the same lot always gets the same verdict, so reports and
+receipts are reproducible and a lot never flips between runs. Measured
+against the prediction (full `--sweep`, same corpus as 8c):
+
+| configuration | hard19 | bench | recall | leakage | volume |
+| --- | --- | --- | --- | --- | --- |
+| predicted at p=0.375 | — | — | 60.0% | 8.5% | 10.2% |
+| **measured (committed)** | **15/19** | 63/103 | **60.4%** | **8.6%** | **10.3%** |
+| K>=2, no band admit (8c) | 19/19 | 61/103 | 51.5% | 2.7% | 4.4% |
+
+The linear model predicted the outcome to a tenth of a point — the band
+arithmetic is sound.
+
+**The cost, stated plainly: the coin overturns four of the operator's own
+hand-labeled rejections.** The hard set drops 19/19 → 15/19, and the four
+casualties are not incidental — they are the cases that *founded* this
+phase:
+
+- `Gebäudewirtschaft / SZ-Nord` — the Trafostation wearing the customer's
+  Blitzschutz code (phase 7's origin case)
+- `Versorgungsbetriebe Bordesholm` — the Batteriespeicher, hard code 1.0
+- `Schwachstrom - Kreishaus` — **the lot whose operator rejection created
+  the evidence gate in the first place**
+- `Starkstrom - Kreishaus` — its sibling
+
+No value of *p* repairs this. These lots sit in the band precisely
+because the mechanical signals conflict, and a blind draw admits its
+share of them regardless of the bar. **This configuration violates the
+standing ship rule** ("a configuration that misjudges any benchmark case
+is rejected regardless of its aggregate numbers"). It is committed as a
+measured data point and an interim placeholder, not as a recommendation;
+`GATE_MODE` remains `'embedding'`, so nothing reaches a customer. Setting
+`BORDERLINE_ADMIT_P = 0` restores 19/19 and the 8c numbers exactly.
+
+**Documented intent: the LLM judge replaces this coin.** The band is
+where word-matching runs out of information, and no *uninformed* policy
+improves the frontier — only new information does. Reading the lot's
+title + Leistung is that information, and it is the same act the operator
+performs by hand. A reader with accuracy *a* on the band gives
+`recall = 51.5 + a*22.7` and `leakage = 2.7 + (1-a)*15.6`:
+
+| policy on the band | recall | leakage |
+| --- | --- | --- |
+| reject all (8c) | 51.5% | 2.7% |
+| coin at p=0.375 (committed) | 60.4% | 8.6% |
+| reader at 90% accuracy | ~71.9% | ~4.3% |
+| perfect reader (ceiling) | 74.2% | 2.7% |
+
+A reader beats the coin by ~12 recall points **and** ~4 leakage points
+simultaneously — the only move measured so far that improves both axes at
+once. Validation needs no new labeling: ~560 band lots are firms' own
+wins (ground truth "in") and ~4,000 are off-class trusted lots (ground
+truth "out"), so the judge's accuracy is measurable against the existing
+corpus before it ever decides a live lot. The one genuine label gap is
+same-CPV-class wrong trades (Blitzschutz vs Starkstrom), which the code
+proxy cannot see — a few hundred hand-read, operator-audited labels close
+it. Cost is not the constraint: at ~50 band lots per customer per week
+and ~1,650 tokens per judgment, a weekly run is cents per customer, and
+the one-time validation pass is tens of dollars.
+
 ## Sentence-level template stripping (phase 6, measured 2026-08-06 — not shipped)
 
 The remaining text pathologies are one pathology: tender prose describes

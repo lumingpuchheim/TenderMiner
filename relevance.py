@@ -13,6 +13,7 @@ subscriptions without it behave exactly as before — no flag-day. Thresholds
 default to the committed calibration receipt for the active MODEL_TAG.
 """
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -108,6 +109,27 @@ NOMINATION_BAR = 0.550
 # title-or-two conviction rule (evidence.convicts) is what keeps all K
 # at 19/19. Full table in RELEVANCE.md phase 8c.
 EVIDENCE_NOMINATION_MIN = 2
+# Phase 8d (operator decision 2026-08-06): the borderline band — the
+# gate's honest "signals conflict" cases — is partially admitted with a
+# fixed probability instead of being uniformly rejected. Band composition
+# (8c receipt): 22.7pt of true wins, 15.6pt of wrong-trade lots; admit
+# probability p gives recall 51.5%+p*22.7, leakage 2.7%+p*15.6, volume
+# 4.4%+p*15.7. p = 0.375 is the smallest p clearing the operator's 60%
+# recall bar (projected 60.0% / 8.5% / 10.2%). The draw is a
+# DETERMINISTIC hash of the lot identity — same lot, same verdict, every
+# run — so reports and receipts stay reproducible. Documented intent:
+# this coin is an interim PLACEHOLDER for an LLM judge that reads the
+# borderline lot's title+Leistung and decides like the operator ("guess
+# with new information"); the receipts show reading dominates guessing
+# (a 90%-accurate reader: ~71.9% recall / ~4.3% leakage on the same
+# band). 0 disables the guess (band → borderline as before).
+BORDERLINE_ADMIT_P = 0.375
+
+
+def _band_draw(procedure_id, lot_id):
+    """Deterministic uniform [0,1) per lot for the phase-8d band admit."""
+    h = hashlib.md5(f'band:{procedure_id}|{lot_id}'.encode()).digest()
+    return int.from_bytes(h[:8], 'big') / 2.0 ** 64
 
 TRUSTED_CODES = Path(__file__).resolve().parent / f'trusted_codes_{MODEL_TAG}.json'
 
@@ -398,13 +420,19 @@ def _judge_evidence(gate, profile, scored_row, i):
     text, c_hard, mismatch, same_buyer, ev = evidence_components(
         gate, profile, scored_row, i)
     if mismatch:
-        return False, True, text, c_hard, None, c_hard
-    passed, borderline = _evidence_verdict(
-        profile, text, c_hard, same_buyer, bool(ev),
-        witnesses=evidence_witnesses(ev),
-        convicting=evd.convicts(gate.all_title[i], ev))
+        passed, borderline = False, True
+    else:
+        passed, borderline = _evidence_verdict(
+            profile, text, c_hard, same_buyer, bool(ev),
+            witnesses=evidence_witnesses(ev),
+            convicting=evd.convicts(gate.all_title[i], ev))
+    # phase 8d: deterministic partial admit of the borderline band
+    if (not passed and borderline and BORDERLINE_ADMIT_P > 0
+            and _band_draw(scored_row['procedure_id'],
+                           scored_row['lot_id']) < BORDERLINE_ADMIT_P):
+        passed, borderline = True, False
     why = None
-    if passed:
+    if passed and ev:
         words = ', '.join(dict.fromkeys(w for _, w, _ in ev))
         why = ('evidence', words[:80])
     return passed, borderline, text, c_hard, why, c_hard

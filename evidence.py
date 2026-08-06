@@ -747,20 +747,23 @@ def judge_sweep(data_dir, limit=None):
         return (bool(emb_ok), bool(emb_bord), text, c_hard, mismatch,
                 same_buyer, bool(ev), rel.evidence_witnesses(ev),
                 len({kw for kw, _, _ in ev}), convicts(raw[k][0], ev),
-                profile['min_code_hard'])
+                profile['min_code_hard'], rel._band_draw(k[0], k[1]))
 
     def verdict(obs, bar, kmin=0, all_tiers=False, no_guard=False,
-                visible=False, any_ev_convicts=False):
+                visible=False, any_ev_convicts=False, band_p=0.0):
         (emb_ok, emb_bord, text, c_hard, mismatch, same_buyer, ev,
-         n12, nall, conv, mch) = obs
+         n12, nall, conv, mch, draw) = obs
         if mismatch:
-            return visible  # type-mismatch is borderline: shown, not picked
-        passed, borderline = rel._evidence_verdict(
-            {'min_code_hard': mch}, text, c_hard,
-            False if no_guard else same_buyer, ev,
-            bar=bar, nomination_min=kmin,
-            witnesses=(nall if all_tiers else n12),
-            convicting=(ev if any_ev_convicts else conv))
+            passed, borderline = False, True
+        else:
+            passed, borderline = rel._evidence_verdict(
+                {'min_code_hard': mch}, text, c_hard,
+                False if no_guard else same_buyer, ev,
+                bar=bar, nomination_min=kmin,
+                witnesses=(nall if all_tiers else n12),
+                convicting=(ev if any_ev_convicts else conv))
+        if not passed and borderline and draw < band_p:  # phase 8d
+            passed, borderline = True, False
         return (passed or borderline) if visible else passed
 
     wins_by_firm = {}
@@ -858,6 +861,12 @@ def judge_sweep(data_dir, limit=None):
     rows.append(row(f'evidence {rel.NOMINATION_BAR:.2f}, any-ev convicts',
                     lambda o: verdict(o, rel.NOMINATION_BAR,
                                       any_ev_convicts=True)))
+    # phase 8d: the committed configuration — witness rule + deterministic
+    # band admit at BORDERLINE_ADMIT_P (rule-only rows above stay at p=0)
+    rows.append(row(f'evidence + K>=2 + band p={rel.BORDERLINE_ADMIT_P}'
+                    ' (committed)',
+                    lambda o: verdict(o, rel.NOMINATION_BAR, kmin=2,
+                                      band_p=rel.BORDERLINE_ADMIT_P)))
     # phase 8b: the witness grid at the committed bar; K=1/all-tiers is
     # the rejected evidence-nominates variant, kept as the anchor
     for kmin in (1, 2, 3):
