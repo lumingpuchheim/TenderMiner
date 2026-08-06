@@ -105,17 +105,6 @@ def date_de(iso):
     return f'{m.group(3)}.{m.group(2)}.{m.group(1)}' if m else '—'
 
 
-def window_de(spec):
-    """'12w' -> '12 Wochen' (customer copy; the spec format stays technical)."""
-    m = re.fullmatch(r'(\d+)([dwm])', str(spec).strip().lower())
-    if not m:
-        return str(spec)
-    n = int(m.group(1))
-    one, many = {'d': ('Tag', 'Tagen'), 'w': ('Woche', 'Wochen'),
-                 'm': ('Monat', 'Monaten')}[m.group(2)]
-    return f'{n} {many if n != 1 else one}'
-
-
 def html_page(title, body_parts):
     return ('<!doctype html><html><head><meta charset="utf-8">\n'
             f'<title>{escape(title)}</title>\n<style>{HTML_STYLE}</style></head>\n<body>\n'
@@ -767,59 +756,6 @@ def receipt_html(grades_recent, sub_deliveries, pred_info, kind='pick'):
     return out
 
 
-def numbers_html(grades_recent, sub, args, today):
-    """The customer report's track-record numbers: verified stats for the
-    subscription's slice, or — when the slice is too thin — the fallback
-    ladder (slice -> industry Germany-wide -> whole graded market), always
-    labeling the rung it stands on. Silence and unlabeled broad numbers are
-    both non-options (SUBSCRIPTIONS.md). Returns an HTML block."""
-    window = window_de(args.track_window)
-    share = f'{args.top_slice * 100:.0f} %'
-    pending = (f'<p>Für die letzten {window} liegen noch keine bewerteten Ergebnisse '
-               'vor — die Bewertung beginnt, sobald Zuschläge veröffentlicht '
-               'werden.</p>')
-    if not grades_recent:
-        return pending
-    rungs = [
-        ('Ihrem Markt', 'Ihren Markt', sub),
-        ('Ihrer Branche deutschlandweit', 'Ihre Branche deutschlandweit',
-         {**sub, 'nuts_prefixes': None}),
-        ('dem gesamten bewerteten Markt', 'den gesamten bewerteten Markt',
-         {**sub, 'nuts_prefixes': None, 'cpv_prefixes': None}),
-    ]
-    n_slice = None
-    for i, (scope_dat, scope_acc, s) in enumerate(rungs):
-        rows = [g for g in grades_recent if _matches(s, g, today, 0)]
-        if n_slice is None:
-            n_slice = len(rows)
-        if len(rows) < args.min_slice_grades and not (i == 2 and rows):
-            continue
-        stats = _top_slice_stats(rows, args.top_slice)
-        lift = (f"{stats['lift']:.1f}".replace('.', ',') + '×'
-                if stats['lift'] is not None else '—')
-        explain = ((f'<p class="muted"><em>Was „Faktor {lift}“ bedeutet: Wählen Sie '
-                    f'blind eine Ausschreibung aus {scope_dat}, enden '
-                    f'{stats["base"]*100:.0f} von 100 mit höchstens einem Angebot; '
-                    f'wählen Sie aus der Spitze unserer Rangliste, sind es '
-                    f'{stats["hit"]*100:.0f} von 100. Mit uns ist Ihre Chance auf '
-                    f'(fast) konkurrenzloses Bieten um Faktor {lift} höher.</em></p>')
-                   if stats['lift'] is not None else '')
-        if i == 0:
-            return (f'<p>In Ihrem Markt in den letzten {window}: '
-                    f"<b>{stats['n']}</b> unserer Vorhersagen haben ihr Ergebnis "
-                    f'erhalten. Von den <b>besten {share} unserer Rangliste für '
-                    f"Sie</b> ({stats['k']} Ausschreibungen) endeten "
-                    f"<b>{stats['hit']*100:.0f} von 100 mit höchstens einem "
-                    f"Angebot</b>, gegenüber {stats['base']*100:.0f} von 100 nach "
-                    f'Zufall — <b>Faktor {lift}</b>.</p>') + explain
-        return (f'<p>Ihr Markt hat bisher {n_slice} bewertete Ergebnisse — zu wenige '
-                f'für eine ehrliche Aussage. Der breitere Blick auf '
-                f'<b>{scope_acc}</b> ({stats["n"]} Ergebnisse): Die besten {share} '
-                f'unserer Rangliste trafen {stats["hit"]*100:.0f} von 100, Zufall '
-                f'{stats["base"]*100:.0f} — Faktor {lift}.</p>') + explain
-    return pending
-
-
 def deliver(paths, scored, args):
     """The dispatcher: one run, many views. Filter this cycle's scored open
     lots per subscription, re-rank and re-tier WITHIN the slice, write the
@@ -917,40 +853,25 @@ def deliver(paths, scored, args):
         # the report never cites how many lots we checked or matched — the
         # size of our haystack is our business, not the customer's (decision
         # 2026-08-05); the product is the short list itself
+        # Report copy (decision 2026-08-06): the customer reads exactly two
+        # things — is there a recommendation this week, and how did the
+        # previous recommendations end. No product prose, no market
+        # statistics, no warnings list, no annex mention.
         body = [f'<h1>{escape(name)} — TenderMining Wochenbericht — {date_de(today.isoformat())}</h1>',
                 f'<p class="muted">Ihr Markt: {escape(market)}.</p>',
-                '<p>Jede Woche lesen wir jede öffentliche Bauausschreibung in '
-                'Deutschland, prüfen, welche zu Ihrem Betrieb passen, und sortieren '
-                'diese nach der einen Frage, die keine einzelne Bekanntmachung '
-                'beantwortet: <b>Wie viele Wettbewerber werden mitbieten?</b> Eine '
-                '<b>Empfehlung</b> ist eine Ausschreibung, bei der wir wenige oder '
-                'keine erwarten. Was Sie bauen können und zu welchem Preis, '
-                'entscheidet weiterhin Ihr Team. Wir liefern das fehlende Stück: wo '
-                'sich das Bieten lohnt — wie beim Poker liegt das Geld darin zu '
-                'wissen, welche Hände man <em>nicht</em> spielt. Sie erhalten '
-                f'höchstens {max_picks} Empfehlungen pro Woche; wenn nichts '
-                'überzeugt, sagen wir das, statt die Liste aufzufüllen.</p>',
-                '<h2>Ihre Empfehlungen im Rückblick</h2>',
-                receipt_html(grades_recent, by_sub.get(sub['sub_id'], []), pred_info)]
-        warn_receipts = receipt_html(grades_recent, by_sub.get(sub['sub_id'], []),
-                                     pred_info, kind='avoid')
-        if warn_receipts:
-            body += ['<h2>Unsere Warnungen im Rückblick</h2>', warn_receipts]
-        body += ['<h2>Die Zahlen dahinter</h2>',
-                 numbers_html(grades_recent, sub, args, today)]
-        body += ['<h2>Empfehlungen dieser Woche</h2>']
+                '<h2>Empfehlungen dieser Woche</h2>']
         if not top:
             body += ['<p><b>Diese Woche keine Empfehlung.</b> Keine offene '
                      'Ausschreibung passte diese Woche eindeutig zu Ihrem Betrieb '
                      'und versprach zugleich so wenig Wettbewerb, dass sie Ihr '
-                     'Angebotsbudget wert wäre. Nicht in einen überfüllten '
-                     'Wettbewerb zu bieten heißt: das Produkt funktioniert.</p>']
+                     'Angebotsbudget wert wäre.</p>']
         else:
-            body += [f'<p>Diese {len(top)} Ausschreibungen passen zu Ihrem Betrieb '
-                     'und sehen nach dem wenigsten Wettbewerb aus. Klicken Sie eine '
-                     'Ausschreibung an, um die offizielle Bekanntmachung zu lesen '
-                     'und die Vergabeunterlagen zu erhalten; beachten Sie die '
-                     'Frist.</p>']
+            lead = ('Diese Ausschreibung passt zu Ihrem Betrieb und verspricht'
+                    if len(top) == 1 else
+                    f'Diese {len(top)} Ausschreibungen passen zu Ihrem Betrieb '
+                    'und versprechen')
+            body += [f'<p>{lead} wenig Wettbewerb. Der Titel führt zur '
+                     'offiziellen Bekanntmachung; beachten Sie die Frist.</p>']
 
         def why_mine_cell(r):
             """Plain-language reason a pick is the customer's business — words
@@ -993,38 +914,14 @@ def deliver(paths, scored, args):
                 headers.append('warum Ihr Geschäft')
             headers.append('warum wir wenige Bieter erwarten')
             body += [table_html(headers, pick_trs)]
-        avoid_n = int(sub.get('avoid_n', 5) or 0)
-        avoid = (list(reversed(rows[-avoid_n:]))
-                 if avoid_n and len(rows) > len(top) + avoid_n else [])
-        avoid_trs = []
-        if avoid:
-            body += ['<h2>Diese Woche besser meiden</h2>',
-                     f'<p>Die {len(avoid)} am stärksten umkämpft wirkenden '
-                     'Ausschreibungen in Ihrem Markt — unser Modell erwartet viele '
-                     'Bieter. Der Einsatz (Ihre Angebotserstellung) ist derselbe wie '
-                     'überall; die Chancen sind es nicht. Wir dokumentieren diese '
-                     'Warnungen und bewerten sie bei Veröffentlichung des Ergebnisses '
-                     '— genau wie die Empfehlungen.</p>']
-            for i, r in enumerate(avoid):
-                avoid_trs.append(f'<tr><td>{tender_cell(r)}</td>'
-                                 f"<td>{date_de(r.get('deadline_date'))}</td>"
-                                 f'<td>{buyer_cell(r)}</td>'
-                                 f"<td>{escape(', '.join((r.get('why_crowded') or [])[:2]))}</td></tr>")
-                if (sub['sub_id'], r['procedure_id'], r['lot_id'], ts[:10]) not in already:
-                    deliveries.append({
-                        'ts': ts, 'sub_id': sub['sub_id'], 'sub_version': sub.get('version', 1),
-                        'procedure_id': r['procedure_id'], 'lot_id': r['lot_id'],
-                        'notice_id': r.get('notice_id'), 'model': r['model'],
-                        'score': r['score'], 'slice_rank': i + 1,
-                        'slice_size': len(rows), 'slice_tier': 'AVOID',
-                        'publication_number': r.get('publication_number'),
-                        'buyer_name': r.get('buyer_name'), 'title': r.get('title'),
-                        'kind': 'avoid',
-                        **_gate_stamp(profile, judged.get(id(r))),
-                    })
-        if avoid_trs:
-            body += [table_html(['Ausschreibung', 'Frist', 'Auftraggeber',
-                                 'warum wir viele Bieter erwarten'], avoid_trs)]
+        body += ['<h2>Ihre Empfehlungen im Rückblick</h2>',
+                 receipt_html(grades_recent, by_sub.get(sub['sub_id'], []),
+                              pred_info)]
+        # the warnings list is gone (decision 2026-08-06): the customer should
+        # avoid MOST of the market, so naming five lots was noise; no
+        # kind:"avoid" delivery rows are written any more (the ledger records
+        # what the customer saw). Historical avoid rows stay and are excluded
+        # from the pick receipts by receipt_html's kind filter.
         # the annex: every open tender in the slice (deadline filter ignored —
         # a candidate with 10 days left still deserves its verdict), so the
         # customer can check THEIR candidates, not just ours; `cand` is already
@@ -1041,15 +938,10 @@ def deliver(paths, scored, args):
                                    (r.get('why_crowded') or [])[:2])
             else:
                 verdicts[id(r)] = ('v-yellow', 'durchschnittliche Chancen', [])
+        # the annex file is still written per date but the report does not
+        # mention it (decision 2026-08-06) — it is the operator's lookup when
+        # a customer asks about a specific tender, not a customer surface
         annex_name = f'annex_{today.isoformat()}.html'
-        body += ['<h2>Prüfen Sie jede Ausschreibung, bevor Sie bieten</h2>',
-                 f'<p>Die <a href="{annex_name}">Marktübersicht</a> listet <b>alle '
-                 f'{len(annex_rows)} offenen Ausschreibungen in Ihrem Markt</b> mit '
-                 'unserem Urteil zu jeder. Suchen Sie vor jeder '
-                 'Bid/No-Bid-Entscheidung Ihre Ausschreibung dort — der Moment, der '
-                 'Geld spart, liegt vor Beginn der Kalkulation, nicht danach. Sie '
-                 'erwägen eine Ausschreibung außerhalb Ihrer Marktfilter? Antworten '
-                 'Sie mit der TED-Nummer.</p>']
         annex_trs = []
         for r in sorted(annex_rows, key=lambda r: str(r.get('deadline_date'))):
             cls, verdict, why = verdicts[id(r)]

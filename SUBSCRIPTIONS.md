@@ -124,19 +124,17 @@ report is rendered, never edited. A cycle is a calendar day: re-running the
 loop on the same day re-renders the report but appends no duplicate delivery
 rows — the same idempotence rule the prediction ledger already follows.
 
-**The negative list.** The product's founding problem is customers bidding
-into crowds; the report therefore also delivers the **`avoid_n` most
-contested-looking lots** of the slice — the *bottom* of the same ranking —
-as an explicit "don't go there" list. Warnings are delivery rows like any
-other, marked `kind: "avoid"` (`slice_tier: "AVOID"`, `slice_rank` counted
-from the crowded end; rows without a `kind` predate the field and are
-picks). They are graded by the same join and reviewed in their own receipts
-block — a warning is **right when the lot ends contested**, and a warning
-that ended with 0–1 bids is shown as the miss it is. The list only renders
-when the slice is large enough that picks and warnings cannot overlap
-(`slice_size > top_n + avoid_n`). Grading a customer's view is then a pure
-join: grades (by lot) ⋈ deliveries (by lot + sub). No reconstruction, no
-"what would the filter have matched back then" — the row *is* what they saw.
+**The negative list — superseded (decision 2026-08-06).** The report
+originally also delivered the `avoid_n` most contested-looking lots as an
+explicit "don't go there" list (`kind: "avoid"` delivery rows, graded like
+picks). Dropped: the customer should avoid *most* of the market, so naming
+five lots was noise, not signal — the recommendation list already encodes
+"everything not on it is not worth your bid budget". No `kind: "avoid"`
+rows are written any more (the ledger records what the customer actually
+saw); historical avoid rows stay in the ledger and are excluded from pick
+receipts by the `kind` filter. `avoid_n` remains a valid subscription
+field but the renderer ignores it. Grading a customer's view stays the
+pure join: grades (by lot) ⋈ deliveries (by lot + sub).
 
 ## Tiers within the slice
 
@@ -161,9 +159,9 @@ feature groups into customer language ("the location — fewer firms bid
 there", "the qualification requirements", "the specialised type of work").
 Deliberately lossy: technical features (notice subtype, currency codes,
 CPV digit positions) map to nothing and never surface. The picks table
-shows the top reasons the lot looks lonely; the warnings table the top
-reasons it looks crowded. The full attribution stays in the model; the
-phrase book is the customer boundary.
+shows the top reasons the lot looks lonely; the annex's crowded rows the
+top reasons they look crowded. The full attribution stays in the model;
+the phrase book is the customer boundary.
 
 **Tiers and scores are internal (decision 2026-08-04).** They are recorded
 on every delivery row and verified through the graded joins, but the
@@ -253,12 +251,20 @@ line each with a plain-word verdict:
 - **average odds** — everything else,
 
 plus the top plain-language reasons for the non-average rows, deadline,
-buyer, TED link. The report instructs: *before any bid/no-bid decision,
-find your tender in the annex.* Annex rows are **not** delivery-ledger
-rows (hundreds per customer per cycle would drown the ledger); a disputed
-annex verdict traces through the prediction ledger, which froze the same
-score with the same model id, and the dated annex file itself. The curated
-report stays the product's face; the annex is the reference behind it.
+buyer, TED link. Annex rows are **not** delivery-ledger rows (hundreds per
+customer per cycle would drown the ledger); a disputed annex verdict
+traces through the prediction ledger, which froze the same score with the
+same model id, and the dated annex file itself.
+
+**Demoted to operator reference (decision 2026-08-06).** The customer
+report no longer links or mentions the annex — the report answers exactly
+two questions: *is there a recommendation this week*, and *how did the
+previous recommendations end*. Everything else (product prose, market
+statistics with their interpretation, the warnings list, the annex link)
+was cut as noise. The annex file is still written every cycle: it is the
+operator's precomputed lookup when a customer asks about a specific
+tender, and the borderline band inside it remains the gate's
+miscalibration tripwire — read by us, not by the customer.
 
 ## Rendering and delivery
 
