@@ -909,6 +909,88 @@ it. Cost is not the constraint: at ~50 band lots per customer per week
 and ~1,650 tokens per judgment, a weekly run is cents per customer, and
 the one-time validation pass is tens of dollars.
 
+## Phase 8e — the flip: `GATE_MODE = 'evidence'` (operator decision 2026-08-06)
+
+The evidence gate is now the **live** gate. `GATE_MODE`'s committed
+default is `'evidence'`, so the scheduled `loop.py` run picks it up with
+**no change to how cron calls it** — that was the operator's constraint.
+
+**Shipped configuration**: nomination bar 0.55, witness rule **K>=2**,
+band guess **off** (`BORDERLINE_ADMIT_P = 0`).
+
+| | evidence gate (live) | embedding gate (replaced) |
+| --- | --- | --- |
+| recall (LOO) | **51.5%** | 44.5% |
+| leakage | 2.7% | **1.9%** |
+| volume | 4.4% | 4.6% |
+| hand-labeled hard set | **19/19** | 18/19 |
+| grown benchmark | **61/103** | 47/103 |
+
+### The K>=2 vs K>=3 call
+
+The aggregates alone don't settle it — K>=3 leaks less (1.6%) and K>=2
+recalls more (51.5% vs 45.0%). **What settles it is which cases separate
+them.** Measured per case on the 103-case benchmark:
+
+- The two configurations are **identical on every wrong-trade case**:
+  28/32 each. K>=3 buys **no** additional precision against operator
+  judgment.
+- **All 5 differing cases are true wins**, and K>=2 catches all 5 that
+  K>=3 rejects (in-cases 33/71 vs 28/71).
+- All 5 are **same-buyer template wins** (similarity 0.86–1.00) carrying
+  **exactly 2 witnesses** — AVS's Verkehrsführung lot, Achatz's
+  Gleis-/Tiefbau, B+H's Eisenbahnüberführung, Bahnbau Weidlich's
+  TK-Strecke, Robert Seidel's Schlosser lot. That is precisely the
+  starvation class the witness rule was invented to rescue (the Ahle
+  carpentry autopsy, phase 8b); K>=3 re-starves it.
+
+So K>=3's lower leakage is visible only against **synthetic** off-class
+CPV negatives, never against a lot a human actually read. K>=2 ships.
+K>=3 remains the documented fallback if leakage binds in production.
+
+### What "volume" is for (and why it has no target)
+
+Volume is **not a quality metric and has no good value in itself**. It is
+the report-size gauge: the share of the whole market an average profile
+admits, i.e. how long the weekly list is *before* the competition model
+filters it for lonely lots. Read it as a two-sided sanity band:
+
+- **too low** → weeks with an empty report; the customer asks what they
+  are paying for
+- **too high** → the report hands the filtering work back to the customer,
+  which is the thing the product exists to do for them
+
+Its job is to be read **alongside leakage**: leakage says whether what is
+in the report belongs there, volume says whether there is enough of it. A
+gate can look excellent on leakage while admitting almost nothing.
+
+For this flip volume is the *reassuring* number: **4.4% against the
+outgoing 4.6%** — report size is essentially unchanged, so customers see
+no shift in how much they receive, only in what. That is also the second
+argument against K>=3, whose 2.9% would have cut reports by about a third
+at a moment when they are already short (the pilot currently matches 0–1
+lots per cycle; verified under both gates with `tryout.py` — the evidence
+gate matches 1 where the embedding gate matches 0).
+
+### The band guess is off
+
+Phase 8d measured admitting the borderline band with probability 0.375:
+it hit the 60% recall target (60.4%) but tripled leakage to 8.6%, doubled
+volume to 10.3%, and **overturned four hand-labeled operator rejections**
+(hard set 15/19), including the Kreishaus Schwachstrom lot whose
+rejection founded the evidence gate. For a product whose value is a short
+trustworthy list, that trade runs backwards — a missed lot is invisible
+to the customer, a wrong-trade recommendation is not. The band stays a
+flagged **no**, and the recall it holds is left for the LLM judge, which
+the receipts show beats the coin on *both* axes (see phase 8d).
+
+### Rollback
+
+One constant: `GATE_MODE = 'embedding'` restores the previous gate
+exactly (tag `gate-v1-embedding`) — no retraining, no rebuild, sidecars
+and champion model untouched. `GATE_MODE=embedding python loop.py run`
+does it for a single run without a commit.
+
 ## Sentence-level template stripping (phase 6, measured 2026-08-06 — not shipped)
 
 The remaining text pathologies are one pathology: tender prose describes

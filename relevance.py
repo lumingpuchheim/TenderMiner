@@ -76,10 +76,17 @@ TRADE_TALK_MARGIN = 0.225
 TRADE_BRANCHES = ('453', '454')
 # Phase 8 (RELEVANCE.md): the gate switch. 'embedding' = the phase-5/7
 # ladder exactly as shipped (tag gate-v1-embedding). 'evidence' = the
-# evidence gate — TF-IDF trade keywords convict, similarity and codes only
-# nominate. The committed default flips ONLY on a winning configuration-L
-# receipt; the env var allows per-run tryouts, mirroring EMBED_MODEL.
-GATE_MODE = os.environ.get('GATE_MODE', 'embedding')
+# evidence gate — trade keywords convict, similarity and codes only
+# nominate. FLIPPED TO 'evidence' by explicit operator decision
+# (2026-08-06) so the scheduled loop.py run uses it with no change to how
+# cron calls it. Live configuration: bar 0.55 + K>=2 witnesses, band
+# guess OFF. Receipt (evidence.py --judge, end to end, vs the embedding
+# gate it replaces): recall 51.5% (was 44.5%), leakage 2.7% (was 1.9%),
+# volume 4.4% (was 4.6% — report size unchanged), hand-labeled hard set
+# 19/19 (was 18/19), grown benchmark 61/103 (was 47/103).
+# Rollback: set this back to 'embedding' (tag gate-v1-embedding) — no
+# retraining, no rebuild. The env var still overrides per run.
+GATE_MODE = os.environ.get('GATE_MODE', 'evidence')
 # Phase 8 nomination bar — the text-similarity level at which a lot enters
 # the evidence test. Distinct from the embedding gate's conviction bar
 # (min_relevance, 0.700): nomination convicts nothing, so it can afford
@@ -99,15 +106,21 @@ NOMINATION_BAR = 0.550
 # least this many DISTINCT lexicon keywords are found by the exact/typo
 # tiers; synonym hits are weaker witnesses and do not count toward
 # nomination. Any evidence still convicts a nominated lot; 0 disables.
-# Set to 2 with the phase-8c lexicon (operator priority 2026-08-06:
-# recall first, leakage tolerance relaxed to ~2-3%). Receipt (--sweep,
-# real judge() components, 2473/25600/102400): K>=2 = recall 51.5% /
-# leakage 2.7% / hard19 19/19 / bench 61/103 — vs live embedding gate
-# 44.5% / 1.9% / 18/19 / 47/103 at similar volume. K>=3 (45.0% / 1.6%)
-# dominates the live gate on every axis and is the fallback if leakage
-# ever binds; K>=1 (55.3% / 3.7%) is the max-recall variant. The
-# title-or-two conviction rule (evidence.convicts) is what keeps all K
-# at 19/19. Full table in RELEVANCE.md phase 8c.
+# SHIPPED AT 2 (decision 2026-08-06, phase 8e — the operator asked for a
+# K>=2 vs K>=3 call). Receipt (--sweep, 2473/25600/102400): K>=2 = 51.5%
+# recall / 2.7% leakage / 4.4% volume / 19/19 / 61-63 of 103; K>=3 =
+# 45.0% / 1.6% / 2.9% / 19/19 / 56/103. The decisive evidence is not the
+# aggregate but WHICH cases separate them: all 5 differing benchmark
+# cases are true wins that K>=2 catches and K>=3 rejects, and the two
+# are IDENTICAL on every wrong-trade case (28/32 each) — so K>=2's extra
+# recall costs nothing in hand-read precision. All 5 are same-buyer
+# template wins (similarity 0.86-1.00) carrying exactly 2 witnesses:
+# precisely the starvation class the witness rule exists to rescue, which
+# K>=3 re-starves. The +1.1pt leakage appears only against synthetic
+# off-class CPV negatives, not against operator judgment. K>=3 stays the
+# fallback if leakage ever binds in production; K>=1 (55.3% / 3.7%) is
+# the max-recall variant. The title-or-two conviction rule
+# (evidence.convicts) keeps every K at 19/19. Tables in RELEVANCE.md.
 EVIDENCE_NOMINATION_MIN = 2
 # Phase 8d (operator decision 2026-08-06): the borderline band — the
 # gate's honest "signals conflict" cases — is partially admitted with a
@@ -117,13 +130,22 @@ EVIDENCE_NOMINATION_MIN = 2
 # 4.4%+p*15.7. p = 0.375 is the smallest p clearing the operator's 60%
 # recall bar (projected 60.0% / 8.5% / 10.2%). The draw is a
 # DETERMINISTIC hash of the lot identity — same lot, same verdict, every
-# run — so reports and receipts stay reproducible. Documented intent:
-# this coin is an interim PLACEHOLDER for an LLM judge that reads the
-# borderline lot's title+Leistung and decides like the operator ("guess
-# with new information"); the receipts show reading dominates guessing
-# (a 90%-accurate reader: ~71.9% recall / ~4.3% leakage on the same
-# band). 0 disables the guess (band → borderline as before).
-BORDERLINE_ADMIT_P = 0.375
+# run — so reports and receipts stay reproducible.
+# SET TO 0 (OFF) FOR THE LIVE FLIP, 2026-08-06. Measured at p=0.375 the
+# coin delivered the 60% recall target (60.4% / 8.6% / 10.3%) but tripled
+# leakage, doubled report size, and overturned FOUR hand-labeled operator
+# rejections (hard set 19/19 -> 15/19), including the Kreishaus lot that
+# founded this phase. For a product whose value is a short trustworthy
+# list, that trade is backwards: a missed lot is invisible, a wrong-trade
+# recommendation is not. The band stays a flagged NO.
+# The coin was always an interim PLACEHOLDER for an LLM judge that reads
+# the borderline lot's title+Leistung and decides like the operator
+# ("guess with new information"); the receipts show reading dominates
+# guessing on BOTH axes (a 90%-accurate reader: ~71.9% recall / ~4.3%
+# leakage on the same band, vs the coin's 60.4% / 8.6%) — the only
+# measured move that improves recall and precision at once. Restoring a
+# nonzero p re-enables the guess; see RELEVANCE.md phase 8d.
+BORDERLINE_ADMIT_P = 0.0
 
 
 def _band_draw(procedure_id, lot_id):
