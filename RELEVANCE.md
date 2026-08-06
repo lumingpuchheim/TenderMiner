@@ -648,15 +648,35 @@ template words; the pilot lexicon is unchanged. Leave-one-out
 understates BOTH gates' live recall equally (hiding one of two
 same-trade wins starves the test profile, not the live one).
 
-**Standing verdict**: at 59.0% vs 60.0% the evidence gate is at
-practical recall parity with quotable verdicts and a perfect benchmark;
-conviction-only leakage (8.4%, an upper bound without the nomination
-step — and partly the honest "names the trade as sub-scope" class) is
-the number that still wants the full-ladder measurement before the
-flip. Residual misses: profiles whose only rare win-words are
-geographic (rail/network firms), and synonym pairs under the 0.80 bar
-(Kälte↔Klima). `GATE_MODE` default remains 'embedding'; the flip (or
-the per-profile hybrid) is an operator decision on these numbers.
+**The whole run through the REAL judge() (2026-08-06, `evidence.py
+--judge`: ~130k judgments per mode, same lots, same seed — the
+calibration numbers above are arithmetic replicas; this executed the
+shipped code):**
+
+| real judge() | benchmark | recall (LOO) | leakage | volume |
+| --- | --- | --- | --- | --- |
+| embedding gate (live) | 18/19 | 44.5% | 1.9% | 4.6% |
+| evidence gate | 18/19 | 23.8% | **0.4%** | 0.9% |
+
+Three findings. (1) **The replicas flattered both gates**: the live
+gate's true recall is 44.5%, not 60.0% — the replica omitted the
+same-buyer guard (LOO holdouts often share a buyer with the remaining
+refs, so the text channel abstains), and real leakage is 1.9%, not
+1.5%. (2) **The evidence gate's 23.8% is not its conviction quality
+(59.0%) but its NOMINATION bar**: the ladder reused the embedding
+gate's 0.700 conviction bar as a nomination bar, which the spec
+explicitly predicted must come down ("similarity no longer convicts,
+so it can afford recall") and which was never re-searched. The shared
+benchmark failure proves it: the Kölln-Reisiek reference (coded
+45000000, findable only by text) has the evidence — 'blitzschutz' in
+its title — but no nomination path under LOO. (3) **Apples-to-apples
+leakage at last: 0.4% vs 1.9%** — the full evidence ladder leaks
+five times less than the live gate. **Next measured step (open)**:
+re-search the nomination bar downward (the old 90%-recall levels
+~0.45–0.50 are the natural grid; or let evidence itself nominate) —
+expected to lift full-ladder recall toward its 59% conviction ceiling
+while keeping the leakage advantage; then the flip decision has
+honest numbers on both sides. `GATE_MODE` remains 'embedding'.
 
 ## Sentence-level template stripping (phase 6, measured 2026-08-06 — not shipped)
 
