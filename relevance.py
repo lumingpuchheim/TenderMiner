@@ -79,6 +79,22 @@ TRADE_BRANCHES = ('453', '454')
 # nominate. The committed default flips ONLY on a winning configuration-L
 # receipt; the env var allows per-run tryouts, mirroring EMBED_MODEL.
 GATE_MODE = os.environ.get('GATE_MODE', 'embedding')
+# Phase 8 nomination bar — the text-similarity level at which a lot enters
+# the evidence test. Distinct from the embedding gate's conviction bar
+# (min_relevance, 0.700): nomination convicts nothing, so it can afford
+# recall (the spec predicted it must come down; the first implementation
+# reused 0.700 unexamined and cost the gate half its recall). Receipt
+# (evidence.py --sweep, 2026-08-06, real judge() components, 2473 pos /
+# 25600 neg / 102400 vol): 0.55 is the ONLY grid point with benchmark
+# 19/19 (Kölln-Reisiek flips to correct) AND leakage below the embedding
+# gate's 1.9% — recall 23.8% -> 35.9%, leakage 1.6%, volume 2.4%. Bars
+# <= 0.50 leak >= 3.0%; bars >= 0.60 lose Kölln-Reisiek (18/19). Full
+# table in RELEVANCE.md phase 8.
+NOMINATION_BAR = 0.550
+# Whether trade evidence alone may also nominate (no similarity/code
+# needed). Measured in the same sweep: recall 57.9% — the gate's true
+# conviction ceiling — but leakage 8.7%, 4.5x the live gate. Off.
+EVIDENCE_NOMINATES = False
 
 TRUSTED_CODES = Path(__file__).resolve().parent / f'trusted_codes_{MODEL_TAG}.json'
 
@@ -297,12 +313,11 @@ def evidence_for(gate, profile, i):
         profile.get('keywords') or [], syn=_syn_tier(gate))
 
 
-def _judge_evidence(gate, profile, scored_row, i):
-    """Phase-8 ladder (GATE_MODE='evidence'): NOMINATE by text similarity
-    or a hard trusted-code match — recall only, convicts nothing — then
-    CONVICT by trade evidence in title+Leistung. Nominated without
-    evidence, or evidence without nomination: borderline, visibly
-    undecided. Same 6-tuple as the embedding ladder."""
+def evidence_components(gate, profile, scored_row, i):
+    """The raw inputs of the phase-8 decision for one lot, computed by the
+    same code the runtime ladder runs — exposed so the nomination-bar sweep
+    (evidence.py --sweep) measures the shipped code, not a replica.
+    -> (text, c_hard, type_mismatch, same_buyer, ev)."""
     sims = profile['ref_matrix'] @ gate.mat[i]
     text = float(sims.max())
     c_hard = 0.0
@@ -312,19 +327,52 @@ def _judge_evidence(gate, profile, scored_row, i):
             s = float((gate.lmat[profile['hard_rows']] @ gate.lmat[cr]).max())
             c_hard = max(c_hard, s)
     ctype = gate.all_ctype[i]
-    if (profile['ref_types'] and isinstance(ctype, str) and ctype
-            and ctype not in profile['ref_types']):
-        return False, True, text, c_hard, None, c_hard
+    mismatch = bool(profile['ref_types'] and isinstance(ctype, str) and ctype
+                    and ctype not in profile['ref_types'])
     same_buyer = _norm_buyer(scored_row.get('buyer_name')) in profile['ref_buyers']
+    # a type-mismatched lot is borderline before evidence is consulted —
+    # skip the (comparatively costly) evidence match
+    ev = [] if mismatch else evidence_for(gate, profile, i)
+    return text, c_hard, mismatch, same_buyer, ev
+
+
+def _evidence_verdict(profile, text, c_hard, same_buyer, has_evidence,
+                      bar=None, evidence_nominates=None):
+    """The phase-8 decision itself, pure arithmetic on the components —
+    shared by the runtime ladder and the sweep. NOMINATE by text similarity
+    against NOMINATION_BAR (same-buyer: text abstains), by a hard
+    trusted-code match, or (if EVIDENCE_NOMINATES) by the evidence itself;
+    CONVICT by evidence. Nominated without evidence, or evidence without
+    nomination: borderline, visibly undecided. -> (passed, borderline)."""
+    if bar is None:
+        bar = NOMINATION_BAR
+    if evidence_nominates is None:
+        evidence_nominates = EVIDENCE_NOMINATES
     nominated = (c_hard >= profile['min_code_hard']
-                 or (not same_buyer and text >= profile['min_relevance']))
-    ev = evidence_for(gate, profile, i)
-    if nominated and ev:
-        words = ', '.join(dict.fromkeys(w for _, w, _ in ev))
-        return True, False, text, c_hard, ('evidence', words[:80]), c_hard
-    if nominated or ev:
+                 or (not same_buyer and text >= bar)
+                 or (evidence_nominates and has_evidence))
+    if nominated and has_evidence:
+        return True, False
+    if nominated or has_evidence:
+        return False, True
+    return False, False
+
+
+def _judge_evidence(gate, profile, scored_row, i):
+    """Phase-8 ladder (GATE_MODE='evidence'): components + verdict, see
+    evidence_components() / _evidence_verdict(). Same 6-tuple as the
+    embedding ladder."""
+    text, c_hard, mismatch, same_buyer, ev = evidence_components(
+        gate, profile, scored_row, i)
+    if mismatch:
         return False, True, text, c_hard, None, c_hard
-    return False, False, text, c_hard, None, c_hard
+    passed, borderline = _evidence_verdict(profile, text, c_hard,
+                                           same_buyer, bool(ev))
+    why = None
+    if passed:
+        words = ', '.join(dict.fromkeys(w for _, w, _ in ev))
+        why = ('evidence', words[:80])
+    return passed, borderline, text, c_hard, why, c_hard
 
 
 def trade_talk_contradicted(gate, profile, i):

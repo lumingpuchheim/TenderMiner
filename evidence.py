@@ -532,6 +532,208 @@ def judge_run(data_dir):
     return results
 
 
+# the grid: the task's 0.40-0.65 ladder plus 0.70 — the old (bugged) value,
+# kept as the continuity anchor: its row must reproduce the committed
+# --judge receipt (18/19, 23.8%, 0.4%, 0.9%) or the refactor changed
+# behaviour
+SWEEP_BARS = (0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70)
+
+
+def judge_sweep(data_dir, limit=None):
+    """Re-search the evidence gate's nomination bar (RELEVANCE.md phase 8,
+    open step). ONE pass through the real code path — profiles built once,
+    per-judgment components (text sim, hard-code sim, same-buyer,
+    contract-type, evidence) collected via relevance.evidence_components();
+    then every bar on the grid, plus the evidence-may-nominate variant, is
+    applied through relevance._evidence_verdict — the shipped decision
+    function, executed, not replicated. The embedding gate is judged through
+    the real judge() inside the same loops as the reference row."""
+    import relevance as rel
+    from calibrate import is_deep
+    rel.GATE_MODE = 'evidence'  # profiles carry the lexicon; the embedding
+    #                             ladder ignores it, so one build serves both
+    gate = rel.Gate(data_dir)
+    tenders, awards, lots, texts, raw, docfreq = load_world(data_dir)
+    from embed import MODEL_TAG
+    trust = json.loads(Path(f'trusted_codes_{MODEL_TAG}.json').read_text(
+        encoding='utf-8'))
+    trusted = {c for c, v in trust['codes'].items() if v['trusted']}
+    all_keys = [k for k in texts if k in gate.by_key]
+    all_class = {k: str(raw[k][2] or '')[:4] for k in all_keys}
+    deep_trusted = [k for k in all_keys
+                    if is_deep(str(raw[k][2] or '')) and str(raw[k][2]) in trusted]
+
+    def firm_sub(firm, refs):
+        return {'sub_id': 'judge-sweep', 'version': 0, 'name': firm,
+                'profile_refs': refs,
+                'min_relevance': rel.DEFAULT_MIN_RELEVANCE}
+
+    def resolvable(firm):
+        keys = firm_profile_texts(awards, texts, firm)
+        return [k for k in keys if k in gate.by_key]
+
+    def pub_of(k):
+        return gate.rows[gate.by_key[k]]['publication_number']
+
+    def observe(profile, k):
+        """(embedding verdict through the real judge(), evidence components)"""
+        row = {'procedure_id': k[0], 'lot_id': k[1], 'buyer_name': raw[k][4]}
+        rel.GATE_MODE = 'embedding'
+        emb_ok, *_ = rel.judge(gate, profile, row)
+        rel.GATE_MODE = 'evidence'
+        text, c_hard, mismatch, same_buyer, ev = rel.evidence_components(
+            gate, profile, row, gate.by_key[k])
+        return (bool(emb_ok), text, c_hard, mismatch, same_buyer, bool(ev),
+                profile['min_code_hard'])
+
+    def verdict(obs, bar, ev_nom):
+        emb_ok, text, c_hard, mismatch, same_buyer, ev, mch = obs
+        if mismatch:
+            return False
+        passed, _ = rel._evidence_verdict(
+            {'min_code_hard': mch}, text, c_hard, same_buyer, ev,
+            bar=bar, evidence_nominates=ev_nom)
+        return passed
+
+    wins_by_firm = {}
+    aw = awards[awards['winner_names'].apply(
+        lambda x: x is not None and len(x) > 0)].explode('winner_names')
+    for firm, g in aw.groupby('winner_names'):
+        keys = [k for k in dict.fromkeys(zip(g['procedure_id'], g['lot_id']))
+                if k in gate.by_key and k in texts]
+        if len(keys) >= MIN_WINS:
+            wins_by_firm[firm] = keys
+    if limit:  # smoke-test cap; a receipt run never sets it
+        wins_by_firm = dict(list(wins_by_firm.items())[:limit])
+    print(f'[sweep] {len(wins_by_firm)} firms, one component pass', flush=True)
+
+    cases = [json.loads(line) for line in
+             Path('benchmark_relevance.jsonl').read_text(
+                 encoding='utf-8').splitlines()
+             if line.strip() and not line.startswith('#')]
+    bench_obs = []  # (case, lot title, observation)
+    for case in cases:
+        firm = case['firm']
+        refs = resolvable(firm)
+        sel = [k for k in all_keys if raw[k][3] == case['pub']
+               and case.get('title_contains', '') in str(raw[k][0])]
+        for k in sel:
+            use = [r for r in refs if r != k]
+            profile = rel.build_profile(gate, firm_sub(
+                firm, [pub_of(r) for r in use]))
+            bench_obs.append((case, str(raw[k][0]), observe(profile, k)))
+
+    rng = np.random.default_rng(SEED)
+    pos_obs, neg_obs, vol_obs = [], [], []
+    for n_firm, (firm, keys) in enumerate(wins_by_firm.items()):
+        for i, k in enumerate(keys):
+            use = [pub_of(r) for j, r in enumerate(keys) if j != i]
+            profile = rel.build_profile(gate, firm_sub(firm, use))
+            pos_obs.append(observe(profile, k))
+        profile = rel.build_profile(gate, firm_sub(
+            firm, [pub_of(r) for r in keys]))
+        firm_classes = {str(raw[k][2] or '')[:4] for k in keys}
+        neg_pool = [k for k in deep_trusted
+                    if all_class[k] not in firm_classes and k not in keys]
+        if neg_pool:
+            for pi in rng.choice(len(neg_pool),
+                                 min(NEG_PER_FIRM, len(neg_pool)),
+                                 replace=False):
+                neg_obs.append(observe(profile, neg_pool[pi]))
+        for pi in rng.choice(len(all_keys), VOL_PER_FIRM, replace=False):
+            vol_obs.append(observe(profile, all_keys[pi]))
+        if (n_firm + 1) % 25 == 0:
+            print(f'[sweep] {n_firm + 1}/{len(wins_by_firm)} firms', flush=True)
+    if rel._SYN is not None:
+        rel._SYN.save()
+
+    # --- the table: embedding reference row, then the grid ---
+    def bench_line(passes):
+        fails = [(c, t) for (c, t), p in zip(
+            [(c, t) for c, t, _ in bench_obs], passes)
+            if ('in' if p else 'out') != c['expect']]
+        return f'{len(bench_obs) - len(fails)}/{len(bench_obs)}', fails
+
+    rows = []
+    emb_bench, emb_fails = bench_line([o[0] for _, _, o in bench_obs])
+    rows.append(('embedding gate (live)', emb_bench, emb_fails,
+                 np.mean([o[0] for o in pos_obs]),
+                 np.mean([o[0] for o in neg_obs]),
+                 np.mean([o[0] for o in vol_obs])))
+    for bar, ev_nom in ([(b, False) for b in SWEEP_BARS]
+                        + [(rel.NOMINATION_BAR, True)]):
+        name = ('evidence, evidence-nominates' if ev_nom
+                else f'evidence, bar {bar:.2f}')
+        bench, fails = bench_line(
+            [verdict(o, bar, ev_nom) for _, _, o in bench_obs])
+        rows.append((name, bench, fails,
+                     np.mean([verdict(o, bar, ev_nom) for o in pos_obs]),
+                     np.mean([verdict(o, bar, ev_nom) for o in neg_obs]),
+                     np.mean([verdict(o, bar, ev_nom) for o in vol_obs])))
+    print(f'\n[sweep] n_pos {len(pos_obs)}, n_neg {len(neg_obs)}, '
+          f'n_vol {len(vol_obs)}')
+    print(f"{'configuration':32s} {'benchmark':>9s} {'recall':>7s} "
+          f"{'leakage':>8s} {'volume':>7s}")
+    for name, bench, fails, recall, leakage, volume in rows:
+        print(f'{name:32s} {bench:>9s} {recall:7.1%} {leakage:8.1%} '
+              f'{volume:7.1%}')
+        for c, t in fails:
+            print(f"    FAIL [{c['expect']}] {t[:60]!r} ({c['note'][:40]})")
+    return rows
+
+
+def judge_benchmark(data_dir):
+    """The committed benchmark cases through the REAL judge(), BOTH gate
+    modes — the seconds-fast per-case receipt (the store-wide loops live in
+    --judge/--sweep). References are judged leave-one-out as everywhere."""
+    import relevance as rel
+    rel.GATE_MODE = 'evidence'  # profiles carry the lexicon; embedding ignores it
+    gate = rel.Gate(data_dir)
+    tenders, awards, lots, texts, raw, docfreq = load_world(data_dir)
+    all_keys = [k for k in texts if k in gate.by_key]
+    cases = [json.loads(line) for line in
+             Path('benchmark_relevance.jsonl').read_text(
+                 encoding='utf-8').splitlines()
+             if line.strip() and not line.startswith('#')]
+    fails = {'embedding': 0, 'evidence': 0}
+    for case in cases:
+        firm = case['firm']
+        refs = [k for k in firm_profile_texts(awards, texts, firm)
+                if k in gate.by_key]
+        sel = [k for k in all_keys if raw[k][3] == case['pub']
+               and case.get('title_contains', '') in str(raw[k][0])]
+        if not sel:
+            print(f"  ?? {case['pub']} ({firm}) not found")
+            fails['embedding'] += 1
+            fails['evidence'] += 1
+            continue
+        for k in sel:
+            use = [r for r in refs if r != k]
+            rel.GATE_MODE = 'evidence'
+            profile = rel.build_profile(gate, {
+                'sub_id': 'judge-benchmark', 'version': 0, 'name': firm,
+                'profile_refs': [gate.rows[gate.by_key[r]]
+                                 ['publication_number'] for r in use],
+                'min_relevance': rel.DEFAULT_MIN_RELEVANCE})
+            row = {'procedure_id': k[0], 'lot_id': k[1],
+                   'buyer_name': raw[k][4]}
+            got = {}
+            for mode in ('embedding', 'evidence'):
+                rel.GATE_MODE = mode
+                ok, *_ = rel.judge(gate, profile, row)
+                got[mode] = 'in' if ok else 'out'
+                fails[mode] += got[mode] != case['expect']
+            rel.GATE_MODE = 'evidence'
+            marks = ' '.join(
+                f"{m}:{'OK' if got[m] == case['expect'] else 'FAIL(' + got[m] + ')'}"
+                for m in ('embedding', 'evidence'))
+            print(f"  [{case['expect']:>3}] {marks:34s} "
+                  f'{str(raw[k][0])[:44]!r} [{str(firm)[:24]}]')
+    for m in ('embedding', 'evidence'):
+        print(f'[judge-benchmark] {m}: {len(cases) - fails[m]}/{len(cases)} correct')
+    return fails
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -545,7 +747,21 @@ def main():
     ap.add_argument('--judge', action='store_true',
                     help='THE WHOLE RUN: benchmark + recall/leakage/volume '
                          'through the real relevance.judge(), both gate modes')
+    ap.add_argument('--sweep', action='store_true',
+                    help='re-search the nomination bar: one real-code pass, '
+                         'all bars + the evidence-nominates variant')
+    ap.add_argument('--limit', type=int,
+                    help='(--sweep smoke test only) cap the firm count')
+    ap.add_argument('--judge-benchmark', action='store_true',
+                    help='only the benchmark cases through the real judge(), '
+                         'both gate modes — seconds, for benchmark growth')
     args = ap.parse_args()
+    if args.judge_benchmark:
+        judge_benchmark(args.data_dir)
+        return
+    if args.sweep:
+        judge_sweep(args.data_dir, args.limit)
+        return
     if args.judge:
         judge_run(args.data_dir)
         return

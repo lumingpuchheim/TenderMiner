@@ -678,6 +678,52 @@ expected to lift full-ladder recall toward its 59% conviction ceiling
 while keeping the leakage advantage; then the flip decision has
 honest numbers on both sides. `GATE_MODE` remains 'embedding'.
 
+**The nomination bar, re-searched (2026-08-06, `evidence.py --sweep`).**
+The bar became an explicit constant (`NOMINATION_BAR`, no longer the
+embedding gate's `min_relevance`), the decision itself a pure shared
+function (`relevance._evidence_verdict`) so the sweep executes the
+shipped decision code on components collected in ONE real-code pass
+(same loops, same seed as `--judge`: 2,473 positives, 25,600 clean
+negatives, 102,400 volume lots). The 0.70 anchor row reproduces the
+committed `--judge` receipt to the digit — the refactor changed no
+behaviour. The grid:
+
+| real judge() components | benchmark | recall (LOO) | leakage | volume |
+| --- | --- | --- | --- | --- |
+| embedding gate (live) | 18/19 | 44.5% | 1.9% | 4.6% |
+| evidence, bar 0.40 | 19/19 | 42.1% | 6.0% | 7.2% |
+| evidence, bar 0.45 | 19/19 | 41.1% | 4.5% | 5.5% |
+| evidence, bar 0.50 | 19/19 | 39.3% | 3.0% | 3.8% |
+| **evidence, bar 0.55 (chosen)** | **19/19** | **35.9%** | **1.6%** | **2.4%** |
+| evidence, bar 0.60 | 18/19 | 31.8% | 0.8% | 1.5% |
+| evidence, bar 0.65 | 18/19 | 27.3% | 0.4% | 1.1% |
+| evidence, bar 0.70 (old, anchor) | 18/19 | 23.8% | 0.4% | 0.9% |
+| evidence-nominates (diagnostic) | 19/19 | 57.9% | 8.7% | 10.3% |
+
+**0.55 is the only grid point satisfying both ship constraints** —
+benchmark 19/19 (the Kölln-Reisiek in→out failure flips to correct;
+its LOO nomination similarity sits just under 0.60) and leakage below
+the live gate's 1.9% (1.6% on 25,600 shared negatives is ~4σ — real,
+if modest). Below it, leakage runs away (3.0% at 0.50); above it, the
+benchmark breaks. The evidence-nominates variant (evidence alone may
+nominate, no similarity/code needed) measures the gate's true
+conviction ceiling — 57.9% recall — but at 8.7% leakage: conviction
+without nomination is not precise enough to ship, so
+`EVIDENCE_NOMINATES = False`. The recall gap to the ceiling
+(35.9% vs 57.9%) is now mostly the same-buyer abstention, which LOO
+overstates (a holdout often shares its buyer with the remaining refs,
+killing the text nomination path; live candidates rarely do).
+
+**Standing after the re-search**: the evidence gate beats the live
+gate on the benchmark (19/19 vs 18/19) and on leakage (1.6% vs 1.9%),
+and trails it on LOO recall (35.9% vs 44.5%). It does NOT yet beat
+the live gate on both axes. Confirmed end-to-end with the committed
+constant: a full `evidence.py --judge` (both modes, the shipped
+`_judge_evidence`, no component shortcut) reproduces the chosen row
+to the digit — evidence 19/19 / 35.9% / 1.6% / 2.4%, embedding 18/19
+/ 44.5% / 1.9% / 4.6%. `GATE_MODE` remains 'embedding'; the flip is
+the operator's call on these numbers.
+
 ## Sentence-level template stripping (phase 6, measured 2026-08-06 — not shipped)
 
 The remaining text pathologies are one pathology: tender prose describes
