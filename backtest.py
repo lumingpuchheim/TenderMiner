@@ -104,6 +104,7 @@ def replay(data_dir, step_days, sub_ids):
 
     flagged = {}          # lot -> first week's score (global record, dedup)
     scored_lonely = {}    # lot -> ever scored while open (base-rate pool)
+    week_flags = {}       # cutoff -> [(lot, score, cpv3, nuts1)] for target sim
     sub_picks = {s: {} for s in subs}
     sub_market = {s: set() for s in subs}
     cal_f, n_run = None, 0
@@ -147,12 +148,19 @@ def replay(data_dir, step_days, sub_ids):
         dl_ok = (deadline.loc[open_t.index]
                  >= D + pd.Timedelta(days=MIN_DEADLINE_DAYS))
         rows = []
+        wf = week_flags.setdefault(str(D.date()), [])
         for (i, row), s in zip(open_t.iterrows(), scores):
             lot = (row['procedure_id'], row['lot_id'])
             cpv3 = str(row.get('cpv_main') or '')[:3]
             scored_lonely.setdefault(lot, cpv3)
             if s >= FLAG_THRESHOLD:
                 flagged.setdefault(lot, (str(D.date()), float(s), cpv3))
+                nuts1 = (str(row['place_nuts3'])[:3]
+                         if pd.notna(row.get('place_nuts3')) else None)
+                if bool(dl_ok.loc[i]):
+                    wf.append((lot, float(s), cpv3, nuts1,
+                               str(row.get('title'))[:60],
+                               str(row.get('buyer_name'))[:40]))
             rows.append((lot, row, float(s), bool(dl_ok.loc[i])))
         for s, profile in profiles.items():
             if profile is None:
@@ -190,7 +198,8 @@ def replay(data_dir, step_days, sub_ids):
 
     return {'flagged': flagged, 'scored': scored_lonely, 'sub_picks': sub_picks,
             'sub_market': sub_market, 'outcome': outcome, 'subs': subs,
-            'awards_full': awards_full, 'gate_dir': str(work)}
+            'awards_full': awards_full, 'gate_dir': str(work),
+            'week_flags': week_flags}
 
 
 def cpv3_labels():
@@ -248,6 +257,69 @@ def trade_table(res, outcome):
     return lines + ['']
 
 
+def simulate_targets(res, targets_csv, out_csv, max_picks=MAX_PICKS):
+    """Deliver weekly picks to every firm in the outreach target list across
+    the replay, and grade them — SIMULATION.md's market rule (the trades and
+    NUTS-1 regions of the firm's wins; no regions = nationwide), run
+    backwards through time. One pick row per (firm, lot) ever, like the live
+    simulation ledger. Returns the report lines; writes the per-firm CSV."""
+    targets = pd.read_csv(targets_csv, encoding='utf-8-sig')
+    outcome = res['outcome']
+    markets = {}
+    for _, t in targets.iterrows():
+        trades = set(str(t['trades']).split(';')) - {'', 'nan'}
+        regions = set(str(t['regions']).split(';')) - {'', 'nan'}
+        markets[t['company']] = (trades, regions)
+    picks = {c: {} for c in markets}
+    for week in sorted(res['week_flags']):
+        for company, (trades, regions) in markets.items():
+            cand = [(lot, s) for lot, s, cpv3, nuts1, _, _
+                    in res['week_flags'][week]
+                    if cpv3 in trades and (not regions or nuts1 is None
+                                           or nuts1 in regions)]
+            cand.sort(key=lambda x: -x[1])
+            taken = 0
+            for lot, s in cand:
+                if taken >= max_picks:
+                    break
+                if lot not in picks[company]:
+                    picks[company][lot] = week
+                    taken += 1
+    rows = []
+    for _, t in targets.iterrows():
+        c = t['company']
+        graded = [outcome[lot] for lot in picks[c] if lot in outcome]
+        rows.append({
+            'company': c, 'trade_match': t.get('trade_match'),
+            'primary_trade': str(t['trades']).split(';')[0],
+            'picks': len(picks[c]), 'graded': len(graded),
+            'lonely': sum(1 for n in graded if n <= 1),
+        })
+    per_firm = pd.DataFrame(rows)
+    per_firm.to_csv(out_csv, index=False, encoding='utf-8-sig')
+
+    lines = ['## Target firms — replayed picks, graded', '']
+    seg = per_firm[(per_firm['trade_match'] == True)      # noqa: E712
+                   & (per_firm['primary_trade'] == '452')]
+    for label, g in (('all targets', per_firm),
+                     ('text-confirmed 452 (the campaign batch)', seg)):
+        got = g[g['picks'] > 0]
+        gr = g[g['graded'] > 0]
+        hit = g['lonely'].sum() / g['graded'].sum() if g['graded'].sum() else 0
+        majority = int(((gr['lonely'] * 2) > gr['graded']).sum())
+        lines += [
+            f'### {label}: {len(g)} firms',
+            f'- {len(got)} received picks; {g["picks"].sum()} picks delivered, '
+            f'{g["graded"].sum()} graded',
+            f'- **{g["lonely"].sum()} of the {g["graded"].sum()} graded picks '
+            f'ended with 0-1 bids ({hit:.0%})**',
+            f'- {int((gr["lonely"] >= 1).sum())} of the {len(gr)} firms with '
+            f'graded picks got at least one 0-1-bid pick; {majority} got a '
+            f'majority of their graded picks right',
+            '']
+    return lines
+
+
 def report(res, out_path):
     outcome = res['outcome']
     graded_pool = {lot: outcome[lot] for lot in res['scored'] if lot in outcome}
@@ -266,6 +338,9 @@ def report(res, out_path):
              '- no graded global flags',
              '']
     lines += trade_table(res, outcome)
+    if res.get('targets_csv'):
+        lines += simulate_targets(res, res['targets_csv'],
+                                  res['targets_out_csv'])
     for s, picks in res['sub_picks'].items():
         firm = res['subs'][s].get('name', s)
         lines += [f'## {firm}', '']
@@ -308,6 +383,9 @@ def main():
     ap.add_argument('--step', type=int, default=7, help='days between cutoffs')
     ap.add_argument('--sub', action='append', default=None,
                     help='subscription id(s) to replay (default: all gated)')
+    ap.add_argument('--targets', default=None,
+                    help='outreach targets.csv: deliver + grade weekly picks '
+                         'for every firm in it across the replay')
     args = ap.parse_args()
     sub_ids = args.sub
     if sub_ids is None:
@@ -319,6 +397,10 @@ def main():
                 if row.get('profile_refs'):
                     sub_ids.append(row['sub_id'])
     res = replay(args.data_dir, args.step, set(sub_ids))
+    if args.targets:
+        res['targets_csv'] = args.targets
+        res['targets_out_csv'] = str(
+            Path(args.data_dir) / 'outreach' / 'backtest_per_firm.csv')
     out = Path(args.data_dir) / 'reports' / f'backtest_{date.today().isoformat()}.md'
     out.parent.mkdir(parents=True, exist_ok=True)
     report(res, out)
