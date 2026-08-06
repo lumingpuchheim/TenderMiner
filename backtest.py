@@ -149,9 +149,10 @@ def replay(data_dir, step_days, sub_ids):
         rows = []
         for (i, row), s in zip(open_t.iterrows(), scores):
             lot = (row['procedure_id'], row['lot_id'])
-            scored_lonely.setdefault(lot, True)
+            cpv3 = str(row.get('cpv_main') or '')[:3]
+            scored_lonely.setdefault(lot, cpv3)
             if s >= FLAG_THRESHOLD:
-                flagged.setdefault(lot, (str(D.date()), float(s)))
+                flagged.setdefault(lot, (str(D.date()), float(s), cpv3))
             rows.append((lot, row, float(s), bool(dl_ok.loc[i])))
         for s, profile in profiles.items():
             if profile is None:
@@ -192,6 +193,61 @@ def replay(data_dir, step_days, sub_ids):
             'awards_full': awards_full, 'gate_dir': str(work)}
 
 
+def cpv3_labels():
+    """cpv3 prefix -> German group label, from the committed CPV dictionary."""
+    labels = {}
+    for line in Path('cpv_2008_de.csv').read_text(encoding='utf-8').splitlines():
+        if line.startswith('#') or line.startswith('code,'):
+            continue
+        code, _, label = line.partition(',')
+        if code.endswith('00000'):
+            labels[code[:3]] = label.strip()
+    return labels
+
+
+def trade_table(res, outcome):
+    """Per-cpv3 slice of the global replay — the branch-ranking table.
+
+    Sorted by graded flag count (evidence weight), not by hit rate: a thin
+    slice's 100% is an anecdote, not a branch decision.
+    """
+    labels = cpv3_labels()
+    trades = {}
+    for lot, cpv3 in res['scored'].items():
+        t = trades.setdefault(cpv3, {'scored': 0, 'graded': [], 'flags': 0,
+                                     'graded_flags': []})
+        t['scored'] += 1
+        if lot in outcome:
+            t['graded'].append(outcome[lot])
+    for lot, (_, _, cpv3) in res['flagged'].items():
+        t = trades.setdefault(cpv3, {'scored': 0, 'graded': [], 'flags': 0,
+                                     'graded_flags': []})
+        t['flags'] += 1
+        if lot in outcome:
+            t['graded_flags'].append(outcome[lot])
+    lines = ['## Per-trade (cpv3) — where the flags hit', '',
+             '| cpv3 | trade | scored | graded | base | flags | graded flags | hit | lift |',
+             '|---|---|---|---|---|---|---|---|---|']
+    for cpv3, t in sorted(trades.items(),
+                          key=lambda kv: (-len(kv[1]['graded_flags']), kv[0])):
+        if not t['flags']:
+            continue
+        base = (np.mean([n <= 1 for n in t['graded']])
+                if t['graded'] else float('nan'))
+        hit = (np.mean([n <= 1 for n in t['graded_flags']])
+               if t['graded_flags'] else float('nan'))
+        lift = hit / base if t['graded_flags'] and base else float('nan')
+        thin = ' (thin)' if 0 < len(t['graded_flags']) < 10 else ''
+        lines.append(
+            f'| {cpv3} | {labels.get(cpv3, "?")[:45]} | {t["scored"]} '
+            f'| {len(t["graded"])} | {base:.0%} | {t["flags"]} '
+            f'| {len(t["graded_flags"])}{thin} '
+            f'| {hit:.0%} | {lift:.2f}x |' if t['graded_flags'] else
+            f'| {cpv3} | {labels.get(cpv3, "?")[:45]} | {t["scored"]} '
+            f'| {len(t["graded"])} | {base:.0%} | {t["flags"]} | 0 | — | — |')
+    return lines + ['']
+
+
 def report(res, out_path):
     outcome = res['outcome']
     graded_pool = {lot: outcome[lot] for lot in res['scored'] if lot in outcome}
@@ -209,6 +265,7 @@ def report(res, out_path):
              f'(lift {hit / base:.2f}x)**' if graded_flags else
              '- no graded global flags',
              '']
+    lines += trade_table(res, outcome)
     for s, picks in res['sub_picks'].items():
         firm = res['subs'][s].get('name', s)
         lines += [f'## {firm}', '']
