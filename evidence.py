@@ -419,6 +419,119 @@ def run_benchmark(data_dir, use_tier3):
     return fails
 
 
+def judge_run(data_dir):
+    """THE WHOLE RUN (operator request 2026-08-06): benchmark cases, clean
+    negatives, leave-one-out recall and volume — all through the REAL
+    relevance.judge() code path, under BOTH gate modes, same seed, same
+    lots. This is the only apples-to-apples table; the calibration numbers
+    are arithmetic replicas of the gate, this executes the gate."""
+    import relevance as rel
+    from calibrate import is_deep
+    gate = rel.Gate(data_dir)
+    tenders, awards, lots, texts, raw, docfreq = load_world(data_dir)
+    from embed import MODEL_TAG
+    trust = json.loads(Path(f'trusted_codes_{MODEL_TAG}.json').read_text(
+        encoding='utf-8'))
+    trusted = {c for c, v in trust['codes'].items() if v['trusted']}
+    all_keys = [k for k in texts if k in gate.by_key]
+    all_class = {k: str(raw[k][2] or '')[:4] for k in all_keys}
+    deep_trusted = [k for k in all_keys
+                    if is_deep(str(raw[k][2] or '')) and str(raw[k][2]) in trusted]
+
+    def firm_sub(firm, refs):
+        return {'sub_id': 'judge-run', 'version': 0, 'name': firm,
+                'profile_refs': refs,
+                'min_relevance': rel.DEFAULT_MIN_RELEVANCE}
+
+    def resolvable(firm):
+        keys = firm_profile_texts(awards, texts, firm)
+        return [k for k in keys if k in gate.by_key]
+
+    def pub_of(k):
+        return gate.rows[gate.by_key[k]]['publication_number']
+
+    wins_by_firm = {}
+    aw = awards[awards['winner_names'].apply(
+        lambda x: x is not None and len(x) > 0)].explode('winner_names')
+    for firm, g in aw.groupby('winner_names'):
+        keys = [k for k in dict.fromkeys(zip(g['procedure_id'], g['lot_id']))
+                if k in gate.by_key and k in texts]
+        if len(keys) >= MIN_WINS:
+            wins_by_firm[firm] = keys
+    print(f'[judge-run] {len(wins_by_firm)} firms through the real judge()')
+
+    cases = [json.loads(line) for line in
+             Path('benchmark_relevance.jsonl').read_text(
+                 encoding='utf-8').splitlines()
+             if line.strip() and not line.startswith('#')]
+    results = {}
+    for mode in ('embedding', 'evidence'):
+        rel.GATE_MODE = mode
+        # --- benchmark through judge() ---
+        fails = 0
+        for case in cases:
+            firm = case['firm']
+            refs = resolvable(firm)
+            sel = [k for k in all_keys if raw[k][3] == case['pub']
+                   and case.get('title_contains', '') in str(raw[k][0])]
+            for k in sel:
+                use = [r for r in refs if r != k]
+                profile = rel.build_profile(gate, firm_sub(firm,
+                                                           [pub_of(r) for r in use]))
+                ok, *_ = rel.judge(gate, profile, {
+                    'procedure_id': k[0], 'lot_id': k[1],
+                    'buyer_name': raw[k][4]})
+                got = 'in' if ok else 'out'
+                if got != case['expect']:
+                    fails += 1
+                    print(f"  [{mode}] FAIL [{case['expect']} -> {got}] "
+                          f'{str(raw[k][0])[:50]!r}')
+        bench = f'{len(cases) - fails}/{len(cases)}'
+        # --- recall (leave-one-out), leakage, volume through judge() ---
+        rng = np.random.default_rng(SEED)
+        n_pos = hits = n_neg = neg_pass = n_vol = vol_pass = 0
+        for firm, keys in wins_by_firm.items():
+            for i, k in enumerate(keys):
+                use = [pub_of(r) for j, r in enumerate(keys) if j != i]
+                profile = rel.build_profile(gate, firm_sub(firm, use))
+                ok, *_ = rel.judge(gate, profile, {
+                    'procedure_id': k[0], 'lot_id': k[1],
+                    'buyer_name': raw[k][4]})
+                n_pos += 1
+                hits += bool(ok)
+            profile = rel.build_profile(gate, firm_sub(
+                firm, [pub_of(r) for r in keys]))
+            firm_classes = {str(raw[k][2] or '')[:4] for k in keys}
+            neg_pool = [k for k in deep_trusted
+                        if all_class[k] not in firm_classes and k not in keys]
+            if neg_pool:
+                for pi in rng.choice(len(neg_pool),
+                                     min(NEG_PER_FIRM, len(neg_pool)),
+                                     replace=False):
+                    k = neg_pool[pi]
+                    ok, *_ = rel.judge(gate, profile, {
+                        'procedure_id': k[0], 'lot_id': k[1],
+                        'buyer_name': raw[k][4]})
+                    n_neg += 1
+                    neg_pass += bool(ok)
+            for pi in rng.choice(len(all_keys), VOL_PER_FIRM, replace=False):
+                k = all_keys[pi]
+                ok, *_ = rel.judge(gate, profile, {
+                    'procedure_id': k[0], 'lot_id': k[1],
+                    'buyer_name': raw[k][4]})
+                n_vol += 1
+                vol_pass += bool(ok)
+        results[mode] = {'benchmark': bench, 'recall': hits / n_pos,
+                         'leakage': neg_pass / n_neg, 'volume': vol_pass / n_vol}
+        print(f'[judge-run] {mode:9s}: benchmark {bench}, '
+              f'recall {hits / n_pos:.1%} ({hits}/{n_pos}), '
+              f'leakage {neg_pass / n_neg:.1%} ({n_neg} negatives), '
+              f'volume {vol_pass / n_vol:.1%}', flush=True)
+    if rel._SYN is not None:
+        rel._SYN.save()
+    return results
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -429,7 +542,13 @@ def main():
                     help='enable the word-embedding synonym tier')
     ap.add_argument('--keywords', metavar='FIRM',
                     help='print the derived keyword list for a firm')
+    ap.add_argument('--judge', action='store_true',
+                    help='THE WHOLE RUN: benchmark + recall/leakage/volume '
+                         'through the real relevance.judge(), both gate modes')
     args = ap.parse_args()
+    if args.judge:
+        judge_run(args.data_dir)
+        return
     if args.keywords:
         tenders, awards, lots, texts, raw, docfreq = load_world(args.data_dir)
         keys = firm_profile_texts(awards, texts, args.keywords)

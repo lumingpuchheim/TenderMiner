@@ -274,13 +274,27 @@ def corroborated(gate, profile, i):
     return tread >= world - TRADE_READ_PARAM
 
 
+_SYN = None
+
+
+def _syn_tier(gate):
+    """Lazy word-vector synonym matcher (evidence tier 3), sharing the
+    persistent vocabulary cache with the receipt harness."""
+    global _SYN
+    if _SYN is None:
+        import evidence as evd
+        _SYN = evd.SynonymTier(
+            Path(gate.data_dir) / 'embeddings' / 'word_vecs.npz')
+    return _SYN
+
+
 def evidence_for(gate, profile, i):
     """Phase 8: the (keyword, found_word, tier) matches of a lot's
     title+Leistung against the profile lexicon; [] without a lexicon."""
     import evidence as evd
     return evd.match_evidence(
         evd.leistung_text(gate.all_title[i], gate.all_desc[i]),
-        profile.get('keywords') or [])
+        profile.get('keywords') or [], syn=_syn_tier(gate))
 
 
 def _judge_evidence(gate, profile, scored_row, i):
