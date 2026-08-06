@@ -724,6 +724,47 @@ to the digit — evidence 19/19 / 35.9% / 1.6% / 2.4%, embedding 18/19
 / 44.5% / 1.9% / 4.6%. `GATE_MODE` remains 'embedding'; the flip is
 the operator's call on these numbers.
 
+**Phase 8b — the witness rule (operator design, 2026-08-06; measured,
+kept OFF).** "One coincidence is coincidence, multiple coincidences
+are a conviction": evidence alone may NOMINATE a lot — no similarity,
+no code, deliberately buyer-independent (it targets the same-buyer LOO
+miss class, e.g. the Prokot lot: similarity 1.000 to its sibling wins,
+16 lexicon words in the text, rejected because text abstains and the
+code is silent) — when at least `EVIDENCE_NOMINATION_MIN` DISTINCT
+keywords are found by the exact/typo tiers. Synonym hits do not count
+toward nomination (measured: they add nothing — K>=2 all-tiers 2.5%
+leakage vs 2.4% exact/typo, same recall). Conviction, the bar, and the
+same-buyer guard for text are unchanged; K=1/any-tier reproduces the
+rejected evidence-nominates variant. Receipt (one `--sweep` pass, real
+judge() components, same corpus as above; `hard19` = the original
+hand-labeled set, `bench` = the grown 103-case scorecard):
+
+| bar 0.55 + witness rule | hard19 | bench | recall | leakage | volume |
+| --- | --- | --- | --- | --- | --- |
+| embedding gate (live) | 18/19 | 47/103 | 44.5% | 1.9% | 4.6% |
+| K off (committed) | 19/19 | 39/103 | 35.9% | 1.6% | 2.4% |
+| K>=1 any tier (anchor) | 19/19 | 55/103 | 57.9% | 8.7% | 10.3% |
+| K>=2 exact/typo | 19/19 | 47/103 | 48.3% | 2.4% | 3.4% |
+| K>=3 exact/typo | 19/19 | 42/103 | 43.2% | 1.8% | 2.7% |
+
+**Decision (pre-stated rule: max recall s.t. leakage CLEARLY below the
+live 1.9% and hard19 at 19/19): the rule stays off.** K>=2 leaks 2.4%
+— above the live gate, disqualified. K>=3 leaks 1.8% — below, but by
+~25 lots on 25,600 shared negatives (<1σ), not clearly. The residual
+K>=2 leak class is honest multi-word sub-scope: an EMSR/GU lot whose
+LV genuinely lists Blitzschutz AND Erdung as positions produces two
+true witnesses for the wrong trade; no count threshold separates it
+from the real thing (the spec's risk (b), still open — density/title
+conditions are the next candidate lever). A bar×K cross-grid is
+excluded by the hard set: Kölln-Reisiek carries exactly ONE witness
+('blitzschutz'; the title's typo "Erdnungsanlagen" is 3 chars off the
+'erdungsanlag' stem, beyond the typo tier's edit-1 window), so any
+bar >= 0.60 fails hard19 regardless of K. **Standing operator option**:
+K>=2 is the first configuration that beats the live gate on recall
+(48.3% vs 44.5%) while keeping hard19 at 19/19, tying the 103-case
+scorecard and running at 26% less volume — its price is 2.4% vs 1.9%
+leakage. One constant (`EVIDENCE_NOMINATION_MIN = 2`) turns it on.
+
 ## Sentence-level template stripping (phase 6, measured 2026-08-06 — not shipped)
 
 The remaining text pathologies are one pathology: tender prose describes

@@ -91,10 +91,23 @@ GATE_MODE = os.environ.get('GATE_MODE', 'embedding')
 # <= 0.50 leak >= 3.0%; bars >= 0.60 lose Kölln-Reisiek (18/19). Full
 # table in RELEVANCE.md phase 8.
 NOMINATION_BAR = 0.550
-# Whether trade evidence alone may also nominate (no similarity/code
-# needed). Measured in the same sweep: recall 57.9% — the gate's true
-# conviction ceiling — but leakage 8.7%, 4.5x the live gate. Off.
-EVIDENCE_NOMINATES = False
+# Phase 8b, the witness rule (operator design, 2026-08-06): "one
+# coincidence is coincidence, multiple coincidences are a conviction."
+# Evidence alone may NOMINATE a lot (no similarity, no code — deliberately
+# buyer-independent, which rescues the same-buyer LOO misses) when at
+# least this many DISTINCT lexicon keywords are found by the exact/typo
+# tiers; synonym hits are weaker witnesses and do not count toward
+# nomination. Any evidence still convicts a nominated lot; 0 disables.
+# The K=1/any-tier variant is the rejected evidence-nominates gate
+# (recall 57.9% = the conviction ceiling, leakage 8.7%). K-sweep receipt
+# (2026-08-06, bar 0.55, real judge() components): K>=2 exact/typo gives
+# recall 48.3% / leakage 2.4%, K>=3 gives 43.2% / 1.8% — both keep the
+# hard set at 19/19, neither is CLEARLY below the live gate's 1.9%
+# leakage, so the rule stays OFF (decision rule: max recall s.t. leakage
+# clearly under live and hard-19 intact). K>=2 is the standing operator
+# option: first config to beat live recall (48.3% vs 44.5%) at 19/19,
+# for +0.5pt leakage vs live. Full table in RELEVANCE.md phase 8b.
+EVIDENCE_NOMINATION_MIN = 0
 
 TRUSTED_CODES = Path(__file__).resolve().parent / f'trusted_codes_{MODEL_TAG}.json'
 
@@ -337,25 +350,32 @@ def evidence_components(gate, profile, scored_row, i):
 
 
 def _evidence_verdict(profile, text, c_hard, same_buyer, has_evidence,
-                      bar=None, evidence_nominates=None):
+                      bar=None, nomination_min=None, witnesses=0):
     """The phase-8 decision itself, pure arithmetic on the components —
     shared by the runtime ladder and the sweep. NOMINATE by text similarity
     against NOMINATION_BAR (same-buyer: text abstains), by a hard
-    trusted-code match, or (if EVIDENCE_NOMINATES) by the evidence itself;
-    CONVICT by evidence. Nominated without evidence, or evidence without
-    nomination: borderline, visibly undecided. -> (passed, borderline)."""
+    trusted-code match, or by the evidence itself when it carries enough
+    distinct witnesses (phase 8b, EVIDENCE_NOMINATION_MIN); CONVICT by
+    evidence. Nominated without evidence, or evidence without nomination:
+    borderline, visibly undecided. -> (passed, borderline)."""
     if bar is None:
         bar = NOMINATION_BAR
-    if evidence_nominates is None:
-        evidence_nominates = EVIDENCE_NOMINATES
+    if nomination_min is None:
+        nomination_min = EVIDENCE_NOMINATION_MIN
     nominated = (c_hard >= profile['min_code_hard']
                  or (not same_buyer and text >= bar)
-                 or (evidence_nominates and has_evidence))
+                 or (nomination_min > 0 and witnesses >= nomination_min))
     if nominated and has_evidence:
         return True, False
     if nominated or has_evidence:
         return False, True
     return False, False
+
+
+def evidence_witnesses(ev):
+    """Distinct keywords found by the exact/typo tiers — the witness count
+    of the phase-8b nomination rule (synonym hits don't nominate)."""
+    return len({kw for kw, _, t in ev if t <= 2})
 
 
 def _judge_evidence(gate, profile, scored_row, i):
@@ -367,7 +387,8 @@ def _judge_evidence(gate, profile, scored_row, i):
     if mismatch:
         return False, True, text, c_hard, None, c_hard
     passed, borderline = _evidence_verdict(profile, text, c_hard,
-                                           same_buyer, bool(ev))
+                                           same_buyer, bool(ev),
+                                           witnesses=evidence_witnesses(ev))
     why = None
     if passed:
         words = ', '.join(dict.fromkeys(w for _, w, _ in ev))

@@ -576,7 +576,8 @@ def judge_sweep(data_dir, limit=None):
         return gate.rows[gate.by_key[k]]['publication_number']
 
     def observe(profile, k):
-        """(embedding verdict through the real judge(), evidence components)"""
+        """(embedding verdict through the real judge(), evidence components
+        incl. the phase-8b witness counts under both definitions)"""
         row = {'procedure_id': k[0], 'lot_id': k[1], 'buyer_name': raw[k][4]}
         rel.GATE_MODE = 'embedding'
         emb_ok, *_ = rel.judge(gate, profile, row)
@@ -584,15 +585,17 @@ def judge_sweep(data_dir, limit=None):
         text, c_hard, mismatch, same_buyer, ev = rel.evidence_components(
             gate, profile, row, gate.by_key[k])
         return (bool(emb_ok), text, c_hard, mismatch, same_buyer, bool(ev),
+                rel.evidence_witnesses(ev), len({kw for kw, _, _ in ev}),
                 profile['min_code_hard'])
 
-    def verdict(obs, bar, ev_nom):
-        emb_ok, text, c_hard, mismatch, same_buyer, ev, mch = obs
+    def verdict(obs, bar, kmin=0, all_tiers=False):
+        emb_ok, text, c_hard, mismatch, same_buyer, ev, n12, nall, mch = obs
         if mismatch:
             return False
         passed, _ = rel._evidence_verdict(
             {'min_code_hard': mch}, text, c_hard, same_buyer, ev,
-            bar=bar, evidence_nominates=ev_nom)
+            bar=bar, nomination_min=kmin,
+            witnesses=(nall if all_tiers else n12))
         return passed
 
     wins_by_firm = {}
@@ -611,8 +614,9 @@ def judge_sweep(data_dir, limit=None):
              Path('benchmark_relevance.jsonl').read_text(
                  encoding='utf-8').splitlines()
              if line.strip() and not line.startswith('#')]
-    bench_obs = []  # (case, lot title, observation)
-    for case in cases:
+    n_hard = min(19, len(cases))  # the original hand-labeled hard set
+    bench_obs = []  # (case, is_hard, lot title, observation)
+    for ci, case in enumerate(cases):
         firm = case['firm']
         refs = resolvable(firm)
         sel = [k for k in all_keys if raw[k][3] == case['pub']
@@ -621,7 +625,8 @@ def judge_sweep(data_dir, limit=None):
             use = [r for r in refs if r != k]
             profile = rel.build_profile(gate, firm_sub(
                 firm, [pub_of(r) for r in use]))
-            bench_obs.append((case, str(raw[k][0]), observe(profile, k)))
+            bench_obs.append((case, ci < n_hard, str(raw[k][0]),
+                              observe(profile, k)))
 
     rng = np.random.default_rng(SEED)
     pos_obs, neg_obs, vol_obs = [], [], []
@@ -647,38 +652,51 @@ def judge_sweep(data_dir, limit=None):
     if rel._SYN is not None:
         rel._SYN.save()
 
-    # --- the table: embedding reference row, then the grid ---
+    # --- the table: embedding reference row, then the grids ---
     def bench_line(passes):
-        fails = [(c, t) for (c, t), p in zip(
-            [(c, t) for c, t, _ in bench_obs], passes)
-            if ('in' if p else 'out') != c['expect']]
-        return f'{len(bench_obs) - len(fails)}/{len(bench_obs)}', fails
+        n_h = h_ok = n_a = a_ok = 0
+        hard_fails = []
+        for (c, hard, t, _), p in zip(bench_obs, passes):
+            ok = ('in' if p else 'out') == c['expect']
+            n_a += 1
+            a_ok += ok
+            if hard:
+                n_h += 1
+                h_ok += ok
+                if not ok:
+                    hard_fails.append((c, t))
+        return f'{h_ok}/{n_h}', f'{a_ok}/{n_a}', hard_fails
 
-    rows = []
-    emb_bench, emb_fails = bench_line([o[0] for _, _, o in bench_obs])
-    rows.append(('embedding gate (live)', emb_bench, emb_fails,
-                 np.mean([o[0] for o in pos_obs]),
-                 np.mean([o[0] for o in neg_obs]),
-                 np.mean([o[0] for o in vol_obs])))
-    for bar, ev_nom in ([(b, False) for b in SWEEP_BARS]
-                        + [(rel.NOMINATION_BAR, True)]):
-        name = ('evidence, evidence-nominates' if ev_nom
-                else f'evidence, bar {bar:.2f}')
-        bench, fails = bench_line(
-            [verdict(o, bar, ev_nom) for _, _, o in bench_obs])
-        rows.append((name, bench, fails,
-                     np.mean([verdict(o, bar, ev_nom) for o in pos_obs]),
-                     np.mean([verdict(o, bar, ev_nom) for o in neg_obs]),
-                     np.mean([verdict(o, bar, ev_nom) for o in vol_obs])))
+    def row(name, fn):
+        b19, ball, hard_fails = bench_line(
+            [fn(o) for _, _, _, o in bench_obs])
+        return (name, b19, ball, hard_fails,
+                np.mean([fn(o) for o in pos_obs]),
+                np.mean([fn(o) for o in neg_obs]),
+                np.mean([fn(o) for o in vol_obs]))
+
+    rows = [row('embedding gate (live)', lambda o: o[0])]
+    for bar in SWEEP_BARS:
+        rows.append(row(f'evidence, bar {bar:.2f}',
+                        lambda o, b=bar: verdict(o, b)))
+    # phase 8b: the witness grid at the committed bar; K=1/all-tiers is
+    # the rejected evidence-nominates variant, kept as the anchor
+    for kmin in (1, 2, 3):
+        for all_tiers in (False, True):
+            name = (f'evidence, bar {rel.NOMINATION_BAR:.2f} '
+                    f'+ K>={kmin} {"all" if all_tiers else "t12"}')
+            rows.append(row(name, lambda o, k=kmin, a=all_tiers:
+                            verdict(o, rel.NOMINATION_BAR, k, a)))
     print(f'\n[sweep] n_pos {len(pos_obs)}, n_neg {len(neg_obs)}, '
           f'n_vol {len(vol_obs)}')
-    print(f"{'configuration':32s} {'benchmark':>9s} {'recall':>7s} "
-          f"{'leakage':>8s} {'volume':>7s}")
-    for name, bench, fails, recall, leakage, volume in rows:
-        print(f'{name:32s} {bench:>9s} {recall:7.1%} {leakage:8.1%} '
-              f'{volume:7.1%}')
-        for c, t in fails:
-            print(f"    FAIL [{c['expect']}] {t[:60]!r} ({c['note'][:40]})")
+    print(f"{'configuration':36s} {'hard19':>7s} {'bench':>8s} "
+          f"{'recall':>7s} {'leakage':>8s} {'volume':>7s}")
+    for name, b19, ball, hard_fails, recall, leakage, volume in rows:
+        print(f'{name:36s} {b19:>7s} {ball:>8s} {recall:7.1%} '
+              f'{leakage:8.1%} {volume:7.1%}')
+        for c, t in hard_fails:
+            print(f"    FAIL(hard) [{c['expect']}] {t[:56]!r} "
+                  f"({c['note'][:36]})")
     return rows
 
 
