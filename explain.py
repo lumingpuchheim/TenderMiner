@@ -82,6 +82,18 @@ def explain_lot(gate, profile, i):
         path.append(f'trade-read {tread:.3f}/{world:.3f} '
                     f'{"corroborated" if corr else "NOT corroborated"} '
                     f'({rel.TRADE_READ_FORM}@{rel.TRADE_READ_PARAM})')
+        if len(profile.get('foreign_trade_rows', ())):
+            reads = gate.lmat @ gate.mat[i]
+            ftr = profile['foreign_trade_rows']
+            j = int(ftr[np.argmax(reads[ftr])])
+            foreign = float(reads[j])
+            margin = foreign - tread
+            talk = rel.trade_talk_contradicted(gate, profile, i)
+            path.append(
+                f'trade-talk {"CONTRADICTED" if talk else "ok"} '
+                f'(foreign {foreign:.3f} [{gate.lrows[j]["label_de"][:30]}] '
+                f'- own {tread:.3f} = {margin:+.3f} vs '
+                f'margin {rel.TRADE_TALK_MARGIN})')
     print(f'{title!r} | {buyer}')
     print(f'   verdict ok={ok} borderline={near} '
           f'text={tx if tx is None else round(tx, 3)}'

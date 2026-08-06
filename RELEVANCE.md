@@ -19,8 +19,14 @@ similarity and polluting projections. Weakness (a) is closed: phase 5
 phase 6 (sentence-level template stripping): built and measured
 2026-08-06, mechanism validated on the raw text channel, but its receipt
 lost to configuration H at the shipping operating point (1.9% vs 1.5%
-leakage) — not shipped, re-measured at the next model flip; phase 4
-feedback stays the backstop.
+leakage) — not shipped, re-measured at the next model flip. Weakness (c),
+found by the operator 2026-08-06 in the first replay demo: **a wrong code
+pointing toward the customer's trade** (the Trafostation case) passes the
+hard channel unopposed and is invisible to the leakage metric by
+construction; closed by phase 7 (trade-talk contradiction, below), shipped
+2026-08-06 as configuration K: margin 0.225, recall 60.3% → 60.0%, 5.9%
+of hard-code admissions contested, both known wrong picks demoted. Phase
+4 feedback stays the backstop throughout.
 Builds on the running loop
 ([`ONLINE_LEARNING.md`](ONLINE_LEARNING.md)) and the subscription layer
 ([`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md)); uses their vocabulary
@@ -380,6 +386,97 @@ Implementation note: the rule and its constants live entirely in
 loop.py touch, deferred while loop.py carries unrelated in-flight work
 (SIMULATION.md).
 
+## The trade-talk contradiction — hierarchy-aware hard-pass corroboration (phase 7, implemented 2026-08-06)
+
+Phase 5 guards soft passes; hard passes stayed exempt under the asymmetry
+("a trusted code on the lot is a fact"). The Trafostation case
+(2026-08-06, found by the operator in the first replay demo) shows the
+fact can lie *toward* the customer: Stadt Norderstedt coded a
+transformer-station lot with 45312310 Blitzschutzarbeiten (plausibly for
+an earthing sub-scope), the hard channel matched it 1.000 against the
+pilot's wins, and the lot became a pick — while its own text scored 0.46
+on the text channel and 0.168 on the trade-read. **This class is invisible
+to the leakage metric by construction**: clean negatives are labeled by
+trusted codes of a *different* class, so a wrong lot wearing the
+customer's own code can never enter the negative set. The 1.5% receipt
+number is honest for the contradicting-code class and silent about this
+one; the two wrong picks the operator has rejected to date (Trafostation,
+Bordesholm) both walked through this door.
+
+The rule (operator's design, 2026-08-06): **leniency for project talk,
+scrutiny for trade talk.** A tender's text describes two different things
+— *where the work happens* (the project: Schulzentrum, Sanierung,
+Erweiterung) and *what the work is* (the Gewerk). Only the second can
+contradict a code:
+
+1. **Split the label space by CPV branch.** Trade labels = groups 453
+   (Bauinstallation) and 454 (Ausbau); object/project labels = 450–452.
+   Verified against the operator's counter-worry: all 19 "Oberbauarbeiten"
+   labels are 452 — surface works on objects, project vocabulary, never a
+   contradiction source.
+2. **Compatibility is the CPV hierarchy itself, ancestor-based.** A
+   candidate's trade reading is *compatible* with the profile when its
+   code and a profile hard code stand in an ancestor/descendant relation
+   (zero-trimmed prefix of one another): a text reading as
+   *Elektroinstallationsarbeiten* (45310000) can never contradict a
+   Blitzschutz profile (45312310) — that is what the taxonomy's tree
+   means. Sibling categories (45316 Signalanlagen, 45315 Stromversorgung)
+   are different trades. Measured necessity: at class level (4 digits) the
+   Trafostation *escapes* (its top trade reading shares class 4531);
+   ancestor-vs-sibling at category depth catches it.
+3. **The contradiction is a margin, not a floor**: the lot's best
+   *foreign* trade reading must exceed its best *profile* trade reading
+   by `trade_talk_margin`. Self-normalizing — a text-poor lot murmuring
+   about everything confidently about nothing stays lenient. Measured on
+   the worked cases: Trafostation +0.28, Bordesholm +0.29 foreign margin;
+   Schönkirchen and all six pilot references ≤ ~0 (their top trade
+   reading is 45312310 itself, every one).
+4. **Effect**: a hard pass whose text carries a confident foreign-trade
+   contradiction demotes to the borderline band — visibly undecided,
+   never a silent drop, same landing zone as every other demotion.
+
+The asymmetry survives in amended form: a code still cannot veto text,
+and our *guesses* still cannot veto facts — but a fact contradicted by
+the lot's own confident testimony about a different trade is no longer
+treated as unopposed.
+
+**Calibration (configuration K).** Parameters: `trade_talk_margin`
+(worked-case gap suggests ~0.15–0.25; the receipt decides), the branch
+split (453/454 default; the VOB/C ATV catalog as the upgrade path if CPV
+branches prove too coarse), and ancestor depth. Objective as in G/H —
+but with an honest twist the receipt must state: **the standard clean-
+negative leakage metric cannot see this rule's benefit** (agreeing-wrong-
+code lots are excluded from negatives by construction). The receipt
+therefore adds a new diagnostic: the *contested hard-pass rate* (share of
+hard-code admissions carrying a foreign-trade margin above the bar),
+reported per configuration, with a hand-read sample of contested cases as
+ground truth — measurement and mechanism must not share the same trust in
+the same code twice. The recall price shows up normally in the positives
+(a real win demoted by a foreign margin is a counted miss).
+
+Diagnostic receipts so far (2026-08-06, pilot cases only — store-wide
+numbers are configuration K's job): the two known wrong hard-pass picks
+are separated from all eight known-right lots with ~0.28 of margin to
+spare; sample size two-and-eight, which is why K exists.
+
+**Receipt (2026-08-06, shipped).** The K sweep at H's operating point:
+margin **0.225** = the largest catch whose recall price stays under half
+a point — recall 60.3% → 60.0%, with **5.9% of all hard-code admissions
+flagged as contested** (17 of 2,473 positives; both known wrong picks
+carried +0.28/+0.29 and are caught with room to spare). The curve is
+steep and informative: margin 0.10 would contest 28.7% of hard passes at
+2.5 recall points — the store is full of generously coded lots — while
+0.30 catches almost nothing. As predicted, the clean-negative leakage
+number does not move (1.5%, the metric is blind here); the contested
+rate is the benefit proxy, pending hand-read ground truth from the
+borderline band. Verified on every worked case via `explain.py`:
+Trafostation and Bordesholm demote to borderline, Schönkirchen (−0.029)
+and Los 12 (−0.089) pass untouched; the pilot's current market shrinks
+to the two lots that are actually his trade, pick unchanged.
+Implementation: `trade_talk_contradicted()` + rule 6 in
+`relevance.py::judge`, `foreign_trade_rows` on the profile, the K sweep
+in `calibrate.py`, the trade-talk verdict line in `explain.py`.
+
 ## Sentence-level template stripping (phase 6, measured 2026-08-06 — not shipped)
 
 The remaining text pathologies are one pathology: tender prose describes
@@ -598,6 +695,11 @@ is defined: *"Ihr Profil: 6 gewonnene Ausschreibungen + 1 Beschreibung."*
    *Attacks the project-vocabulary cause in the vectors themselves.*
    **Measured 2026-08-06: receipt lost to configuration H — not shipped**
    (see receipt note above).
+7. **Trade-talk contradiction** — configuration K in `calibrate.py`
+   (margin, branch split, ancestor depth, plus the contested-hard-pass
+   diagnostic with hand-read ground truth), then the hierarchy-aware
+   demotion rule in `relevance.py::judge`. *Closes the agreeing-wrong-
+   code door the Trafostation walked through.*
 
 Each phase leaves a running system; a subscription without `min_relevance`
 is untouched at every phase, so nothing ships as a flag-day.

@@ -59,6 +59,19 @@ USE_EXPANSION = False
 # H2 @ 0.000 — the hard label must BE the candidate's top read.
 TRADE_READ_FORM = 'H2'
 TRADE_READ_PARAM = 0.0
+# Phase 7 (RELEVANCE.md): trade-talk contradiction on HARD passes — a wrong
+# code pointing toward the customer's own trade (the Trafostation case)
+# passes the hard channel unopposed otherwise. Leniency for project talk,
+# scrutiny for trade talk: a hard pass demotes to borderline when the
+# candidate's best FOREIGN trade reading (CPV groups 453/454, no
+# ancestor/descendant relation to a profile hard code — the hierarchy is
+# the compatibility rule) beats its profile-trade reading by this margin.
+# Value from the calibration receipt (configuration K, 2026-08-06):
+# margin 0.225 = largest catch whose recall price stays under 0.5pt
+# (recall 60.3% -> 60.0%, 5.9% of hard-code admissions contested; both
+# known wrong picks carried +0.28/+0.29). None disables.
+TRADE_TALK_MARGIN = 0.225
+TRADE_BRANCHES = ('453', '454')
 
 TRUSTED_CODES = Path(__file__).resolve().parent / f'trusted_codes_{MODEL_TAG}.json'
 
@@ -76,6 +89,13 @@ class Gate:
         self.by_pub = {}
         for i, r in enumerate(self.rows):
             self.by_pub.setdefault(r['publication_number'], i)
+        # trade-label rows for the phase-7 contradiction (labels naming a
+        # Gewerk, not a project object): CPV groups 453/454
+        self.trade_rows = np.array(
+            [j for j, lr in enumerate(self.lrows)
+             if lr['code'][:3] in TRADE_BRANCHES], dtype=int)
+        self.trade_trim = [self.lrows[j]['code'].rstrip('0')
+                           for j in self.trade_rows]
         self.by_key = {(r['procedure_id'], r['lot_id']): i
                        for i, r in enumerate(self.rows)}
         # cpv + buyer per sidecar row (store read at load time — profile
@@ -179,10 +199,18 @@ def build_profile(gate, sub):
     # back to a generic "why" — they exist only when USE_EXPANSION is on
     ref_titles = ([str(gate.all_title[i] or '') for i in ref_rows]
                   + [str(t) for t in (sub.get('profile_texts') or [])])
+    # phase 7: trade labels with NO ancestor/descendant relation to any hard
+    # code — readings there are foreign trade talk and may contradict a
+    # hard pass (RELEVANCE.md, the Trafostation case)
+    hard_trim = [gate.lrows[r]['code'].rstrip('0') for r in hard_rows]
+    foreign = [int(r) for r, t in zip(gate.trade_rows, gate.trade_trim)
+               if not any(t.startswith(h) or h.startswith(t)
+                          for h in hard_trim)] if hard_trim else []
     return {
         'ref_matrix': np.vstack(expanded),
         'ref_titles': ref_titles,
         'hard_rows': np.array(hard_rows, dtype=int),
+        'foreign_trade_rows': np.array(foreign, dtype=int),
         'soft_rows': soft_rows.astype(int),
         'ref_buyers': {b for b in (_norm_buyer(gate.all_buyer[i])
                                    for i in ref_rows) if b},
@@ -218,6 +246,21 @@ def corroborated(gate, profile, i):
     return tread >= world - TRADE_READ_PARAM
 
 
+def trade_talk_contradicted(gate, profile, i):
+    """Phase 7: does the candidate's own text confidently name a DIFFERENT
+    trade than the hard code claims? Project talk (object labels) and
+    same-family trade talk (ancestors/siblings by code prefix — the CPV
+    hierarchy) never contradict; only a foreign trade reading beating the
+    profile-trade reading by TRADE_TALK_MARGIN does."""
+    if (TRADE_TALK_MARGIN is None or not len(profile['hard_rows'])
+            or not len(profile.get('foreign_trade_rows', ()))):
+        return False
+    reads = gate.lmat @ gate.mat[i]
+    foreign = float(reads[profile['foreign_trade_rows']].max())
+    tread = float(reads[profile['hard_rows']].max())
+    return foreign - tread >= TRADE_TALK_MARGIN
+
+
 def judge(gate, profile, scored_row):
     """(passed, borderline, text_score, code_score) for one scored open lot.
 
@@ -251,8 +294,15 @@ def judge(gate, profile, scored_row):
          then matched the candidate's building code). It stands only if the
          candidate's own text also reads as one of the profile's hard trade
          labels (see corroborated()); otherwise borderline band. Text
-         passes and hard-code passes are untouched — a derived signal may
-         demote a guess, never override a fact.
+         passes are untouched — a derived signal may demote a guess, never
+         override the text the bidder actually reads.
+      6. (phase 7, across rules 3 and 4) A HARD pass whose text confidently
+         talks about a foreign trade demotes to the borderline band (the
+         Trafostation case: a transformer-station lot wearing the
+         customer's Blitzschutz code). Project talk and same-family trade
+         talk never trigger it (see trade_talk_contradicted()); a text
+         pass still overrides — the amended asymmetry: a fact contradicted
+         by the lot's own confident testimony no longer stands unopposed.
 
     The code channel reads ALL the lot's codes (main + additional), scored
     separately against the HARD fingerprint (trusted codes on actual wins —
@@ -312,6 +362,8 @@ def judge(gate, profile, scored_row):
             return False, True, text, 0.0, None, 0.0
         if soft_only and not corroborated(gate, profile, i):
             return False, True, text, c_score, None, c_hard  # rule 5
+        if hard_pass and trade_talk_contradicted(gate, profile, i):
+            return False, True, text, c_score, None, c_hard  # rule 6
         return code_pass, False, text, c_score, (why_code() if code_pass else None), c_hard
 
     # rule 4
@@ -319,6 +371,9 @@ def judge(gate, profile, scored_row):
     if (passed and text < profile['min_relevance'] and soft_only
             and not corroborated(gate, profile, i)):
         return False, True, text, c_score, None, c_hard  # rule 5
+    if (passed and text < profile['min_relevance'] and hard_pass
+            and trade_talk_contradicted(gate, profile, i)):
+        return False, True, text, c_score, None, c_hard  # rule 6
     borderline = (not passed
                   and text >= profile['min_relevance'] - BORDERLINE_MARGIN)
     why = (why_text() if text >= profile['min_relevance']

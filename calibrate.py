@@ -70,6 +70,13 @@ SOFT_GRID = np.concatenate([np.arange(0.70, 1.0, 0.025), [2.0]])
 # candidate's best read anywhere in the dictionary.
 H1_GRID = np.arange(0.30, 0.625, 0.025)
 H2_GRID = np.arange(0.00, 0.325, 0.025)
+# configuration K (RELEVANCE.md phase 7): trade-talk contradiction on hard
+# passes. Trade labels = CPV groups 453/454; a hard pass demotes when the
+# candidate's best FOREIGN trade reading (no ancestor/descendant relation
+# to a profile hard code) beats its profile-trade reading by the margin.
+TRADE_BRANCHES = ('453', '454')
+K_GRID = np.arange(0.10, 0.325, 0.025)
+K_MAX_RECALL_COST = 0.005  # largest catch whose recall price stays under this
 # configuration G (one bar, decision 2026-08-05): no recall promise — the
 # text threshold is searched too, list precision is maximised, and the only
 # stop is the volume floor: a typical customer's week must still have
@@ -233,6 +240,19 @@ def calibrate(data_dir):
     pos_tread, pos_world, pos_nohard = [], [], []
     neg_tread, neg_world, neg_nohard = [], [], []
     vol_tread, vol_world, vol_nohard = [], [], []
+    # configuration K arrays: best FOREIGN trade reading per sample
+    label_codes = np.array([lr['code'] for lr in lrows])
+    trade_idx = np.flatnonzero([c[:3] in TRADE_BRANCHES for c in label_codes])
+    trade_trim = [c.rstrip('0') for c in label_codes[trade_idx]]
+
+    def foreign_mask(hard_label_rows):
+        trims = [label_codes[r].rstrip('0') for r in hard_label_rows]
+        if not trims:
+            return np.zeros(len(trade_idx), bool)
+        return np.array([not any(t.startswith(h) or h.startswith(t)
+                                 for h in trims) for t in trade_trim])
+
+    pos_ft, neg_ft, vol_ft = [], [], []
     for name, g in by_firm.items():
         idx = g['row'].to_numpy()
         win_codes = [lot_codes(m, a) for m, a in
@@ -294,6 +314,8 @@ def calibrate(data_dir):
             pos_world.append(float(R[:, i].max()))
             pos_tread.append(float(R[hard_i, i].max()) if hard_i else 0.0)
             pos_nohard.append(not hard_i)
+            fm = foreign_mask(hard_i)
+            pos_ft.append(float(R[trade_idx[fm], i].max()) if fm.any() else 0.0)
             max_wo = np.where(row_arg == i, row_2nd, row_max)
             for f, k in fk:
                 counts_wo = floors_ge[f].sum(axis=1) - floors_ge[f][:, i]
@@ -325,6 +347,9 @@ def calibrate(data_dir):
             neg_world.extend(NR.max(axis=0))
             neg_tread.extend(NR[hf].max(axis=0) if len(hf) else np.zeros(len(pick)))
             neg_nohard.extend([not hard_full] * len(pick))
+            fm_firm = foreign_mask(hard_full)
+            neg_ft.extend(NR[trade_idx[fm_firm]].max(axis=0)
+                          if fm_firm.any() else np.zeros(len(pick)))
             for p in pick:
                 cand = label_rows(all_codes[p])
                 neg_hard.append(best_ll(cand, hf))
@@ -341,6 +366,9 @@ def calibrate(data_dir):
         vol_world.extend(VR.max(axis=0))
         vol_tread.extend(VR[hf].max(axis=0) if len(hf) else np.zeros(len(vol)))
         vol_nohard.extend([not hard_full] * len(vol))
+        fm_firm = foreign_mask(hard_full)
+        vol_ft.extend(VR[trade_idx[fm_firm]].max(axis=0)
+                      if fm_firm.any() else np.zeros(len(vol)))
         for p in vol:
             cand = label_rows(all_codes[p])
             vol_hard.append(best_ll(cand, hf))
@@ -524,6 +552,50 @@ def calibrate(data_dir):
                                     and recall > best_h['recall'])):
                             best_h = point
 
+    # configuration K (RELEVANCE.md phase 7): H's operating point plus the
+    # trade-talk contradiction on hard passes. The clean-negative leakage
+    # metric is BLIND to this rule's benefit by construction (a wrong lot
+    # wearing the customer's own code cannot enter the negative set), so the
+    # sweep reports the recall price (visible in the positives) and the
+    # contested-hard-pass rate (the benefit proxy, ground truth by hand);
+    # default margin = largest catch whose recall price stays under
+    # K_MAX_RECALL_COST relative to H.
+    pos_ft_a, neg_ft_a, vol_ft_a = map(np.array, (pos_ft, neg_ft, vol_ft))
+    kb = best_h
+    kkey = (kb['soft_floor'], kb['soft_consensus'])
+    ps = np.array(pos_soft[kkey])
+    ns = np.array(neg_soft[kkey])
+    vs = np.array(vol_soft[kkey])
+    pc_, nc_, vc_ = corr_masks(kb['corr_form'], kb['corr_param'])
+    ht, st, tt = kb['code_threshold'], kb['soft_threshold'], kb['threshold']
+    hp, hn, hv = pos_hard_a >= ht, neg_hard_a >= ht, vol_hard_a >= ht
+    k_sweep, best_k = [], None
+    for m in K_GRID:
+        p_con = hp & (pos_ft_a - pos_tread_a >= m)
+        n_con = hn & (neg_ft_a - neg_tread_a >= m)
+        v_con = hv & (vol_ft_a - vol_tread_a >= m)
+        cp = (hp & ~p_con) | ((ps >= st) & pc_)
+        cn = (hn & ~n_con) | ((ns >= st) & nc_)
+        cv = (hv & ~v_con) | ((vs >= st) & vc_)
+        point = {'threshold': float(tt), 'code_threshold': float(ht),
+                 'soft_threshold': float(st), 'soft_floor': kb['soft_floor'],
+                 'soft_consensus': kb['soft_consensus'],
+                 'corr_form': kb['corr_form'], 'corr_param': kb['corr_param'],
+                 'trade_talk_margin': float(m),
+                 'recall': float((cp | (pos_plain >= tt)).mean()),
+                 'leakage': float((cn | (neg['trusted'] >= tt)).mean()),
+                 'volume': float((cv | (vol_plain >= tt)).mean()),
+                 'code_share': float(cp.mean()),
+                 'contested_pos': int(p_con.sum()),
+                 'contested_vol_share': float(v_con.sum() / max(hv.sum(), 1))}
+        k_sweep.append(point)
+        if (point['recall'] >= kb['recall'] - K_MAX_RECALL_COST
+                and (best_k is None
+                     or m < best_k['trade_talk_margin'])):
+            best_k = point
+    if best_k is None:
+        best_k = k_sweep[-1]  # even the mildest margin was too expensive
+
     return {
         'n_firms': len(by_firm), 'n_positives': n_pos,
         'baseline': baseline, 'trust_cut': cut, 'n_deep_codes': len(cohesion),
@@ -550,9 +622,11 @@ def calibrate(data_dir):
             'F hard/soft codes + floor/consensus': best_f,
             'G single bar (precision-first)': best_g,
             'H single bar + trade-read corroboration': best_h,
+            'K hard-pass trade-talk contradiction': best_k,
         },
         'f_pareto': f_pareto,
         'h_pareto': h_pareto,
+        'k_sweep': k_sweep,
         # raw score arrays for ad-hoc analyses (pick-level metrics etc.)
         'arrays': {'pos_plain': pos_plain, 'pos_codechan': pos_code,
                    'pos_hard': pos_hard_a, 'neg_trusted': neg['trusted'],
@@ -627,13 +701,27 @@ def write_receipt(path, r):
     if h:
         lines += [
             '',
-            f'- **Configuration H (phase 5 shipping gate)**: text '
+            f'- **Configuration H (phase 5)**: text '
             f'{h["threshold"]:.3f}, hard {h["code_threshold"]:.3f}, soft '
             f'{h["soft_threshold"]:.3f} (floor {h["soft_floor"]:.2f}, '
             f'consensus {h["soft_consensus"]}), corroboration '
             f'**{h["corr_form"]} @ {h["corr_param"]:.3f}** — leakage '
             f'{h["leakage"]:.1%}, volume {h["volume"]:.1%}, recall '
             f'{h["recall"]:.1%} (reported, not promised).']
+    kk = r['configs'].get('K hard-pass trade-talk contradiction')
+    if kk:
+        lines += [
+            '',
+            f'- **Configuration K (phase 7 shipping gate)**: H plus the '
+            f'trade-talk contradiction at margin '
+            f'**{kk["trade_talk_margin"]:.3f}** — recall {kk["recall"]:.1%} '
+            f'(vs H {h["recall"]:.1%}), contested hard passes: '
+            f'{kk["contested_pos"]} positives, '
+            f'{kk["contested_vol_share"]:.1%} of volume hard passes. NOTE: '
+            f'the clean-negative leakage number cannot see this rule\'s '
+            f'benefit (agreeing-wrong-code lots are excluded from negatives '
+            f'by construction); the contested-hard-pass rate is the benefit '
+            f'proxy, ground truth by hand-reading contested cases.']
     lines += [
         '',
         f'- Code channel alone passes {d["code_share"]:.1%} of positives.',
@@ -704,6 +792,12 @@ def main():
               f'(text {v["threshold"]:.3f}, hard {v["code_threshold"]:.3f}, '
               f'soft {v["soft_threshold"]:.3f}, '
               f'corr {v["corr_form"]}@{v["corr_param"]:.3f})')
+    print('[calibrate] K sweep (margin: recall / contested hard passes '
+          'pos|vol-share):')
+    for v in r['k_sweep']:
+        print(f"  margin {v['trade_talk_margin']:.3f}: recall {v['recall']:.1%}, "
+              f"contested {v['contested_pos']} positives | "
+              f"{v['contested_vol_share']:.1%} of volume hard passes")
     print(f'[calibrate] receipts -> {receipt}, {codes}')
 
 
