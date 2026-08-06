@@ -705,20 +705,9 @@ def receipt_html(grades_recent, sub_deliveries, pred_info, kind='pick'):
         if d.get('kind', 'pick') == kind:
             items.append((d, g))
     if not items:
-        if kind == 'avoid':
-            return ''  # section renders only once a warning has its outcome
-        n_open = sum(1 for ds in by_lot.values()
-                     if ds[-1].get('kind', 'pick') == 'pick')
-        return '<p>' + escape(
-            (f'In Ihren bisherigen Wochenberichten haben wir insgesamt {n_open} '
-             'verschiedene Ausschreibungen empfohlen — jede ist dokumentiert, und '
-             'für keine liegt bisher das Ergebnis vor: Zuschlagsbekanntmachungen '
-             'folgen den Fristen um etwa drei Monate. Die Zahlen unten beziehen '
-             'sich einstweilen auf den breiteren Markt.')
-            if n_open else
-            'Ihre ersten Empfehlungen stehen unten — jede wird dokumentiert, und '
-            'ihr Ergebnis wird hier bewertet, sobald der Zuschlag veröffentlicht '
-            'ist.') + '</p>'
+        # no graded outcome yet -> no section at all (decision 2026-08-06);
+        # the retrospective appears once the first Zuschlag is published
+        return ''
     items.sort(key=lambda ig: str(ig[1]['award_pub']), reverse=True)
     lis = []
     for d, g in items[:MAX_RECEIPTS]:
@@ -914,9 +903,10 @@ def deliver(paths, scored, args):
                 headers.append('warum Ihr Geschäft')
             headers.append('warum wir wenige Bieter erwarten')
             body += [table_html(headers, pick_trs)]
-        body += ['<h2>Ihre Empfehlungen im Rückblick</h2>',
-                 receipt_html(grades_recent, by_sub.get(sub['sub_id'], []),
-                              pred_info)]
+        receipts = receipt_html(grades_recent, by_sub.get(sub['sub_id'], []),
+                                pred_info)
+        if receipts:
+            body += ['<h2>Ihre Empfehlungen im Rückblick</h2>', receipts]
         # the warnings list is gone (decision 2026-08-06): the customer should
         # avoid MOST of the market, so naming five lots was noise; no
         # kind:"avoid" delivery rows are written any more (the ledger records
