@@ -17,13 +17,20 @@ back usually has graded outcomes; the backtest report
 (data/reports/backtest_<date>.md) lists per-subscription pick weeks with
 outcomes — any week listed there works.
 
+The subject should be REAL: --firm replays any actual winner company from
+the awards store (profile from their as-of wins, region from where they
+won) — a track record for an invented demo customer proves nothing. Use
+--scan first to see which real firms have graded picks at a cutoff.
+
 Usage:
-    python replay.py --sub jebsen-blitzschutz --cutoff 2026-03-25
+    python replay.py --scan --cutoff 2026-04-15
+    python replay.py --firm "Firma GmbH" --cutoff 2026-04-15
     python replay.py --sub jebsen-blitzschutz --cutoff 2026-03-25 --check-date 2026-08-01
 """
 
 import argparse
 import json
+import re
 import shutil
 import sys
 import time
@@ -55,13 +62,21 @@ def freeze_clock(day):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--sub', required=True, help='subscription id to replay')
+    ap.add_argument('--sub', help='subscription id to replay')
+    ap.add_argument('--firm', help='replay a REAL winner company from the '
+                    'awards store instead of a subscription: profile from '
+                    'their as-of wins, region from where they won')
+    ap.add_argument('--scan', action='store_true',
+                    help='no render: check EVERY real winner company at this '
+                    'cutoff and list the ones whose picks have graded outcomes')
     ap.add_argument('--cutoff', required=True, metavar='YYYY-MM-DD',
                     help='the past cycle date D — picks are made as of here')
     ap.add_argument('--check-date', default=None, metavar='YYYY-MM-DD',
                     help='date of the check report (default: today)')
     ap.add_argument('--data-dir', default='data')
     args = ap.parse_args()
+    if not args.scan and not (bool(args.sub) ^ bool(args.firm)):
+        sys.exit('[replay] give exactly one of --sub / --firm (or --scan)')
     t0 = time.time()
 
     D = pd.Timestamp(args.cutoff)
@@ -70,14 +85,16 @@ def main():
         sys.exit('[replay] --check-date must lie after --cutoff')
     FULL = Path(args.data_dir)
 
-    subs = loop.load_subscriptions(FULL / 'subscriptions.jsonl', str(D.date()))
-    sub = next((s for s in subs if s['sub_id'] == args.sub), None)
-    if sub is None:  # subscription may postdate the cutoff — take today's line
-        subs = loop.load_subscriptions(FULL / 'subscriptions.jsonl',
-                                       str(pd.Timestamp.today().date()))
+    sub = None
+    if args.sub:
+        subs = loop.load_subscriptions(FULL / 'subscriptions.jsonl', str(D.date()))
         sub = next((s for s in subs if s['sub_id'] == args.sub), None)
-    if sub is None:
-        sys.exit(f'[replay] no active subscription {args.sub!r}')
+        if sub is None:  # subscription may postdate the cutoff — take today's line
+            subs = loop.load_subscriptions(FULL / 'subscriptions.jsonl',
+                                           str(pd.Timestamp.today().date()))
+            sub = next((s for s in subs if s['sub_id'] == args.sub), None)
+        if sub is None:
+            sys.exit(f'[replay] no active subscription {args.sub!r}')
 
     # ---- the as-of world -----------------------------------------------------
     ASOF = FULL / 'replay_asof'
@@ -112,22 +129,50 @@ def main():
     # ---- as-of profile from the wins the firm had at D ----------------------
     gate = rel.Gate(str(ASOF))
     awards_asof = pd.read_parquet(ASOF / 'store' / 'awards.parquet')
-    firm = sub.get('name')
-    aw_firm = awards_asof[awards_asof['winner_names'].apply(
-        lambda x: x is not None and firm in list(x))]
-    refs = sorted({gate.rows[gate.by_key[(p, l)]]['publication_number']
-                   for p, l in zip(aw_firm['procedure_id'], aw_firm['lot_id'])
-                   if (p, l) in gate.by_key})
-    if not refs and sub.get('profile_refs'):
-        sys.exit(f'[replay] {firm!r} had no resolvable win before {D.date()} — '
-                 'pick a later cutoff')
-    replay_sub = dict(sub, profile_refs=refs or None,
-                      min_relevance=H['threshold'] if refs else None,
-                      min_code_hard=H['code_threshold'],
-                      min_code_soft=H['soft_threshold'],
-                      version=sub.get('version', 1),
-                      effective_from=str(D.date()))
-    print(f'[replay] profile as of {D.date()}: {len(refs)} won tenders')
+    tenders_asof = pd.read_parquet(ASOF / 'store' / 'tenders.parquet')
+    lots_nuts = {(p, l): n for p, l, n in zip(
+        tenders_asof['procedure_id'], tenders_asof['lot_id'],
+        tenders_asof['place_nuts3'])}
+
+    def firm_asof(firm_name):
+        """(refs, NUTS1 prefixes) of a real firm's resolvable as-of wins."""
+        aw_f = awards_asof[awards_asof['winner_names'].apply(
+            lambda x: x is not None and firm_name in list(x))]
+        keys = [(p, l) for p, l in zip(aw_f['procedure_id'], aw_f['lot_id'])
+                if (p, l) in gate.by_key]
+        f_refs = sorted({gate.rows[gate.by_key[k]]['publication_number']
+                         for k in keys})
+        nuts = sorted({str(lots_nuts.get(k))[:3] for k in keys
+                       if isinstance(lots_nuts.get(k), str) and lots_nuts.get(k)})
+        return f_refs, nuts
+
+    if args.firm:
+        f_refs, nuts1 = firm_asof(args.firm)
+        if len(f_refs) < 2:
+            sys.exit(f'[replay] {args.firm!r} has fewer than 2 resolvable wins '
+                     f'before {D.date()} — try --scan to find replayable firms')
+        slug = re.sub(r'[^a-z0-9]+', '-', args.firm.casefold()).strip('-')
+        sub = {'sub_id': f'firm-{slug}', 'name': args.firm,
+               'cpv_prefixes': ['45'], 'nuts_prefixes': nuts1,
+               'min_deadline_days': 14, 'max_picks': 5,
+               'profile_refs': f_refs}
+        print(f'[replay] real firm {args.firm!r}: {len(f_refs)} as-of wins, '
+              f'region {"/".join(nuts1)}')
+
+    firm = sub.get('name') if sub else None
+    replay_sub = None
+    if sub is not None:
+        refs, _ = firm_asof(firm) if firm else ([], [])
+        if not refs and sub.get('profile_refs'):
+            sys.exit(f'[replay] {firm!r} had no resolvable win before '
+                     f'{D.date()} — pick a later cutoff')
+        replay_sub = dict(sub, profile_refs=refs or None,
+                          min_relevance=H['threshold'] if refs else None,
+                          min_code_hard=H['code_threshold'],
+                          min_code_soft=H['soft_threshold'],
+                          version=sub.get('version', 1),
+                          effective_from=str(D.date()))
+        print(f'[replay] profile as of {D.date()}: {len(refs)} won tenders')
 
     # ---- as-of model + scores for the open market at D ----------------------
     tenders_r, roles = sb.load_with_roles(ASOF / 'store' / 'tenders.parquet')
@@ -166,8 +211,66 @@ def main():
         })
     print(f'[replay] {len(scored)} open lots scored at {D.date()}')
 
+    # ---- scan: which REAL firms have graded picks at this cutoff? -----------
+    if args.scan:
+        awards_full = pd.read_parquet(FULL / 'store' / 'awards.parquet')
+        aw_latest, _ = sb.latest_awards(awards_full)
+        pub = pd.to_datetime(aw_latest['publication_date'], errors='coerce')
+        graded_aw = aw_latest[(pub > D) & (pub <= D2)]
+        outcome = {(a['procedure_id'], a['lot_id']): int(a['n_tenders'])
+                   for _, a in graded_aw.iterrows() if pd.notna(a['n_tenders'])}
+        dl = pd.to_datetime([r['deadline_date'] for r in scored], errors='coerce')
+        min_dl = D + pd.Timedelta(days=14)
+        pool = [r for r, d in zip(scored, dl) if pd.notna(d) and d >= min_dl]
+        pool.sort(key=lambda r: -r['score'])
+        w = awards_asof[awards_asof['winner_names'].apply(
+            lambda x: x is not None and len(x) > 0)].explode('winner_names')
+        firms = [f for f, c in w['winner_names'].value_counts().items() if c >= 2]
+        print(f'[replay] scanning {len(firms)} real firms with >= 2 as-of wins')
+        results = []
+        for firm_name in firms:
+            f_refs, nuts1 = firm_asof(firm_name)
+            if len(f_refs) < 2 or not nuts1:
+                continue
+            try:
+                profile = rel.build_profile(gate, {
+                    'profile_refs': f_refs, 'min_relevance': H['threshold'],
+                    'min_code_hard': H['code_threshold'],
+                    'min_code_soft': H['soft_threshold'], 'version': 0})
+            except ValueError:
+                continue
+            picks = []
+            for r0 in pool:
+                if r0['score'] < FLAG_THRESHOLD:
+                    break
+                if not str(r0.get('place_nuts3') or '').startswith(tuple(nuts1)):
+                    continue
+                ok, *_ = rel.judge(gate, profile, r0)
+                if ok:
+                    picks.append(r0)
+                if len(picks) == 5:
+                    break
+            graded = [(r0, outcome[(r0['procedure_id'], r0['lot_id'])])
+                      for r0 in picks
+                      if (r0['procedure_id'], r0['lot_id']) in outcome]
+            if graded:
+                hits = sum(1 for _, n in graded if n <= 1)
+                results.append((hits, len(graded), len(picks), firm_name, graded))
+        results.sort(key=lambda t: (-t[0], -t[1]))
+        if not results:
+            print('[replay] no real firm has a graded pick at this cutoff — '
+                  'try an earlier one')
+        for hits, n_graded, n_picks, firm_name, graded in results[:15]:
+            print(f'\n  {firm_name}  ({n_picks} picks, {n_graded} graded, '
+                  f'{hits} ended 0-1 bids)')
+            for r0, n in graded:
+                mark = 'HIT ' if n <= 1 else 'miss'
+                print(f'    [{mark}] {str(r0["title"])[:55]!r} -> {n} bid(s)')
+        return
+
     # ---- sandbox for both renders -------------------------------------------
-    OUT = FULL / 'replay' / args.sub
+    sub_id = sub['sub_id']
+    OUT = FULL / 'replay' / sub_id
     if OUT.exists():
         shutil.rmtree(OUT)
     (OUT / 'ledger').mkdir(parents=True)
@@ -193,7 +296,7 @@ def main():
     # ---- report #1: the prediction, rendered at D ---------------------------
     freeze_clock(D.date())
     loop.deliver(paths, scored, render_args)
-    rep1 = paths.reports / 'subscriptions' / args.sub / f'report_{D.date()}.html'
+    rep1 = paths.reports / 'subscriptions' / sub_id / f'report_{D.date()}.html'
 
     # ---- grades from the outcomes published between D and the check date ----
     awards_full = pd.read_parquet(FULL / 'store' / 'awards.parquet')
@@ -221,7 +324,7 @@ def main():
     # empty scored: this render is about the Rückblick, not a new market view
     freeze_clock(D2.date())
     loop.deliver(paths, [], render_args)
-    rep2 = paths.reports / 'subscriptions' / args.sub / f'report_{D2.date()}.html'
+    rep2 = paths.reports / 'subscriptions' / sub_id / f'report_{D2.date()}.html'
 
     print()
     delivered = [json.loads(line) for line in
