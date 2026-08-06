@@ -653,13 +653,47 @@ def load_subscriptions(path, today):
     return [row for _, row in in_force.values() if row.get('active', True)]
 
 
+def _lot_key(row):
+    """The lot's identity — the key of every per-lot side table in deliver().
+
+    Deliberately not `id(row)`: object identity is only stable while the row
+    object itself stays alive, so a side table keyed that way survives on the
+    accident that `latest` holds the rows for the whole loop. Copy, re-read or
+    regenerate a row anywhere in between and the lookup silently returns
+    another lot's verdict — i.e. the wrong "warum Ihr Geschäft" next to a
+    customer's pick. `latest` is keyed by this pair already, so it is unique
+    per delivery pass by construction.
+    """
+    return row['procedure_id'], row['lot_id']
+
+
+def _cpv_matches(row, prefixes):
+    """Full-CPV prefix match (SUBSCRIPTIONS.md: a lot matches if "its CPV
+    starts with any listed prefix").
+
+    Tested against `cpv_main`, the full code. `cpv3` is the truncated slicing
+    key and is only a fallback for rows stamped before `cpv_main` was written
+    (no ledger row carries it yet, and tryout.py replays those rows — this
+    path is live, not a formality). A prefix LONGER than the key it would be
+    tested against cannot be proven and therefore does not match, per the
+    keyless-row rule; testing it against cpv3 anyway is what silently emptied
+    the slice of any subscription with a deeper prefix than 3 digits
+    (jebsen-blitzschutz v1, `cpv_prefixes: ["453123"]`).
+    """
+    code = row.get('cpv_main')
+    if code:
+        return any(str(code).startswith(str(p)) for p in prefixes)
+    key = str(row.get('cpv3') or '')
+    return bool(key) and any(key.startswith(str(p)) for p in prefixes
+                             if len(str(p)) <= len(key))
+
+
 def _matches(sub, row, today, min_days):
     # .get: rows written before a slicing key was stamped cannot prove they
     # are in the slice and therefore do not match (SUBSCRIPTIONS.md keyless-row
     # rule; the fallback ladder absorbs the resulting thin slices)
     if sub.get('cpv_prefixes'):
-        if not row.get('cpv3') or not any(str(row['cpv3']).startswith(str(p))
-                                          for p in sub['cpv_prefixes']):
+        if not _cpv_matches(row, sub['cpv_prefixes']):
             return False
     if sub.get('nuts_prefixes'):
         if not row.get('place_nuts3') or not any(str(row['place_nuts3']).startswith(str(p))
@@ -832,7 +866,7 @@ def deliver(paths, scored, args):
             kept = []
             for r in cand:
                 ok, near, t_score, c_score, why, c_hard = rel.judge(gate, profile, r)
-                judged[id(r)] = (t_score, c_score, why, c_hard)
+                judged[_lot_key(r)] = (t_score, c_score, why, c_hard)
                 if ok:
                     kept.append(r)
                 elif near:
@@ -895,7 +929,7 @@ def deliver(paths, scored, args):
             """Plain-language reason a pick is the customer's business — words
             instead of the (internal) score, so a marginal case is judgeable
             at a glance."""
-            why = (judged.get(id(r)) or (None, None, None))[2]
+            why = (judged.get(_lot_key(r)) or (None, None, None))[2]
             if not why:
                 return ''
             kind, detail = why
@@ -927,7 +961,7 @@ def deliver(paths, scored, args):
                     'publication_number': r.get('publication_number'),
                     'buyer_name': r.get('buyer_name'), 'title': r.get('title'),
                     'kind': 'pick',
-                    **_gate_stamp(profile, judged.get(id(r))),
+                    **_gate_stamp(profile, judged.get(_lot_key(r))),
                 })
         if pick_trs:
             headers = ['Ausschreibung', 'Frist', 'Auftraggeber']
@@ -960,20 +994,20 @@ def deliver(paths, scored, args):
         verdicts = {}
         for rank, r in enumerate(annex_rows):
             if r.get('flag'):
-                verdicts[id(r)] = ('v-green', 'wenige Bieter erwartet',
-                                   (r.get('why_lonely') or [])[:2])
+                verdicts[_lot_key(r)] = ('v-green', 'wenige Bieter erwartet',
+                                         (r.get('why_lonely') or [])[:2])
             elif rank >= len(annex_rows) - n_crowd:
-                verdicts[id(r)] = ('v-red', 'viele Bieter erwartet',
-                                   (r.get('why_crowded') or [])[:2])
+                verdicts[_lot_key(r)] = ('v-red', 'viele Bieter erwartet',
+                                         (r.get('why_crowded') or [])[:2])
             else:
-                verdicts[id(r)] = ('v-yellow', 'durchschnittliche Chancen', [])
+                verdicts[_lot_key(r)] = ('v-yellow', 'durchschnittliche Chancen', [])
         # the annex file is still written per date but the report does not
         # mention it (decision 2026-08-06) — it is the operator's lookup when
         # a customer asks about a specific tender, not a customer surface
         annex_name = f'annex_{today.isoformat()}.html'
         annex_trs = []
         for r in sorted(annex_rows, key=lambda r: str(r.get('deadline_date'))):
-            cls, verdict, why = verdicts[id(r)]
+            cls, verdict, why = verdicts[_lot_key(r)]
             annex_trs.append(f'<tr><td>{tender_cell(r)}</td>'
                              f"<td>{date_de(r.get('deadline_date'))}</td>"
                              f'<td>{buyer_cell(r)}</td>'
