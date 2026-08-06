@@ -37,7 +37,13 @@ KEY = ['procedure_id', 'lot_id']
 MIN_STEM_LEN = 6      # shorter stems risk false substring hits
 MAX_KEYWORDS = 25
 MAX_DOC_FREQ = 0.02   # keyword must appear in <= 2% of store lots
-MIN_REF_SHARE = 0.34  # ...and in >= this share of the references (min 1)
+# References that must contain a keyword. 1 (decision 2026-08-06, operator):
+# the two-witness rule starved 2-wins-per-trade profiles (the Ahle carpentry
+# case — 'zimmer' had one witness and died); receipts: recall 51.7% -> 54.8%
+# (59.0% with the synonym tier) for +1.1pt conviction-only leakage, benchmark
+# untouched at 19/19. The buyer-diversity rule still guards multi-buyer
+# profiles against template words.
+MIN_WITNESSES = 1
 TYPO_MIN_LEN = 8      # typo tier only for long keywords
 SYN_THRESHOLD = 0.80  # word-embedding cosine for the synonym tier
 SEED = 7              # mirrors calibrate.py sampling
@@ -114,7 +120,7 @@ def derive_keywords(refs, docfreq, label_texts=()):
         for w in set(tokens(t)):
             in_refs[w] += 1
             buyers_of.setdefault(w, set()).add(b)
-    min_refs = 2 if len(refs) >= 2 else 1
+    min_refs = min(MIN_WITNESSES, len(refs)) or 1
     min_buyers = min(2, n_buyers)
     cands = {}
     for w, c in in_refs.items():

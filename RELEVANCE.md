@@ -628,20 +628,35 @@ Receipts so far, honestly mixed:
   `explain.py` prints lexicon + evidence per lot alongside the
   embedding path.
 
-**Tier-3 receipt (2026-08-06): recall 55.9%** — the synonym tier
-rescued 104 wins (+4.2pt, exactly the predicted class:
-Holzbau↔Holzarbeit, Kälte↔Klima) at +1.8pt conviction-only leakage.
-Final gap to the embedding gate: ~4 recall points, concentrated where
-the lexicon starves (28% of holdout profiles derive <3 keywords —
-multi-trade firms with few wins per trade; plus geographic residue in
-rail/network firms whose distinctive win-words are city names).
-**Standing verdict**: the evidence gate is the proven precision
-instrument (benchmark 19/19, quotable verdicts) but not a universal
-replacement at current recall; the deployment that fits the numbers is
-**per-profile** — a substantive lexicon (like the pilot's) earns the
-evidence gate, a starved one stays on the embedding gate with the
-reason visible. `GATE_MODE` default remains 'embedding' until that
-hybrid (or a better lexicon derivation) wins its receipt.
+**Receipt trajectory (2026-08-06, all tiers-1–2 unless noted; embedding
+gate reference: 60.0% recall).** Two operator design changes closed most
+of the gap, each measured against both gatekeepers:
+
+| configuration | recall | conviction-only leakage | benchmark |
+| --- | --- | --- | --- |
+| two-witness rule, exact+typo | 51.7% | 5.5% | 19/19 |
+| + synonym tier (tier 3) | 55.9% | 7.3% | 19/19 |
+| single-witness rule (operator) | 54.8% | 6.6% | 19/19 |
+| **single-witness + synonym tier** | **59.0%** | 8.4% | **19/19** |
+
+The single-witness decision (MIN_WITNESSES = 1) fixed the diagnosed
+starvation: the two-witness rule was unsatisfiable for 2-wins-per-trade
+profiles (the Ahle carpentry autopsy — 'zimmer', rare and present, died
+for lacking a second witness that the leave-one-out itself had hidden).
+The buyer-diversity rule still guards multi-buyer profiles against
+template words; the pilot lexicon is unchanged. Leave-one-out
+understates BOTH gates' live recall equally (hiding one of two
+same-trade wins starves the test profile, not the live one).
+
+**Standing verdict**: at 59.0% vs 60.0% the evidence gate is at
+practical recall parity with quotable verdicts and a perfect benchmark;
+conviction-only leakage (8.4%, an upper bound without the nomination
+step — and partly the honest "names the trade as sub-scope" class) is
+the number that still wants the full-ladder measurement before the
+flip. Residual misses: profiles whose only rare win-words are
+geographic (rail/network firms), and synonym pairs under the 0.80 bar
+(Kälte↔Klima). `GATE_MODE` default remains 'embedding'; the flip (or
+the per-profile hybrid) is an operator decision on these numbers.
 
 ## Sentence-level template stripping (phase 6, measured 2026-08-06 — not shipped)
 
