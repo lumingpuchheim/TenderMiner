@@ -21,3 +21,91 @@
 {"pub": "00376915-2025", "firm": "Jebsen GmbH", "expect": "in", "note": "reference: Sprinkenhof JVA (leave-one-out; the context-rich repeat offender)"}
 {"pub": "00403223-2025", "firm": "Jebsen GmbH", "expect": "in", "note": "reference: Kölln-Reisiek (leave-one-out; coded 45000000, text-only find)"}
 {"pub": "00406318-2025", "firm": "Jebsen GmbH", "expect": "in", "note": "reference: Harksheider Straße 70 (leave-one-out)"}
+# Task-2 growth (2026-08-06): AI-labeled backplay cases — lots the gates admitted or rejected
+# for real winner firms, each judged by the operator-procedure (read title + Leistung, decide
+# whether the lot is the firm's actual trade). Ambiguous lots (GU sub-scope mentions, empty
+# texts) were skipped, never guessed. 63 in / 21 out across 57 firms.
+{"pub": "00034646-2026", "firm": "A+B GmbH", "expect": "out", "note": "mobiler Sportboden Ausbildungshalle - Sportbodenbelag, nicht Abbruch/Schadstoffsanierung"}
+{"pub": "00148005-2026", "firm": "ANDIC GmbH", "expect": "out", "note": "Geruestbauarbeiten Dachsanierung - Geruestbau, nicht Estrich (evidence-Leck via Streuwort 'bauabschnitt')"}
+{"pub": "00123944-2026", "firm": "Achatz GmbH Bauunternehmung", "expect": "out", "title_contains": "Nachrichtentechnik", "note": "LWL/Netzwerk/Fernsprechanlagen - Nachrichtentechnik, nicht Gleis-/Tiefbau"}
+{"pub": "00143289-2026", "firm": "Aenstoots GmbH", "expect": "out", "note": "Rohbau/Brandschutzertuechtigung U-Bahnhof - Hochbau, nicht Tief-/Kanal-/Landschaftsbau"}
+{"pub": "00118320-2026", "firm": "A+B GmbH", "expect": "in", "note": "Bauteiloeffnungen in schadstoffbelasteten Bereichen - Schadstoff-/Rueckbau-Gewerk (eigener Zuschlag)"}
+{"pub": "00029734-2026", "firm": "AG Bau GmbH", "expect": "in", "note": "Estrich Grundschule Lehre - Estrichfirma, duenner Text (eigener Zuschlag)"}
+{"pub": "00047720-2026", "firm": "AMG Bau GmbH", "expect": "in", "title_contains": "Estrich", "note": "Harksheider Str. 70 Estrich - Estrichfirma (eigener Zuschlag, SBH-Templatetext)"}
+{"pub": "00187168-2026", "firm": "ASGE Rümenapp Metallbaugesell. mbH", "expect": "in", "note": "Metallbauarbeiten Aluminiumelemente - Kerngewerk (eigener Zuschlag)"}
+{"pub": "00107294-2026", "firm": "AVS Verkehrssicherung GmbH", "expect": "in", "note": "Los Verkehrsfuehrung A4 - Kerngewerk Verkehrssicherung/-fuehrung (eigener Zuschlag; Nominierung fehlt: same-buyer)"}
+{"pub": "00266319-2026", "firm": "AWR Abbruch GmbH", "expect": "in", "note": "Tiefbau mit Rueckbau/Kanalabbruch Schiessstaende - deren Gewerk (eigener Zuschlag)"}
+{"pub": "00159292-2026", "firm": "Achatz GmbH Bauunternehmung", "expect": "in", "note": "Gleis-/Tief-/Strassenbau Edingen - Kerngewerk (eigener Zuschlag)"}
+{"pub": "00648529-2025", "firm": "Adolf Lupp GmbH & Co. KG", "expect": "in", "note": "Buerogebaeude komplett Rohbau/TGA/Ausbau - GU-Geschaeft der Firma (eigener Zuschlag)"}
+{"pub": "00628150-2025", "firm": "Aenstoots GmbH", "expect": "in", "note": "Tiefbau-/Kanalbauarbeiten Schulneubau - Kerngewerk (eigener Zuschlag)"}
+{"pub": "00661043-2025", "firm": "Ahle, Fischer & Co Bau GmbH", "expect": "in", "note": "Erd-/Tief-/Rohbauarbeiten Sanierung - Firma macht erweiterte Rohbauarbeiten; embedding lehnt ab, evidence trifft"}
+{"pub": "00190519-2026", "firm": "Akkurat Reinigung & Service GmbH", "expect": "out", "note": "Zimmerer-/Holzbauarbeiten Hybridneubau - Holzbau, nicht Gebaeude-/Baureinigung"}
+{"pub": "00531778-2025", "firm": "Amand Bau NRW GmbH & Co. KG", "expect": "out", "title_contains": "Sanit", "note": "Sanitaerinstallation (WCs, Waschtische, Trinkwasser) - nicht Bruecken-/Strassenbau; embedding laesst via Code durch"}
+{"pub": "00052432-2026", "firm": "Ambrock GmbH Malerbetriebe und Oberflächentechnik", "expect": "out", "note": "Los 04 Zimmerer- und Dachdeckerarbeiten - nicht Maler/Lackier; evidence-Leck via Streuwort 'gebäude'"}
+{"pub": "00322951-2026", "firm": "Andic GmbH", "expect": "out", "note": "WC-Sanierung: 435 m2 Fliesen vs 3 m2 Schnellestrich - Fliesenlos, nicht Estrich"}
+{"pub": "00567139-2025", "firm": "Ahle, Fischer & Co Bau GmbH", "expect": "in", "note": "Zimmer-/Holzbauarbeiten mit Hausschwammbeseitigung - Kerngewerk (eigener Zuschlag)"}
+{"pub": "00053728-2026", "firm": "Akkurat Reinigung & Service GmbH", "expect": "in", "note": "Bauzwischen-/Bauendreinigung Informationszentrum - Kerngewerk (eigener Zuschlag)"}
+{"pub": "00332031-2026", "firm": "Aktro-Ausbau", "expect": "in", "title_contains": "Trockenbau", "note": "Los 13 Trockenbau 5800 m2 Staenderwand - Kerngewerk; evidence-Lexikon verhungert (nur 'gipskartonarbeit')"}
+{"pub": "00614507-2025", "firm": "Aktro-Ausbau", "expect": "in", "note": "Trockenbauarbeiten GS Beethovenstrasse - Kerngewerk (eigener Zuschlag)"}
+{"pub": "00015189-2026", "firm": "Alender Innenausbau Systeme", "expect": "in", "note": "Schreinerarbeiten DIN 18355 Moebel - Kerngewerk (eigener Zuschlag; leeres Lexikon)"}
+{"pub": "00051335-2026", "firm": "Amand Bau NRW GmbH & Co. KG", "expect": "in", "note": "Rampen/Stuetzwand Autobahnmeisterei - Strassen-/Ingenieurbau, Kerngewerk (eigener Zuschlag)"}
+{"pub": "00563160-2025", "firm": "Ambrock GmbH", "expect": "in", "note": "Malerarbeiten Kinderklinik (Wand-/Deckenbeschichtung) - Kerngewerk; evidence kennt nur 'anstricharbeit'"}
+{"pub": "00004660-2026", "firm": "Ambrock GmbH", "expect": "in", "note": "Zeitvertrag Beschichtungen/Tapezierarbeiten - Kerngewerk Maler (eigener Zuschlag)"}
+{"pub": "00328347-2026", "firm": "Anton Schick GmbH", "expect": "in", "note": "Abbruch- und Rohbauarbeiten Fassadensanierung - Rohbaufirma, duenner Text"}
+{"pub": "00115025-2026", "firm": "Anton Schick GmbH", "expect": "in", "note": "Rohbauarbeiten 3. BA (Ortbeton, Schalung) - Kerngewerk (eigener Zuschlag)"}
+{"pub": "00351545-2026", "firm": "Apleona Wolfferts GmbH", "expect": "in", "note": "Raumlufttechnische Anlagen - Lueftungsfirma; Text sagt RLT statt 'Lueftung', evidence blind"}
+{"pub": "00632443-2025", "firm": "Apleona Wolfferts GmbH", "expect": "in", "note": "Erweiterung Zentralkaelteversorgung - Kaelte/Klima, Kerngewerk (eigener Zuschlag)"}
+{"pub": "00132900-2026", "firm": "Apleona Wollferts GmbH", "expect": "in", "note": "Waermeversorgungsanlagen (Waermepumpe, Fussbodenheizung) - Kerngewerk (eigener Zuschlag)"}
+{"pub": "00055973-2026", "firm": "Ararat GmbH", "expect": "in", "note": "Innenputz- und Malerarbeiten Bildungscampus - Innenputz ist Kerngewerk (eigener Zuschlag)"}
+{"pub": "00437544-2025", "firm": "Armbrust GmbH", "expect": "out", "note": "Sanitaerlos (Abwasser-/Trinkwasserleitungen, Hebeanlagen) - Installateur, nicht Daemmung; evidence-Leck: Lexikon enthaelt die Objekte der Daemmung"}
+{"pub": "00172034-2026", "firm": "Atelier für Restaurierung Schloss Kaufungen GmbH", "expect": "out", "note": "maschinentechnische Sanierung Hebeschnecken Klaeranlage - nicht Restaurierung/Stuck"}
+{"pub": "00231217-2026", "firm": "Axel Prokot Elektrotechnik", "expect": "out", "title_contains": "Straße", "note": "Strassenbau Knotenpunkt (Erdbau, Regenrueckhaltung) - nicht Ladeinfrastruktur-Elektrotechnik"}
+{"pub": "00157916-2026", "firm": "B + H Bau GmbH", "expect": "out", "note": "Badewassertechnik Hallenbad (Filter, Pumpen) - nicht Eisenbahnbrueckenbau; embedding laesst via Code durch"}
+{"pub": "00373333-2026", "firm": "BKM Mihla GmbH", "expect": "out", "note": "DB Schutzgeruest mit Mikropfaehlen/Spritzbeton - Spezialtiefbau, nicht Metallbau-Tueren"}
+{"pub": "00316983-2026", "firm": "Armbrust GmbH", "expect": "in", "note": "Isolierarbeiten Stadtschloss - Kerngewerk Daemmung (eigener Zuschlag)"}
+{"pub": "00148428-2026", "firm": "Atelier für Restaurierung Schloss Kaufungen GmbH", "expect": "in", "title_contains": "Restaurator", "note": "Restaurator-/Stuckarbeiten Grosser Saal - Kerngewerk (eigener Zuschlag)"}
+{"pub": "00131137-2026", "firm": "Aug. Guttendörfer GmbH & Co. KG", "expect": "in", "note": "Tueranlagen der Fassadensanierung (Rundbogenschiebetueren) - Fassadenfirma (eigener Zuschlag; leeres Lexikon)"}
+{"pub": "00436496-2025", "firm": "August Fichter GmbH", "expect": "in", "note": "Freianlagen (Wege, Gruenflaechen, Anpflanzung) - GaLa-Kerngewerk; evidence blind fuer CPV-Labeltext"}
+{"pub": "00013101-2026", "firm": "August Fichter GmbH", "expect": "in", "note": "Aussenanlagen Freiraum Landschaftsbau - Kerngewerk (eigener Zuschlag)"}
+{"pub": "00017688-2026", "firm": "Ausbau 2000 Rostock GmbH", "expect": "in", "title_contains": "Trockenbau", "note": "Los 11 Trockenbau Wohnsanierung - Kerngewerk; embedding lehnt ab (0.627), evidence trifft"}
+{"pub": "00065810-2026", "firm": "Ausbau 2000 Rostock GmbH", "expect": "in", "note": "GK-Trennwaende/Abhangdecken Kita - Trockenbau-Kerngewerk (eigener Zuschlag)"}
+{"pub": "00208716-2026", "firm": "Austermann GmbH", "expect": "in", "note": "Parkettarbeiten Rathaus - Bodenbelagsfirma (eigener Zuschlag)"}
+{"pub": "00278359-2026", "firm": "Axel Prokot Elektrotechnik", "expect": "in", "note": "Ladeinfrastruktur Endhaltestelle - Kerngeschaeft (eigener Zuschlag; sim 1.0 aber same-buyer, Nominierung fehlt)", "title_contains": "Wanne"}
+{"pub": "00101538-2026", "firm": "B + H Bau GmbH", "expect": "in", "note": "Erneuerung EUe Strothe - Eisenbahnbrueckenbau-Kerngewerk (eigener Zuschlag)"}
+{"pub": "00130005-2026", "firm": "BHK Tief- und Rohrbau GmbH & Co. KG", "expect": "in", "note": "Leitungsbau DVGW GW 301 Rahmenvertrag - Kerngewerk (eigener Zuschlag; same-buyer-Template sim 1.0)", "title_contains": "Leitungsbau, Zul. DVGW GW 301, W3"}
+{"pub": "00132776-2026", "firm": "BKM Mihla GmbH", "expect": "in", "note": "Stahl-Glas-Tueren Klinikum - Kerngewerk Metallbau-Tueren (eigener Zuschlag)"}
+{"pub": "00513412-2025", "firm": "BM Baulogistik + Service GmbH", "expect": "out", "title_contains": "Los 303", "note": "Abbruch-/Erd-/Rohbauarbeiten (Stahlbeton, Aushub) - nicht Baustelleneinrichtung/Baulogistik"}
+{"pub": "00274370-2026", "firm": "BP Fassaden GmbH", "expect": "out", "title_contains": "Sanit", "note": "Sanitaer VE 05 (Abwasser/Wasser/Gas) - nicht Vorhangfassadenbau; embedding laesst via Code durch"}
+{"pub": "00226727-2026", "firm": "Beck GmbH", "expect": "out", "title_contains": "Bodenbelag", "note": "Bodenbelag/Trockenestrich - nicht Stahlbau/Schlosser; evidence-Leck via Streuwort 'abdeckung'"}
+{"pub": "00501425-2026", "firm": "Becker GmbH & Co. KG", "expect": "out", "note": "Sanierung FW-Druckerhoehungsstationen (Pumpstationstechnik) - nicht Ingenieur-/Kanalbau oder Trennwaende"}
+{"pub": "00048792-2026", "firm": "BM Baulogistik + Service GmbH", "expect": "in", "note": "Uebergeordnete Baustelleneinrichtung - Kerngeschaeft Baulogistik (eigener Zuschlag)", "title_contains": "Baustelleneinrichtung"}
+{"pub": "00534027-2025", "firm": "BP Fassaden GmbH", "expect": "in", "note": "Keramik-Vorhangfassade Hagenbachhallen - Kerngewerk (eigener Zuschlag)"}
+{"pub": "00024608-2026", "firm": "BRAUN Aufzüge GmbH & Co. KG", "expect": "in", "note": "Erneuerung zweier Aufzugsanlagen U-Bahnhof - Kerngewerk (eigener Zuschlag; leeres Lexikon)"}
+{"pub": "00115341-2026", "firm": "BROCKMANN KLIMA GmbH, Geschäftsbereich Klima + Kälte", "expect": "in", "title_contains": "Lüftung", "note": "Los 13 Lueftung Schwimmhalle - Kerngewerk (eigener Zuschlag)"}
+{"pub": "00056182-2026", "firm": "BUG Verkehrsbau SE", "expect": "in", "note": "Umbau Verkehrsstation (Bahnsteigkanten, Wetterschutz) - Kerngewerk Bahnbau (eigener Zuschlag)"}
+{"pub": "00108895-2026", "firm": "Bachner Elektro GmbH & Co. KG", "expect": "in", "note": "Baustrom (Verteiler, Kabel, Vorhaltung) - temporaere Elektroinstallation, Elektro-Geschaeft; embedding lehnt ab"}
+{"pub": "00029961-2026", "firm": "Bachner Elektro GmbH & Co. KG", "expect": "in", "note": "TGA-Elektroinstallationsarbeiten - Kerngewerk (eigener Zuschlag; Evidenz da, Nominierung fehlt)"}
+{"pub": "00383928-2025", "firm": "Bahnbau Weidlich GmbH", "expect": "in", "note": "TK-Strecke Immenstadt-Oberstdorf - Bahn-LST/TK-Kerngewerk (eigener Zuschlag; sim 1.0 aber same-buyer)", "title_contains": "TK"}
+{"pub": "00006922-2026", "firm": "Bau Kaltenberg GmbH", "expect": "in", "note": "Bodenbelag Ruettelfliesen Werkstatt - Kernspezialitaet (eigener Zuschlag)"}
+{"pub": "00092975-2026", "firm": "Beck GmbH", "expect": "in", "note": "Schlosserarbeiten (Gitterroste, Stahl-UK, Gelaender) - Kerngewerk (eigener Zuschlag)"}
+{"pub": "00382578-2026", "firm": "Beck Schreinerei GmbH", "expect": "in", "note": "Metallbau/Verglasung Alu-Fenster+Tueren - Kerngewerk Metallbau; evidence kennt nur 'stahlblechtuer'"}
+{"pub": "00087931-2026", "firm": "Beck Schreinerei GmbH", "expect": "in", "note": "Metallbauarbeiten Innentueren TGZ - Kerngewerk (eigener Zuschlag)"}
+{"pub": "00324829-2026", "firm": "Jebsen GmbH", "expect": "out", "note": "Los 4040 Starkstrom (Batterieanlage, Hauptverteilung, 61km Kabel) - Starkstrom-Elektro; nennt blitzschutz nur als Unterposition (Leck-Klasse evidence-nominates)"}
+{"pub": "00635264-2025", "firm": "K&K Bau GmbH", "expect": "out", "note": "Tueren und Zargen (Stahlzargen, Tuerblaetter) - nicht Putz/WDVS; embedding laesst via Code durch"}
+{"pub": "00464487-2026", "firm": "KG Robert Seidel GmbH &amp; Co.", "expect": "out", "note": "Heizung & Sanitaer Schulneubau - nicht Schlosser/Metallbau; evidence-Leck via Streuwort 'schule'"}
+{"pub": "00260354-2026", "firm": "KLEUSBERG GmbH & Co. KG", "expect": "out", "note": "VE410 Sanitaer (Abwasser-/Trinkwasserrohr, Durchlauferhitzer) - Sanitaerlos, nicht schluesselfertiger Modulbau"}
+{"pub": "00003418-2026", "firm": "Jens Dunkel Glas- und Bauelemente GmbH", "expect": "in", "note": "Tueren Metall+Holz, Glaswaende, BS-Tore - Kerngewerk (eigener Zuschlag)"}
+{"pub": "00104955-2026", "firm": "Jens Eidner", "expect": "in", "note": "Bodenbelagsarbeiten KuFZ - Kerngewerk, duenner Text (eigener Zuschlag)"}
+{"pub": "00429313-2026", "firm": "Johann Bunte Bauunternehmung SE & Co. KG", "expect": "in", "note": "Containerplatz (Erd-, Entwaesserungs-, Befestigungsarbeiten) - Tief-/Strassenbaugeschaeft; evidence-Lexikon blind"}
+{"pub": "00060397-2026", "firm": "Johann Bunte Bauunternehmung SE & Co. KG", "expect": "in", "note": "Erschliessung Gewerbepark (Kanalisation, Verkehrsanlagen) - Kerngewerk (eigener Zuschlag; leeres Lexikon)"}
+{"pub": "00249523-2026", "firm": "Johmann GmbH", "expect": "in", "note": "Wasser-/Abwasserinstallation - Sanitaer-Kerngewerk (Firma macht GTL Sanitaer/Heizung)", "title_contains": "Wasser"}
+{"pub": "00124669-2026", "firm": "Johmann GmbH", "expect": "in", "note": "GTL LV 13 Sanitaere Anlage - Kerngewerk (eigener Zuschlag)"}
+{"pub": "00192295-2026", "firm": "Josef Hell - Bauunternehmen GmbH", "expect": "in", "note": "Anpassung Bahnuebergang Enkingen - BUe-Kerngewerk (eigener Zuschlag; same-buyer sim 0.853)", "title_contains": "Los 4"}
+{"pub": "00649894-2025", "firm": "Josef Rädlinger Bauunternehmen GmbH", "expect": "in", "note": "Glasfaser-Cluster: Tiefbau, Kabelzug, Montage - Kerngewerk Rohr-/Kabeltiefbau (eigener Zuschlag)", "title_contains": "Cluster 7.1"}
+{"pub": "00032104-2026", "firm": "Josef Rädlinger Ingenieurbau GmbH", "expect": "in", "note": "Bahnsteiganpassung Bf Suenching - Bahnbau-Kerngewerk (eigener Zuschlag)"}
+{"pub": "00129806-2026", "firm": "Julius Gaiser GmbH", "expect": "in", "note": "Lueftungstechnik Hallenbad (4 RLT-Geraete) - Kerngewerk (eigener Zuschlag)"}
+{"pub": "00212674-2026", "firm": "Jörger GmbH", "expect": "in", "note": "Gleis-/Weichenerneuerung Bf Rheinkamp/Millingen/Xanten - Gleisbau-Kerngewerk"}
+{"pub": "00124292-2026", "firm": "K&K Bau GmbH", "expect": "in", "note": "Fassade WDVS - Kerngewerk (eigener Zuschlag)"}
+{"pub": "00428472-2026", "firm": "KAEFER Deutschland Pro Services GmbH", "expect": "in", "note": "Trockenbau 3. BA Schule Schoenkirchen - Kerngewerk; embedding lehnt ab (0.648), evidence trifft"}
+{"pub": "00001527-2026", "firm": "KAEFER Deutschland Pro Services GmbH", "expect": "in", "note": "KHN Trockenbauarbeiten (GK-Waende, Akustikdecken) - Kerngewerk (eigener Zuschlag)"}
+{"pub": "00264509-2026", "firm": "KG Robert Seidel GmbH &amp; Co.", "expect": "in", "note": "Harksheider Str. 70 Schlosser - Kerngewerk (eigener Zuschlag; SBH same-buyer, sim 0.863)"}
