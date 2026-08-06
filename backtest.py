@@ -235,25 +235,31 @@ def trade_table(res, outcome):
         if lot in outcome:
             t['graded_flags'].append(outcome[lot])
     lines = ['## Per trade — where the alarms were right', '',
-             '| code | trade | examined | results known | chance | alarms | alarms checked | right | vs chance |',
-             '|---|---|---|---|---|---|---|---|---|']
+             'Every rate is printed as its fraction: "115/480 (24%)" means '
+             '480 alarms could',
+             'be checked against a published result and 115 of them really '
+             'ended with 0-1 bids.', '',
+             '| code | trade | examined | results known | chance (0-1 bids anyway) | alarms | alarms right / checked | vs chance |',
+             '|---|---|---|---|---|---|---|---|']
     for cpv3, t in sorted(trades.items(),
                           key=lambda kv: (-len(kv[1]['graded_flags']), kv[0])):
         if not t['flags']:
             continue
-        base = (np.mean([n <= 1 for n in t['graded']])
-                if t['graded'] else float('nan'))
-        hit = (np.mean([n <= 1 for n in t['graded_flags']])
+        n_base = sum(1 for n in t['graded'] if n <= 1)
+        n_hit = sum(1 for n in t['graded_flags'] if n <= 1)
+        base = n_base / len(t['graded']) if t['graded'] else float('nan')
+        hit = (n_hit / len(t['graded_flags'])
                if t['graded_flags'] else float('nan'))
         lift = hit / base if t['graded_flags'] and base else float('nan')
         thin = ' (thin)' if 0 < len(t['graded_flags']) < 10 else ''
+        chance = (f'{n_base}/{len(t["graded"])} ({base:.0%})'
+                  if t['graded'] else '—')
+        right = (f'{n_hit}/{len(t["graded_flags"])} ({hit:.0%}){thin}'
+                 if t['graded_flags'] else f'0 checked of {t["flags"]}')
+        vs = (f'{lift:.2f}x' if t['graded_flags'] and base else '—')
         lines.append(
             f'| {cpv3} | {labels.get(cpv3, "?")[:45]} | {t["scored"]} '
-            f'| {len(t["graded"])} | {base:.0%} | {t["flags"]} '
-            f'| {len(t["graded_flags"])}{thin} '
-            f'| {hit:.0%} | {lift:.2f}x |' if t['graded_flags'] else
-            f'| {cpv3} | {labels.get(cpv3, "?")[:45]} | {t["scored"]} '
-            f'| {len(t["graded"])} | {base:.0%} | {t["flags"]} | 0 | — | — |')
+            f'| {len(t["graded"])} | {chance} | {t["flags"]} | {right} | {vs} |')
     return lines + ['']
 
 
@@ -343,11 +349,13 @@ def report(res, out_path):
              '**vs chance** = right ÷ chance.',
              '',
              f'- Tenders examined while open: {len(res["scored"])} '
-             f'(results known for {len(graded_pool)}; by chance, '
-             f'{base:.0%} ended with 0-1 bids)',
-             f'- **Alarms raised on {len(res["flagged"])} tenders; results '
-             f'known for {len(graded_flags)} — {hit:.0%} really ended with '
-             f'0-1 bids, {hit / base:.2f}x better than chance**'
+             f'(results known for {len(graded_pool)}; '
+             f'{sum(1 for n in graded_pool.values() if n <= 1)} of those '
+             f'ended with 0-1 bids anyway — chance {base:.0%})',
+             f'- **Alarms raised on {len(res["flagged"])} tenders; '
+             f'{sum(1 for n in graded_flags.values() if n <= 1)} of the '
+             f'{len(graded_flags)} checked alarms really ended with 0-1 bids '
+             f'({hit:.0%}), {hit / base:.2f}x better than chance**'
              if graded_flags else '- no checked alarms yet',
              '']
     lines += trade_table(res, outcome)
