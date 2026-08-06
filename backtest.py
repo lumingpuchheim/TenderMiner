@@ -234,8 +234,8 @@ def trade_table(res, outcome):
         t['flags'] += 1
         if lot in outcome:
             t['graded_flags'].append(outcome[lot])
-    lines = ['## Per-trade (cpv3) — where the flags hit', '',
-             '| cpv3 | trade | scored | graded | base | flags | graded flags | hit | lift |',
+    lines = ['## Per trade — where the alarms were right', '',
+             '| code | trade | examined | results known | chance | alarms | alarms checked | right | vs chance |',
              '|---|---|---|---|---|---|---|---|---|']
     for cpv3, t in sorted(trades.items(),
                           key=lambda kv: (-len(kv[1]['graded_flags']), kv[0])):
@@ -298,7 +298,11 @@ def simulate_targets(res, targets_csv, out_csv, max_picks=MAX_PICKS):
     per_firm = pd.DataFrame(rows)
     per_firm.to_csv(out_csv, index=False, encoding='utf-8-sig')
 
-    lines = ['## Target firms — replayed picks, graded', '']
+    lines = ['## Target firms — picks replayed and checked', '',
+             'A pick is counted per firm: the same tender handed to 20 firms '
+             'counts 20',
+             'times here (this measures what each firm saw, not distinct '
+             'tenders).', '']
     seg = per_firm[(per_firm['trade_match'] == True)      # noqa: E712
                    & (per_firm['primary_trade'] == '452')]
     for label, g in (('all targets', per_firm),
@@ -309,13 +313,14 @@ def simulate_targets(res, targets_csv, out_csv, max_picks=MAX_PICKS):
         majority = int(((gr['lonely'] * 2) > gr['graded']).sum())
         lines += [
             f'### {label}: {len(g)} firms',
-            f'- {len(got)} received picks; {g["picks"].sum()} picks delivered, '
-            f'{g["graded"].sum()} graded',
-            f'- **{g["lonely"].sum()} of the {g["graded"].sum()} graded picks '
-            f'ended with 0-1 bids ({hit:.0%})**',
+            f'- {len(got)} firms received picks; {g["picks"].sum()} picks '
+            f'handed out (top 5 per firm and week), results known for '
+            f'{g["graded"].sum()}',
+            f'- **{g["lonely"].sum()} of the {g["graded"].sum()} checked '
+            f'picks really ended with 0-1 bids ({hit:.0%})**',
             f'- {int((gr["lonely"] >= 1).sum())} of the {len(gr)} firms with '
-            f'graded picks got at least one 0-1-bid pick; {majority} got a '
-            f'majority of their graded picks right',
+            f'checked picks got at least one 0-1-bid pick; {majority} were '
+            f'right on the majority of their picks',
             '']
     return lines
 
@@ -329,13 +334,21 @@ def report(res, out_path):
            if graded_flags else float('nan'))
     lines = [f'# Forward backtest — {MODEL_TAG} — generated {date.today().isoformat()}',
              '',
-             f'- Replayed lots ever scored while open: {len(res["scored"])} '
-             f'({len(graded_pool)} with published outcomes; base rate '
+             'Words used here: **examined** = the model looked at the tender while it was',
+             'open · **alarm** = the model said "few bidders likely" · **pick** = one of',
+             'the top-5 alarms handed to one firm for its market · **results known** =',
+             'the award notice is published, so the true bid count is on public record ·',
+             '**chance** = how often tenders end with 0-1 bids anyway, with no model ·',
+             '**right** = share of checked alarms/picks that really ended with 0-1 bids ·',
+             '**vs chance** = right ÷ chance.',
+             '',
+             f'- Tenders examined while open: {len(res["scored"])} '
+             f'(results known for {len(graded_pool)}; by chance, '
              f'{base:.0%} ended with 0-1 bids)',
-             f'- **Global flagged picks: {len(res["flagged"])} lots; of the '
-             f'{len(graded_flags)} graded, {hit:.0%} ended with 0-1 bids '
-             f'(lift {hit / base:.2f}x)**' if graded_flags else
-             '- no graded global flags',
+             f'- **Alarms raised on {len(res["flagged"])} tenders; results '
+             f'known for {len(graded_flags)} — {hit:.0%} really ended with '
+             f'0-1 bids, {hit / base:.2f}x better than chance**'
+             if graded_flags else '- no checked alarms yet',
              '']
     lines += trade_table(res, outcome)
     if res.get('targets_csv'):
@@ -347,8 +360,8 @@ def report(res, out_path):
         graded = {lot: outcome.get(lot) for lot in picks}
         n_lonely = sum(1 for n in graded.values() if n is not None and n <= 1)
         n_graded = sum(1 for n in graded.values() if n is not None)
-        lines += [f'- Picks across the replay: {len(picks)} '
-                  f'({n_graded} graded, {n_lonely} ended with 0-1 bids)', '']
+        lines += [f'- Picks across the replay: {len(picks)} (results known '
+                  f'for {n_graded}, of which {n_lonely} ended with 0-1 bids)', '']
         for lot, p in sorted(picks.items(), key=lambda kv: kv[1]['week']):
             n = outcome.get(lot)
             res_s = f'{n} bid(s)' if n is not None else 'outcome pending'
