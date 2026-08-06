@@ -98,16 +98,16 @@ NOMINATION_BAR = 0.550
 # least this many DISTINCT lexicon keywords are found by the exact/typo
 # tiers; synonym hits are weaker witnesses and do not count toward
 # nomination. Any evidence still convicts a nominated lot; 0 disables.
-# The K=1/any-tier variant is the rejected evidence-nominates gate
-# (recall 57.9% = the conviction ceiling, leakage 8.7%). K-sweep receipt
-# (2026-08-06, bar 0.55, real judge() components): K>=2 exact/typo gives
-# recall 48.3% / leakage 2.4%, K>=3 gives 43.2% / 1.8% — both keep the
-# hard set at 19/19, neither is CLEARLY below the live gate's 1.9%
-# leakage, so the rule stays OFF (decision rule: max recall s.t. leakage
-# clearly under live and hard-19 intact). K>=2 is the standing operator
-# option: first config to beat live recall (48.3% vs 44.5%) at 19/19,
-# for +0.5pt leakage vs live. Full table in RELEVANCE.md phase 8b.
-EVIDENCE_NOMINATION_MIN = 0
+# Set to 2 with the phase-8c lexicon (operator priority 2026-08-06:
+# recall first, leakage tolerance relaxed to ~2-3%). Receipt (--sweep,
+# real judge() components, 2473/25600/102400): K>=2 = recall 51.5% /
+# leakage 2.7% / hard19 19/19 / bench 61/103 — vs live embedding gate
+# 44.5% / 1.9% / 18/19 / 47/103 at similar volume. K>=3 (45.0% / 1.6%)
+# dominates the live gate on every axis and is the fallback if leakage
+# ever binds; K>=1 (55.3% / 3.7%) is the max-recall variant. The
+# title-or-two conviction rule (evidence.convicts) is what keeps all K
+# at 19/19. Full table in RELEVANCE.md phase 8c.
+EVIDENCE_NOMINATION_MIN = 2
 
 TRUSTED_CODES = Path(__file__).resolve().parent / f'trusted_codes_{MODEL_TAG}.json'
 
@@ -252,7 +252,9 @@ def build_profile(gate, sub):
     keywords = None
     if GATE_MODE == 'evidence':
         # phase 8: the profile's trade lexicon (TF-IDF over the reference
-        # texts + trusted-label words; buyer-diverse, buyer-name-free)
+        # texts + trusted-label words; buyer-diverse, buyer-name-free),
+        # phase 8c: unioned with the store-wide dictionaries of the
+        # profile's trusted trades
         import evidence as evd
         docfreq = evd.store_doc_freq(
             gate._lots, Path(gate.data_dir) / 'evidence_df.json')
@@ -260,8 +262,12 @@ def build_profile(gate, sub):
                  gate.all_buyer[i]) for i in ref_rows]
         refs += [(str(t).casefold(), None)
                  for t in (sub.get('profile_texts') or [])]
-        keywords = evd.derive_keywords(
-            refs, docfreq, [gate.lrows[r]['label_de'] for r in hard_rows])
+        dicts = evd.trade_dictionaries(
+            gate._lots, gate.trusted, docfreq,
+            Path(gate.data_dir) / 'trade_dicts.json')
+        keywords = evd.firm_keywords(
+            refs, docfreq, [gate.lrows[r]['label_de'] for r in hard_rows],
+            {c for c in ref_codes if c in gate.trusted}, dicts)
     return {
         'ref_matrix': np.vstack(expanded),
         'ref_titles': ref_titles,
@@ -350,22 +356,28 @@ def evidence_components(gate, profile, scored_row, i):
 
 
 def _evidence_verdict(profile, text, c_hard, same_buyer, has_evidence,
-                      bar=None, nomination_min=None, witnesses=0):
+                      bar=None, nomination_min=None, witnesses=0,
+                      convicting=None):
     """The phase-8 decision itself, pure arithmetic on the components —
     shared by the runtime ladder and the sweep. NOMINATE by text similarity
     against NOMINATION_BAR (same-buyer: text abstains), by a hard
     trusted-code match, or by the evidence itself when it carries enough
     distinct witnesses (phase 8b, EVIDENCE_NOMINATION_MIN); CONVICT by
-    evidence. Nominated without evidence, or evidence without nomination:
-    borderline, visibly undecided. -> (passed, borderline)."""
+    conviction-strength evidence (phase 8c(3): title witness or multiple
+    distinct keywords; `convicting=None` falls back to any-evidence).
+    Nominated with sub-conviction evidence, nominated without evidence,
+    or evidence without nomination: borderline, visibly undecided.
+    -> (passed, borderline)."""
     if bar is None:
         bar = NOMINATION_BAR
     if nomination_min is None:
         nomination_min = EVIDENCE_NOMINATION_MIN
+    if convicting is None:
+        convicting = has_evidence
     nominated = (c_hard >= profile['min_code_hard']
                  or (not same_buyer and text >= bar)
                  or (nomination_min > 0 and witnesses >= nomination_min))
-    if nominated and has_evidence:
+    if nominated and convicting:
         return True, False
     if nominated or has_evidence:
         return False, True
@@ -382,13 +394,15 @@ def _judge_evidence(gate, profile, scored_row, i):
     """Phase-8 ladder (GATE_MODE='evidence'): components + verdict, see
     evidence_components() / _evidence_verdict(). Same 6-tuple as the
     embedding ladder."""
+    import evidence as evd
     text, c_hard, mismatch, same_buyer, ev = evidence_components(
         gate, profile, scored_row, i)
     if mismatch:
         return False, True, text, c_hard, None, c_hard
-    passed, borderline = _evidence_verdict(profile, text, c_hard,
-                                           same_buyer, bool(ev),
-                                           witnesses=evidence_witnesses(ev))
+    passed, borderline = _evidence_verdict(
+        profile, text, c_hard, same_buyer, bool(ev),
+        witnesses=evidence_witnesses(ev),
+        convicting=evd.convicts(gate.all_title[i], ev))
     why = None
     if passed:
         words = ', '.join(dict.fromkeys(w for _, w, _ in ev))

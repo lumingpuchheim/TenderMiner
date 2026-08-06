@@ -46,6 +46,39 @@ MAX_DOC_FREQ = 0.02   # keyword must appear in <= 2% of store lots
 MIN_WITNESSES = 1
 TYPO_MIN_LEN = 8      # typo tier only for long keywords
 SYN_THRESHOLD = 0.80  # word-embedding cosine for the synonym tier
+# Phase 8c (operator decision 2026-08-06: recall first, no more threshold
+# tinkering — fix the lexicon). Two structural changes:
+# (1) DEFINITIONAL WAIVER: the store-rarity sieve (MAX_DOC_FREQ) deletes
+#     the trade's own name for exactly the biggest trades (receipt:
+#     malerarbeiten 2.0%, sanitär 2.6%, heizung 2.6%, lüftung 2.1%,
+#     abbruch 4.8% — all killed; a trade's name is common in proportion
+#     to its market share). A word from the profile's own trusted-code
+#     labels that names FEW trades (label-space rarity, <= LABEL_DF_MAX
+#     of the CPV dictionary's labels) is definitional, not distinctive,
+#     and enters regardless of store frequency.
+# (2) TRADE DICTIONARIES: each trusted trade's vocabulary derived from
+#     ALL store lots carrying the code — frequent inside the trade
+#     (>= DICT_MIN_IN of its lots), rare outside (ratio >= DICT_MIN_RATIO)
+#     — so a 3-win firm inherits the vocabulary of hundreds of lots
+#     instead of five documents. The two-sided in/out test replaces the
+#     crude store-wide cutoff, which cannot tell 'neubau' (common
+#     everywhere) from 'malerarbeiten' (common only inside painting).
+# (3) TITLE-OR-TWO CONVICTION: richer lexicons surfaced the sub-scope
+#     coincidence the spec left open as risk (b) — the Blitzschutz
+#     dictionary word 'ableitung' convicted the Kreishaus-Starkstrom
+#     benchmark lot via "rauchableitung" in the LV fine print. The
+#     operator principle, extended: one coincidence in the fine print is
+#     a coincidence; the TITLE naming the trade (exact tier), or >=
+#     CONVICT_BODY_MIN distinct keywords, is a conviction. Evidence
+#     below conviction strength still lands the lot in the borderline
+#     band (visible), never a pick.
+TRADE_DICTS = True    # rollback switch for (2)
+CONVICT_BODY_MIN = 2  # body-only conviction needs this many distinct kws
+LABEL_DF_MAX = 5      # definitional = names <= this many CPV labels
+DICT_MIN_LOTS = 20    # trades with fewer coded lots keep no dictionary
+DICT_MIN_IN = 0.10    # word must appear in >= 10% of the trade's lots
+DICT_MIN_RATIO = 8.0  # ... and >= 8x as often inside as outside
+DICT_MAX_WORDS = 30   # per-trade cap, keeps lexicons readable
 SEED = 7              # mirrors calibrate.py sampling
 NEG_PER_FIRM = 50
 VOL_PER_FIRM = 200
@@ -137,8 +170,11 @@ def derive_keywords(refs, docfreq, label_texts=()):
                 cands[s] = (c, -df.get(w, 0))
     for lt in label_texts:
         for w in tokens(lt):
-            if (len(w) >= MIN_STEM_LEN
-                    and df.get(w, 0) / n_docs <= MAX_DOC_FREQ):
+            if len(w) < MIN_STEM_LEN:
+                continue
+            # phase 8c (1): definitional waiver — see constants block
+            definitional = label_doc_freq().get(w, 0) <= LABEL_DF_MAX
+            if definitional or df.get(w, 0) / n_docs <= MAX_DOC_FREQ:
                 s = stem(w)
                 cands.setdefault(s, (len(refs), 0))
     kept = []
@@ -147,6 +183,100 @@ def derive_keywords(refs, docfreq, label_texts=()):
             kept.append(s)
     kept.sort(key=lambda s: (-cands[s][0], cands[s][1]))
     return kept[:MAX_KEYWORDS]
+
+
+_LABEL_DF = None
+
+
+def label_doc_freq():
+    """token -> number of distinct CPV labels containing it. Label-space
+    rarity: 'estricharbeiten' names one trade, 'installation' names dozens
+    — only the former is definitional (phase 8c waiver)."""
+    global _LABEL_DF
+    if _LABEL_DF is None:
+        from embed import read_cpv_labels
+        c = Counter()
+        for lab in read_cpv_labels().values():
+            c.update(set(tokens(lab)))
+        _LABEL_DF = dict(c)
+    return _LABEL_DF
+
+
+_TRADE_DICTS = None
+
+
+def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
+    """code -> [stems]: each trusted trade's vocabulary, derived from ALL
+    store lots carrying the code (main or additional): frequent inside the
+    trade, rare outside it. Cached on disk (rebuilt when the store grows)
+    and memoized per process."""
+    global _TRADE_DICTS
+    if _TRADE_DICTS is not None:
+        return _TRADE_DICTS
+    from calibrate import lot_codes
+    lots = tenders.drop_duplicates(subset=KEY)
+    if cache_path and Path(cache_path).exists():
+        d = json.loads(Path(cache_path).read_text(encoding='utf-8'))
+        if d.get('n') == int(len(lots)):
+            _TRADE_DICTS = d['dicts']
+            return _TRADE_DICTS
+    n, df = docfreq['n'], docfreq['df']
+    by_code = {}
+    toks = []
+    for idx, r in enumerate(lots.itertuples(index=False)):
+        toks.append(set(tokens(fix_text(
+            str(r.title or '') + ' ' + str(r.description or '')))))
+        for c in lot_codes(r.cpv_main, r.cpv_additional):
+            if c in trusted:
+                by_code.setdefault(c, []).append(idx)
+    dicts = {}
+    for c, idxs in by_code.items():
+        if len(idxs) < DICT_MIN_LOTS:
+            continue
+        cnt = Counter()
+        for i in idxs:
+            cnt.update(toks[i])
+        n_in = len(idxs)
+        cands = {}
+        for w, k in cnt.items():
+            f_in = k / n_in
+            if len(w) < MIN_STEM_LEN or f_in < DICT_MIN_IN:
+                continue
+            f_out = (df.get(w, 0) - k) / max(n - n_in, 1)
+            if f_in / max(f_out, 1e-9) < DICT_MIN_RATIO:
+                continue
+            s = stem(w)
+            score = f_in * min(f_in / max(f_out, 1e-9), 100.0)
+            if score > cands.get(s, 0.0):
+                cands[s] = score
+        kept = []
+        for s in sorted(cands, key=len):  # shortest stem of a family wins
+            if not any(k in s for k in kept):
+                kept.append(s)
+        kept.sort(key=lambda s: -cands[s])
+        dicts[c] = kept[:DICT_MAX_WORDS]
+    if cache_path:
+        Path(cache_path).write_text(
+            json.dumps({'n': int(len(lots)), 'dicts': dicts}),
+            encoding='utf-8')
+    _TRADE_DICTS = dicts
+    return dicts
+
+
+def firm_keywords(refs, docfreq, label_texts, trusted_codes, dicts):
+    """The profile lexicon (phase 8c): the firm's own derived words plus
+    the dictionaries of its trusted trades. Substring-redundant words are
+    collapsed to the shortest stem so one text occurrence can never count
+    as two witnesses (phase 8b)."""
+    kws = derive_keywords(refs, docfreq, label_texts)
+    if TRADE_DICTS and dicts:
+        for c in trusted_codes:
+            for w in dicts.get(c, []):
+                if any(k in w for k in kws):
+                    continue  # an existing (shorter) stem already hits w
+                kws = [k for k in kws if w not in k]  # w subsumes longer kws
+                kws.append(w)
+    return kws
 
 
 def _ed_le1(a, b):
@@ -200,6 +330,21 @@ def match_evidence(text, keywords, syn=None):
                            missed):
             found.append((kw, tok, 3))
     return found
+
+
+def title_witness(title, ev):
+    """Does any exact-tier keyword hit the lot TITLE? A German lot title
+    names the procured Gewerk; a single body mention can be sub-scope
+    fine print (phase 8c(3): the Rauchableitung lesson)."""
+    t = fix_text(str(title or '')).casefold()
+    return any(kw in t for kw, _, tier in ev if tier == 1)
+
+
+def convicts(title, ev):
+    """Phase 8c(3) conviction strength: title witness, or >=
+    CONVICT_BODY_MIN distinct keywords anywhere."""
+    return (title_witness(title, ev)
+            or len({kw for kw, _, _ in ev}) >= CONVICT_BODY_MIN)
 
 
 class SynonymTier:
@@ -286,6 +431,8 @@ def receipt(data_dir, use_tier3):
     rng = np.random.default_rng(SEED)
     syn = SynonymTier(Path(data_dir) / 'embeddings' / 'word_vecs.npz') \
         if use_tier3 else None
+    dicts = trade_dictionaries(tenders, trusted, docfreq,
+                               Path(data_dir) / 'trade_dicts.json')
 
     n_pos = hits = 0
     tier_hits = Counter()
@@ -308,7 +455,9 @@ def receipt(data_dir, use_tier3):
                       if j != i]
             lbl = [labels[c] for j, cs in enumerate(codes) if j != i
                    for c in cs if c in trusted and c in labels]
-            kws = derive_keywords(others, docfreq, lbl)
+            tc_i = {c for j, cs in enumerate(codes) if j != i
+                    for c in cs if c in trusted}
+            kws = firm_keywords(others, docfreq, lbl, tc_i, dicts)
             kw_counts.append(len(kws))
             n_pos += 1
             ev = match_evidence(texts[k], kws, syn)
@@ -325,8 +474,10 @@ def receipt(data_dir, use_tier3):
                 if len(miss_examples) < 8 and rng.random() < 0.1:
                     miss_examples.append((firm, raw[k][0], kws[:6]))
         # negatives (clean, off-class trusted) and volume — firm-level keywords
-        kws = derive_keywords([(texts[k], raw[k][4]) for k in keys],
-                              docfreq, label_texts)
+        kws = firm_keywords([(texts[k], raw[k][4]) for k in keys],
+                            docfreq, label_texts,
+                            {c for cs in codes for c in cs if c in trusted},
+                            dicts)
         neg_pool = [k for k in deep_trusted
                     if all_class[k] not in firm_classes and k not in keys]
         if neg_pool:
@@ -372,8 +523,11 @@ def run_benchmark(data_dir, use_tier3):
              and not line.startswith('#')]
     syn = SynonymTier(Path(data_dir) / 'embeddings' / 'word_vecs.npz') \
         if use_tier3 else None
+    dicts = trade_dictionaries(tenders, trusted, docfreq,
+                               Path(data_dir) / 'trade_dicts.json')
 
     firms = {}
+    firm_tc = {}
     fails = 0
     for case in cases:
         firm = case['firm']
@@ -385,8 +539,13 @@ def run_benchmark(data_dir, use_tier3):
             lbl = [labels[c] for _, r in aw.iterrows()
                    for c in lot_codes(r['cpv_main'], r['cpv_additional'])
                    if c in trusted and c in labels]
-            firms[firm] = derive_keywords(
-                [(texts[k], raw[k][4]) for k in keys], docfreq, lbl)
+            firm_tc[firm] = {c for _, r in aw.iterrows()
+                             for c in lot_codes(r['cpv_main'],
+                                                r['cpv_additional'])
+                             if c in trusted}
+            firms[firm] = firm_keywords(
+                [(texts[k], raw[k][4]) for k in keys], docfreq, lbl,
+                firm_tc[firm], dicts)
             print(f'[benchmark] {firm}: keywords = {firms[firm]}')
         kws = firms[firm]
         sel = [k for k in texts if raw[k][3] == case['pub']
@@ -402,7 +561,8 @@ def run_benchmark(data_dir, use_tier3):
             if is_ref:
                 others = [(texts[k2], raw[k2][4]) for k2 in ref_keys
                           if k2 != k]
-                kws_k = derive_keywords(others, docfreq)
+                kws_k = firm_keywords(others, docfreq, (),
+                                      firm_tc[firm], dicts)
             else:
                 kws_k = kws
             ev = match_evidence(texts[k], kws_k, syn)
@@ -580,23 +740,28 @@ def judge_sweep(data_dir, limit=None):
         incl. the phase-8b witness counts under both definitions)"""
         row = {'procedure_id': k[0], 'lot_id': k[1], 'buyer_name': raw[k][4]}
         rel.GATE_MODE = 'embedding'
-        emb_ok, *_ = rel.judge(gate, profile, row)
+        emb_ok, emb_bord, *_ = rel.judge(gate, profile, row)
         rel.GATE_MODE = 'evidence'
         text, c_hard, mismatch, same_buyer, ev = rel.evidence_components(
             gate, profile, row, gate.by_key[k])
-        return (bool(emb_ok), text, c_hard, mismatch, same_buyer, bool(ev),
-                rel.evidence_witnesses(ev), len({kw for kw, _, _ in ev}),
+        return (bool(emb_ok), bool(emb_bord), text, c_hard, mismatch,
+                same_buyer, bool(ev), rel.evidence_witnesses(ev),
+                len({kw for kw, _, _ in ev}), convicts(raw[k][0], ev),
                 profile['min_code_hard'])
 
-    def verdict(obs, bar, kmin=0, all_tiers=False):
-        emb_ok, text, c_hard, mismatch, same_buyer, ev, n12, nall, mch = obs
+    def verdict(obs, bar, kmin=0, all_tiers=False, no_guard=False,
+                visible=False, any_ev_convicts=False):
+        (emb_ok, emb_bord, text, c_hard, mismatch, same_buyer, ev,
+         n12, nall, conv, mch) = obs
         if mismatch:
-            return False
-        passed, _ = rel._evidence_verdict(
-            {'min_code_hard': mch}, text, c_hard, same_buyer, ev,
+            return visible  # type-mismatch is borderline: shown, not picked
+        passed, borderline = rel._evidence_verdict(
+            {'min_code_hard': mch}, text, c_hard,
+            False if no_guard else same_buyer, ev,
             bar=bar, nomination_min=kmin,
-            witnesses=(nall if all_tiers else n12))
-        return passed
+            witnesses=(nall if all_tiers else n12),
+            convicting=(ev if any_ev_convicts else conv))
+        return (passed or borderline) if visible else passed
 
     wins_by_firm = {}
     aw = awards[awards['winner_names'].apply(
@@ -679,6 +844,20 @@ def judge_sweep(data_dir, limit=None):
     for bar in SWEEP_BARS:
         rows.append(row(f'evidence, bar {bar:.2f}',
                         lambda o, b=bar: verdict(o, b)))
+    # honesty rows (phase 8c): what a customer SEES (pass or borderline),
+    # and recall without the same-buyer muting that LOO overstates — the
+    # live-world proxy (a live candidate rarely shares a buyer with the
+    # profile references)
+    rows.append(row('embedding, visible (pass|bord.)',
+                    lambda o: o[0] or o[1]))
+    rows.append(row(f'evidence {rel.NOMINATION_BAR:.2f}, visible',
+                    lambda o: verdict(o, rel.NOMINATION_BAR, visible=True)))
+    rows.append(row(f'evidence {rel.NOMINATION_BAR:.2f}, live proxy '
+                    '(no guard)',
+                    lambda o: verdict(o, rel.NOMINATION_BAR, no_guard=True)))
+    rows.append(row(f'evidence {rel.NOMINATION_BAR:.2f}, any-ev convicts',
+                    lambda o: verdict(o, rel.NOMINATION_BAR,
+                                      any_ev_convicts=True)))
     # phase 8b: the witness grid at the committed bar; K=1/all-tiers is
     # the rejected evidence-nominates variant, kept as the anchor
     for kmin in (1, 2, 3):
@@ -692,8 +871,12 @@ def judge_sweep(data_dir, limit=None):
     print(f"{'configuration':36s} {'hard19':>7s} {'bench':>8s} "
           f"{'recall':>7s} {'leakage':>8s} {'volume':>7s}")
     for name, b19, ball, hard_fails, recall, leakage, volume in rows:
-        print(f'{name:36s} {b19:>7s} {ball:>8s} {recall:7.1%} '
+        diagnostic = 'visible' in name or 'proxy' in name
+        print(f'{name:36s} {b19 if not diagnostic else "-":>7s} '
+              f'{ball if not diagnostic else "-":>8s} {recall:7.1%} '
               f'{leakage:8.1%} {volume:7.1%}')
+        if diagnostic:
+            continue  # not a pick rule — benchmark columns undefined
         for c, t in hard_fails:
             print(f"    FAIL(hard) [{c['expect']}] {t[:56]!r} "
                   f"({c['note'][:36]})")
@@ -784,10 +967,27 @@ def main():
         judge_run(args.data_dir)
         return
     if args.keywords:
+        from calibrate import lot_codes
+        from embed import MODEL_TAG, read_cpv_labels
         tenders, awards, lots, texts, raw, docfreq = load_world(args.data_dir)
+        labels = read_cpv_labels()
+        trust = json.loads(Path(f'trusted_codes_{MODEL_TAG}.json').read_text(
+            encoding='utf-8'))
+        trusted = {c for c, v in trust['codes'].items() if v['trusted']}
+        dicts = trade_dictionaries(tenders, trusted, docfreq,
+                                   Path(args.data_dir) / 'trade_dicts.json')
         keys = firm_profile_texts(awards, texts, args.keywords)
-        print(f'[evidence] {args.keywords}: {len(keys)} wins')
-        print(derive_keywords([(texts[k], raw[k][4]) for k in keys], docfreq))
+        aw = awards[awards['winner_names'].apply(
+            lambda x: x is not None and args.keywords in list(x))]
+        aw = aw.merge(lots[KEY + ['cpv_main', 'cpv_additional']], on=KEY)
+        tc = {c for _, r in aw.iterrows()
+              for c in lot_codes(r['cpv_main'], r['cpv_additional'])
+              if c in trusted}
+        lbl = [labels[c] for c in tc if c in labels]
+        print(f'[evidence] {args.keywords}: {len(keys)} wins, '
+              f'trusted trades {sorted(tc)}')
+        print(firm_keywords([(texts[k], raw[k][4]) for k in keys],
+                            docfreq, lbl, tc, dicts))
         return
     if args.benchmark:
         sys.exit(1 if run_benchmark(args.data_dir, args.tier3) else 0)

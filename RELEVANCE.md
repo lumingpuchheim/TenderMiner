@@ -765,6 +765,64 @@ K>=2 is the first configuration that beats the live gate on recall
 scorecard and running at 26% less volume — its price is 2.4% vs 1.9%
 leakage. One constant (`EVIDENCE_NOMINATION_MIN = 2`) turns it on.
 
+## Phase 8c — lexicon coverage (operator decision 2026-08-06: recall first)
+
+The evidence gate's recall was capped by conviction coverage (57.9%
+ceiling), and the autopsy found a structural bias: **the store-rarity
+sieve deletes the trade's own name for exactly the biggest trades**
+(malerarbeiten 2.0%, sanitär 2.6%, heizung 2.6%, lüftung 2.1%, abbruch
+4.8% of store lots — all above the 2% cutoff; a trade's name is common
+in proportion to its market share). Three changes, each behind its own
+constant in `evidence.py`:
+
+1. **Definitional waiver** — words from the profile's own trusted-code
+   labels enter regardless of store frequency when they name few trades
+   (label-space rarity, `LABEL_DF_MAX`): 'estricharbeiten' names one
+   trade (definitional), 'installation' names dozens (still filtered).
+2. **Trade dictionaries** (`trade_dictionaries`, cached
+   `data/trade_dicts.json`) — each trusted trade's vocabulary derived
+   from ALL store lots carrying the code: frequent inside the trade
+   (>= 10% of its lots), rare outside (>= 8x ratio). The two-sided test
+   distinguishes 'malerarbeiten' (common only inside painting) from
+   'neubau' (common everywhere), which the store-wide cutoff cannot. A
+   3-win firm inherits the vocabulary of hundreds of lots: the pilot
+   painter's lexicon went from `anstricharbeit` alone to `malerarbeit,
+   lackierarbeit, anstrich, beschichtung, ...`; Jebsen's is the trade
+   itself (`blitzschutz, erdungsanlag, ableitung, fangstang, ringerder,
+   fundamenterder`).
+3. **Title-or-two conviction** (`evidence.convicts`) — the benchmark
+   forced this during implementation: the richer lexicon's 'ableitung'
+   convicted the Kreishaus-Starkstrom hard case via "rauchableitung" in
+   the LV fine print (the sub-scope risk (b) the phase-8 spec left
+   open). The operator's witness principle, extended: one coincidence
+   in the fine print is a coincidence (borderline, visible); the TITLE
+   naming the trade (exact tier), or >= 2 distinct keywords, is a
+   conviction. This alone returns hard19 to 19/19 at every K (the
+   `any-ev convicts` diagnostic row shows 18/19 without it).
+
+**Receipt (full `--sweep`, real judge() components, 2,473 pos / 25,600
+neg / 102,400 vol; `hard19` = original hand-labeled set, `bench` = the
+grown 103-case scorecard):**
+
+| configuration | hard19 | bench | recall | leakage | volume |
+| --- | --- | --- | --- | --- | --- |
+| embedding gate (live) | 18/19 | 47/103 | 44.5% | 1.9% | 4.6% |
+| evidence 0.55, K off | 19/19 | 52/103 | 36.5% | 1.1% | 2.1% |
+| **evidence 0.55 + K>=2 (committed)** | **19/19** | **61/103** | **51.5%** | 2.7% | 4.4% |
+| evidence 0.55 + K>=3 | 19/19 | 56/103 | 45.0% | 1.6% | 2.9% |
+| evidence 0.55 + K>=1 | 19/19 | 65/103 | 55.3% | 3.7% | 5.6% |
+
+Honesty rows (same pass): **visible recall** (pass or borderline — what
+the report shows) 74.2% for the evidence gate vs 57.5% embedding;
+live-proxy recall (no same-buyer muting) 47.5% at K off. **Decision
+(operator priority: recall first, ~2-3% leakage acceptable):
+`EVIDENCE_NOMINATION_MIN = 2`.** K>=2 beats the live gate on recall
+(+7.0pt), hard19, the scorecard (+14 cases) and volume, at 2.7% vs
+1.9% leakage. K>=3 strictly dominates the live gate on every axis and
+is the fallback if leakage ever binds; K>=1 is the max-recall option.
+`GATE_MODE` remains 'embedding' — the flip is the operator's decision,
+now with the evidence gate ahead on recall for the first time.
+
 ## Sentence-level template stripping (phase 6, measured 2026-08-06 — not shipped)
 
 The remaining text pathologies are one pathology: tender prose describes
