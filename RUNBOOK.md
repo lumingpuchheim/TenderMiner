@@ -213,7 +213,12 @@ python outreach.py                    # small/micro, >=2 wins -> data/outreach/t
 python outreach.py --sizes small micro medium --min-wins 1
 ```
 
-Re-run after a backfill or when the awards store has grown. The CSV is
-private (personal data, gitignored). Which trades to campaign in comes from
+Re-run after a backfill or when the awards store has grown (add `--rescan`
+then — contact details are cached in `data/outreach/contacts.json`). The
+CSV is private (personal data, gitignored). Campaign segmentation uses the
+`trade_read*` columns (what the firm's won tenders *read as*, via the
+embedding sidecar), not the won-lot CPV codes — a buyer's filing choice
+can put a hygiene firm under 452; the text cannot. `trade_match == True`
+is the mailable set; disagreeing rows go to hand review first. Which trades to campaign in comes from
 the backtest's per-trade table (§3); the channel decision (letters, not
 e-mail — §7 UWG) is documented in GO_TO_MARKET.md.
