@@ -26,7 +26,11 @@ hard channel unopposed and is invisible to the leakage metric by
 construction; closed by phase 7 (trade-talk contradiction, below), shipped
 2026-08-06 as configuration K: margin 0.225, recall 60.3% → 60.0%, 5.9%
 of hard-code admissions contested, both known wrong picks demoted. Phase
-4 feedback stays the backstop throughout.
+4 feedback stays the backstop throughout. **Phase 8 (the evidence gate,
+specified 2026-08-06) supersedes the guess channels wholesale when its
+receipt wins**: embeddings nominate, lexical trade evidence convicts —
+the operator's own reading procedure, adopted as the gate's; the soft
+fingerprint and the phase-5/7 guards are deleted with it.
 Builds on the running loop
 ([`ONLINE_LEARNING.md`](ONLINE_LEARNING.md)) and the subscription layer
 ([`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md)); uses their vocabulary
@@ -299,7 +303,7 @@ firm may bid a services-coded maintenance tender); visible-undecided is the
 correct verdict for a signal this coarse. Unknown types on either side
 disable the rule (a promise needs data on both sides).
 
-## Reading the trade from the text — projection corroboration (phase 5, implemented 2026-08-05)
+## Reading the trade from the text — projection corroboration (phase 5, implemented 2026-08-05; superseded by phase 8 when configuration L ships)
 
 The Rettungswache diagnostic (2026-08-05, replayed on the pilot profile
 with the deadline promise off) pinned the week's leakage to one door.
@@ -386,7 +390,7 @@ Implementation note: the rule and its constants live entirely in
 loop.py touch, deferred while loop.py carries unrelated in-flight work
 (SIMULATION.md).
 
-## The trade-talk contradiction — hierarchy-aware hard-pass corroboration (phase 7, implemented 2026-08-06)
+## The trade-talk contradiction — hierarchy-aware hard-pass corroboration (phase 7, implemented 2026-08-06; superseded by phase 8 when configuration L ships)
 
 Phase 5 guards soft passes; hard passes stayed exempt under the asymmetry
 ("a trusted code on the lot is a fact"). The Trafostation case
@@ -476,6 +480,158 @@ to the two lots that are actually his trade, pick unchanged.
 Implementation: `trade_talk_contradicted()` + rule 6 in
 `relevance.py::judge`, `foreign_trade_rows` on the profile, the K sweep
 in `calibrate.py`, the trade-talk verdict line in `explain.py`.
+
+## The evidence gate (phase 8, configuration L — specified 2026-08-06, supersedes the guess channels)
+
+Origin: the operator rejected the Kreishaus Schwachstrom recommendation by
+a procedure better than the gate's — read the **Leistung** section, scan
+for trade evidence, reject on absence. The gate could not do this because
+cosine similarity cannot represent absence: it compresses project frame,
+lexical fields and trade content into one "feels alike" number. The soft
+fingerprint guessed trades from reference texts, phase 5 guarded that
+guess, phase 7 guarded the hard channel with embedding margins — three
+layers of compensation for a judgment the similarity score had discarded.
+This phase replaces the compensations with the judgment.
+
+**Design principle: embeddings nominate, evidence convicts.** The burden
+of proof flips: today any firing channel passes a lot; under L a
+recommendation requires positive trade evidence, and ambiguity lands in
+the borderline band — visibly undecided, never silently passed.
+
+**Component 1 — the section splitter (structure-aware text).** German
+notices routinely separate project description from the procured work,
+often with literal headings ("Kurzbeschreibung des Projekts:" /
+"Kurzbeschreibung der hier ausgeschriebenen Leistung:" — the Kreishaus
+notice labels both). Split on these markers (plus conservative
+heuristics); the evidence test reads title + Leistung part. No detectable
+structure → the whole text is the Leistung (fail-open). This is the
+structural, near-free version of what phase 6 tried statistically.
+
+**Component 2 — the per-profile trade lexicon, derived, never
+hand-written.** Three sources, merged and stemmed: (a) the distinctive
+tokens of the reference texts — frequent in the customer's wins, rare in
+the store (document-frequency ratio; on the pilot this alone surfaces
+Blitzschutz, Erdung, Fangeinrichtung, Ableiter, Fundamenterder,
+Blitzschutzklasse); (b) the tokens of the profile's hard-code CPV labels;
+(c) `profile_texts` tokens — the cold-start path. Matching is
+substring-on-stems, which German compounding makes strong
+("blitzschutz" hits Blitzschutzanlage, Gebäudeblitzschutz,
+Blitzschutzklasse). The lexicon is a derived artifact of the profile,
+rebuilt when the profile changes, stamped on delivery rows.
+
+**Component 3 — the simplified ladder** (judge shrinks from six rules to
+four):
+
+    1. not in sidecar -> pass ungated            (fail-open, unchanged)
+    2. contract-type mismatch -> borderline      (cheap fact, unchanged)
+    3. NOMINATE: text similarity >= nomination bar (same-buyer: abstains,
+       unchanged), OR a hard trusted-code match. Nomination is the recall
+       funnel and convicts nothing.
+    4. CONVICT: trade evidence present in title+Leistung -> market;
+       absent -> borderline. No channel passes a lot without evidence —
+       not a 1.000 code match (the Trafostation dies here: zero
+       trade-family terms), not a high cosine (the Kreishaus lot dies
+       here identically).
+
+**Superseded but NOT deleted (decision 2026-08-06, operator).** This is
+a large change, and the insurance is the same as for an embedding-model
+flip: **both gates stay implemented, a single committed switch
+(`GATE_MODE = 'evidence' | 'embedding'`) chooses, and rollback is
+flipping the constant back** — no retraining, no rebuild, the sidecars
+and the champion model stay on disk untouched (the competition model is
+independent of the gate by design and is never affected). The state
+before the experiment is tagged `gate-v1-embedding`. Under
+`'embedding'` the phase-5/7 ladder runs exactly as shipped; under
+`'evidence'` the soft fingerprint, phase-5 corroboration and phase-7
+margins are simply not consulted. Deleting the dormant machinery is a
+separate, later decision made after live experience, not by this spec.
+**Kept in both modes**: the coarse filter, trusted-code cohesion and the
+hard channel (as nominator), the same-buyer guard, the contract-type
+rule, the borderline band, one bar, all stamps. The report's "warum Ihr
+Geschäft" gets *better* under the evidence gate: it can quote the
+evidence ("nennt Fangeinrichtungen, Ableiter") instead of describing a
+score.
+
+**Evidence matching is three-tiered (operator's design, 2026-08-06)** —
+document-level similarity is gone, but embeddings survive at the one
+granularity where they cannot lie. Per keyword, cheapest tier first,
+every match quotable: (1) **exact** — case-folded substring search;
+German compounding makes stems powerful (blitzschutz hits
+Blitzschutzanlage, Gebäudeblitzschutz, Blitzschutzklasse); (2) **typo**
+— bounded edit distance, deterministic, reported as "gefunden:
+'Blitzshutzanlage', vermutlich Blitzschutz"; (3) **synonym** — the
+keyword's embedding against embeddings of the description's *words*
+(the label sidecar already proves word-level embedding works in this
+space): "Überspannungsschutz (ähnlich Blitzschutz, 0.8x)". A single
+word carries no project frame — the failure mode that killed
+document similarity is structurally impossible at word granularity.
+Word vectors are cached by vocabulary (embed each unique word once);
+tier 3 runs only on words tiers 1–2 did not settle, only in slices —
+no backfills on the weekly critical path. One calibrated threshold
+(tier 3), one edit-distance bound (tier 2), both in configuration L's
+receipt.
+
+**Calibration (configuration L).** Parameters: the nomination text bar
+(re-searched, and expected to come DOWN from 0.700 — similarity no
+longer convicts, so it can afford recall); the lexicon distinctiveness
+cutoff; evidence scope (title+Leistung vs whole text, decided
+empirically). Objective as in G. Two receipts gate the ship decision:
+the standard corpus (recall/leakage/volume vs H+K's 60.0% / 1.5% / 5.1%)
+**and the operator benchmark** — the 16 hand-labeled lots of 2026-08
+(6 confirmed-wrong, 10 confirmed-right), committed as a regression file;
+a configuration that misjudges any benchmark case is rejected regardless
+of its aggregate numbers.
+
+**Known risks, named**: (a) genuinely relevant lots with term-free thin
+text and no honest code land in borderline — the measured recall price,
+absorbed by the band and phase-4 feedback; (b) sub-scope mentions
+("inkl. Blitzschutz" inside a Generalunternehmer Leistung) satisfy the
+evidence test — whether that needs a density/title condition is decided
+by the benchmark, not by taste; (c) evidence-only lots (terms present,
+no nomination) are reported as a diagnostic before anyone decides
+whether evidence may also nominate.
+
+**Build order**: (1) benchmark file + section splitter + TF-IDF lexicon
+derivation + the three-tier matcher, diagnostic against the 16 cases
+and the 2,473-win leave-one-out *before* any gate change; (2)
+configuration L in `calibrate.py`; (3) the evidence ladder in
+`relevance.py` behind `GATE_MODE`, embedding gate untouched; (4) the
+"warum" upgrade in the report. Flip `GATE_MODE` to `'evidence'` only on
+a winning receipt; the tag `gate-v1-embedding` and the constant are the
+two-step rollback.
+
+**Status (2026-08-06, built — NOT flipped).** Everything is implemented
+behind `GATE_MODE` (default `'embedding'`; env var for per-run tryouts).
+Receipts so far, honestly mixed:
+
+- **Operator benchmark: 19/19.** Two derivation lessons were learned on
+  the way and are now rules: keywords must come from **more than one
+  buyer's** wins (the same-buyer lesson applied to the lexicon — the SBH
+  template had smuggled "hansestadt/landesbetrieb/wirtschaftlich" in),
+  and **buyer-name words are excluded** (they say who, not what —
+  "hamburg" is geography). The pilot lexicon after both rules:
+  `blitzschutz, erdungsanlag` — the whole trade, auditable at a glance.
+  Every benchmark verdict quotes its evidence or its absence.
+- **Store-wide leave-one-out (tiers 1–2, conviction-only): recall
+  51.7%** vs the embedding gate's 60.0% — the vocabulary-gap fear is
+  real at scale. The miss autopsy: 13.7% of holdout profiles derive an
+  empty lexicon, 40% under three keywords (multi-trade firms with few
+  wins per trade), and the rich-lexicon misses are dominated by
+  trade-name synonymy inside a firm's own wins (Holzbau↔Holzarbeit,
+  Schlosser↔Stahlbau, Parkett↔Bodenbelag) — precisely tier 3's job;
+  its receipt is the open measurement. Conviction-only leakage 5.5% /
+  volume 7.4% are upper bounds (no nomination step applied) and include
+  the genuine "names the trade as sub-scope" class.
+- Verified end-to-end under `GATE_MODE=evidence`: the pilot's render
+  yields the same single correct pick, the "warum Ihr Geschäft" column
+  quotes the found words ("nennt blitzschutz, erdungsanlag"), and
+  `explain.py` prints lexicon + evidence per lot alongside the
+  embedding path.
+
+The flip decision waits on the tier-3 receipt and, if recall stays
+short, on lexicon-derivation improvements (token-family folding, ATV
+vocabulary) — measured against the same two gatekeepers as everything
+else.
 
 ## Sentence-level template stripping (phase 6, measured 2026-08-06 — not shipped)
 
@@ -700,6 +856,12 @@ is defined: *"Ihr Profil: 6 gewonnene Ausschreibungen + 1 Beschreibung."*
    diagnostic with hand-read ground truth), then the hierarchy-aware
    demotion rule in `relevance.py::judge`. *Closes the agreeing-wrong-
    code door the Trafostation walked through.*
+8. **The evidence gate** — section splitter, per-profile trade lexicon,
+   the committed 16-case operator benchmark, configuration L, then the
+   simplified four-rule ladder with the guess channels (soft
+   fingerprint, phases 5 and 7 machinery) deleted. *Embeddings
+   nominate, evidence convicts; the gate gets simpler and every verdict
+   becomes quotable.*
 
 Each phase leaves a running system; a subscription without `min_relevance`
 is untouched at every phase, so nothing ships as a flag-day.

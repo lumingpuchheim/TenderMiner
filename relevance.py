@@ -14,6 +14,7 @@ default to the committed calibration receipt for the active MODEL_TAG.
 """
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -72,6 +73,12 @@ TRADE_READ_PARAM = 0.0
 # known wrong picks carried +0.28/+0.29). None disables.
 TRADE_TALK_MARGIN = 0.225
 TRADE_BRANCHES = ('453', '454')
+# Phase 8 (RELEVANCE.md): the gate switch. 'embedding' = the phase-5/7
+# ladder exactly as shipped (tag gate-v1-embedding). 'evidence' = the
+# evidence gate — TF-IDF trade keywords convict, similarity and codes only
+# nominate. The committed default flips ONLY on a winning configuration-L
+# receipt; the env var allows per-run tryouts, mirroring EMBED_MODEL.
+GATE_MODE = os.environ.get('GATE_MODE', 'embedding')
 
 TRUSTED_CODES = Path(__file__).resolve().parent / f'trusted_codes_{MODEL_TAG}.json'
 
@@ -80,6 +87,7 @@ class Gate:
     """Sidecars + trust list loaded once per cycle; profiles built per sub."""
 
     def __init__(self, data_dir):
+        self.data_dir = data_dir
         self.rows, self.mat = load_sidecar(data_dir)
         self.lpos, self.lrows, self.lmat = load_label_sidecar(data_dir)
         trust = json.loads(TRUSTED_CODES.read_text(encoding='utf-8'))
@@ -108,6 +116,8 @@ class Gate:
                              lots['buyer_name']))
         key_title = dict(zip(zip(lots['procedure_id'], lots['lot_id']),
                              lots['title']))
+        key_desc = dict(zip(zip(lots['procedure_id'], lots['lot_id']),
+                            lots['description']))
         key_add = dict(zip(zip(lots['procedure_id'], lots['lot_id']),
                            lots['cpv_additional']))
         key_ctype = dict(zip(zip(lots['procedure_id'], lots['lot_id']),
@@ -127,6 +137,10 @@ class Gate:
         self.all_title = np.array(
             [key_title.get((r['procedure_id'], r['lot_id'])) for r in self.rows],
             dtype=object)
+        self.all_desc = np.array(
+            [key_desc.get((r['procedure_id'], r['lot_id'])) for r in self.rows],
+            dtype=object)
+        self._lots = lots  # evidence-mode lexicon derivation reads the store
         self._pools = None
 
     @property
@@ -206,6 +220,19 @@ def build_profile(gate, sub):
     foreign = [int(r) for r, t in zip(gate.trade_rows, gate.trade_trim)
                if not any(t.startswith(h) or h.startswith(t)
                           for h in hard_trim)] if hard_trim else []
+    keywords = None
+    if GATE_MODE == 'evidence':
+        # phase 8: the profile's trade lexicon (TF-IDF over the reference
+        # texts + trusted-label words; buyer-diverse, buyer-name-free)
+        import evidence as evd
+        docfreq = evd.store_doc_freq(
+            gate._lots, Path(gate.data_dir) / 'evidence_df.json')
+        refs = [(evd.leistung_text(gate.all_title[i], gate.all_desc[i]),
+                 gate.all_buyer[i]) for i in ref_rows]
+        refs += [(str(t).casefold(), None)
+                 for t in (sub.get('profile_texts') or [])]
+        keywords = evd.derive_keywords(
+            refs, docfreq, [gate.lrows[r]['label_de'] for r in hard_rows])
     return {
         'ref_matrix': np.vstack(expanded),
         'ref_titles': ref_titles,
@@ -220,6 +247,7 @@ def build_profile(gate, sub):
         'min_code_hard': float(sub.get('min_code_hard', DEFAULT_MIN_CODE_HARD)),
         'min_code_soft': float(sub.get('min_code_soft', DEFAULT_MIN_CODE_SOFT)),
         'version': sub.get('version', 1),
+        'keywords': keywords,
     }
 
 
@@ -244,6 +272,45 @@ def corroborated(gate, profile, i):
     if TRADE_READ_FORM == 'H1':
         return tread >= TRADE_READ_PARAM
     return tread >= world - TRADE_READ_PARAM
+
+
+def evidence_for(gate, profile, i):
+    """Phase 8: the (keyword, found_word, tier) matches of a lot's
+    title+Leistung against the profile lexicon; [] without a lexicon."""
+    import evidence as evd
+    return evd.match_evidence(
+        evd.leistung_text(gate.all_title[i], gate.all_desc[i]),
+        profile.get('keywords') or [])
+
+
+def _judge_evidence(gate, profile, scored_row, i):
+    """Phase-8 ladder (GATE_MODE='evidence'): NOMINATE by text similarity
+    or a hard trusted-code match — recall only, convicts nothing — then
+    CONVICT by trade evidence in title+Leistung. Nominated without
+    evidence, or evidence without nomination: borderline, visibly
+    undecided. Same 6-tuple as the embedding ladder."""
+    sims = profile['ref_matrix'] @ gate.mat[i]
+    text = float(sims.max())
+    c_hard = 0.0
+    if len(profile['hard_rows']):
+        for cr in [gate.lpos[c] for c in _codes_of(gate, i)
+                   if is_deep(c) and c in gate.lpos]:
+            s = float((gate.lmat[profile['hard_rows']] @ gate.lmat[cr]).max())
+            c_hard = max(c_hard, s)
+    ctype = gate.all_ctype[i]
+    if (profile['ref_types'] and isinstance(ctype, str) and ctype
+            and ctype not in profile['ref_types']):
+        return False, True, text, c_hard, None, c_hard
+    same_buyer = _norm_buyer(scored_row.get('buyer_name')) in profile['ref_buyers']
+    nominated = (c_hard >= profile['min_code_hard']
+                 or (not same_buyer and text >= profile['min_relevance']))
+    ev = evidence_for(gate, profile, i)
+    if nominated and ev:
+        words = ', '.join(dict.fromkeys(w for _, w, _ in ev))
+        return True, False, text, c_hard, ('evidence', words[:80]), c_hard
+    if nominated or ev:
+        return False, True, text, c_hard, None, c_hard
+    return False, False, text, c_hard, None, c_hard
 
 
 def trade_talk_contradicted(gate, profile, i):
@@ -316,6 +383,8 @@ def judge(gate, profile, scored_row):
     i = gate.by_key.get((scored_row['procedure_id'], scored_row['lot_id']))
     if i is None:
         return True, False, None, None, None, 0.0  # rule 1: fail-open
+    if GATE_MODE == 'evidence':
+        return _judge_evidence(gate, profile, scored_row, i)
     sims = profile['ref_matrix'] @ gate.mat[i]
     text = float(sims.max())
     cand_rows = [gate.lpos[c] for c in _codes_of(gate, i)

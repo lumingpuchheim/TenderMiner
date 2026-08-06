@@ -1,0 +1,23 @@
+# The operator benchmark (2026-08): hand-labeled relevance cases from the
+# phase 5-8 investigations. A gate configuration that misjudges any case is
+# rejected regardless of its aggregate numbers. expect: in = the customer's
+# business (market), out = not (borderline/none). One line per case.
+{"pub": "00166738-2026", "firm": "Jebsen GmbH", "expect": "out", "note": "Trafostation wearing the Blitzschutz code (agreeing-wrong-code, operator-rejected)"}
+{"pub": "00028199-2026", "firm": "Jebsen GmbH", "expect": "out", "note": "Batteriespeicher Bordesholm, hard 1.0, text elsewhere (operator-rejected)"}
+{"pub": "00490813-2026", "firm": "Jebsen GmbH", "expect": "out", "note": "GU Rettungswache (soft-fingerprint leak, operator-rejected)"}
+{"pub": "00039523-2026", "firm": "Jebsen GmbH", "expect": "out", "note": "GU Rettungswache, older sibling (operator-rejected)"}
+{"pub": "00017831-2026", "firm": "Jebsen GmbH", "expect": "out", "note": "Schwachstrom/Sicherheitstechnik Kreishaus (operator read the Leistung: no trade evidence)"}
+{"pub": "00016775-2026", "firm": "Jebsen GmbH", "expect": "out", "note": "Starkstrom Kreishaus, sibling of the Schwachstrom lot"}
+{"pub": "00259917-2026", "firm": "Jebsen GmbH", "expect": "out", "note": "Brandschutzelemente innen (era-gate replay pick, wrong trade)"}
+{"pub": "00260698-2026", "firm": "Jebsen GmbH", "expect": "out", "note": "Holz-Glas-Rahmenkonstruktionen (era-gate replay pick, joinery)"}
+{"pub": "00510556-2025", "title_contains": "Los 1 ", "firm": "Jebsen GmbH", "expect": "out", "note": "SWN sibling lot: Rohbau"}
+{"pub": "00510556-2025", "title_contains": "Los 2", "firm": "Jebsen GmbH", "expect": "out", "note": "SWN sibling lot: Gebäudehülle"}
+{"pub": "00510556-2025", "title_contains": "Los 11", "firm": "Jebsen GmbH", "expect": "out", "note": "SWN sibling lot: Allgemeiner Tiefbau"}
+{"pub": "00510556-2025", "title_contains": "Los 12", "firm": "Jebsen GmbH", "expect": "in", "note": "SWN Blitzschutzanlagen — the correct pick"}
+{"pub": "00432657-2026", "firm": "Jebsen GmbH", "expect": "in", "note": "Schönkirchen Blitzschutz+Erdung school lot — trade buried in project prose"}
+{"pub": "00045274-2026", "firm": "Jebsen GmbH", "expect": "in", "note": "reference: HafenCity VE 4070 (judged leave-one-out)"}
+{"pub": "00081139-2026", "firm": "Jebsen GmbH", "expect": "in", "note": "reference: Grützmühlenweg 38 (leave-one-out)"}
+{"pub": "00162860-2026", "firm": "Jebsen GmbH", "expect": "in", "note": "reference: Foorthkamp 36 (leave-one-out)"}
+{"pub": "00376915-2025", "firm": "Jebsen GmbH", "expect": "in", "note": "reference: Sprinkenhof JVA (leave-one-out; the context-rich repeat offender)"}
+{"pub": "00403223-2025", "firm": "Jebsen GmbH", "expect": "in", "note": "reference: Kölln-Reisiek (leave-one-out; coded 45000000, text-only find)"}
+{"pub": "00406318-2025", "firm": "Jebsen GmbH", "expect": "in", "note": "reference: Harksheider Straße 70 (leave-one-out)"}

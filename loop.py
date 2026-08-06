@@ -874,6 +874,9 @@ def deliver(paths, scored, args):
                 return escape(f'ähnelt Ihrem Auftrag „{clean_cell(detail, 50)}“')
             if kind == 'ref':
                 return 'ähnelt Ihrem Profil'
+            if kind == 'evidence':
+                # phase 8: quote the trade words actually found in the notice
+                return escape(f'nennt {clean_cell(detail, 50)}')
             return escape(f'CPV-Code passt: {clean_cell(detail, 50)}')
 
         deliveries, pick_trs = [], []

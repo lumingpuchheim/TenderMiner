@@ -98,6 +98,7 @@ answers your question; none of them touches the real ledgers or reports.
 | Why did lot Y pass / fail X's gate? What trade does its text read as? | `python explain.py --sub <sub_id> <TED-number> …` | seconds |
 | Would we have recommended this firm's historical solo win, knowing only the past? | `python playback.py --firm "Firma GmbH"` | ~10 min |
 | Show me a real prediction report AND the later report that checks it (the "Rückblick" demo) | `python replay.py --sub <sub_id> --cutoff YYYY-MM-DD` | ~15 min |
+| Does the gate still judge every hand-labeled case correctly? | `python evidence.py --benchmark` | seconds |
 | Does a gate/model change make picks better overall? | `python backtest.py` | hours |
 
 - **`tryout.py`** re-renders one customer from the last cycle's prediction

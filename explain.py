@@ -94,6 +94,10 @@ def explain_lot(gate, profile, i):
                 f'(foreign {foreign:.3f} [{gate.lrows[j]["label_de"][:30]}] '
                 f'- own {tread:.3f} = {margin:+.3f} vs '
                 f'margin {rel.TRADE_TALK_MARGIN})')
+    if profile.get('keywords') is not None:
+        ev = rel.evidence_for(gate, profile, i)
+        path.append('evidence: ' + (', '.join(
+            f'{w}(t{t})' for _, w, t in ev) if ev else 'NONE'))
     print(f'{title!r} | {buyer}')
     print(f'   verdict ok={ok} borderline={near} '
           f'text={tx if tx is None else round(tx, 3)}'
@@ -123,7 +127,10 @@ def main():
     profile = rel.build_profile(gate, sub)
 
     print(f"profile: {sub.get('name', args.sub)} "
-          f"(v{sub.get('version')}, min_relevance {profile['min_relevance']})")
+          f"(v{sub.get('version')}, min_relevance {profile['min_relevance']}, "
+          f'gate={rel.GATE_MODE})')
+    if profile.get('keywords') is not None:
+        print(f"trade lexicon: {profile['keywords']}")
     print('hard labels (trusted codes on the wins):')
     for r in profile['hard_rows']:
         print(f"   {gate.lrows[r]['code']}  {gate.lrows[r]['label_de']}")
