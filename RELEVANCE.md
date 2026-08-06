@@ -628,10 +628,20 @@ Receipts so far, honestly mixed:
   `explain.py` prints lexicon + evidence per lot alongside the
   embedding path.
 
-The flip decision waits on the tier-3 receipt and, if recall stays
-short, on lexicon-derivation improvements (token-family folding, ATV
-vocabulary) — measured against the same two gatekeepers as everything
-else.
+**Tier-3 receipt (2026-08-06): recall 55.9%** — the synonym tier
+rescued 104 wins (+4.2pt, exactly the predicted class:
+Holzbau↔Holzarbeit, Kälte↔Klima) at +1.8pt conviction-only leakage.
+Final gap to the embedding gate: ~4 recall points, concentrated where
+the lexicon starves (28% of holdout profiles derive <3 keywords —
+multi-trade firms with few wins per trade; plus geographic residue in
+rail/network firms whose distinctive win-words are city names).
+**Standing verdict**: the evidence gate is the proven precision
+instrument (benchmark 19/19, quotable verdicts) but not a universal
+replacement at current recall; the deployment that fits the numbers is
+**per-profile** — a substantive lexicon (like the pilot's) earns the
+evidence gate, a starved one stays on the embedding gate with the
+reason visible. `GATE_MODE` default remains 'embedding' until that
+hybrid (or a better lexicon derivation) wins its receipt.
 
 ## Sentence-level template stripping (phase 6, measured 2026-08-06 — not shipped)
 
