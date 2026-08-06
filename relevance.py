@@ -157,10 +157,23 @@ TRUSTED_CODES = Path(__file__).resolve().parent / f'trusted_codes_{MODEL_TAG}.js
 
 
 class Gate:
-    """Sidecars + trust list loaded once per cycle; profiles built per sub."""
+    """Sidecars + trust list loaded once per cycle; profiles built per sub.
 
-    def __init__(self, data_dir):
+    `as_of` (RELEVANCE.md phase 9) is the date whose world this gate
+    reconstructs, and it governs learned references — a customer's own
+    wins, recorded by feedback.py. **It has no default on purpose.**
+    Without it no learned reference is loaded and every profile is exactly
+    what the subscription line says, which is the behaviour every caller
+    had before phase 9. A replay path that forgets to pass its cutoff
+    therefore *understates* the profile; it can never pull a future win
+    into a historical world, which is the failure that would silently
+    flatter every backtest.
+    """
+
+    def __init__(self, data_dir, as_of=None):
         self.data_dir = data_dir
+        self.as_of = str(as_of) if as_of else None
+        self._learned = None
         self.rows, self.mat = load_sidecar(data_dir)
         self.lpos, self.lrows, self.lmat = load_label_sidecar(data_dir)
         trust = json.loads(TRUSTED_CODES.read_text(encoding='utf-8'))
@@ -216,6 +229,24 @@ class Gate:
         self._lots = lots  # evidence-mode lexicon derivation reads the store
         self._pools = None
 
+    def learned_refs(self, sub_id):
+        """Publication numbers learned for this subscription on or before
+        `as_of`; empty without an `as_of` (see the class docstring)."""
+        if not self.as_of:
+            return []
+        if self._learned is None:
+            try:
+                import feedback
+                self._learned = feedback.read_learned(self.data_dir)
+            except Exception:  # a missing/broken ledger is not a cycle failure
+                self._learned = []
+        import feedback
+        return feedback.refs_for(self._learned, sub_id, self.as_of)
+
+    def reload_learned(self):
+        """Drop the cached ledger — call after appending within a cycle."""
+        self._learned = None
+
     @property
     def pools(self):
         if self._pools is None:
@@ -254,12 +285,24 @@ def wants_gate(sub):
 
 def build_profile(gate, sub):
     """Resolve a subscription's profile against the sidecars. An unresolvable
-    profile_ref is an error (RELEVANCE.md: never a silent skip)."""
+    profile_ref is an error (RELEVANCE.md: never a silent skip).
+
+    Phase 9: the profile is the subscription's own references UNIONED with
+    the customer's learned references — their own wins, recorded by
+    feedback.py — as of `gate.as_of`. Without an `as_of` that union is
+    empty and this behaves exactly as before. The asymmetry in error
+    handling is deliberate: an operator-written ref that does not resolve
+    is a mistake and raises, while a learned ref that does not resolve
+    (the store was rebuilt, the sidecar lags) is derived data and is
+    skipped — a feedback record must never break a customer's delivery."""
     ref_rows = []
     for pub in sub.get('profile_refs') or []:
         if pub not in gate.by_pub:
             raise ValueError(f'profile_ref {pub!r} not in embedding sidecar')
         ref_rows.append(gate.by_pub[pub])
+    for pub in gate.learned_refs(sub.get('sub_id')):
+        if pub in gate.by_pub:
+            ref_rows.append(gate.by_pub[pub])
     ref_rows = np.array(sorted(set(ref_rows)), dtype=int)
     ref_vecs = gate.mat[ref_rows] if len(ref_rows) else np.empty((0, gate.mat.shape[1]))
     if sub.get('profile_texts'):

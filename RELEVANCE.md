@@ -991,6 +991,71 @@ exactly (tag `gate-v1-embedding`) — no retraining, no rebuild, sidecars
 and champion model untouched. `GATE_MODE=embedding python loop.py run`
 does it for a single run without a commit.
 
+## Phase 9 — learned references: the customer's own wins (implemented 2026-08-06)
+
+**The label nobody has to judge.** Every earlier phase argued about
+whether a lot is a customer's business. An award settles it: they bid on
+it and they won it. Revealed preference outranks any signal the gate
+computes, so a win becomes a profile reference — **including the wins the
+gate rejected** (operator decision 2026-08-06: *"if a customer wins a
+tender that we believe it is not his business, we should add it"*). Those
+are the false negatives: the recall gap made visible, one lot at a time,
+and they are recorded with `gate_verdict: "out"` and named in the cycle
+output.
+
+**Derived data, not operator intent.** Learned references live in
+`data/ledger/learned_refs.jsonl` and never in `subscriptions.jsonl`. That
+keeps the versioning contract clean: a subscription version continues to
+mean *the operator decided something*, not *another week passed*. The
+ledger is append-only with a `learned_at` stamp — so "which profile
+produced this pick" stays exactly answerable, the same guarantee the
+delivery ledger already relies on — and it is disposable:
+`python feedback.py --rebuild` regenerates it from `awards.parquet`.
+
+**Time isolation is fail-safe, by construction.** `relevance.Gate(dir)`
+with no `as_of` loads **no** learned references at all. Every pre-existing
+caller — `playback.py`, `backtest.py`, `replay.py`, `explain.py`, the
+receipt harnesses — therefore keeps precisely the behaviour it had, and a
+replay path that forgets its cutoff *understates* the profile. It cannot
+pull a future win into a historical world, which is the one direction
+that would silently flatter every backtest ("we predicted the win" using
+knowledge of that win). Only `Gate(dir, as_of='YYYY-MM-DD')` unions
+references with `learned_at <= as_of`; `loop.py` passes today.
+
+**Error handling is deliberately asymmetric.** An operator-written
+`profile_ref` that does not resolve in the sidecar still raises — a typo
+in a customer's line must never be a silent skip. A *learned* ref that
+does not resolve (store rebuilt, sidecar lagging) is skipped instead: a
+feedback record must never break a customer's delivery.
+
+**Verified** (no writes to `data/`): the awards join recovers all 6 pilot
+wins and proposes 0 new ones (all already referenced); a held-out
+reference is rediscovered; `as_of=None` → 0 learned refs; a ref stamped
+one day *after* the cutoff is excluded; an unresolvable learned ref is
+skipped without a crash; and `--judge-benchmark` is unchanged at 47/103
+(embedding) / 61/103 (evidence).
+
+**Wired into the cycle** as step 4c, after `report()` and before
+`deliver()`, so the same run that learns a win already delivers against
+the widened profile. It never fails a cycle. Standalone:
+
+```
+python feedback.py --list      # the ledger    --as-of D  reconstructs it
+python feedback.py --dry-run   # what would be learned, writes nothing
+python feedback.py --learn     # discover + append
+python feedback.py --rebuild   # regenerate from awards.parquet
+```
+
+**Open, deliberately.** (1) `award_names` is read from the subscription
+but no line carries it yet, so matching falls back to the display `name`
+— exact-string against `winner_names`, which holds entries like
+`KG Robert Seidel GmbH &amp; Co.`; a silent mismatch means a customer
+never learns, so `--dry-run` should be checked per customer before
+relying on it. (2) Profiles grow without bound; capping is a union-time
+decision (keep newest N), never a record-time one, and stays unbounded
+until a receipt shows growth moving leakage. (3) False negatives are
+printed but not yet surfaced in the weekly operator report.
+
 ## Sentence-level template stripping (phase 6, measured 2026-08-06 — not shipped)
 
 The remaining text pathologies are one pathology: tender prose describes

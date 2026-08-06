@@ -745,6 +745,32 @@ def receipt_html(grades_recent, sub_deliveries, pred_info, kind='pick'):
     return out
 
 
+def learn_references(paths, tenders, awards, args):
+    """Step 4c (RELEVANCE.md phase 9): a customer's own wins become profile
+    references — including the ones this gate rejected, which are the
+    false negatives worth seeing. Derived data: appended to
+    data/ledger/learned_refs.jsonl, never to the subscription file, so
+    subscription versions keep meaning "the operator decided something".
+    Runs before deliver() so this cycle's report already benefits. Never
+    fails a cycle — a feedback problem is not a delivery problem."""
+    try:
+        import feedback
+        today = now_utc().date().isoformat()
+        subs = load_subscriptions(paths.subscriptions, today)
+        if not subs:
+            return []
+
+        def gate_factory():
+            import relevance as rel
+            return rel.Gate(paths.data, as_of=today)
+
+        return feedback.learn(paths.data, subs, awards, tenders, today,
+                              gate_factory=gate_factory)
+    except Exception as e:
+        print(f'[learn] skipped ({e})')
+        return []
+
+
 def deliver(paths, scored, args):
     """The dispatcher: one run, many views. Filter this cycle's scored open
     lots per subscription, re-rank and re-tier WITHIN the slice, write the
@@ -782,7 +808,10 @@ def deliver(paths, scored, args):
     try:
         import relevance as rel
         if any(rel.wants_gate(s) for s in subs):
-            gate = rel.Gate(paths.data)
+            # as_of=today unions each customer's learned references
+            # (feedback.py); without it a profile is the subscription line
+            # alone — see relevance.Gate
+            gate = rel.Gate(paths.data, as_of=today.isoformat())
     except Exception as e:
         print(f'[deliver] relevance gate unavailable ({e}) — delivering ungated')
         gate = None
@@ -1218,6 +1247,7 @@ def cmd_run(args):
     # persisted so the dashboard can show the monitors (SUBSCRIPTIONS.md phase 5)
     write_json(paths.drift, {'at': now_utc().isoformat(timespec='seconds'), **drift})
     report(paths, tenders, args, record, gate, drift, model_id, len(new_grades), len(rows))
+    learn_references(paths, tenders, awards, args)
     deliver(paths, scored, args)
     import simulation
     simulation.simulate(paths.data, scored, tenders, aw,
