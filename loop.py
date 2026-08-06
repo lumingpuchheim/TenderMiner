@@ -907,6 +907,13 @@ def deliver(paths, scored, args):
                                 pred_info)
         if receipts:
             body += ['<h2>Ihre Empfehlungen im Rückblick</h2>', receipts]
+        elif top:
+            # picks but no graded outcome yet: state the accountability
+            # promise instead of silence (decision 2026-08-06)
+            body += ['<h2>Ihre Empfehlungen im Rückblick</h2>',
+                     '<p>Ihre Empfehlungen stehen oben — jede wird dokumentiert, '
+                     'und ihr Ergebnis wird hier bewertet, sobald der Zuschlag '
+                     'veröffentlicht ist.</p>']
         # the warnings list is gone (decision 2026-08-06): the customer should
         # avoid MOST of the market, so naming five lots was noise; no
         # kind:"avoid" delivery rows are written any more (the ledger records
@@ -970,9 +977,16 @@ def deliver(paths, scored, args):
         (out.parent / annex_name).write_text(
             html_page(f'{name} — Marktübersicht {date_de(today.isoformat())}', annex_body),
             encoding='utf-8')
-        out.write_text(
-            html_page(f'{name} — TenderMining Wochenbericht {date_de(today.isoformat())}', body),
-            encoding='utf-8')
+        if top or receipts:
+            out.write_text(
+                html_page(f'{name} — TenderMining Wochenbericht {date_de(today.isoformat())}', body),
+                encoding='utf-8')
+        else:
+            # nothing to recommend and nothing graded to look back on -> no
+            # report this cycle (decision 2026-08-06); the annex above is
+            # still written as the operator's lookup
+            print(f"[deliver] {sub['sub_id']}: nothing to report — "
+                  f'no report written')
         append_jsonl(paths.deliveries, deliveries)
         n_rows += len(deliveries)
         print(f"[deliver] {sub['sub_id']}: {len(top)} lots delivered "

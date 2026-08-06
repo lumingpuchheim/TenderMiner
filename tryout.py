@@ -120,7 +120,11 @@ def main():
                   f"{str(r.get('title'))[:55]!r} | "
                   f"{str(r.get('buyer_name'))[:35]}")
     report = paths.reports / 'subscriptions' / args.sub / f'report_{today.isoformat()}.html'
-    print(f'\n[tryout] report: {report}')
+    if report.exists():
+        print(f'\n[tryout] report: {report}')
+    else:
+        print('\n[tryout] no report written (nothing to recommend, nothing '
+              'graded to look back on)')
 
 
 if __name__ == '__main__':
