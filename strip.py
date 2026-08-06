@@ -1,5 +1,16 @@
 """Sentence-level template stripping — RELEVANCE.md phase 6.
 
+STATUS: OFF (decision 2026-08-06, receipt calibration_jina-v2-base-de-strip.md).
+Measured end-to-end and lost to the shipping gate: stripping alone 1.9%
+wrong-trade leakage / 61.4% recall vs phase-5 corroboration's 1.5% / 60.3%,
+and the combined configuration collapsed (the search turned corroboration
+off on stripped vectors) — the two mechanisms neutralise the same template
+noise, so they are substitutes, and corroboration is the sharper one. This
+module stays as inert infrastructure behind the 'jina-v2-base-de-strip'
+embed tag, which nothing reads unless EMBED_MODEL selects it; re-measure at
+every model_tag flip (the substitute relationship is a property of the
+model). Full record in RELEVANCE.md, phase 6.
+
 Tender prose describes the project around the trade, and whole-document
 embeddings average the two. This module separates them: descriptions are
 split into sentences, and a sentence is **boilerplate** when it recurs

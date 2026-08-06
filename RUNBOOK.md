@@ -167,6 +167,14 @@ New models must first be added to the `MODELS` registry in `embed.py`
 (name + dimensions). Old sidecars stay on disk untouched — a flip is one
 reviewable commit, and rolling back is flipping the constant back.
 
+**At every model flip, also re-measure the strip variant** (phase 6,
+currently OFF — decision 2026-08-06): add a `<new-tag>-strip` entry and
+run its backfill + calibration like any candidate. Under
+`jina-v2-base-de` it lost to phase-5 corroboration (1.9% vs 1.5%
+leakage; the two attack the same template noise), but that verdict is a
+property of the model, not of the idea — a different model may leave
+template noise the corroboration cannot see.
+
 ## 6. Where things live (quick reference)
 
 | Path | What | In git? |
