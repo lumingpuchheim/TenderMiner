@@ -109,3 +109,29 @@
 {"pub": "00428472-2026", "firm": "KAEFER Deutschland Pro Services GmbH", "expect": "in", "note": "Trockenbau 3. BA Schule Schoenkirchen - Kerngewerk; embedding lehnt ab (0.648), evidence trifft"}
 {"pub": "00001527-2026", "firm": "KAEFER Deutschland Pro Services GmbH", "expect": "in", "note": "KHN Trockenbauarbeiten (GK-Waende, Akustikdecken) - Kerngewerk (eigener Zuschlag)"}
 {"pub": "00264509-2026", "firm": "KG Robert Seidel GmbH &amp; Co.", "expect": "in", "note": "Harksheider Str. 70 Schlosser - Kerngewerk (eigener Zuschlag; SBH same-buyer, sim 0.863)"}
+# Phase 8f/8g additions (2026-08-07): the picks delivered to the six new 452
+# subscriptions on 2026-08-07, each labelled by reading the lot text against
+# the firm's trade. 16 "out" / 3 "in" -- deliberately precision-heavy, because
+# the original 103 cases are 71 in / 32 out and could not see a wrong-trade
+# regression. The "out" cases are the failure the operator reported: a firm
+# offered work outside its trade (a flooring firm sent electrical lots, a
+# guardrail firm sent carpentry).
+{"pub": "00364835-2026", "firm": "N3Bau GmbH", "expect": "out", "note": "2026-08-07 pick: Wasserbehaelter Stadtwerke Stein -- earthworks/bitumen sealing, not screed"}
+{"pub": "00068570-2026", "firm": "N3Bau GmbH", "expect": "out", "note": "2026-08-07 pick: GU-Leistung De-/Remontagen BWK Ulm -- general-contractor scope, not screed"}
+{"pub": "00367721-2025", "firm": "N3Bau GmbH", "expect": "in", "note": "2026-08-07 pick: Estricharbeiten Polizeiinspektion -- literal screed job (CPV filed as Bau von Polizeirevieren)"}
+{"pub": "00521939-2026", "firm": "VLE Traffic & Solution GmbH", "expect": "out", "note": "2026-08-07 pick: Zimmererarbeiten Sporthallen -- carpentry, not road restraint"}
+{"pub": "00473915-2026", "firm": "VLE Traffic & Solution GmbH", "expect": "out", "note": "2026-08-07 pick: Elektroinstallation Sporthallen -- electrical, not road restraint"}
+{"pub": "00651516-2025", "firm": "VLE Traffic & Solution GmbH", "expect": "out", "note": "2026-08-07 pick: Rueckbau/Asbest Polizeipraesidium -- demolition, not road restraint"}
+{"pub": "00524317-2026", "firm": "VLE Traffic & Solution GmbH", "expect": "out", "note": "2026-08-07 pick: Stadtbahn Halle Verkehrs-/Gleisbau -- track and paving, not restraint systems"}
+{"pub": "00364835-2026", "firm": "Gökser Fußbodentechnik Bau GmbH", "expect": "out", "note": "2026-08-07 pick: Wasserbehaelter -- passes on 'dehnfug' (Querdehnfuge) sub-scope coincidence"}
+{"pub": "00068570-2026", "firm": "Gökser Fußbodentechnik Bau GmbH", "expect": "out", "note": "2026-08-07 pick: GU-Leistung Ulm -- general-contractor scope, not screed"}
+{"pub": "00177933-2026", "firm": "Beck GmbH", "expect": "out", "note": "2026-08-07 pick: Fraport runway drainage -- highest-scoring pick of the day, not carpentry"}
+{"pub": "00466781-2026", "firm": "Beck GmbH", "expect": "in", "note": "2026-08-07 pick: Zimmer- und Holzbauarbeiten Freiburg -- textbook carpentry"}
+{"pub": "00335790-2026", "firm": "Beck GmbH", "expect": "in", "note": "2026-08-07 pick: Zimmererarbeiten Holztragwerk/Holzfassade -- textbook carpentry"}
+{"pub": "00286851-2026", "firm": "YG Bau- und Baustoffe GmbH", "expect": "out", "note": "2026-08-07 pick: Wasserwerk Halle-Beesen GU -- water treatment, not screed"}
+{"pub": "00488462-2026", "firm": "YG Bau- und Baustoffe GmbH", "expect": "out", "note": "2026-08-07 pick: Abbrucharbeiten TRAVE -- demolition, not screed"}
+{"pub": "00068570-2026", "firm": "YG Bau- und Baustoffe GmbH", "expect": "out", "note": "2026-08-07 pick: GU-Leistung Ulm -- general-contractor scope, not screed"}
+{"pub": "00463371-2026", "firm": "Polat Real Estate GmbH", "expect": "out", "note": "2026-08-07 pick: Landstromanlage Hafen Hamburg -- electrical; convicted by SBH buyer boilerplate"}
+{"pub": "00493673-2026", "firm": "Polat Real Estate GmbH", "expect": "out", "note": "2026-08-07 pick: Weidenstieg 29 Elektro -- electrical; convicted by SBH buyer boilerplate"}
+{"pub": "00469184-2026", "firm": "Polat Real Estate GmbH", "expect": "out", "note": "2026-08-07 pick: Oktaviostrasse 143 Elektro -- electrical; convicted by SBH buyer boilerplate"}
+{"pub": "00493570-2026", "firm": "Polat Real Estate GmbH", "expect": "out", "note": "2026-08-07 pick: Norderschulweg Heizung -- heating; convicted by GMH buyer boilerplate"}

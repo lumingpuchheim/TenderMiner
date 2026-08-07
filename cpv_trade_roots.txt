@@ -1,0 +1,523 @@
+# Trade roots — the only vocabulary a customer lexicon may be built from.
+#
+# WHY THIS FILE EXISTS
+# Lexicons used to be derived from a firm's own tender texts with only a
+# rarity sieve in front of them. Rarity is not meaning: 'derzeit' sits in
+# 0.97% of store lots and 'estrich' in 1.88%, so the sieve rated the filler
+# word ABOVE the trade word. Lexicons filled with office boilerplate
+# ("behoerde", "berufsbildung", "nachstehend") and then convicted
+# wrong-trade lots -- a flooring firm was offered electrical and heating
+# work because it shared its buyer's standard opening paragraph.
+#
+# WHY NOT DERIVE IT FROM CPV
+# CPV-45 mixes two axes: 484 of its 822 labels name what is BUILT
+# (Schulgebaeude, Polizeireviere) and only 330 name the WORK done. It also
+# names no MATERIALS at all -- no linoleum, no kautschuk, no gipskarton --
+# and uses only one name per trade, so Schreiner, Spengler, Flaschner and
+# Anstreicher are absent while Tischler, Klempner and Maler are present.
+#
+# WHY NOT LET THE EMBEDDER GENERALISE IT
+# Measured on jina-v2-base-de (noise floor for unrelated pairs: mean 0.133,
+# max 0.214): trade synonyms score 0.29-0.89 -- real signal, but only 2 of
+# 12 clear the 0.80 synonym bar, and the misses are the regional names that
+# matter (anstreicher/maler 0.289, spengler/klempner 0.395, schreiner/
+# tischler 0.525). Material-to-trade is at noise: linoleum/bodenbelag
+# 0.108, dehnfuge/estrich 0.148. Nearest-neighbour lookups return
+# schreiner->Faulbehaelter and sockelleiste->Standseilbahn. The list must
+# therefore carry the meaning; the embedder may only tolerate spelling.
+#
+# HOW THIS LIST WAS BUILT
+# It is WRITTEN, not derived. No program can produce it: CPV lacks the
+# materials and the regional trade names, and the embedder cannot supply
+# them either (see above). So the list is the VOB/C trade set written out
+# by hand -- every Gewerk, its regional variants, its materials and its
+# characteristic components -- covering trades no current customer has,
+# because the next customer will.
+#
+# Two inputs informed the writing without deciding it: the CPV-45 labels
+# that name a work, and a pass over the store for words putting >=30% of
+# their occurrences in a single trade. The latter suggested real
+# vocabulary nobody lists from memory (fangspitzen, kulissenschalldaempf,
+# tackerplatte, hochkantlamellenparkett) -- and, ranked just as highly,
+# place names (denkendorf, wolfratshausen) and contract words
+# (angebotspreis, vertragsfristen). That is exactly why the suggestions
+# were read rather than merged: a miner proposes, a person accepts.
+#
+# HOW IT IS USED
+# A candidate keyword survives only if it CONTAINS one of these roots.
+# Roots, not whole words, because German carries the trade in the
+# compound's modifier: Holz|bau, Holz|arbeiten and Brettsperr|holz share
+# only "holz". Written folded (ae/oe/ue/ss); matching folds both sides, so
+# Tuer/Tür and Fussboden/Fußboden each need one entry. Generic heads
+# (bau, arbeiten, anlagen, installation, montage, erneuerung, sanierung)
+# are ABSENT BY DESIGN -- they name no trade and would match everything.
+#
+# LIMITS AND EXCEPTIONS
+# A word can contain a trade root and still not name the trade: Klassen|
+# zimmer is a room, not carpentry, and Hain|holz is a village. Lines
+# beginning with "-" are exceptions -- a candidate containing one is
+# rejected even if it also contains a root. Keep that list short: it is a
+# patch for compound collisions, not a second vocabulary. Everything else
+# still runs on top (buyer diversity, store rarity), and jargon whose root
+# is missing is simply lost -- add the root, do not weaken the rule.
+# Reviewed by reading; re-running the miner proposes candidates, it does
+# not accept them.
+
+-klassenzimmer
+-hotelzimmer
+-krankenzimmer
+-patientenzimmer
+-besprechungszimmer
+-zimmerpflanz
+-obdachlos
+-hainholz
+-holzminden
+-holzkirchen
+-holzwickede
+-glasgow
+-glashuetten
+
+# === Baureifmachung, Erd-, Abbruch- und Tiefbauarbeiten
+abbruch
+abriss
+rueckbau
+entkern
+enttruemmer
+abraeum
+aushub
+erdarbeit
+erdbewegung
+bodenabtrag
+mutterboden
+grabenaushub
+terrassier
+verfuell
+fluessigboden
+leitungszone
+spreng
+bohr
+brunnen
+rammung
+rammarbeit
+pfahl
+schlitzwand
+verbau
+baugrund
+fundament
+homogenbereich
+baustelleneinrichtung
+landschaftsgaertner
+begruenung
+gestruepp
+pflanzarbeit
+gehoelz
+baumpflege
+rasen
+kunstrasen
+tartan
+fallschutz
+spielplatzgeraet
+altlast
+schadstoffsanier
+asbest
+kampfmittel
+wasserhaltung
+spundwand
+uferbefestig
+deichbau
+rohrsanier
+schlauchliner
+inliner
+kanalfernsehen
+bautrocknung
+schimmelsanier
+
+# === Beton-, Maurer- und Stahlbauarbeiten
+beton
+stahlbeton
+zement
+schnellzement
+calciumsulfat
+estrich
+sichtestrich
+fliessestrich
+heizestrich
+gussasphalt
+splittschuett
+ausgleichsschuett
+tackerplatte
+maurer
+mauer
+mauerwerk
+verblend
+stein
+steingut
+steinmetz
+naturwerkstein
+naturstein
+quaderstein
+rohbau
+schal
+verschal
+einpress
+ummantel
+fertigteil
+fertigbau
+baustahl
+stahlbau
+metallbau
+metallkonstruktion
+schlosser
+schweiss
+galvanisier
+sandstrahl
+bewehr
+betonstahl
+baustahlgewebe
+kalksandstein
+porenbeton
+klinker
+schwindarm
+spritzbeton
+rissverpress
+injektion
+betoninstandsetz
+schornstein
+kaminbau
+
+# === Dach, Fassade, Abdichtung, Daemmung, Geruest
+dach
+dachdeck
+dachstuhl
+dachrinne
+dachbekies
+dachleitungshalter
+flachdach
+kompaktdach
+umkehrdach
+ziegel
+schiefer
+bitumen
+oberlage
+schweissbahn
+blech
+trapezblech
+klempner
+spengler
+flaschner
+fassade
+waermedaemm
+daemm
+trittschall
+hartschaum
+holzfaserdaemm
+mineralwoll
+steinwoll
+polystyrol
+epdm
+kunststoffbahn
+isolier
+abdicht
+verbundabdicht
+dehnfug
+randdaemmstreif
+trennschicht
+schall
+brandschutz
+brandabschott
+brandschott
+feuerschutzabschluss
+rauchschutz
+entrauchung
+rauchabzug
+blitzschutz
+blitzableiter
+fangspitz
+fanganlage
+fangleitung
+fangstang
+erdungsfestpunkt
+anschlussfahn
+runddraht
+bandstahl
+trennstell
+ableitung
+geruest
+fanggeruest
+seitenschutz
+absturzsicher
+
+# === Ausbau und Baufertigstellung
+putz
+stuck
+stuckateur
+trockenbau
+gipskarton
+gips
+staenderwerk
+staenderwand
+vorsatzschal
+installationsvorwand
+zementbauplatte
+paneeldeck
+fliese
+flisen
+plattenleger
+bodenleger
+estrichleger
+glasiert
+bodenbelag
+bodenverleg
+fussbod
+oberbelag
+parkett
+industrieparkett
+linoleum
+kautschuk
+teppich
+kugelgarn
+nadelvlies
+laminat
+vinyl
+schwingboden
+sportbod
+sockelleist
+sockelstreif
+sockelfliese
+haftgrund
+spachtel
+wandverkleid
+verkleid
+tapezier
+anstrich
+anstreicher
+maler
+lackier
+streichen
+dispersion
+acrylat
+betonlasur
+glasvlies
+hydrophobier
+altbeschicht
+beschicht
+korrosionsschutz
+glas
+verglas
+isolierglas
+pfosten-riegel
+vorhangfassad
+elementfassad
+aluminiumfenster
+kunststofffenster
+holzfenster
+fensterbank
+fenster
+tueren
+tuerblatt
+tuerzarge
+tuerelement
+haustuer
+innentuer
+brandschutztuer
+rolltor
+sektionaltor
+torantrieb
+zarge
+rollladen
+jalousie
+markise
+verdunkel
+sonnenschutz
+tischler
+schreiner
+zimmer
+zimmermann
+holz
+brettsperr
+konstruktionsvollholz
+pfetten
+sparren
+laerche
+vorvergraut
+trennwand
+einbaumoebel
+einbaukueche
+grosskueche
+kuechentechn
+laboreinricht
+buehnentechn
+empfangstheke
+garderobe
+sitzstufen
+beschlag
+schliessanlage
+schliesszylind
+panikschloss
+tuerautomatik
+drehfluegelantrieb
+dekoration
+ornament
+fresk
+epoxidharz
+industrieboden
+bodenbeschicht
+
+# === Technische Gebaeudeausruestung
+elektro
+elektriker
+starkstrom
+schwachstrom
+hochspannung
+mittelspannung
+niederspannung
+transformator
+schaltanlage
+stromversorg
+kabel
+leitung
+beleucht
+leuchte
+photovoltaik
+solarzelle
+ladeinfrastruktur
+wallbox
+notstrom
+netzersatzanlage
+unterbrechungsfreie
+gebaeudeautomation
+gebaeudeleittechn
+regelungstechn
+messtechn
+datennetz
+netzwerktechn
+strukturierte
+lichtwellenleiter
+elektroakust
+sprachalarm
+zutrittskontroll
+videoueberwach
+vereinzelungsanlage
+brandmelde
+brandmeldezentrale
+handfeuermelder
+druckknopfmelder
+multisensormelder
+rauchansaug
+blitzleuchte
+laufkarten
+einbruchmelde
+alarmanlage
+sprinkler
+feuerloesch
+sanitaer
+sanitaerkeramik
+installateur
+hygienespuel
+spuelstation
+waschtisch
+urinal
+durchlauferhitzer
+seifenspender
+werkraumbecken
+heizung
+zentralheizung
+heizkoerper
+brennwertkessel
+ruecklaufverteiler
+druckhaltestation
+entgasung
+nachspeisung
+waermepump
+fussbodenheiz
+lueftung
+lufttechn
+raumlufttechn
+innengeraet
+aussengeraet
+zuluft
+abluft
+nachstroem
+volumenstrom
+tellerventil
+drallausl
+deflektorhaub
+kulissenschalldaempf
+schalldaempf
+schalldaemmlueft
+kreuzstromwaermetausch
+flexrohr
+klima
+teilklima
+kaelte
+kuehl
+kessel
+rohrleitung
+rohrverleg
+trinkwasserrohr
+trennstation
+rueckspuelfilter
+feuerloeschleitung
+draen
+abwasserleitung
+wasserinstallation
+gasanlage
+gaswarnanlage
+druckluft
+aufzug
+tragmittel
+fahrsteig
+rolltreppe
+krananlage
+hebebuehne
+foerdertechn
+maschinentechn
+turbine
+pump
+ruehrwerk
+filtrier
+faulbehaelter
+schlammbehandl
+belebungsbecken
+nachklaerbecken
+schlammentwaess
+
+# === Verkehrswege, Kanal, Gleis und Aussenanlagen
+strassenbau
+asphalt
+pflaster
+fahrbahn
+oberbau
+tiefbau
+kanalbau
+kanalisation
+schachtunterteil
+muffenlos
+gleis
+gleisbett
+weichen
+oberleitung
+fahrleitung
+stadtbahn
+strassenbahn
+markierung
+spielfeldmarkier
+leitplank
+schutzplank
+schutzeinricht
+fahrzeugrueckhalt
+anpralldaempf
+leiteinrichtung
+mittelstreif
+fahrbahnrand
+verkehrssicher
+verkehrsleit
+absperrschrank
+verkehrsschild
+ampel
+strassenschild
+zaun
+gelaender
+handlauf
+gitterrost
+laermschutz

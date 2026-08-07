@@ -99,6 +99,7 @@ answers your question; none of them touches the real ledgers or reports.
 | Would we have recommended this firm's historical solo win, knowing only the past? | `python playback.py --firm "Firma GmbH"` | ~10 min |
 | Show me a real prediction report AND the later report that checks it (the "Rückblick" demo) | `python replay.py --sub <sub_id> --cutoff YYYY-MM-DD` | ~15 min |
 | Does the gate still judge every hand-labeled case correctly? | `python evidence.py --benchmark` | seconds |
+| Is a customer's lexicon made of trade words — and what does a lexicon change cost in recall vs precision? | `python lexicon_receipt.py --lexicons` | ~5 min |
 | Do the model's CPV columns still earn their keep — would deeper or shallower codes score better? | `python cpv_depth_receipt.py` (`--quick` for a first look) | ~3 min `--quick`, ~10 min full |
 | Does a gate/model change make picks better overall? | `python backtest.py` | hours |
 
@@ -112,6 +113,17 @@ answers your question; none of them touches the real ledgers or reports.
   lot's pass path through the gate ladder, and its text→label projections.
   With no TED numbers it explains the profile references themselves — the
   sanity check that a profile reads as the customer's trade.
+- **`lexicon_receipt.py`** runs `benchmark_relevance.jsonl` through the real
+  `judge()` under each lexicon switch (`base` / `buyers` / `roots`) and
+  reports IN (should pass) and OUT (should be rejected) **separately** — the
+  benchmark total hides direction, and a change that stops wrong-trade
+  picks reads as a regression when 74 of 126 cases are recall cases.
+  `--lexicons` also prints every firm's word list, because the operator's
+  test for a lexicon is reading it: each word should name a Gewerk or a
+  material. The vocabulary itself is [`cpv_trade_roots.txt`](cpv_trade_roots.txt),
+  written by hand — CPV lacks the materials and the regional trade names
+  (Schreiner, Spengler, Flaschner), and the embedder cannot supply them
+  (measured: linoleum↔bodenbelag 0.108, at noise).
 - **`playback.py`** rebuilds an as-of world before the target's deadline
   (store, trust list, thresholds, model — all time-isolated) and replays
   that cycle: was the win in the market, was it a pick.

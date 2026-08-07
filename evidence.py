@@ -21,6 +21,7 @@ Usage:
 
 import argparse
 import json
+import os
 import re
 import sys
 from collections import Counter
@@ -78,6 +79,54 @@ LABEL_DF_MAX = 5      # definitional = names <= this many CPV labels
 DICT_MIN_LOTS = 20    # trades with fewer coded lots keep no dictionary
 DICT_MIN_IN = 0.10    # word must appear in >= 10% of the trade's lots
 DICT_MIN_RATIO = 8.0  # ... and >= 8x as often inside as outside
+# Phase 8f (2026-08-07) — ONE principle, applied in the two places it was
+# missing: **a trade word travels between buyers; an office's house style
+# does not**. Stated in derive_keywords since phase 8, but enforced in
+# neither of the two paths that actually build a lexicon.
+#
+# (A) TRADE DICTIONARIES counted lots, so one buyer's template could carry
+#     a word past DICT_MIN_IN on its own. Measured on the live store: in
+#     45233280 (Leitplanken, 30 lots / 13 buyers) 'kurzfristig',
+#     'einwirkung' and 'leichtigkeit' each sit in 26.7% of LOTS but come
+#     from ONE buyer (7.7%), while the real trade word 'anpralldämpfer'
+#     spans 3 buyers; in 45432100 (Bodenbelag) 'behörde'/'berufsbildung'
+#     are one buyer's boilerplate at 3.0% of lots, against 'bodenbelag'
+#     80 buyers, 'linoleum' 56, 'kautschuk' 41. Buyer share separates the
+#     two populations where lot share cannot, so a dictionary word must
+#     now also clear DICT_MIN_BUYER_SHARE of the trade's buyers and come
+#     from at least DICT_MIN_BUYERS of them — one buyer is not evidence.
+# (B) DERIVE_KEYWORDS lowered its own bar to nothing for single-buyer
+#     profiles: `min_buyers = min(2, n_buyers)` is 1 when every reference
+#     comes from one buyer, i.e. the guard switched off in exactly the
+#     case where 100% of the text read is one office's template. That is
+#     the whole polat-real-estate failure (6 refs, all SBH Schulbau
+#     Hamburg -> lexicon carried behörde, berufsbildung, landesbetrieb,
+#     nachstehend, bewirtschaft, and then convicted every other SBH/GMH
+#     Hamburg lot regardless of trade). Such a profile can no longer
+#     define its trade from its own prose; it falls back to its trusted
+#     trades' dictionaries, which (A) has just cleaned. The two fixes
+#     therefore ship together: (B) leans on the dictionaries, so it is
+#     only safe once (A) has removed the sector boilerplate from them.
+DICT_MIN_BUYERS = 2        # a dictionary word needs >= this many buyers
+DICT_MIN_BUYER_SHARE = 0.10  # ... and >= this share of the trade's buyers
+MIN_BUYERS = 2             # refs from fewer buyers cannot define a trade
+# Phase 8g (2026-08-07) — THE TRADE-ROOT VOCABULARY. A lexicon word must
+# name a Gewerk or a material. CPV-45 cannot supply that list directly: 484
+# of its 822 labels name what is BUILT (Schulgebaeude, Polizeireviere) and
+# only 330 name the WORK, so a vocabulary taken from the whole division
+# admits 'schulen' and 'behoerde' alongside 'estricharbeiten'. The trade
+# side was separated by reading, then reduced to ROOTS, because German
+# carries the trade in the compound's modifier: Holz|bau, Holz|arbeiten and
+# Brettsperr|holz share only 'holz'. Generic heads (bau, arbeiten, anlagen,
+# installation) are absent by design. See cpv_trade_roots.txt for the list
+# and its rationale; a candidate survives if it CONTAINS a root, folded for
+# umlauts so Tuer/Tür and Fussboden/Fußboden need one entry each.
+TRADE_ROOTS = os.environ.get('TRADE_ROOTS', '1') != '0'
+ROOTS_FILE = Path(__file__).with_name('cpv_trade_roots.txt')
+# rollback switch for phase 8f (A) and (B); env var overrides per run so the
+# A/B needs no edit (BUYER_DIVERSITY=0 reproduces the phase-8e lexicons)
+BUYER_DIVERSITY = os.environ.get('BUYER_DIVERSITY', '1') != '0'
+DICT_CACHE_V = 2           # bumped by (A): older caches are not comparable
 DICT_MAX_WORDS = 30   # per-trade cap, keeps lexicons readable
 SEED = 7              # mirrors calibrate.py sampling
 NEG_PER_FIRM = 50
@@ -119,6 +168,44 @@ def stem(word):
     return word
 
 
+def fold(w):
+    """Umlaut/eszett folding so one root entry covers both spellings —
+    the corpus writes Fußboden and Fussboden, Tür and Tuer."""
+    return (str(w).replace('ä', 'ae').replace('ö', 'oe').replace('ü', 'ue')
+            .replace('ß', 'ss'))
+
+
+_ROOTS = None
+
+
+def trade_roots():
+    """The committed trade-root vocabulary (phase 8g), folded.
+    -> (roots, exceptions); "-" lines are compound collisions to reject."""
+    global _ROOTS
+    if _ROOTS is None:
+        roots, nots = set(), set()
+        for ln in ROOTS_FILE.read_text(encoding='utf-8').splitlines():
+            ln = ln.strip().casefold()
+            if not ln or ln.startswith('#'):
+                continue
+            (nots if ln.startswith('-') else roots).add(fold(ln.lstrip('-')))
+        _ROOTS = (tuple(sorted(roots, key=len)), tuple(sorted(nots, key=len)))
+    return _ROOTS
+
+
+def names_trade(w):
+    """Does this word name a trade or a material? Substring against the
+    roots, so plurals and compounds need no entry of their own — minus the
+    listed collisions (Klassen|zimmer is a room, Hain|holz is a village)."""
+    if not TRADE_ROOTS:
+        return True
+    roots, nots = trade_roots()
+    f = fold(str(w).casefold())
+    if any(x in f for x in nots):
+        return False
+    return any(r in f for r in roots)
+
+
 def store_doc_freq(tenders, cache_path=None):
     """token -> number of store lots containing it (plus lot count).
     Derived data; cached because it only changes when the store grows."""
@@ -142,7 +229,12 @@ def derive_keywords(refs, docfreq, label_texts=()):
     lesson applied to the lexicon), and in almost none of the store. Label
     words (from the profile's trusted CPV labels) pass the same rarity
     filter. The final list keeps the shortest stem of every family and is
-    small enough to read aloud."""
+    small enough to read aloud.
+
+    Phase 8f (B): a profile whose references come from fewer than
+    MIN_BUYERS buyers contributes NO text-derived words — with one buyer
+    there is no way to tell its trade from its house style, so the
+    lexicon is the label words plus the trade dictionaries only."""
     n_docs, df = docfreq['n'], docfreq['df']
     in_refs, buyers_of = Counter(), {}
     n_buyers = len({b for _, b in refs}) or 1
@@ -154,7 +246,14 @@ def derive_keywords(refs, docfreq, label_texts=()):
             in_refs[w] += 1
             buyers_of.setdefault(w, set()).add(b)
     min_refs = min(MIN_WITNESSES, len(refs)) or 1
-    min_buyers = min(2, n_buyers)
+    # phase 8f (B): NOT min(2, n_buyers) — that lowered the bar to 1 for
+    # single-buyer profiles, disabling the guard exactly where every word
+    # read is one office's template. Below MIN_BUYERS the firm's own prose
+    # cannot be validated at all, so none of it enters; the profile falls
+    # back to its trusted trades' dictionaries (the label words below).
+    if BUYER_DIVERSITY and n_buyers < MIN_BUYERS:
+        in_refs = Counter()
+    min_buyers = min(MIN_BUYERS, n_buyers)
     cands = {}
     for w, c in in_refs.items():
         if len(w) < MIN_STEM_LEN or c < min_refs or w in buyer_words:
@@ -162,6 +261,11 @@ def derive_keywords(refs, docfreq, label_texts=()):
         if len(buyers_of[w]) < min_buyers:
             continue
         if df.get(w, 0) / n_docs > MAX_DOC_FREQ:
+            continue
+        # phase 8g: rarity is not meaning. 'derzeit' sits in 0.97% of lots
+        # and 'estrich' in 1.88%, so the rarity sieve rates the filler word
+        # ABOVE the trade word; only the vocabulary can tell them apart.
+        if not names_trade(w):
             continue
         s = stem(w)
         if len(s) >= MIN_STEM_LEN:
@@ -171,6 +275,11 @@ def derive_keywords(refs, docfreq, label_texts=()):
     for lt in label_texts:
         for w in tokens(lt):
             if len(w) < MIN_STEM_LEN:
+                continue
+            # phase 8g: label words are definitional only if they NAME the
+            # trade — "Anbringen von Leitplanken" contributes 'leitplank',
+            # not 'anbring', which is a verb that names no trade at all
+            if not names_trade(w):
                 continue
             # phase 8c (1): definitional waiver — see constants block
             definitional = label_doc_freq().get(w, 0) <= LABEL_DF_MAX
@@ -208,8 +317,10 @@ _TRADE_DICTS = None
 def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
     """code -> [stems]: each trusted trade's vocabulary, derived from ALL
     store lots carrying the code (main or additional): frequent inside the
-    trade, rare outside it. Cached on disk (rebuilt when the store grows)
-    and memoized per process."""
+    trade, rare outside it, and (phase 8f (A)) used by SEVERAL of the
+    trade's buyers rather than concentrated in one procuring office's
+    template. Cached on disk (rebuilt when the store grows or when
+    DICT_CACHE_V changes) and memoized per process."""
     global _TRADE_DICTS
     if _TRADE_DICTS is not None:
         return _TRADE_DICTS
@@ -217,15 +328,18 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
     lots = tenders.drop_duplicates(subset=KEY)
     if cache_path and Path(cache_path).exists():
         d = json.loads(Path(cache_path).read_text(encoding='utf-8'))
-        if d.get('n') == int(len(lots)):
+        if (d.get('n') == int(len(lots)) and d.get('v') == DICT_CACHE_V
+                and bool(d.get('bd')) == bool(BUYER_DIVERSITY)):
             _TRADE_DICTS = d['dicts']
             return _TRADE_DICTS
     n, df = docfreq['n'], docfreq['df']
     by_code = {}
-    toks = []
+    toks, buyers = [], []
     for idx, r in enumerate(lots.itertuples(index=False)):
         toks.append(set(tokens(fix_text(
             str(r.title or '') + ' ' + str(r.description or '')))))
+        b = ' '.join(str(getattr(r, 'buyer_name', '') or '').casefold().split())
+        buyers.append(b or None)
         for c in lot_codes(r.cpv_main, r.cpv_additional):
             if c in trusted:
                 by_code.setdefault(c, []).append(idx)
@@ -234,14 +348,26 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
         if len(idxs) < DICT_MIN_LOTS:
             continue
         cnt = Counter()
+        # phase 8f (A): distinct buyers per word, alongside the lot count
+        w_buyers = {}
         for i in idxs:
             cnt.update(toks[i])
+            if buyers[i] is not None:
+                for w in toks[i]:
+                    w_buyers.setdefault(w, set()).add(buyers[i])
         n_in = len(idxs)
+        n_buyers_in = len({buyers[i] for i in idxs if buyers[i] is not None})
         cands = {}
         for w, k in cnt.items():
             f_in = k / n_in
             if len(w) < MIN_STEM_LEN or f_in < DICT_MIN_IN:
                 continue
+            if BUYER_DIVERSITY:
+                nb = len(w_buyers.get(w, ()))
+                if nb < DICT_MIN_BUYERS:
+                    continue
+                if n_buyers_in and nb / n_buyers_in < DICT_MIN_BUYER_SHARE:
+                    continue
             f_out = (df.get(w, 0) - k) / max(n - n_in, 1)
             if f_in / max(f_out, 1e-9) < DICT_MIN_RATIO:
                 continue
@@ -257,7 +383,8 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
         dicts[c] = kept[:DICT_MAX_WORDS]
     if cache_path:
         Path(cache_path).write_text(
-            json.dumps({'n': int(len(lots)), 'dicts': dicts}),
+            json.dumps({'n': int(len(lots)), 'v': DICT_CACHE_V,
+                        'bd': bool(BUYER_DIVERSITY), 'dicts': dicts}),
             encoding='utf-8')
     _TRADE_DICTS = dicts
     return dicts
@@ -272,6 +399,11 @@ def firm_keywords(refs, docfreq, label_texts, trusted_codes, dicts):
     if TRADE_DICTS and dicts:
         for c in trusted_codes:
             for w in dicts.get(c, []):
+                # phase 8g: the dictionaries carry a procuring sector's
+                # legalese too ('kurzfristig', 'erfahrungswert'), so the
+                # vocabulary applies to them as well as to the firm's words
+                if not names_trade(w):
+                    continue
                 if any(k in w for k in kws):
                     continue  # an existing (shorter) stem already hits w
                 kws = [k for k in kws if w not in k]  # w subsumes longer kws
