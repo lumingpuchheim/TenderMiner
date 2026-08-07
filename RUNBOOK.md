@@ -89,7 +89,7 @@ complete for every active customer.
 
 ## 3. Testing a change against the pilot
 
-Four committed tools, ordered by cost. Reach for the cheapest one that
+Seven committed tools, ordered by cost. Reach for the cheapest one that
 answers your question; none of them touches the real ledgers or reports.
 
 | Question | Run | Cost |
@@ -99,6 +99,7 @@ answers your question; none of them touches the real ledgers or reports.
 | Would we have recommended this firm's historical solo win, knowing only the past? | `python playback.py --firm "Firma GmbH"` | ~10 min |
 | Show me a real prediction report AND the later report that checks it (the "Rückblick" demo) | `python replay.py --sub <sub_id> --cutoff YYYY-MM-DD` | ~15 min |
 | Does the gate still judge every hand-labeled case correctly? | `python evidence.py --benchmark` | seconds |
+| Do the model's CPV columns still earn their keep — would deeper or shallower codes score better? | `python cpv_depth_receipt.py` (`--quick` for a first look) | ~3 min `--quick`, ~10 min full |
 | Does a gate/model change make picks better overall? | `python backtest.py` | hours |
 
 - **`tryout.py`** re-renders one customer from the last cycle's prediction
@@ -123,6 +124,16 @@ answers your question; none of them touches the real ledgers or reports.
   the backtest report lists pick weeks with outcomes if you want a
   guaranteed-graded cutoff. This is the sales/demo artifact for "how do I
   know your predictions are any good".
+- **`cpv_depth_receipt.py`** regenerates the numbers behind the CPV depth
+  decision (TRAINING.md): cardinality against the one-hot cap per level, the
+  spread of cpv6 rates inside a cpv4 bucket against a permutation null, an A/B
+  retrain of the shipped feature build vs shallower and deeper variants across
+  seeds and split dates, and the shuffled-label and too-good tripwires on the
+  shipped arm. Nothing is registered and no champion is touched; `--out PATH`
+  also writes the receipt as markdown. Run it when the feature encoding is
+  questioned or after the scope widens beyond CPV 45 — the cardinalities in
+  section 1 are what stands between `cpv_additional` and a silent CTR
+  fallback.
 - **`backtest.py`** replays every weekly cutoff and grades all picks
   against published outcomes on two axes — did the lot end with 0-1 bids,
   and did the firm the pick was handed to eventually win it themselves
@@ -131,7 +142,10 @@ answers your question; none of them touches the real ledgers or reports.
 
 Rule of thumb: after editing a subscription, `tryout.py`; when a verdict
 surprises you, `explain.py`; before shipping a gate change, `backtest.py`
-(and `calibrate.py` for the receipt).
+(and `calibrate.py` for the receipt); before shipping a FEATURE change,
+`cpv_depth_receipt.py` — and remember it is a flag day: the champion cannot
+score a build whose columns changed, so `learn()` promotes the candidate
+unconditionally that cycle (TRAINING.md).
 
 ## 4. The study side: embeddings, calibration, trust
 
