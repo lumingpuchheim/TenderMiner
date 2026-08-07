@@ -124,7 +124,9 @@ answers your question; none of them touches the real ledgers or reports.
   guaranteed-graded cutoff. This is the sales/demo artifact for "how do I
   know your predictions are any good".
 - **`backtest.py`** replays every weekly cutoff and grades all picks
-  against published outcomes; its report lands in
+  against published outcomes on two axes — did the lot end with 0-1 bids,
+  and did the firm the pick was handed to eventually win it themselves
+  (any bidder count); its report lands in
   `data/reports/backtest_<date>.md`.
 
 Rule of thumb: after editing a subscription, `tryout.py`; when a verdict

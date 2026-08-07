@@ -7,7 +7,12 @@ are recorded. Afterwards every pick is graded against the outcomes the full
 store later learned. The result is the live track record, bootstrapped
 backwards: "across the replayed period, picks ended with 0-1 bids X in 100,
 base rate Y" — plus, per gated subscription, whether the customer's own
-eventual wins appeared in their replayed market.
+eventual wins appeared in their replayed market. Picks are graded on two
+axes: did the lot end with 0-1 bids (the competition claim), and did the
+firm the pick was handed to eventually win it themselves, regardless of
+bidder count (the customer-outcome claim). The axes have different
+denominators: the first needs a countable bid field, the second only a
+named winner on the latest award revision.
 
 Time isolation is by construction: one working directory whose store
 parquets are rewritten per cutoff (pyarrow filter — preserves the role
@@ -47,6 +52,25 @@ RECAL_EVERY = 8        # cutoffs between trust/threshold recalibrations
 FLAG_THRESHOLD = 0.5   # mirrors the loop's --threshold default
 MIN_DEADLINE_DAYS = 14
 MAX_PICKS = 5
+
+
+def winner_map(awards_full):
+    """lot -> set of stripped winner names, from the latest award revision.
+
+    Deliberately unfiltered (no n_tenders / quality gate): winning does not
+    require a countable bid field, so this axis has its own denominator.
+    """
+    latest = (awards_full.sort_values('publication_date')
+              .groupby(sb.KEY, as_index=False).tail(1))
+    winners = {}
+    for _, a in latest.iterrows():
+        names = a['winner_names']
+        if names is None:
+            continue
+        clean = {str(n).strip() for n in list(names) if str(n).strip()}
+        if clean:
+            winners[(a['procedure_id'], a['lot_id'])] = clean
+    return winners
 
 
 def write_world(full_store, work_store, D):
@@ -199,7 +223,7 @@ def replay(data_dir, step_days, sub_ids):
     return {'flagged': flagged, 'scored': scored_lonely, 'sub_picks': sub_picks,
             'sub_market': sub_market, 'outcome': outcome, 'subs': subs,
             'awards_full': awards_full, 'gate_dir': str(work),
-            'week_flags': week_flags}
+            'week_flags': week_flags, 'winners': winner_map(awards_full)}
 
 
 def cpv3_labels():
@@ -291,15 +315,20 @@ def simulate_targets(res, targets_csv, out_csv, max_picks=MAX_PICKS):
                 if lot not in picks[company]:
                     picks[company][lot] = week
                     taken += 1
+    winners = res['winners']
     rows = []
     for _, t in targets.iterrows():
         c = t['company']
         graded = [outcome[lot] for lot in picks[c] if lot in outcome]
+        known = [lot for lot in picks[c] if lot in winners]
         rows.append({
             'company': c, 'trade_match': t.get('trade_match'),
             'primary_trade': str(t['trades']).split(';')[0],
             'picks': len(picks[c]), 'graded': len(graded),
             'lonely': sum(1 for n in graded if n <= 1),
+            'winner_known': len(known),
+            'won': sum(1 for lot in known
+                       if str(c).strip() in winners[lot]),
         })
     per_firm = pd.DataFrame(rows)
     per_firm.to_csv(out_csv, index=False, encoding='utf-8-sig')
@@ -317,6 +346,9 @@ def simulate_targets(res, targets_csv, out_csv, max_picks=MAX_PICKS):
         gr = g[g['graded'] > 0]
         hit = g['lonely'].sum() / g['graded'].sum() if g['graded'].sum() else 0
         majority = int(((gr['lonely'] * 2) > gr['graded']).sum())
+        gw = g[g['winner_known'] > 0]
+        won_rate = (g['won'].sum() / g['winner_known'].sum()
+                    if g['winner_known'].sum() else 0)
         lines += [
             f'### {label}: {len(g)} firms',
             f'- {len(got)} firms received picks; {g["picks"].sum()} picks '
@@ -327,6 +359,11 @@ def simulate_targets(res, targets_csv, out_csv, max_picks=MAX_PICKS):
             f'- {int((gr["lonely"] >= 1).sum())} of the {len(gr)} firms with '
             f'checked picks got at least one 0-1-bid pick; {majority} were '
             f'right on the majority of their picks',
+            f'- **{g["won"].sum()} of the {g["winner_known"].sum()} picks '
+            f'with a winner on record were eventually won by the very firm '
+            f'they were handed to ({won_rate:.0%}, any bidder count)**; '
+            f'{int((gw["won"] >= 1).sum())} of the {len(gw)} firms with '
+            f'winner-checked picks won at least one',
             '']
     return lines
 
@@ -346,7 +383,10 @@ def report(res, out_path):
              'the award notice is published, so the true bid count is on public record ·',
              '**chance** = how often tenders end with 0-1 bids anyway, with no model ·',
              '**right** = share of checked alarms/picks that really ended with 0-1 bids ·',
-             '**vs chance** = right ÷ chance.',
+             '**vs chance** = right ÷ chance ·',
+             '**won** = the award notice names the very firm the pick was handed to as',
+             'a winner, no matter how many bidders there were (own denominator: the',
+             'award must name a winner, which is not the same set as "bid count known").',
              '',
              f'- Tenders examined while open: {len(res["scored"])} '
              f'(results known for {len(graded_pool)}; '
@@ -368,11 +408,20 @@ def report(res, out_path):
         graded = {lot: outcome.get(lot) for lot in picks}
         n_lonely = sum(1 for n in graded.values() if n is not None and n <= 1)
         n_graded = sum(1 for n in graded.values() if n is not None)
+        winners = res['winners']
+        f_name = str(firm).strip()
+        won = {lot for lot in picks if f_name in winners.get(lot, ())}
+        n_winner_known = sum(1 for lot in picks if lot in winners)
         lines += [f'- Picks across the replay: {len(picks)} (results known '
-                  f'for {n_graded}, of which {n_lonely} ended with 0-1 bids)', '']
+                  f'for {n_graded}, of which {n_lonely} ended with 0-1 bids)',
+                  f'- Picks eventually won by {f_name} themselves: {len(won)} '
+                  f'of {n_winner_known} with a winner on record '
+                  f'(any bidder count)', '']
         for lot, p in sorted(picks.items(), key=lambda kv: kv[1]['week']):
             n = outcome.get(lot)
             res_s = f'{n} bid(s)' if n is not None else 'outcome pending'
+            if lot in won:
+                res_s += ', WON by them'
             lines.append(f'  - {p["week"]}: {str(p["title"])[:60]!r} '
                          f'[{str(p["buyer_name"])[:35]}] -> {res_s}')
         # recall of the customer's own eventual wins
