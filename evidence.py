@@ -77,6 +77,46 @@ TRADE_DICTS = True    # rollback switch for (2)
 CONVICT_BODY_MIN = 2  # body-only conviction needs this many distinct kws
 LABEL_DF_MAX = 5      # definitional = names <= this many CPV labels
 DICT_MIN_LOTS = 20    # trades with fewer coded lots keep no dictionary
+# Phase 8t (2026-08-07). A dictionary used to be built only for a TRUSTED
+# code. Trust means the code's lot texts sit close together in embedding
+# space -- a test invented for a different job (certifying clean negatives
+# when calibrating the threshold) and reused here as a gate on vocabulary,
+# which it says nothing about. A trade whose projects genuinely vary
+# (Landschaftsbau: parks, schools, roadsides) scores low on cohesion while
+# its vocabulary -- pflanz, gehoelz, entwicklungspflege -- is perfectly
+# sharp. Measured cost of the borrowed gate: 212 deep codes exist, 56 are
+# trusted, 47 dictionaries get built; 135 codes carry >= DICT_MIN_LOTS lots
+# but only 33 of those are trusted. The 102 excluded are the major trades --
+# Metallbau 702 lots, HLK 579, Rohbau 513, Elektroinstallation 499, Fassade
+# 443, Landschaftsbau 421, Zimmer/Schreiner 351, Bahnbau 347, Aufzuege 245.
+# And the effect is total: of 261 firms holding a trusted code NONE had an
+# empty lexicon; of the 251 without, 101 did.
+# The dictionary's OWN tests are the ones that matter and they stay:
+# DICT_MIN_IN, DICT_MIN_RATIO, the buyer-diversity pair, and names_trade().
+# Rollback: DICT_TRUSTED_ONLY=1.
+DICT_TRUSTED_ONLY = os.environ.get('DICT_TRUSTED_ONLY', '0') != '0'
+# Phase 8u (operator idea 2026-08-07): THE POOL VOTES. A dictionary is only
+# as good as the lots filed under its code, and most of them are not filed
+# under it deliberately -- measured on 45261420 (Abdichtungsarbeiten gegen
+# Wasser): 17 lots arrive via cpv_main and 88 via cpv_additional, 84% of the
+# pool, carrying titles like "Rohbauarbeiten 3. Bauabschnitt" and
+# "Spraypark". A procurement lists every trade it contains as an additional
+# code on each of its lots, so the same lots land in a dozen trades' pools
+# at once. That is CORRELATED miscoding: DICT_MIN_IN and DICT_MIN_RATIO are
+# built for noise and this is not noise.
+#
+# The operator's observation is the fix: wrongly-filed lots are wrong in
+# every direction at once (rohbau, tiefbau, spraypark) while correctly-filed
+# ones all say the same thing, so the right trade OUTVOTES the wrong ones.
+# Each lot votes with the trade roots in its text; the roots that carry the
+# vote are the code's signature; a lot holding none of them is not this
+# trade and leaves the pool before any word is counted. Same recurrence
+# principle as core_keywords(), one level up: the trade recurs across the
+# code's lots, the miscoded ones scatter.
+# Rollback: DICT_VOTE=0.
+DICT_VOTE = os.environ.get('DICT_VOTE', '1') != '0'
+DICT_VOTE_MARGIN = 0.5   # signature = roots polling >= this share of the top
+DICT_VOTE_MAX = 6        # ... at most this many, so a signature stays a signature
 DICT_MIN_IN = 0.10    # word must appear in >= 10% of the trade's lots
 DICT_MIN_RATIO = 8.0  # ... and >= 8x as often inside as outside
 # Phase 8f (2026-08-07) — ONE principle, applied in the two places it was
@@ -146,12 +186,21 @@ WIDE_NOMINATION = os.environ.get('WIDE_NOMINATION', '1') != '0'
 # Phase 8r: the firm's own name is a lexicon source. See name_keywords().
 # Rollback: NAME_KEYWORDS=0.
 NAME_KEYWORDS = os.environ.get('NAME_KEYWORDS', '1') != '0'
+# Phase 8s: the narrow lexicon counts ROOTS, not surface forms — German
+# writes one trade three ways across three tenders. See derive_keywords.
+# Rollback: ROOT_LEXICON=0.
+ROOT_LEXICON = os.environ.get('ROOT_LEXICON', '1') != '0'
 CORE_TITLE_CONVICTS = os.environ.get('CORE_TITLE_CONVICTS', '1') != '0'
 CORE_SHARE = float(os.environ.get('CORE_SHARE', '0.5'))
 # rollback switch for phase 8f (A) and (B); env var overrides per run so the
 # A/B needs no edit (BUYER_DIVERSITY=0 reproduces the phase-8e lexicons)
 BUYER_DIVERSITY = os.environ.get('BUYER_DIVERSITY', '1') != '0'
-DICT_CACHE_V = 2           # bumped by (A): older caches are not comparable
+# Bumped by phase 8f (A), then by 8t. A NEW KEY FIELD IS NOT ENOUGH on its
+# own: `bool(d.get('to'))` is False for a cache written before the field
+# existed, which is exactly the value the new default carries, so a stale
+# trusted-only cache matched the key and was silently reused. Any change to
+# what the dictionaries contain must bump this version too.
+DICT_CACHE_V = 4
 DICT_MAX_WORDS = 30   # per-trade cap, keeps lexicons readable
 SEED = 7              # mirrors calibrate.py sampling
 NEG_PER_FIRM = 50
@@ -285,7 +334,8 @@ def store_doc_freq(tenders, cache_path=None):
     return out
 
 
-def derive_keywords(refs, docfreq, label_texts=(), reasons=None):
+def derive_keywords(refs, docfreq, label_texts=(), reasons=None,
+                    sources=None):
     """The TF-IDF sieve over (text, buyer) references: a stem survives when
     it appears in enough references (WORD_MIN_REF_SHARE — the trade recurs
     across a firm's wins, the context of any one project does not), is not
@@ -310,8 +360,29 @@ def derive_keywords(refs, docfreq, label_texts=(), reasons=None):
     # buyer-name words describe WHO, not WHAT — "hamburg" from
     # "Schulbau Hamburg" is geography, never trade evidence
     buyer_words = {w for _, b in refs for w in tokens(str(b or ''))}
-    for t, _b in refs:
-        in_refs.update(set(tokens(t)))
+    # Phase 8s — COUNT ROOTS, NOT SURFACE FORMS (operator decision
+    # 2026-08-07: "i dont like matching raw token at all ... people write in
+    # different ways and you miss all of them").
+    #
+    # Braun GmbH is the case. Its four references say Wärmepumpenanlage,
+    # Wärmepumpen and Wärmepumpe — one trade word, three surface forms,
+    # because German compounds it differently every time. Counted as
+    # tokens that is three words with one mention each, and the recurrence
+    # rule refused all three; counted as ROOTS it is `pump` in three
+    # references out of four. The proof was already in the code: Braun's
+    # core list (root-counted) reads `pump daemm leitung` while its narrow
+    # lexicon (token-counted) was empty. Every other list in the system —
+    # core, wide, the dictionaries — is already canonical; derive_keywords
+    # was the last one measuring the surface.
+    #
+    # Nothing is lost by canonicalising: a token carrying no root fails
+    # names_trade() anyway, so it could never have entered the lexicon.
+    if ROOT_LEXICON and TRADE_ROOTS:
+        for t, _b in refs:
+            in_refs.update({r for w in set(tokens(t)) for r in roots_in(w)})
+    else:
+        for t, _b in refs:
+            in_refs.update(set(tokens(t)))
     min_refs = min(MIN_WITNESSES, len(refs)) or 1
     if WORD_MIN_REF_SHARE:
         min_refs = max(min_refs, min(len(refs), int(
@@ -345,14 +416,29 @@ def derive_keywords(refs, docfreq, label_texts=(), reasons=None):
         if reasons is not None:
             reasons[w] = why
         return True
+    rooted = bool(ROOT_LEXICON and TRADE_ROOTS)
     for w, c in in_refs.items():
         # the conditions are spelled out one per line so `reasons` can name
         # the first one that fired; the conjunction is unchanged
-        if len(w) < MIN_STEM_LEN and reject(w, 'too short'):
-            continue
         if c < min_refs and reject(w, 'too few references'):
             continue
         if w in buyer_words and reject(w, 'buyer name'):
+            continue
+        if rooted:
+            # a root needs none of the surface-form guards. MIN_STEM_LEN
+            # protects substring matching against accidental hits
+            # ('glas' in Glasgow) and the roots file carries that duty
+            # itself, by hand, in its exception lines — which is why it
+            # can hold `dach` and `holz` at all. MAX_DOC_FREQ is a rarity
+            # proxy for "is this a trade word" and the root IS the direct
+            # answer (phase 8g: 'derzeit' 0.97%, 'estrich' 1.88% — rarity
+            # rated the filler above the trade). stem() is meaningless on
+            # a canonical form.
+            cands[w] = (c, 0)
+            if sources is not None:
+                sources.setdefault(w, 'own text')
+            continue
+        if len(w) < MIN_STEM_LEN and reject(w, 'too short'):
             continue
         if df.get(w, 0) / n_docs > MAX_DOC_FREQ and reject(w, 'store-common'):
             continue
@@ -368,8 +454,18 @@ def derive_keywords(refs, docfreq, label_texts=(), reasons=None):
             best = cands.get(s)
             if best is None or (c, -df.get(w, 0)) > best:
                 cands[s] = (c, -df.get(w, 0))
+                if sources is not None:
+                    sources.setdefault(s, 'own text')
     for lt in label_texts:
         for w in tokens(lt):
+            if rooted:
+                # a CPV label names the trade by definition, so its roots
+                # enter outright — same canonical form as everything else
+                for r in roots_in(w):
+                    cands.setdefault(r, (len(refs), 0))
+                    if sources is not None:
+                        sources.setdefault(r, 'CPV label')
+                continue
             if len(w) < MIN_STEM_LEN:
                 continue
             # phase 8g: label words are definitional only if they NAME the
@@ -382,6 +478,8 @@ def derive_keywords(refs, docfreq, label_texts=(), reasons=None):
             if definitional or df.get(w, 0) / n_docs <= MAX_DOC_FREQ:
                 s = stem(w, df)
                 cands.setdefault(s, (len(refs), 0))
+                if sources is not None:
+                    sources.setdefault(s, 'CPV label')
     kept = []
     for s in sorted(cands, key=len):  # shortest stem of a family wins
         if not any(k in s for k in kept):
@@ -420,7 +518,7 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
     global _TRADE_DICTS
     if _TRADE_DICTS is not None:
         return _TRADE_DICTS
-    from calibrate import lot_codes
+    from calibrate import is_deep, lot_codes
     lots = tenders.drop_duplicates(subset=KEY)
     if cache_path and Path(cache_path).exists():
         d = json.loads(Path(cache_path).read_text(encoding='utf-8'))
@@ -432,7 +530,8 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
         # lexicon_receipt.py --coverage stopped reproducing.
         if (d.get('n') == int(len(lots)) and d.get('v') == DICT_CACHE_V
                 and bool(d.get('bd')) == bool(BUYER_DIVERSITY)
-                and bool(d.get('tr')) == bool(TRADE_ROOTS)):
+                and bool(d.get('tr')) == bool(TRADE_ROOTS)
+                and bool(d.get('to')) == bool(DICT_TRUSTED_ONLY)):
             _TRADE_DICTS = d['dicts']
             return _TRADE_DICTS
     n, df = docfreq['n'], docfreq['df']
@@ -444,12 +543,32 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
         b = ' '.join(str(getattr(r, 'buyer_name', '') or '').casefold().split())
         buyers.append(b or None)
         for c in lot_codes(r.cpv_main, r.cpv_additional):
-            if c in trusted:
+            # phase 8t: any DEEP code with enough lots earns a dictionary;
+            # `trusted` is consulted only under the rollback switch
+            if (c in trusted) if DICT_TRUSTED_ONLY else is_deep(c):
                 by_code.setdefault(c, []).append(idx)
     dicts = {}
     for c, idxs in by_code.items():
         if len(idxs) < DICT_MIN_LOTS:
             continue
+        if DICT_VOTE and TRADE_ROOTS:
+            poll = Counter()
+            lot_roots = {}
+            for i in idxs:
+                rs = {r for w in toks[i] for r in roots_in(w)}
+                lot_roots[i] = rs
+                poll.update(rs)
+            if poll:
+                top = poll.most_common(1)[0][1]
+                signature = {r for r, n in poll.most_common(DICT_VOTE_MAX)
+                             if n >= top * DICT_VOTE_MARGIN}
+                voted = [i for i in idxs if lot_roots[i] & signature]
+                # a pool that loses its quorum keeps no dictionary at all:
+                # too few agreeing lots is exactly the case where the words
+                # would be the miscoded minority's
+                if len(voted) < DICT_MIN_LOTS:
+                    continue
+                idxs = voted
         cnt = Counter()
         # phase 8f (A): distinct buyers per word, alongside the lot count
         w_buyers = {}
@@ -496,7 +615,8 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
         Path(cache_path).write_text(
             json.dumps({'n': int(len(lots)), 'v': DICT_CACHE_V,
                         'bd': bool(BUYER_DIVERSITY),
-                        'tr': bool(TRADE_ROOTS), 'dicts': dicts}),
+                        'tr': bool(TRADE_ROOTS),
+                        'to': bool(DICT_TRUSTED_ONLY), 'dicts': dicts}),
             encoding='utf-8')
     _TRADE_DICTS = dicts
     return dicts
@@ -614,13 +734,13 @@ def core_keywords(refs, firm=None):
 
 
 def firm_keywords(refs, docfreq, label_texts, trusted_codes, dicts,
-                  reasons=None, firm=None):
+                  reasons=None, firm=None, sources=None):
     """The profile lexicon (phase 8c): the firm's own derived words plus
     the dictionaries of its trusted trades, and (phase 8r) the trade roots
     in the firm's own name. Substring-redundant words are collapsed to the
     shortest stem so one text occurrence can never count as two witnesses
     (phase 8b)."""
-    kws = derive_keywords(refs, docfreq, label_texts, reasons)
+    kws = derive_keywords(refs, docfreq, label_texts, reasons, sources)
     # the name goes in FIRST so it survives the subsumption pass below as
     # the shortest form of its family: 'elektro' should absorb a dictionary
     # entry like 'elektroinstallation', not the other way round
@@ -628,6 +748,8 @@ def firm_keywords(refs, docfreq, label_texts, trusted_codes, dicts,
         if not any(k in r for k in kws):
             kws = [k for k in kws if r not in k]
             kws.append(r)
+            if sources is not None:
+                sources[r] = 'firm name'
     if TRADE_DICTS and dicts:
         for c in trusted_codes:
             for w in dicts.get(c, []):
@@ -638,6 +760,8 @@ def firm_keywords(refs, docfreq, label_texts, trusted_codes, dicts,
                     continue  # an existing (shorter) stem already hits w
                 kws = [k for k in kws if w not in k]  # w subsumes longer kws
                 kws.append(w)
+                if sources is not None:
+                    sources[w] = f'dictionary {c}'
     return kws
 
 
@@ -663,6 +787,138 @@ def _ed_le1(a, b):
         else:
             j += 1
     return diff + (la - i) + (lb - j) <= 1
+
+
+# Phase 8s diagnostic. The vocabulary header records what the embedder
+# scores on SYNONYMS (anstreicher/maler 0.289 ...) and concludes it cannot
+# supply the trade list. That measurement is about words that share a
+# MEANING and no letters. Grouping a firm's own surface forms is the
+# opposite task -- words that share a stem -- and it was never measured.
+# These pairs are the real ones, taken from firms in the --empty dump.
+INFLECTION_PAIRS = [
+    ('wärmepumpe', 'wärmepumpenanlage'),
+    ('wärmepumpe', 'wärmepumpen'),
+    ('betonarbeiten', 'ortbeton'),
+    ('betonarbeiten', 'stahlbeton'),
+    ('leitung', 'kanalleitungen'),
+    ('dämmarbeiten', 'dämmung'),
+    ('kältemaschinen', 'kältetechnische'),
+    ('bodenbelag', 'bodenbelagsarbeiten'),
+    ('estrich', 'estricharbeiten'),
+    ('trennwand', 'trennwände'),
+    ('aufzug', 'aufzüge'),
+    ('tür', 'türen'),
+]
+# the control: pairs the header already measured, so the two tasks are
+# comparable in one run
+SYNONYM_PAIRS = [
+    ('anstreicher', 'maler'),
+    ('spengler', 'klempner'),
+    ('schreiner', 'tischler'),
+    ('linoleum', 'bodenbelag'),
+    ('dehnfuge', 'estrich'),
+]
+
+
+def dict_pool(data_dir, code):
+    """Read the lots a trade dictionary is built from, split by HOW the code
+    reached them. cpv_main is the buyer's statement of what this lot is;
+    cpv_additional is often every trade in the whole procurement, copied
+    onto each lot, which puts the same lots into a dozen trades' pools
+    systematically. The 10%/8x/two-buyer filters catch random miscoding;
+    correlated miscoding is not noise and passes straight through."""
+    from calibrate import lot_codes
+    tenders = pd.read_parquet(Path(data_dir) / 'store' / 'tenders.parquet')
+    lots = tenders.drop_duplicates(subset=KEY)
+    docfreq = store_doc_freq(tenders, Path(data_dir) / 'evidence_df.json')
+    main, addl = [], []
+    for r in lots.itertuples(index=False):
+        if str(r.cpv_main or '') == code:
+            main.append(r)
+        elif code in lot_codes(r.cpv_main, r.cpv_additional):
+            addl.append(r)
+    from embed import read_cpv_labels
+    print(f'[dict] {code} {read_cpv_labels().get(code, "?")}')
+    print(f'[dict] pool: {len(main)} lots via cpv_main, '
+          f'{len(addl)} via cpv_additional '
+          f'({len(addl) / max(len(main) + len(addl), 1):.0%} of the pool)')
+    for label, rows in (('cpv_main', main), ('cpv_additional', addl)):
+        print(f'\n[dict] {label} sample:')
+        for r in rows[:12]:
+            print(f'   {str(r.title)[:74]!r}')
+    dicts = trade_dictionaries(tenders, set(), docfreq,
+                               Path(data_dir) / 'trade_dicts.json')
+    print(f'\n[dict] derived words: {dicts.get(code, [])}')
+
+
+def pair_receipt(data_dir):
+    """Cosine for word pairs through the SHIPPED tier-3 matcher, against a
+    noise floor drawn from the store's own vocabulary. Answers whether the
+    embedder can group a firm's surface forms (Wärmepumpe /
+    Wärmepumpenanlage) even though it cannot supply synonyms."""
+    tenders = pd.read_parquet(Path(data_dir) / 'store' / 'tenders.parquet')
+    docfreq = store_doc_freq(tenders, Path(data_dir) / 'evidence_df.json')
+    syn = SynonymTier(Path(data_dir) / 'embeddings' / 'word_vecs.npz')
+    rng = np.random.default_rng(SEED)
+    vocab = [w for w, c in docfreq['df'].items()
+             if c >= 20 and len(w) >= MIN_STEM_LEN]
+    pick = rng.choice(len(vocab), 400, replace=False)
+    noise_words = [vocab[i] for i in pick]
+
+    def cos(a, b):
+        V = syn._embed([a, b])
+        return float(V[0] @ V[1])
+
+    N = syn._embed(noise_words)
+    S = N @ N.T
+    off = S[~np.eye(len(N), dtype=bool)]
+    print(f'[pairs] noise floor over {len(N)} store words: '
+          f'mean {off.mean():.3f}, p95 {np.percentile(off, 95):.3f}, '
+          f'max {off.max():.3f}')
+    print(f'[pairs] tier-3 bar SYN_THRESHOLD = {SYN_THRESHOLD}')
+    for label, pairs in (('inflection/compound', INFLECTION_PAIRS),
+                         ('synonym (control)', SYNONYM_PAIRS)):
+        scores = []
+        print(f'\n[pairs] {label}:')
+        for a, b in pairs:
+            s = cos(a, b)
+            scores.append(s)
+            print(f'   {s:.3f} {"PASS" if s >= SYN_THRESHOLD else "    "}  '
+                  f'{a} / {b}')
+        arr = np.array(scores)
+        print(f'   -> mean {arr.mean():.3f}, '
+              f'{int((arr >= SYN_THRESHOLD).sum())}/{len(arr)} clear the bar')
+
+    # WHY THE BAR CANNOT SIMPLY BE LOWERED. match_evidence takes the
+    # ARGMAX over every word of the candidate text, so a keyword is not
+    # compared with one unrelated word — it is compared with hundreds, and
+    # the bar has to beat the MAXIMUM of that pile, not its average. The
+    # noise floor's mean (0.185) is therefore the wrong statistic entirely;
+    # this is the right one. Each trade keyword is scored against a
+    # document-sized bag of unrelated store words, exactly as the tier
+    # would score it in production.
+    kws = sorted({a for a, _ in INFLECTION_PAIRS})
+    K = syn._embed(kws)
+    S_kn = K @ N.T
+    best = S_kn.max(axis=1)
+    print(f'\n[pairs] each keyword vs a {len(N)}-word bag of store words — '
+          f'the MAX, which is what the tier actually tests.')
+    print('        READ THE MATCHED WORD: a "false" hit that turns out to '
+          'be a\n        real variant is not noise, and inverts the '
+          'conclusion.')
+    order = sorted(range(len(kws)), key=lambda i: -best[i])
+    for i in order:
+        top = np.argsort(-S_kn[i])[:3]
+        quoted = ', '.join(f'{noise_words[j]} {S_kn[i, j]:.3f}' for j in top)
+        print(f'   {best[i]:.3f}  {kws[i]:16s} <- {quoted}')
+    true_scores = np.array([cos(a, b) for a, b in INFLECTION_PAIRS])
+    print(f'\n[pairs] {"bar":>5s} {"inflection kept":>16s} '
+          f'{"keywords firing on noise":>26s}')
+    for bar in (0.60, 0.65, 0.70, 0.73, 0.75, 0.80, 0.85, 0.90):
+        print(f'   {bar:5.2f} {int((true_scores >= bar).sum()):8d}/'
+              f'{len(true_scores):<7d} {int((best >= bar).sum()):14d}/'
+              f'{len(kws):<11d}')
+    syn.save()
 
 
 def match_evidence(text, keywords, syn=None):
@@ -818,7 +1074,7 @@ def receipt(data_dir, use_tier3):
             lbl = [labels[c] for j, cs in enumerate(codes) if j != i
                    for c in cs if c in trusted and c in labels]
             tc_i = {c for j, cs in enumerate(codes) if j != i
-                    for c in cs if c in trusted}
+                    for c in cs if is_deep(c)}
             kws = firm_keywords(others, docfreq, lbl, tc_i, dicts,
                                 firm=firm)
             kw_counts.append(len(kws))
@@ -839,7 +1095,7 @@ def receipt(data_dir, use_tier3):
         # negatives (clean, off-class trusted) and volume — firm-level keywords
         kws = firm_keywords([(texts[k], raw[k][4]) for k in keys],
                             docfreq, label_texts,
-                            {c for cs in codes for c in cs if c in trusted},
+                            {c for cs in codes for c in cs if is_deep(c)},
                             dicts, firm=firm)
         neg_pool = [k for k in deep_trusted
                     if all_class[k] not in firm_classes and k not in keys]
@@ -905,7 +1161,7 @@ def run_benchmark(data_dir, use_tier3):
             firm_tc[firm] = {c for _, r in aw.iterrows()
                              for c in lot_codes(r['cpv_main'],
                                                 r['cpv_additional'])
-                             if c in trusted}
+                             if is_deep(c)}
             firms[firm] = firm_keywords(
                 [(texts[k], raw[k][4]) for k in keys], docfreq, lbl,
                 firm_tc[firm], dicts, firm=firm)
@@ -1325,10 +1581,26 @@ def main():
                          'all bars + the evidence-nominates variant')
     ap.add_argument('--limit', type=int,
                     help='(--sweep smoke test only) cap the firm count')
+    ap.add_argument('--dict', metavar='CODE',
+                    help='READ the pool a trade dictionary is built from: '
+                         'how many lots reach it via cpv_main vs '
+                         'cpv_additional, sample titles of each, and the '
+                         'words derived. A code is only as good as the '
+                         'lots filed under it.')
+    ap.add_argument('--pairs', action='store_true',
+                    help='what the embedder scores on INFLECTION vs on '
+                         'synonyms, against a store noise floor — the '
+                         'measurement behind grouping a firm\'s surface forms')
     ap.add_argument('--judge-benchmark', action='store_true',
                     help='only the benchmark cases through the real judge(), '
                          'both gate modes — seconds, for benchmark growth')
     args = ap.parse_args()
+    if args.dict:
+        dict_pool(args.data_dir, args.dict)
+        return
+    if args.pairs:
+        pair_receipt(args.data_dir)
+        return
     if args.judge_benchmark:
         judge_benchmark(args.data_dir)
         return
@@ -1355,12 +1627,30 @@ def main():
         tc = {c for _, r in aw.iterrows()
               for c in lot_codes(r['cpv_main'], r['cpv_additional'])
               if c in trusted}
+        deep = {c for _, r in aw.iterrows()
+                for c in lot_codes(r['cpv_main'], r['cpv_additional'])
+                if is_deep(c)}
         lbl = [labels[c] for c in tc if c in labels]
         print(f'[evidence] {args.keywords}: {len(keys)} wins, '
               f'trusted trades {sorted(tc)}')
-        print(firm_keywords([(texts[k], raw[k][4]) for k in keys],
-                            docfreq, lbl, tc, dicts,
-                            firm=args.keywords))
+        # phase 8s: WHERE EACH WORD CAME FROM. The merged list hides the
+        # one thing worth reading -- a lexicon of dictionary words is the
+        # trade's vocabulary, a lexicon of own-text words is five
+        # documents, and the operator's test for a lexicon is reading it.
+        src = {}
+        kws = firm_keywords([(texts[k], raw[k][4]) for k in keys],
+                            docfreq, lbl, deep, dicts, firm=args.keywords,
+                            sources=src)
+        print(kws)
+        by = {}
+        for w in kws:
+            by.setdefault(src.get(w, '?'), []).append(w)
+        for where in sorted(by):
+            print(f'   {where:20s} ({len(by[where])}): '
+                  f'{" ".join(by[where])}')
+        print(f'   {"core (title convicts)":20s} '
+              f'({len(core_keywords([(texts[k], raw[k][4]) for k in keys], firm=args.keywords))}): '
+              f'{" ".join(core_keywords([(texts[k], raw[k][4]) for k in keys], firm=args.keywords))}')
         return
     if args.benchmark:
         sys.exit(1 if run_benchmark(args.data_dir, args.tier3) else 0)

@@ -114,7 +114,7 @@ def firm_lexicons(data_dir, trade_roots):
     hand-labeled cases cannot see because they cover a handful of firms.
 
     -> {firm: {'wins', 'codes', 'narrow', 'core', 'wide'}}"""
-    from calibrate import firm_win_rows, lot_codes
+    from calibrate import firm_win_rows, is_deep, lot_codes
     from embed import read_cpv_labels
     apply(evd.BUYER_DIVERSITY, trade_roots)
     tenders, awards, lots, texts, raw, docfreq = evd.load_world(data_dir)
@@ -140,12 +140,13 @@ def firm_lexicons(data_dir, trade_roots):
         lbl = [labels[c] for cs in codes for c in cs
                if c in trusted and c in labels]
         tc = {c for cs in codes for c in cs if c in trusted}
+        deep = {c for cs in codes for c in cs if is_deep(c)}
         refs = [(texts[k], raw[k][4]) for k in keys]
-        why = {}
+        why, src = {}, {}
         out[firm] = {
-            'wins': len(keys), 'codes': sorted(tc),
-            'narrow': evd.firm_keywords(refs, docfreq, lbl, tc, dicts,
-                                        why, firm=firm),
+            'wins': len(keys), 'codes': sorted(tc), 'src': src,
+            'narrow': evd.firm_keywords(refs, docfreq, lbl, deep, dicts,
+                                        why, firm=firm, sources=src),
             'core': evd.core_keywords(refs, firm=firm),
             'wide': evd.wide_keywords(refs),
             'why': why}
@@ -236,6 +237,20 @@ def empty_dump(data_dir, limit=None):
         print(f'    dropped ({had_n}): {" ".join(had) if had else "-"}')
         print(f'    core:  {" ".join(v["core"]) or "-"}')
         print(f'    wide:  {" ".join(v["wide"]) or "-"}')
+        # WHY this firm has nothing: the sieve's own verdict on the words
+        # that DO name a trade. A long `wide` list beside an empty lexicon
+        # means the trade words are in the text and a filter refused them;
+        # this says which, and on which words, so the answer is read rather
+        # than guessed.
+        why = v.get('why') or {}
+        trade = {w: r for w, r in why.items() if evd.roots_in(w)}
+        if trade:
+            per = Counter(trade.values())
+            print('    refused trade words: ' + ', '.join(
+                f'{r} x{n}' for r, n in per.most_common()))
+            for r, _n in per.most_common(2):
+                ex = [w for w, rr in trade.items() if rr == r][:8]
+                print(f'      {r}: {" ".join(ex)}')
 
 
 def fmt(counts):
@@ -264,6 +279,10 @@ def main():
                     help='lexicon sizes over EVERY firm with >= 3 wins, '
                          'vocabulary on vs off â€” the measure for vocabulary '
                          'work, which the 122 cases cannot see')
+    ap.add_argument('--show', metavar='NAMES',
+                    help='semicolon-separated firm-name fragments: print '
+                         "each one's lexicon tagged by SOURCE. The operator's "
+                         'test for a lexicon is reading it.')
     ap.add_argument('--empty', action='store_true',
                     help='the firms left with NO narrow lexicon, the words '
                          'the vocabulary took from them, and their core/wide '
@@ -272,6 +291,31 @@ def main():
     ap.add_argument('--limit', type=int, default=None,
                     help='(--empty) show only the first N firms')
     args = ap.parse_args()
+
+    if args.show:
+        wanted = [w.strip().casefold() for w in args.show.split(';')
+                  if w.strip()]
+        lex = firm_lexicons(args.data_dir, True)
+        for frag in wanted:
+            hits = [f for f in lex if frag in str(f).casefold()]
+            if not hits:
+                print(f'\n- {frag}: NOT FOUND '
+                      f'(needs >= {evd.MIN_WINS} wins)')
+            for f in hits:
+                v = lex[f]
+                print(f'\n- {f} ({v["wins"]} wins, trusted codes '
+                      f'{v["codes"] or "none"})')
+                if not v['narrow']:
+                    print('    lexicon: EMPTY')
+                by = {}
+                for w in v['narrow']:
+                    by.setdefault(v['src'].get(w, '?'), []).append(w)
+                for where in sorted(by):
+                    print(f'    {where:20s} ({len(by[where])}): '
+                          f'{" ".join(by[where])}')
+                print(f'    {"core (convicts)":20s} ({len(v["core"])}): '
+                      f'{" ".join(v["core"]) or "-"}')
+        return
 
     if args.empty:
         empty_dump(args.data_dir, args.limit)

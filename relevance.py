@@ -419,7 +419,10 @@ def build_profile(gate, sub):
         # the trade on its letterhead — see evidence.name_keywords()
         keywords = evd.firm_keywords(
             refs, docfreq, [gate.lrows[r]['label_de'] for r in hard_rows],
-            {c for c in ref_codes if c in gate.trusted}, dicts,
+            # phase 8t: dictionaries are looked up by the profile's DEEP
+            # codes, not its trusted ones — trust gates the code-similarity
+            # nomination above, never the vocabulary
+            {c for c in ref_codes if is_deep(c)}, dicts,
             firm=sub.get('name'))
         # phase 8n: the wide root lexicon — nomination only, never conviction
         wide = evd.wide_keywords(refs)
