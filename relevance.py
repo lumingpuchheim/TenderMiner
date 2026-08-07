@@ -143,6 +143,25 @@ NOMINATION_BAR = 0.550
 # NOMINATION_BAR is inert while this is False; it stays because the
 # embedding ladder (GATE_MODE='embedding') and the sweep still use it.
 SIMILARITY_NOMINATES = os.environ.get('SIMILARITY_NOMINATES', '0') != '0'
+# Phase 8k (experiment 2026-08-07): CONVICTION-STRENGTH EVIDENCE NOMINATES
+# ITSELF. The gate already holds that a trade keyword in the TITLE convicts
+# on its own (evidence.convicts, the title-or-two rule) — yet nothing let
+# that same fact open the door, so a lot could be convictable and never
+# considered. Concrete case, 00367721-2025 'Estricharbeiten' (Thüringer
+# Landesamt für Bau) against the screed firm N3Bau: filed under CPV
+# 45216111 'Bau von Polizeirevieren', so hard=0.135 and route 1 fails; the
+# description is an address, so evidence is estrich(t1) alone and the
+# witness rule (which wants EVIDENCE_NOMINATION_MIN) fails; route 2 is gone
+# since phase 8i. Verdict ok=False — a tender whose title IS the firm's
+# trade. Unlike route 2 this cannot reopen the boilerplate hole: whole-
+# document similarity is dominated by a buyer's standard paragraphs, while
+# the title is the one field that names the actual work.
+# SHIPPED ON (receipt: IN 26/74 -> 34/74, OUT unchanged at 45/52, total
+# 71/126 -> 79/126). Eight recall cases for no measured precision cost --
+# the only free move found in this whole sequence, because it admits on the
+# field that names the work rather than on document resemblance.
+# Rollback: CONVICTION_NOMINATES=0.
+CONVICTION_NOMINATES = os.environ.get('CONVICTION_NOMINATES', '1') != '0'
 # Phase 8b, the witness rule (operator design, 2026-08-06): "one
 # coincidence is coincidence, multiple coincidences are a conviction."
 # Evidence alone may NOMINATE a lot (no similarity, no code — deliberately
@@ -512,7 +531,13 @@ def _evidence_verdict(profile, text, c_hard, same_buyer, has_evidence,
                  # SIMILARITY_NOMINATES. `same_buyer` survives only to keep
                  # the rollback arm honest; nothing else reads the buyer.
                  or (SIMILARITY_NOMINATES and not same_buyer and text >= bar)
-                 or (nomination_min > 0 and witnesses >= nomination_min))
+                 or (nomination_min > 0 and witnesses >= nomination_min)
+                 # phase 8k: what convicts may also nominate. NB when the
+                 # caller passes convicting=None this falls back to plain
+                 # has_evidence, i.e. the any-evidence-nominates diagnostic
+                 # (8.7% leakage) — the runtime always passes the real
+                 # title-or-two value, the sweep must do so too.
+                 or (CONVICTION_NOMINATES and convicting))
     if nominated and convicting:
         return True, False
     if nominated or has_evidence:
