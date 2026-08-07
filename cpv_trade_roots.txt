@@ -43,6 +43,37 @@
 # (angebotspreis, vertragsfristen). That is exactly why the suggestions
 # were read rather than merged: a miner proposes, a person accepts.
 #
+# 2026-08-07 -- EXTENDED FROM SIX TRADES TO ALL OF THEM
+# The first writing was made against the six live subscriptions, so it is
+# thorough exactly where they work -- screed, flooring, carpentry,
+# guardrails -- and thin everywhere else. The store holds ~1,300 repeat
+# winners spanning every construction trade, and a trade whose vocabulary
+# is missing does not get a small lexicon, it gets an empty one. This
+# round writes out the remainder of the VOB/C set on the same principle:
+# the Gewerk, its regional names, its materials, its characteristic
+# components. Added trades include roofing detail (Gaube, Traufe, Ortgang,
+# Attika), timber engineering (Brettschicht, Leimbinder, Fachwerk),
+# masonry consumables (Moertel, Verfugung), plumbing/drainage (Abscheider,
+# Hebeanlage, Rueckstau), heat generation (Fernwaerme, BHKW, Geothermie,
+# Pellet), electrical distribution (Unterverteilung, Potentialausgleich,
+# Erdung, Leerrohr), PV beyond the panel (Wechselrichter, Speicher),
+# Raumausstatter (Polster, Gardine, Tapete), Ofenbau/Hafner, Vergolder and
+# Restaurator, Terrazzo, Mosaik, Treppen, Balkone, Schwimmbadtechnik,
+# sports fitout (Prallwand, Tribuene, Turngeraet), water engineering
+# (Schleuse, Renaturierung) and Bauendreinigung.
+#
+# Two existing entries were repaired in the same pass:
+#   pfosten-riegel  could never match. Candidates are single tokens
+#                   ([a-zaeoeuess]{3,}); the hyphen ends the token, so no
+#                   candidate ever contains the string. Replaced by
+#                   'pfosten' and 'pfostenriegel'.
+#   rollladen       misses the pre-1996 spelling, which the corpus still
+#                   writes. 'rolladen' added alongside it.
+# Likewise the door roots were whole compounds (tueren, tuerblatt,
+# haustuer ...), so Schiebetuer, Stahltuer and Tuerschliesser fell through;
+# the bare root 'tuer' is still refused because it matches natuerlich, so
+# the missing compounds are named instead.
+#
 # HOW IT IS USED
 # A candidate keyword survives only if it CONTAINS one of these roots.
 # Roots, not whole words, because German carries the trade in the
@@ -62,6 +93,11 @@
 # is missing is simply lost -- add the root, do not weaken the rule.
 # Reviewed by reading; re-running the miner proposes candidates, it does
 # not accept them.
+#
+# Roots shorter than six characters are the ones that bite (ramm matched
+# Programm, tore matched Motoren, tuer matched natuerlich). The short ones
+# kept here are: dusch, gaube, trauf, staud, mulch, and the two acronyms
+# bhkw and wdvs, which carry no other reading in German.
 
 -klassenzimmer
 -hotelzimmer
@@ -74,8 +110,16 @@
 -holzminden
 -holzkirchen
 -holzwickede
+-holzhausen
+-holzheim
+-steinheim
+-steinfurt
 -glasgow
 -glashuetten
+# 'leitung' is a pipe or a cable; it is also a management word
+-bauleitung
+-projektleitung
+-schulleitung
 
 # === Baureifmachung, Erd-, Abbruch- und Tiefbauarbeiten
 abbruch
@@ -88,14 +132,21 @@ aushub
 erdarbeit
 erdbewegung
 bodenabtrag
+bodenaustausch
+bodenverbesser
+ruettelstopf
 mutterboden
 grabenaushub
 terrassier
+boeschung
+baugrube
 verfuell
 fluessigboden
 leitungszone
 spreng
 bohr
+seilsaeg
+meissel
 brunnen
 rammung
 rammarbeit
@@ -105,22 +156,49 @@ verbau
 baugrund
 fundament
 homogenbereich
+geotextil
+geogitter
+geovlies
+frostschutz
+tragschicht
+schotter
+vermessung
 baustelleneinrichtung
 landschaftsgaertner
 begruenung
 gestruepp
-pflanzarbeit
+pflanz
+staud
+hecken
 gehoelz
 baumpflege
+baumfaell
+rodung
+wurzel
+mulch
+substrat
+gruenpfleg
+gruenanlag
+maehgut
+beregnung
+bewaesser
 rasen
 kunstrasen
 tartan
 fallschutz
 spielplatzgeraet
+sportgeraet
+turngeraet
+prallwand
+tribuene
 altlast
+schadstoff
 schadstoffsanier
 asbest
 kampfmittel
+bauschutt
+deponie
+abfallentsorg
 wasserhaltung
 spundwand
 uferbefestig
@@ -149,6 +227,10 @@ tackerplatte
 maurer
 mauer
 mauerwerk
+moertel
+verfug
+fugenband
+fugendicht
 verblend
 stein
 steingut
@@ -156,6 +238,7 @@ steinmetz
 naturwerkstein
 naturstein
 quaderstein
+terrazzo
 rohbau
 schal
 verschal
@@ -165,10 +248,13 @@ fertigteil
 fertigbau
 baustahl
 stahlbau
+edelstahl
 metallbau
 metallkonstruktion
 schlosser
+schmied
 schweiss
+verzink
 galvanisier
 sandstrahl
 bewehr
@@ -182,6 +268,8 @@ spritzbeton
 rissverpress
 injektion
 betoninstandsetz
+apparatebau
+behaelterbau
 schornstein
 kaminbau
 
@@ -192,10 +280,16 @@ dachstuhl
 dachrinne
 dachbekies
 dachleitungshalter
+dachfirst
 flachdach
 kompaktdach
 umkehrdach
+gaube
+trauf
+ortgang
+attika
 ziegel
+biberschwanz
 schiefer
 bitumen
 oberlage
@@ -206,8 +300,11 @@ klempner
 spengler
 flaschner
 fassade
+hinterlueft
+paneel
 waermedaemm
 daemm
+wdvs
 trittschall
 hartschaum
 holzfaserdaemm
@@ -219,13 +316,17 @@ kunststoffbahn
 isolier
 abdicht
 verbundabdicht
+bautenschutz
 dehnfug
 randdaemmstreif
 trennschicht
 schall
 brandschutz
 brandabschott
+abschott
 brandschott
+brandschutzklapp
+feuerwiderstand
 feuerschutzabschluss
 rauchschutz
 entrauchung
@@ -251,6 +352,7 @@ absturzsicher
 putz
 stuck
 stuckateur
+stukkat
 trockenbau
 gipskarton
 gips
@@ -260,8 +362,12 @@ vorsatzschal
 installationsvorwand
 zementbauplatte
 paneeldeck
+akustikdeck
+rasterdeck
+spanndeck
 fliese
 flisen
+mosaik
 plattenleger
 bodenleger
 estrichleger
@@ -285,27 +391,42 @@ sockelleist
 sockelstreif
 sockelfliese
 haftgrund
+grundier
 spachtel
+versiegel
+schleif
 wandverkleid
 verkleid
 tapezier
+tapete
+raufaser
 anstrich
 anstreicher
 maler
+tuencher
+weissbind
 lackier
 streichen
 dispersion
 acrylat
+silikat
+silikon
+latexfarb
 betonlasur
 glasvlies
 hydrophobier
 altbeschicht
 beschicht
+kunstharz
 korrosionsschutz
+vergold
+restaurier
+dekorat
 glas
 verglas
 isolierglas
-pfosten-riegel
+pfosten
+pfostenriegel
 vorhangfassad
 elementfassad
 aluminiumfenster
@@ -317,39 +438,70 @@ tueren
 tuerblatt
 tuerzarge
 tuerelement
+tueranlag
+tuerfluegel
+tuerschliess
 haustuer
 innentuer
 brandschutztuer
+schiebetuer
+stahltuer
+drehtuer
 rolltor
 sektionaltor
+drehtor
+schiebetor
+garagentor
 torantrieb
+schrankenanlag
 zarge
 rollladen
+rolladen
 jalousie
 markise
 verdunkel
 sonnenschutz
+insektenschutz
 tischler
 schreiner
 zimmer
 zimmermann
 holz
 brettsperr
+brettschicht
+leimbind
 konstruktionsvollholz
+fachwerk
+lattung
+schindel
 pfetten
 sparren
 laerche
 vorvergraut
 trennwand
 einbaumoebel
+moebel
 einbaukueche
 grosskueche
 kuechentechn
 laboreinricht
+labortechn
 buehnentechn
 empfangstheke
+tresen
+bestuhl
+regalsystem
+schliessfach
+briefkast
 garderobe
 sitzstufen
+treppe
+balkon
+raumausstatt
+polster
+gardin
+beschilder
+wegeleit
 beschlag
 schliessanlage
 schliesszylind
@@ -362,6 +514,16 @@ fresk
 epoxidharz
 industrieboden
 bodenbeschicht
+kachelofen
+ofenbau
+ofensetz
+hafner
+orgelbau
+glockenanlag
+turmuhr
+bauendreinig
+baureinig
+gebaeudereinig
 
 # === Technische Gebaeudeausruestung
 elektro
@@ -373,13 +535,25 @@ mittelspannung
 niederspannung
 transformator
 schaltanlage
+unterverteil
+zaehlerschrank
+potentialausgleich
+erdung
 stromversorg
 kabel
+kabeltrasse
+trassenbau
+leerrohr
 leitung
 beleucht
 leuchte
+lichtmast
 photovoltaik
 solarzelle
+solarmodul
+wechselrichter
+batteriespeicher
+stromspeicher
 ladeinfrastruktur
 wallbox
 notstrom
@@ -393,8 +567,12 @@ datennetz
 netzwerktechn
 strukturierte
 lichtwellenleiter
+breitband
 elektroakust
 sprachalarm
+medientechn
+veranstaltungstechn
+medizintechn
 zutrittskontroll
 videoueberwach
 vereinzelungsanlage
@@ -403,6 +581,7 @@ brandmeldezentrale
 handfeuermelder
 druckknopfmelder
 multisensormelder
+rauchmelde
 rauchansaug
 blitzleuchte
 laufkarten
@@ -417,6 +596,7 @@ hygienespuel
 spuelstation
 waschtisch
 urinal
+dusch
 durchlauferhitzer
 seifenspender
 werkraumbecken
@@ -429,6 +609,18 @@ druckhaltestation
 entgasung
 nachspeisung
 waermepump
+waermeerzeug
+waermeuebergab
+waermetausch
+fernwaerme
+nahwaerme
+bhkw
+solarthermi
+geothermi
+erdwaerme
+erdsond
+pellet
+hackschnitzel
 fussbodenheiz
 lueftung
 lufttechn
@@ -454,16 +646,26 @@ kuehl
 kessel
 rohrleitung
 rohrverleg
+trinkwasser
 trinkwasserrohr
 trennstation
 rueckspuelfilter
 feuerloeschleitung
 draen
+abwasser
 abwasserleitung
+regenwasser
+abscheid
+hebeanlag
+rueckstau
+sickerschacht
+schachtabdeck
 wasserinstallation
 gasanlage
 gaswarnanlage
 druckluft
+schwimmbad
+badewasser
 aufzug
 tragmittel
 fahrsteig
@@ -476,6 +678,8 @@ turbine
 pump
 ruehrwerk
 filtrier
+klaeranlag
+sandfang
 faulbehaelter
 schlammbehandl
 belebungsbecken
@@ -491,6 +695,7 @@ oberbau
 tiefbau
 kanalbau
 kanalisation
+kanalreinig
 schachtunterteil
 muffenlos
 gleis
@@ -513,11 +718,17 @@ fahrbahnrand
 verkehrssicher
 verkehrsleit
 absperrschrank
+poller
 verkehrsschild
 ampel
 strassenschild
+fahrradabstell
 zaun
 gelaender
 handlauf
 gitterrost
 laermschutz
+wasserbau
+schleuse
+stauwehr
+renaturier
