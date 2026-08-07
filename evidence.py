@@ -106,7 +106,21 @@ DICT_MIN_RATIO = 8.0  # ... and >= 8x as often inside as outside
 # is the arm that answers it (lexicon_receipt.py runs it as 'roots only').
 DICT_MIN_BUYERS = 2        # a dictionary word needs >= this many buyers
 DICT_MIN_BUYER_SHARE = 0.10  # ... and >= this share of the trade's buyers
-MIN_BUYERS = 2             # refs from fewer buyers cannot define a trade
+# Phase 8q — RECURRENCE, stated directly. The share of a firm's references
+# a word must appear in to enter its lexicon; 0 leaves MIN_WITNESSES alone.
+# This replaces the withdrawn word-level buyer rule (see derive_keywords),
+# which was recurrence measured through buyers instead of through
+# references and cost every multi-buyer firm its single-witness words.
+# Receipt (lexicon_receipt.py --config both, 122 cases):
+#   buyer rule (withdrawn)   IN 44/74  OUT 45/52
+#   share 0     (no rule)    IN 49/74  OUT 38/52
+#   share 0.34  (shipped)    IN 44/74  OUT 47/52
+#   share 0.5                IN 44/74  OUT 47/52
+#   share 0.75               IN 42/74  OUT 47/52
+# 0.34 and 0.5 tie on the benchmark because they differ only above four
+# references (both demand 2 of 3 and 2 of 4); 0.34 is chosen for leaving
+# fewer firms empty (103 against 125). Rollback: WORD_MIN_REF_SHARE=0.
+WORD_MIN_REF_SHARE = float(os.environ.get('WORD_MIN_REF_SHARE', '0.34'))
 # Phase 8g (2026-08-07) — THE TRADE-ROOT VOCABULARY. A lexicon word must
 # name a Gewerk or a material. CPV-45 cannot supply that list directly: 484
 # of its 822 labels name what is BUILT (Schulgebaeude, Polizeireviere) and
@@ -268,29 +282,37 @@ def store_doc_freq(tenders, cache_path=None):
     return out
 
 
-def derive_keywords(refs, docfreq, label_texts=()):
+def derive_keywords(refs, docfreq, label_texts=(), reasons=None):
     """The TF-IDF sieve over (text, buyer) references: a stem survives when
-    it appears in enough references, FROM MORE THAN ONE BUYER (trade words
-    travel across buyers; a buyer's template words don't — the same-buyer
-    lesson applied to the lexicon), and in almost none of the store. Label
-    words (from the profile's trusted CPV labels) pass the same rarity
-    filter. The final list keeps the shortest stem of every family and is
-    small enough to read aloud.
+    it appears in enough references (WORD_MIN_REF_SHARE — the trade recurs
+    across a firm's wins, the context of any one project does not), is not
+    a word of the buyer's own NAME, and is rare in the store. Label words
+    (from the profile's trusted CPV labels) pass the same rarity filter.
+    The final list keeps the shortest stem of every family and is small
+    enough to read aloud.
 
     Phase 8h: single-buyer profiles contribute their own words again —
     the trade vocabulary vets each word directly, so the blanket rule of
-    phase 8f (B) was redundant and cost recall (see the constants block)."""
+    phase 8f (B) was redundant and cost recall (see the constants block).
+
+    `reasons` (phase 8p diagnostic): an optional dict that receives
+    word -> the name of the FIRST filter that rejected it. A side channel
+    only — it changes nothing about what is returned, so the attribution
+    is of the shipped sieve rather than a replica of it. Written because
+    an empty lexicon says which words survived and never which filter
+    killed the rest, and 45 firms were empty before the vocabulary
+    existed at all."""
     n_docs, df = docfreq['n'], docfreq['df']
-    in_refs, buyers_of = Counter(), {}
-    n_buyers = len({b for _, b in refs}) or 1
+    in_refs = Counter()
     # buyer-name words describe WHO, not WHAT — "hamburg" from
     # "Schulbau Hamburg" is geography, never trade evidence
     buyer_words = {w for _, b in refs for w in tokens(str(b or ''))}
-    for t, b in refs:
-        for w in set(tokens(t)):
-            in_refs[w] += 1
-            buyers_of.setdefault(w, set()).add(b)
+    for t, _b in refs:
+        in_refs.update(set(tokens(t)))
     min_refs = min(MIN_WITNESSES, len(refs)) or 1
+    if WORD_MIN_REF_SHARE:
+        min_refs = max(min_refs, min(len(refs), int(
+            len(refs) * WORD_MIN_REF_SHARE + 0.999)))
     # Phase 8h (2026-08-07): the single-buyer rule of phase 8f (B) is
     # WITHDRAWN. It stripped a one-buyer profile of its own text entirely,
     # on the grounds that nothing there could be told apart from the
@@ -302,21 +324,43 @@ def derive_keywords(refs, docfreq, label_texts=()):
     # solves, while discarding real trade words from any firm that wins
     # mostly from one authority. Buyer diversity was a PROXY for "is this a
     # trade word"; with the direct answer available the proxy gives way.
-    min_buyers = min(MIN_BUYERS, n_buyers)
+    #
+    # Phase 8q (operator decision 2026-08-07): the WORD-level buyer rule is
+    # withdrawn too, on the rule's own terms rather than on a receipt. It
+    # required each word to appear under two of the firm's buyers, which
+    # (a) silently overrode MIN_WITNESSES = 1, so the phase-8b decision to
+    # let a single witness count was never in force for any multi-buyer
+    # firm, and (b) measured, by attribution, as the single largest cause
+    # of empty lexicons: 3,262 of 4,691 rejected words across the 45 firms
+    # that were empty before the vocabulary existed. What it was really
+    # doing is RECURRENCE -- a word under two buyers is a word that recurs
+    # across projects -- which is phase 8o's distinction (the trade recurs,
+    # the context varies) wearing a buyer's name. So recurrence is stated
+    # directly, over references, in min_refs above.
     cands = {}
+    def reject(w, why):
+        if reasons is not None:
+            reasons[w] = why
+        return True
     for w, c in in_refs.items():
-        if len(w) < MIN_STEM_LEN or c < min_refs or w in buyer_words:
+        # the conditions are spelled out one per line so `reasons` can name
+        # the first one that fired; the conjunction is unchanged
+        if len(w) < MIN_STEM_LEN and reject(w, 'too short'):
             continue
-        if len(buyers_of[w]) < min_buyers:
+        if c < min_refs and reject(w, 'too few references'):
             continue
-        if df.get(w, 0) / n_docs > MAX_DOC_FREQ:
+        if w in buyer_words and reject(w, 'buyer name'):
+            continue
+        if df.get(w, 0) / n_docs > MAX_DOC_FREQ and reject(w, 'store-common'):
             continue
         # phase 8g: rarity is not meaning. 'derzeit' sits in 0.97% of lots
         # and 'estrich' in 1.88%, so the rarity sieve rates the filler word
         # ABOVE the trade word; only the vocabulary can tell them apart.
-        if not names_trade(w):
+        if not names_trade(w) and reject(w, 'not a trade word'):
             continue
         s = stem(w, df)
+        if len(s) < MIN_STEM_LEN:
+            reject(w, 'stem too short')
         if len(s) >= MIN_STEM_LEN:
             best = cands.get(s)
             if best is None or (c, -df.get(w, 0)) > best:
@@ -377,8 +421,15 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
     lots = tenders.drop_duplicates(subset=KEY)
     if cache_path and Path(cache_path).exists():
         d = json.loads(Path(cache_path).read_text(encoding='utf-8'))
+        # the key must carry EVERY switch the dictionaries are derived
+        # under. 'tr' was missing until 2026-08-07, so a vocabulary A/B
+        # reused whichever arm's dictionaries happened to be on disk and
+        # both arms measured the same lexicons — the contamination is
+        # invisible in the totals and was found only because
+        # lexicon_receipt.py --coverage stopped reproducing.
         if (d.get('n') == int(len(lots)) and d.get('v') == DICT_CACHE_V
-                and bool(d.get('bd')) == bool(BUYER_DIVERSITY)):
+                and bool(d.get('bd')) == bool(BUYER_DIVERSITY)
+                and bool(d.get('tr')) == bool(TRADE_ROOTS)):
             _TRADE_DICTS = d['dicts']
             return _TRADE_DICTS
     n, df = docfreq['n'], docfreq['df']
@@ -441,7 +492,8 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
     if cache_path:
         Path(cache_path).write_text(
             json.dumps({'n': int(len(lots)), 'v': DICT_CACHE_V,
-                        'bd': bool(BUYER_DIVERSITY), 'dicts': dicts}),
+                        'bd': bool(BUYER_DIVERSITY),
+                        'tr': bool(TRADE_ROOTS), 'dicts': dicts}),
             encoding='utf-8')
     _TRADE_DICTS = dicts
     return dicts
@@ -513,12 +565,13 @@ def core_keywords(refs):
     return sorted(kept, key=lambda r: -found[r])
 
 
-def firm_keywords(refs, docfreq, label_texts, trusted_codes, dicts):
+def firm_keywords(refs, docfreq, label_texts, trusted_codes, dicts,
+                  reasons=None):
     """The profile lexicon (phase 8c): the firm's own derived words plus
     the dictionaries of its trusted trades. Substring-redundant words are
     collapsed to the shortest stem so one text occurrence can never count
     as two witnesses (phase 8b)."""
-    kws = derive_keywords(refs, docfreq, label_texts)
+    kws = derive_keywords(refs, docfreq, label_texts, reasons)
     if TRADE_DICTS and dicts:
         for c in trusted_codes:
             for w in dicts.get(c, []):

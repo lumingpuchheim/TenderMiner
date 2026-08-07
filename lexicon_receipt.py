@@ -106,12 +106,14 @@ def run_config(data_dir, name, buyer_diversity, trade_roots, want_lexicons):
     return counts, lexicons, misses
 
 
-def coverage(data_dir, trade_roots):
-    """Lexicon size across EVERY firm with >= MIN_WINS wins, not just the
-    benchmark's. Vocabulary work shows up here and nowhere else: a trade
+def firm_lexicons(data_dir, trade_roots):
+    """Every firm with >= MIN_WINS wins -> its three lists under this
+    vocabulary setting: the narrow lexicon that CONVICTS, plus the core and
+    wide root lists. Vocabulary work shows up here and nowhere else: a trade
     whose words are missing produces starved lexicons, which the 122
-    hand-labeled cases cannot see because they cover a handful of firms."""
-    import numpy as np
+    hand-labeled cases cannot see because they cover a handful of firms.
+
+    -> {firm: {'wins', 'codes', 'narrow', 'core', 'wide'}}"""
     from calibrate import firm_win_rows, lot_codes
     from embed import read_cpv_labels
     apply(evd.BUYER_DIVERSITY, trade_roots)
@@ -126,7 +128,7 @@ def coverage(data_dir, trade_roots):
     wins = wins[[k in texts
                  for k in zip(wins['procedure_id'], wins['lot_id'])]]
     wins = wins.drop_duplicates(subset=['winner_names'] + evd.KEY)
-    sizes = []
+    out = {}
     for firm, g in wins.groupby('winner_names'):
         if len(g) < evd.MIN_WINS:
             continue
@@ -138,12 +140,85 @@ def coverage(data_dir, trade_roots):
         lbl = [labels[c] for cs in codes for c in cs
                if c in trusted and c in labels]
         tc = {c for cs in codes for c in cs if c in trusted}
-        sizes.append(len(evd.firm_keywords(
-            [(texts[k], raw[k][4]) for k in keys], docfreq, lbl, tc, dicts)))
-    a = np.array(sizes)
+        refs = [(texts[k], raw[k][4]) for k in keys]
+        why = {}
+        out[firm] = {
+            'wins': len(keys), 'codes': sorted(tc),
+            'narrow': evd.firm_keywords(refs, docfreq, lbl, tc, dicts, why),
+            'core': evd.core_keywords(refs),
+            'wide': evd.wide_keywords(refs),
+            'why': why}
+    return out
+
+
+def coverage(data_dir, trade_roots, lex=None):
+    """The size table over firm_lexicons()."""
+    import numpy as np
+    lex = firm_lexicons(data_dir, trade_roots) if lex is None else lex
+    a = np.array([len(v['narrow']) for v in lex.values()])
     return {'firms': len(a), 'median': int(np.median(a)),
             'mean': round(float(a.mean()), 1),
             'empty': int((a == 0).sum()), 'under3': int((a < 3).sum())}
+
+
+def empty_dump(data_dir, limit=None):
+    """The firms the vocabulary leaves with NO convicting lexicon, and the
+    words it took from them — the only way to tell the two causes apart:
+    (a) their trade is missing from cpv_trade_roots.txt, or (b) their texts
+    are boilerplate carrying no trade vocabulary at all, in which case empty
+    is CORRECT. The numbers cannot separate these; reading the words can.
+
+    Also prints each firm's core/wide root lists, because an empty narrow
+    lexicon is not the same as a mute profile: a core root in a lot's TITLE
+    convicts on its own (phase 8o)."""
+    off = firm_lexicons(data_dir, False)
+    on = firm_lexicons(data_dir, True)
+    rows = []
+    for firm, v in on.items():
+        if v['narrow']:
+            continue
+        had = off.get(firm, {}).get('narrow', [])
+        rows.append((len(had), firm, v, had))
+    rows.sort(key=lambda r: -r[0])
+    print(f'[empty] {len(rows)} of {len(on)} firms have NO narrow lexicon '
+          f'with the vocabulary on; {sum(1 for r in rows if r[0])} of them '
+          f'had words before it')
+    n_core = sum(1 for _, _, v, _ in rows if v['core'])
+    print(f'[empty] {n_core} of those still carry core roots (a core root '
+          f'in a TITLE convicts), {len(rows) - n_core} are fully mute')
+    # the cross-tab that separates a vocabulary gap from a TRUST gap: a firm
+    # with no trusted CPV code inherits no trade dictionary and no
+    # definitional label words, so its own reference texts are the only
+    # source its narrow lexicon has
+    coded = {f for f, v in on.items() if v['codes']}
+    empty_f = {f for _, f, _, _ in rows}
+    print(f'[empty] trusted CPV code: {len(coded)}/{len(on)} firms overall, '
+          f'{len(coded & empty_f)}/{len(rows)} of the empty ones')
+    print(f'[empty]   coded   -> empty {len(coded & empty_f):4d} / '
+          f'{len(coded):4d}')
+    print(f'[empty]   uncoded -> empty {len(empty_f - coded):4d} / '
+          f'{len(on) - len(coded):4d}')
+
+    # The firms that were empty BEFORE the vocabulary. The roots file is not
+    # their cause -- they lost every word to one of the four older filters --
+    # so name the one that did it. Read from the vocabulary-OFF arm, where
+    # names_trade() never fires and the attribution is unambiguous.
+    born_empty = [f for n, f, _v, _h in rows if not n]
+    tally, touched = Counter(), Counter()
+    for f in born_empty:
+        w = off.get(f, {}).get('why', {})
+        tally.update(w.values())
+        touched.update(set(w.values()))  # firms each filter rejected in
+    print(f'\n[empty] {len(born_empty)} firms were empty BEFORE the '
+          f'vocabulary. First filter that rejected each of their words:')
+    for why, n in tally.most_common():
+        print(f'[empty]   {why:22s} {n:6d} words   '
+              f'{touched[why]:3d}/{len(born_empty)} firms')
+    for had_n, firm, v, had in rows[:limit]:
+        print(f'\n- {firm} ({v["wins"]} wins, codes {v["codes"]})')
+        print(f'    dropped ({had_n}): {" ".join(had) if had else "-"}')
+        print(f'    core:  {" ".join(v["core"]) or "-"}')
+        print(f'    wide:  {" ".join(v["wide"]) or "-"}')
 
 
 def fmt(counts):
@@ -172,7 +247,18 @@ def main():
                     help='lexicon sizes over EVERY firm with >= 3 wins, '
                          'vocabulary on vs off â€” the measure for vocabulary '
                          'work, which the 122 cases cannot see')
+    ap.add_argument('--empty', action='store_true',
+                    help='the firms left with NO narrow lexicon, the words '
+                         'the vocabulary took from them, and their core/wide '
+                         'roots â€” for READING, which is the only way to tell '
+                         'a missing trade from honest boilerplate')
+    ap.add_argument('--limit', type=int, default=None,
+                    help='(--empty) show only the first N firms')
     args = ap.parse_args()
+
+    if args.empty:
+        empty_dump(args.data_dir, args.limit)
+        return
 
     if args.coverage:
         print(f'{"vocabulary":12s} {"firms":>6s} {"median":>7s} {"mean":>6s} '

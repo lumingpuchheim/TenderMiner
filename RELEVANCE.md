@@ -1522,3 +1522,300 @@ mean the lot is their work.
 Better on both axes for the first time in this sequence: recall above base,
 wrong-trade rejection 58% -> 87%. Rollback: `CORE_TITLE_CONVICTS=0`,
 `WIDE_NOMINATION=0`.
+
+## Dead ends — measured, do not repeat (register, 2026-08-07)
+
+Everything below was built, measured through the real `judge()` on
+`benchmark_relevance.jsonl`, and then reverted or kept only for form. The
+detail sits in the phase sections above and in the commit messages; the
+one-line verdict sits here, because the expensive part of phases 8f-8o was
+not measuring these — it was re-deriving them.
+
+**Read the two directions separately.** `lexicon_receipt.py` reports IN
+(should pass) and OUT (should reject) apart for a reason: the committed
+cases are recall-heavy, so a change that stops wrong-trade picks looks like
+a regression in the total while doing exactly what it was built for. Every
+row below is quoted as `IN/74, OUT/52`, never as a total.
+
+1. **Relaxing `MAX_DOC_FREQ`** (2% -> 5%, 10%, 50%, or waived for
+   `names_trade()` words). Recall is **identical in every arm**, including
+   with the sieve effectively removed; only precision moves, and only
+   downward (45/52 -> 41/52). It saturates at 5%, so it is not a matter of
+   degree. Phase 8c had already solved the problem twice — the definitional
+   waiver and the trade dictionaries, neither of which has a corpus-rarity
+   cap. Full receipt: phase 8j.
+
+2. **Buyer-diversity proxies in place of reading the word.** The
+   single-buyer rule (8f (B)) was withdrawn in 8h: every word it removed
+   fails `names_trade()` anyway, and it cost 5 recall cases by stripping
+   one-buyer profiles of real trade words. The dictionary buyer-share test
+   (8f (A)) is measured **redundant** — the `roots only` arm ties `both`
+   to the digit (29/74, 45/52 each at the time) — and survives only because
+   it costs nothing. The principle: judge the word, not a statistic
+   standing in for the word.
+
+3. **Similarity nomination** (route 2). Removed in 8i, and not because of
+   its table (removal cost 3 IN cases and bought no measured OUT): the
+   benchmark **cannot see** it, since the positives are the firm's own wins
+   from buyers already in the profile, where `same_buyer` mutes it.
+   Re-enabling it re-opens a route whose only safety catch is buyer-NAME
+   string equality.
+
+4. **The embedder cannot supply the vocabulary.** Measured against a noise
+   floor of 0.133, trade synonyms score 0.29-0.89 and only 2 of 12 clear
+   the 0.80 bar; the misses are exactly the regional names that matter
+   (anstreicher/maler 0.289, spengler/klempner 0.395, schreiner/tischler
+   0.525). Material-to-trade is at noise (linoleum/bodenbelag 0.108) and
+   nearest-neighbour lookup returns schreiner -> Faulbehälter. Receipt in
+   `50eaca2`. `cpv_trade_roots.txt` is written by hand and stays that way.
+
+5. **Adding truncated roots to compensate for stemming.** When
+   `names_trade()` ran after `stem()` it asked whether `ortbeto` contains
+   `beton`. The tempting fix — 42 truncated roots (`beto`, `flies`,
+   `zarg`) — was rejected: they are not words and they misfire, `flies`
+   matching Fließestrich and handing a screed lot to a tiling firm. The
+   real fix was the **order** of the check (vet the raw word inside
+   `trade_dictionaries`), which needs no new roots. Phase 8l.
+
+6. **More vocabulary, past ~500 roots.** Two independent expansions
+   (~235 roots between them) moved **one** firm on `--coverage` and
+   **nothing** on the benchmark. The list is worth completing for its own
+   sake; it is not a recall lever any more, and "add roots" is no longer an
+   answer to a recall gap without a receipt naming the firms it unblocks.
+
+7. **Anything that only touches NOMINATION.** Since phase 8k `convicting`
+   implies `nominated`, so `nominated and convicting` reduces to
+   `convicting` alone — the CPV hard-code match, the witness rule,
+   similarity and `keywords_wide` are all inert. Phase 8n was built before
+   this was understood and changes no verdict at all. Verify it in
+   `relevance._evidence_verdict` before spending effort anywhere but
+   conviction.
+
+8. **`CORE_SHARE` above 0.5.** 0.5, 0.75 and 1.0 all give OUT 45/52, and
+   0.5 is strictly best on IN (44 vs 42). Raising it buys nothing.
+
+9. **Letting a word into a lexicon on one mention** (no recurrence
+   requirement at all — `WORD_MIN_REF_SHARE=0`, which is also what removing
+   the old word-level buyer rule leaves behind if nothing replaces it):
+   IN 49/74 but OUT **38/52**, five recall cases bought with seven
+   wrong-trade rejections. A firm's tender text mentions many trades and
+   names only one; something must separate them. See phase 8q — the
+   separator is recurrence over references, and it must not be spelled as
+   a buyer rule.
+
+   Corollary for the register's own sake: **"buyer diversity is a proxy
+   the vocabulary replaces" (dead end 2) is true of the profile-level rule
+   and false as a generalisation.** 8f (B) — a one-buyer firm contributes
+   no words — was genuinely subsumed. The word-level rule was not
+   redundant; it was carrying real precision, just under the wrong name.
+   Withdrawing it without a replacement costs 9 rejection cases.
+
+## Phase 8p — the empty lexicon is a TRUST gap, not a vocabulary gap (read 2026-08-07)
+
+`--coverage` reported 91 of the 512 firms with >= 3 wins left with no
+convicting lexicon once the vocabulary is on, ~46 of them having had words
+before it. Two causes were on the table and no number could separate them:
+(a) their trade is missing from `cpv_trade_roots.txt`, or (b) their texts
+are genuinely boilerplate carrying no trade vocabulary, in which case empty
+is CORRECT and convicting on `derzeit` would be worse. So the words were
+dumped and read — `lexicon_receipt.py --empty`, which prints each firm's
+dropped words beside its core and wide root lists.
+
+**The reading found a third cause that subsumes both, and it separates
+perfectly:**
+
+| | firms | of which empty |
+| --- | --- | --- |
+| has >= 1 **trusted** CPV code | 261 | **0** |
+| has none | 251 | **91** (36%) |
+
+Not a correlation — a partition. A firm with a trusted code inherits that
+trade's dictionary (derived from *all* store lots carrying the code) and
+its definitional label words, and **not one such firm ends up empty**. A
+firm with no trusted code has exactly one source for its narrow lexicon:
+its own handful of reference texts, through a sieve demanding >= 6
+characters, two buyers, <= 2% store frequency *and* a trade root. The
+vocabulary is only ever the last of four filters to reject a word, and it
+can only starve a firm that has no dictionary to fall back on. **The
+question "which trades are missing from the roots file" was the wrong
+question.**
+
+**What the dropped words actually are.** Of the ~46 firms that lost words,
+about half lost nothing but
+
+- *procurement geography* — `regionalbereich unterregion hamburg berlin
+  münchen nürnberg südost leipzig dresden`: seven firms' entire
+  pre-vocabulary lexicon was the Deutsche Bahn tender template's place
+  names (Possehl Spezialbau's fourteen words are geography, end to end);
+- *contract language* — `ausführungsbeginn einzelfrist ausführungsende
+  bauzeit vorhanden ausgeschrieben baubegleitend`;
+- *building types and rooms* — `klassenräume gemeinschaftsschule fachräume
+  mittelschule hochschul institut`;
+- *project names* — Elektro Böhe's five words are `institut lörrach
+  hochschul markgräflerland rheintal`.
+
+For those, empty is the correct answer and the vocabulary did its job.
+Three of them (Hohenloher Schuleinrichtungen, Laborbau Systeme Hemling,
+Siemens Healthineers) are not construction trades at all — school
+furniture, lab furniture, medical imaging — and have no Gewerk to name.
+
+**The genuine vocabulary gaps, in full, so nobody re-derives them:**
+`lichtsignalanlage signalgeber` (traffic-signal engineering, YUNEX — the
+root `ampel` is present but the trade's own word is not), `taktil
+leitsystem` (tactile guidance, HTI), `landschaftsbau` and bare `pflanz`
+with the nursery vocabulary `sträucher hochstämme heister mulchen` (Rudolf
+Schrader, August Fichter, ML Gartenplus, Ringbeck — `landschaftsgaertner`
+and `pflanzarbeit` are roots, neither matches `landschaftsbauarbeiten`),
+`modulbau` (KLEUSBERG), `kläranlage reinigungsstufe` (Heberger), `erdbau`
+(Schleith — `erdarbeit` is a root, `erdbau` is not), `rohrrahmen`
+(MB Lauterbach), `trennvorhang` (Metallbau Politz), plus two mechanical
+misses of the class `044fdc5` set out to fix and did not: `trennwaend`,
+the umlaut plural of the existing root `trennwand` (Kemmlit, twice), and
+`aussentuer` (ASGE), since bare `tuer` is refused for colliding with
+*natürlich*.
+
+**None of it is worth adding on today's evidence.** 59 of the 91 already
+carry core roots, so a core root in a lot's title convicts them regardless
+(phase 8o); of the firms with a genuine gap, all but about seven are in
+that group — ASGE already convicts on `tueren fassade metallbau innentuer`,
+Schleith on `beton leitung erdarbeit`, TK Aufzüge on `aufzug`. And dead end
+6 stands: two expansions totalling ~235 roots moved one firm on coverage
+and nothing on the benchmark.
+
+**Where the lever actually is, if this matters:** the trust side, not the
+roots file. 251 of 512 repeat winners carry no trusted deep code, and that
+single fact — not the vocabulary — is what decides whether a firm gets a
+lexicon at all. `trust_min_lots` (10) and `trust_cohesion_min` are the
+parameters; both are recomputed per `model_tag` and both were set for
+labelling clean negatives, never for feeding lexicons. That is a receipt
+nobody has run.
+
+### Then why THOSE 91? The word-level buyer rule, measured
+
+The trusted code explains why a firm has nothing to fall back on. It does
+not explain why its own texts yield nothing. `--empty` therefore attributes
+every rejected word to the first filter that killed it — `derive_keywords`
+takes an optional `reasons` dict, so the attribution is of the shipped
+sieve rather than a replica. Over the 45 firms that were empty *before* the
+vocabulary existed:
+
+| filter | words rejected | firms it bit |
+| --- | --- | --- |
+| **one buyer** (`MIN_BUYERS`) | **3,262** | 45/45 |
+| too short (`MIN_STEM_LEN`) | 1,308 | 45/45 |
+| store-common (`MAX_DOC_FREQ`) | 72 | — |
+| buyer name | 49 | — |
+
+Seventy per cent, one rule — and not the rarity sieve or the vocabulary,
+the two suspects this project had spent phases on. That rule is withdrawn
+in phase 8q below.
+
+### Correction: the committed `--coverage` table was contaminated
+
+`data/trade_dicts.json` keyed its cache on the store size, the cache
+version and `BUYER_DIVERSITY` — but not on `TRADE_ROOTS`. Both arms of a
+vocabulary A/B therefore reused whichever arm's dictionaries happened to be
+on disk, and measured the same lexicons twice. Found because `--coverage`
+stopped reproducing while the empty counts (45/91) reproduced exactly:
+those firms have no trusted code, hence no dictionary, hence nothing for
+the contamination to reach. The key now carries `tr`. The `off` row was
+right; the `on` row had been published as median 4 / mean 7.0 / 207 under
+3, and is honestly median 3 / mean 5.5 / 224 under 3. The live gate was
+never affected — its defaults are the ones the on-disk cache was built
+under. Only the A/B was wrong, and only by understating what the vocabulary
+removes.
+
+## Phase 8q — recurrence, not buyers (operator decision 2026-08-07)
+
+The word-level buyer rule is **withdrawn**, on the rule's own terms rather
+than on a receipt: *"the rule itself makes no sense"* (operator). It
+required each word to appear under two of the firm's buyers, and
+
+- it **silently overrode `MIN_WITNESSES = 1`**. Phase 8b lowered the
+  witness count to 1 to rescue the starved 2-wins-per-trade profiles (the
+  Ahle carpentry autopsy). For any firm with two or more buyers the buyer
+  rule reimposed a two-reference minimum, so that decision was never in
+  force where it was aimed;
+- it was the **largest single cause of empty lexicons** (the table above);
+- and what it actually measured was **recurrence** — a word appearing under
+  two buyers is a word that recurs across projects — which is phase 8o's
+  distinction (*the trade recurs, the context varies*) wearing a buyer's
+  name. Buyers were a proxy for the number of projects, and the number of
+  projects is available directly.
+
+So recurrence is now stated directly: a word must appear in
+`WORD_MIN_REF_SHARE` of the firm's references.
+
+| rule | IN (should pass) | OUT (should reject) | total |
+| --- | --- | --- | --- |
+| word-level buyer rule (withdrawn) | 44/74 | 45/52 (87%) | 89/126 |
+| no rule at all (`share 0`) | **49/74** | 38/52 (73%) | 87/126 |
+| **share 0.34 (shipped)** | **44/74** | **47/52 (90%)** | **91/126** |
+| share 0.5 | 44/74 | 47/52 (90%) | 91/126 |
+| share 0.75 | 42/74 | 47/52 (90%) | 89/126 |
+
+**Recall unchanged, two more wrong-trade rejections** — the coherent rule
+is also the better one, which is not something this sequence has been able
+to say often. 0.34 and 0.5 tie because they differ only above four
+references (both demand 2 of 3 and 2 of 4, and most firms have three or
+four wins); 0.34 ships as the more permissive of the two.
+
+**Disclosed cost.** Coverage gets *worse*: 91 firms with no narrow lexicon
+becomes 103, and 40 rather than 45 were already empty before the
+vocabulary. That is the right trade and phase 8p is why — lexicon size is
+not the objective, 60 of the 103 still convict through a core root in a
+title, and the gate is better on both benchmark axes. It also breaks the
+clean partition of 8p by exactly one firm: 1 of 261 coded firms is now
+empty, against 102 of 251 uncoded.
+
+**Standing against the gate shipped in `50eaca2`:**
+
+| | IN | OUT | total |
+| --- | --- | --- | --- |
+| base | 40/74 | 30/52 (58%) | 70/126 |
+| phase 8o | 44/74 | 45/52 (87%) | 89/126 |
+| **now** | **44/74** | **47/52 (90%)** | **91/126** |
+
+Rollback: `WORD_MIN_REF_SHARE=0` removes the recurrence rule, but note that
+this does **not** restore the buyer rule — that code is gone, and the
+receipt for taking it out is the table above.
+
+### Open: the mute profile is a different failure from the thin one
+
+`--empty` counts 103 firms with no narrow lexicon, and **43 of them are
+fully mute** — no narrow lexicon, no core root, no wide root, not one trade
+word anywhere in their reference texts. For those the gate cannot return
+yes for any lot, ever. That is categorically different from a thin profile
+that scores low: a thin lexicon is a quiet gate, a mute profile is a broken
+one, and nothing downstream tells them apart. A customer with a mute
+profile receives an empty report every week and no signal anywhere says
+why.
+
+Two of the 43 have been read. **YUNEX** was mute because its trade was
+missing from the vocabulary — its texts carry `lichtsignalanlag`,
+`signalgeber`, `steuergerät`, `knotenpunkt`, every one of which survives
+the whole statistical sieve, and `names_trade()` refused them all because
+the roots file held `ampel`, the colloquial word, and not
+*Lichtsignalanlage*, the word tenders are actually written in. Adding
+`lichtsignal` and `signalgeber` gives YUNEX the lexicon
+`['lichtsignalanlag', 'signalgeber']` and leaves the benchmark at 44/74,
+47/52 — the standard dead end 6 demands before a root goes in: a named
+firm, its words read, and a reason they were refused that is not "the list
+is incomplete in general". **Braun GmbH** is the opposite and needs
+nothing: its 25 surviving words are procurement procedure end to end
+(`angebotsfrist`, `nachunternehmer`, `werktag`, `angebotserstellung`) and
+refusing them is correct — it convicts through its core roots `pump daemm
+leitung` regardless.
+
+The other 41 are unread, and the counts cannot say which kind they are.
+Same answer as phase 8p: read them. The neighbours already visible in the
+dump suggest railway civil engineering is the next real hole —
+`eisenbahnüberführung` and `durchlässe` (Adolf Lupp), `stellwerk` (Grötz)
+— but those name structures rather than trades, so whether they belong is
+an operator call under the file's own rule, alongside `spundwand`,
+`fundament` and `laermschutz`, which sit on the same line.
+
+A mute profile should probably be *detectable* rather than silent — the
+profile builder knows at build time that a subscription has no convicting
+route at all. That is a report-side change, not a gate change, and it is
+not scoped here.

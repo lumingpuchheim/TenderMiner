@@ -582,6 +582,8 @@ verkehrsleit
 absperrschrank
 verkehrsschild
 ampel
+lichtsignal
+signalgeber
 strassenschild
 zaun
 gelaender
