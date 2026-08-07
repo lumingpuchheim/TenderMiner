@@ -220,6 +220,12 @@ CSV is private (personal data, gitignored). Campaign segmentation uses the
 `trade_read*` columns (what the firm's won tenders *read as*, via the
 embedding sidecar), not the won-lot CPV codes — a buyer's filing choice
 can put a hygiene firm under 452; the text cannot. `trade_match == True`
-is the mailable set; disagreeing rows go to hand review first. Which trades to campaign in comes from
+is the mailable set; disagreeing rows go to hand review first. The
+`profile_refs` column is paste-ready for a subscription line (§2): they are
+contract-notice numbers, derived from each won lot key through the embedding
+sidecar, not the award numbers the win itself carries. `profile_refs_n` says
+how many actually came out — a firm can have fewer refs than wins (a won lot
+whose contract notice is not in the sidecar, or several lots announced by one
+notice), and below 2 the profile is thin. Which trades to campaign in comes from
 the backtest's per-trade table (§3); the channel decision (letters, not
 e-mail — §7 UWG) is documented in GO_TO_MARKET.md.

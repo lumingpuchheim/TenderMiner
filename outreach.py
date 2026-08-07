@@ -3,7 +3,8 @@
 Every winner company in the awards store is a proven tender bidder; this
 script turns them into an addressable list. Per company it aggregates the
 win history (wins, single-bid wins, trades, regions, declared size, the
-publication numbers of the won notices — ready-made ``profile_refs``),
+publication numbers of the *contract* notices behind the won lots —
+ready-made ``profile_refs``, see ``contract_refs``),
 attaches contact details from the raw award XML (the eForms Organizations
 block carries each firm's e-mail / phone / city alongside the buyer's),
 counts the company's simulated picks (SIMULATION.md — how much product
@@ -71,7 +72,8 @@ def win_history(store_dir):
                 'lot_id': a['lot_id'],
                 'winner_size': a['winner_size'],
                 'n_tenders': a['n_tenders'],
-                'publication_number': a['publication_number'],
+                # award notice, NOT a usable profile_ref — see contract_refs
+                'award_publication_number': a['publication_number'],
                 'publication_date': str(a['publication_date'])[:10],
                 'cpv3': (str(info['cpv_main'])[:3] if info is not None else None),
                 'nuts1': (str(info['place_nuts3'])[:3]
@@ -130,7 +132,41 @@ def contacts_from_xml(xml_dir, company_names):
             for name, c in counters.items()}
 
 
-def trade_read(df, hist, data_dir, top_k=3):
+def contract_refs(rows):
+    """won lot key -> publication number of that lot's CONTRACT notice.
+
+    A win is recorded on an AWARD notice, so the awards store carries award
+    publication numbers. But ``profile_refs`` are resolved through
+    ``relevance.Gate.by_pub``, which is built from the embedding sidecar over
+    the TENDERS store — contract notices. An award number therefore never
+    resolves and ``relevance.build_profile`` raises on it. Map through the lot
+    key instead, exactly as ``backtest.as_of_profile`` does. Last sidecar row
+    per key wins, matching ``Gate.by_key``.
+
+    Two consequences the caller has to live with: a won lot whose contract
+    notice is not in the sidecar yields no ref at all, and several won lots of
+    one procedure collapse onto the single contract notice that announced them
+    — a firm can end up with fewer refs than wins either way, hence the
+    ``profile_refs_n`` column.
+    """
+    return {(r['procedure_id'], r['lot_id']): r['publication_number']
+            for r in rows}
+
+
+def refs_for(g, notice_of, max_refs=MAX_PROFILE_REFS):
+    """Contract-notice refs for one company's win rows, newest win first."""
+    gs = g.sort_values('publication_date', ascending=False)
+    refs = []
+    for key in zip(gs['procedure_id'], gs['lot_id']):
+        pub = notice_of.get(key)
+        if pub is not None and pub not in refs:
+            refs.append(pub)
+        if len(refs) == max_refs:
+            break
+    return refs
+
+
+def trade_read(df, hist, sidecar, data_dir, top_k=3):
     """What each firm's won tenders *read as*, via the embedding sidecar.
 
     The CPV code on a won lot is the buyer's filing choice and can be wrong
@@ -142,7 +178,7 @@ def trade_read(df, hist, data_dir, top_k=3):
     trade_read3 (cpv3 of the best label), trade_match (does the text
     agree with the won-lot codes' primary trade?).
     """
-    rows, mat = load_sidecar(data_dir)
+    rows, mat = sidecar
     if not rows:
         print('[outreach] no embedding sidecar — trade_read skipped')
         df['trade_read'] = None
@@ -188,13 +224,17 @@ def simulated_picks(ledger_path):
 
 def build(args):
     hist = win_history(Path(args.data_dir) / 'store')
+    sidecar = load_sidecar(args.data_dir)
+    if not sidecar[0]:
+        print('[outreach] no embedding sidecar — profile_refs will be empty; '
+              'run the loop once to build it')
+    notice_of = contract_refs(sidecar[0])
     per_company = []
     for company, g in hist.groupby('company'):
         sizes = g['winner_size'].dropna()
         size = (sizes.mode().iloc[0] if len(sizes) else 'unknown')
         trades = g['cpv3'].dropna().value_counts()
-        refs = (g.sort_values('publication_date', ascending=False)
-                ['publication_number'].dropna().unique()[:MAX_PROFILE_REFS])
+        refs = refs_for(g, notice_of)
         per_company.append({
             'company': company,
             'size': size,
@@ -204,6 +244,7 @@ def build(args):
             'regions': ';'.join(sorted(set(g['nuts1'].dropna()))),
             'last_win': g['publication_date'].max(),
             'profile_refs': ';'.join(refs),
+            'profile_refs_n': len(refs),
         })
     df = pd.DataFrame(per_company)
 
@@ -226,7 +267,12 @@ def build(args):
 
     n_all = len(df)
     df = df[(df['wins'] >= args.min_wins) & df['size'].isin(args.sizes)]
-    df = trade_read(df, hist, args.data_dir)
+    thin = int((df['profile_refs_n'] < 2).sum())
+    print(f'[outreach] profile_refs: {int((df["profile_refs_n"] >= 2).sum())} '
+          f'targets have >= 2 contract-notice refs, {thin} have fewer '
+          f'(won lots whose contract notice is missing from the sidecar, or '
+          f'several lots of one notice)')
+    df = trade_read(df, hist, sidecar, args.data_dir)
     df = df.sort_values(['sim_picks', 'single_bid_wins', 'wins'],
                         ascending=False)
     out = Path(args.out)
