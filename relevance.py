@@ -415,14 +415,17 @@ def build_profile(gate, sub):
         dicts = evd.trade_dictionaries(
             gate._lots, gate.trusted, docfreq,
             Path(gate.data_dir) / 'trade_dicts.json')
+        # phase 8r: `name` is the customer's own company name, which states
+        # the trade on its letterhead — see evidence.name_keywords()
         keywords = evd.firm_keywords(
             refs, docfreq, [gate.lrows[r]['label_de'] for r in hard_rows],
-            {c for c in ref_codes if c in gate.trusted}, dicts)
+            {c for c in ref_codes if c in gate.trusted}, dicts,
+            firm=sub.get('name'))
         # phase 8n: the wide root lexicon — nomination only, never conviction
         wide = evd.wide_keywords(refs)
         # phase 8o: the roots that RECUR across the firm's wins — its trade
         # rather than its context. A core root in the TITLE convicts.
-        core = evd.core_keywords(refs)
+        core = evd.core_keywords(refs, firm=sub.get('name'))
     return {
         'ref_matrix': np.vstack(expanded),
         'ref_titles': ref_titles,

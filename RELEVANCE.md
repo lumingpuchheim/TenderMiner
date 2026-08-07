@@ -1819,3 +1819,56 @@ A mute profile should probably be *detectable* rather than silent — the
 profile builder knows at build time that a subscription has no convicting
 route at all. That is a report-side change, not a gate change, and it is
 not scoped here.
+
+## Phase 8r — the firm says what it is on its letterhead (operator decision 2026-08-07)
+
+Every source the lexicon had read the same thing: text *about projects*.
+The firm's own name was never read, and in German construction it states
+the trade — Tischlerei Fischer, Metallbau Politz, Elektro Böhe, Reutlinger
+Abbruch, KSG Kabel-Signal-Gleisbau. It is the one statement of what the
+firm IS rather than what one project happened to contain: self-declared,
+identical on every reference, and free of the buyer's house style that
+makes tender prose so hard to read. The BUYER's name has been read since
+phase 8 and discarded as geography; the winner's never was.
+
+`name_keywords()` takes the trade roots in the name and adds them to the
+narrow lexicon and to the core roots — to core because recurrence is a way
+of asking *is this the trade or the context*, and a name recurs by
+definition.
+
+**Ungated, deliberately** (operator: *"a broad business is better than no
+business mentioned at all"*). Where the name says nothing — Braun GmbH,
+YUNEX GmbH, PIK AG — it contributes nothing and costs nothing, so there is
+nothing to filter for; where it says something broad, broad is what the
+firm published about itself.
+
+| | before | after |
+| --- | --- | --- |
+| IN (should pass) | 44/74 | **45/74** |
+| OUT (should reject) | 47/52 | 47/52 |
+| firms with no narrow lexicon | 103 | **77** |
+| fully mute (no narrow, no core, no wide) | 42 | **34** |
+| empty before the vocabulary | 40 | 29 |
+
+Twenty-six firms gain a convicting lexicon and eight profiles that could
+never have said yes to any lot now can, for one more recall case and no
+precision cost. A trade root appears in 146 of the 512 firms with >= 3
+wins.
+
+**Not isolated, disclosed.** The run also carries `aufzueg` and
+`trennwaend`, two umlaut-plural entries; they can only reach firms whose
+text or name carries *Aufzüge* or *Trennwände* (TK Aufzüge, Kemmlit twice),
+so the name source accounts for nearly all of the movement, but the split
+was not measured.
+
+**Those two entries are a patch, and the pattern behind them is a dead
+end.** `fold()` writes ü as `ue`, so `Aufzüge` becomes `aufzuege`, which no
+longer contains the root `aufzug` — a root cannot match its own plural, and
+every umlauting German noun has the same hole. Enumerating them one at a
+time is dead end 6 with a worse ratio. If inflection ever proves to matter
+the fix is one normalisation at match time (strip the umlaut instead of
+expanding it), and it needs a store sweep for the collisions it creates
+first — `Stück` would fold onto the `stuck` root of Stuckateur, and *Stück*
+is in every Leistungsverzeichnis. Not attempted here.
+
+Rollback: `NAME_KEYWORDS=0`.

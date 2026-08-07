@@ -144,8 +144,9 @@ def firm_lexicons(data_dir, trade_roots):
         why = {}
         out[firm] = {
             'wins': len(keys), 'codes': sorted(tc),
-            'narrow': evd.firm_keywords(refs, docfreq, lbl, tc, dicts, why),
-            'core': evd.core_keywords(refs),
+            'narrow': evd.firm_keywords(refs, docfreq, lbl, tc, dicts,
+                                        why, firm=firm),
+            'core': evd.core_keywords(refs, firm=firm),
             'wide': evd.wide_keywords(refs),
             'why': why}
     return out
@@ -186,6 +187,22 @@ def empty_dump(data_dir, limit=None):
     n_core = sum(1 for _, _, v, _ in rows if v['core'])
     print(f'[empty] {n_core} of those still carry core roots (a core root '
           f'in a TITLE convicts), {len(rows) - n_core} are fully mute')
+    # Would the firm's OWN NAME have said it? A German contractor's name
+    # states its trade -- Tischlerei, Metallbau, Elektro, Abbruch -- and it
+    # is the one statement of what the firm IS rather than what one project
+    # contained. The buyer's name is already read (and discarded as
+    # geography); the winner's never has been.
+    named = {f: [r for w in evd.tokens(f) for r in evd.roots_in(w)]
+             for f in on}
+    mute = [f for _, f, v, _ in rows if not v['core']]
+    print(f'[empty] trade root in the FIRM NAME: '
+          f'{sum(1 for f in on if named[f]):3d}/{len(on)} firms overall, '
+          f'{sum(1 for _, f, _, _ in rows if named[f]):3d}/{len(rows)} of '
+          f'the empty ones, {sum(1 for f in mute if named[f]):3d}/{len(mute)}'
+          f' of the fully mute')
+    for f in mute:
+        if named[f]:
+            print(f'[empty]   mute, name says {named[f]}: {f}')
     # the cross-tab that separates a vocabulary gap from a TRUST gap: a firm
     # with no trusted CPV code inherits no trade dictionary and no
     # definitional label words, so its own reference texts are the only

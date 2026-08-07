@@ -362,6 +362,7 @@ sparren
 laerche
 vorvergraut
 trennwand
+trennwaend
 einbaumoebel
 einbaukueche
 grosskueche
@@ -532,6 +533,7 @@ gasanlage
 gaswarnanlage
 druckluft
 aufzug
+aufzueg
 tragmittel
 fahrsteig
 rolltreppe

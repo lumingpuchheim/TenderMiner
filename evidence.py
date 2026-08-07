@@ -143,6 +143,9 @@ WIDE_NOMINATION = os.environ.get('WIDE_NOMINATION', '1') != '0'
 # nominated), so it is the only place a change can move the receipt.
 # CORE_SHARE = the share of the firm's references a root must appear in to
 # count as its trade rather than context. Rollback: CORE_TITLE_CONVICTS=0.
+# Phase 8r: the firm's own name is a lexicon source. See name_keywords().
+# Rollback: NAME_KEYWORDS=0.
+NAME_KEYWORDS = os.environ.get('NAME_KEYWORDS', '1') != '0'
 CORE_TITLE_CONVICTS = os.environ.get('CORE_TITLE_CONVICTS', '1') != '0'
 CORE_SHARE = float(os.environ.get('CORE_SHARE', '0.5'))
 # rollback switch for phase 8f (A) and (B); env var overrides per run so the
@@ -535,9 +538,49 @@ def wide_keywords(refs):
     return kept[:MAX_KEYWORDS]
 
 
-def core_keywords(refs):
+def name_keywords(firm):
+    """Phase 8r — the trade roots in the FIRM'S OWN NAME.
+
+    A German contractor says what it is on its letterhead: Tischlerei
+    Fischer, Metallbau Politz, Elektro Böhe, Reutlinger Abbruch, KSG
+    Kabel-Signal-Gleisbau. That is the one statement of what the firm IS
+    rather than what one project happened to contain — self-declared,
+    identical across every reference, and immune to the buyer's house
+    style that makes tender prose so hard to read. The BUYER's name has
+    been read since phase 8 (and discarded, as geography); the winner's
+    never was.
+
+    Deliberately ungated (operator decision 2026-08-07): *"a broad
+    business is better than no business mentioned at all"*. Where the name
+    says nothing — Braun GmbH, PIK AG — this contributes nothing and costs
+    nothing, so there is no case to filter for. Where it says something
+    broad, broad is what the firm published about itself.
+
+    Measured before shipping: a trade root appears in 140 of the 512 firms
+    with >= 3 wins, in 20 of the 102 with no narrow lexicon, and in 6 of
+    the 42 that are FULLY MUTE — no narrow, no core, no wide, so no lot
+    could ever convict for them (KÖNIGBAU -> tiefbau, Metallbau Politz ->
+    metallbau, RIWAtec-Elektro and Elektro Böhe -> elektro, Tischlerei
+    Fischer -> tischler, KSG Kabel-Signal-Gleisbau -> kabel, gleis).
+    """
+    if not (TRADE_ROOTS and NAME_KEYWORDS) or not firm:
+        return []
+    found = [r for w in tokens(str(firm)) for r in roots_in(w)]
+    kept = []
+    for r in sorted(dict.fromkeys(found), key=len):  # shortest of a family
+        if not any(k in r for k in kept):
+            kept.append(r)
+    return kept
+
+
+def core_keywords(refs, firm=None):
     """Phase 8o — the roots that RECUR across the firm's wins: present in
     at least CORE_SHARE of its reference texts.
+
+    Phase 8r: a root from the firm's own NAME joins them unconditionally.
+    Recurrence is a way of asking "is this the trade or the context"; a
+    name answers that question directly, and a name recurs by definition —
+    it is on every reference the firm has ever had.
 
     This is the distinction the wide lexicon could not make. A won tender
     describes the work and its context, so a guardrail firm's texts all
@@ -550,7 +593,7 @@ def core_keywords(refs):
     it is the safe place to admit evidence the firm's narrow lexicon
     happens to lack.
     """
-    if not (TRADE_ROOTS and CORE_TITLE_CONVICTS) or not refs:
+    if not (TRADE_ROOTS and CORE_TITLE_CONVICTS):
         return []
     found = Counter()
     for t, _b in refs:
@@ -558,20 +601,33 @@ def core_keywords(refs):
             found[r] += 1
     need = max(2, int(len(refs) * CORE_SHARE + 0.999)) if len(refs) > 1 else 1
     core = [r for r, n in found.items() if n >= need]
+    # the name is on every reference the firm has, so it recurs by
+    # definition — scored above any word that merely recurs often
+    for r in name_keywords(firm):
+        found[r] = max(found.get(r, 0), len(refs) + 1)
+        core.append(r)
     kept = []
-    for r in sorted(core, key=len):
+    for r in sorted(dict.fromkeys(core), key=len):
         if not any(k in r for k in kept):
             kept.append(r)
     return sorted(kept, key=lambda r: -found[r])
 
 
 def firm_keywords(refs, docfreq, label_texts, trusted_codes, dicts,
-                  reasons=None):
+                  reasons=None, firm=None):
     """The profile lexicon (phase 8c): the firm's own derived words plus
-    the dictionaries of its trusted trades. Substring-redundant words are
-    collapsed to the shortest stem so one text occurrence can never count
-    as two witnesses (phase 8b)."""
+    the dictionaries of its trusted trades, and (phase 8r) the trade roots
+    in the firm's own name. Substring-redundant words are collapsed to the
+    shortest stem so one text occurrence can never count as two witnesses
+    (phase 8b)."""
     kws = derive_keywords(refs, docfreq, label_texts, reasons)
+    # the name goes in FIRST so it survives the subsumption pass below as
+    # the shortest form of its family: 'elektro' should absorb a dictionary
+    # entry like 'elektroinstallation', not the other way round
+    for r in name_keywords(firm):
+        if not any(k in r for k in kws):
+            kws = [k for k in kws if r not in k]
+            kws.append(r)
     if TRADE_DICTS and dicts:
         for c in trusted_codes:
             for w in dicts.get(c, []):
@@ -763,7 +819,8 @@ def receipt(data_dir, use_tier3):
                    for c in cs if c in trusted and c in labels]
             tc_i = {c for j, cs in enumerate(codes) if j != i
                     for c in cs if c in trusted}
-            kws = firm_keywords(others, docfreq, lbl, tc_i, dicts)
+            kws = firm_keywords(others, docfreq, lbl, tc_i, dicts,
+                                firm=firm)
             kw_counts.append(len(kws))
             n_pos += 1
             ev = match_evidence(texts[k], kws, syn)
@@ -783,7 +840,7 @@ def receipt(data_dir, use_tier3):
         kws = firm_keywords([(texts[k], raw[k][4]) for k in keys],
                             docfreq, label_texts,
                             {c for cs in codes for c in cs if c in trusted},
-                            dicts)
+                            dicts, firm=firm)
         neg_pool = [k for k in deep_trusted
                     if all_class[k] not in firm_classes and k not in keys]
         if neg_pool:
@@ -851,7 +908,7 @@ def run_benchmark(data_dir, use_tier3):
                              if c in trusted}
             firms[firm] = firm_keywords(
                 [(texts[k], raw[k][4]) for k in keys], docfreq, lbl,
-                firm_tc[firm], dicts)
+                firm_tc[firm], dicts, firm=firm)
             print(f'[benchmark] {firm}: keywords = {firms[firm]}')
         kws = firms[firm]
         sel = [k for k in texts if raw[k][3] == case['pub']
@@ -868,7 +925,7 @@ def run_benchmark(data_dir, use_tier3):
                 others = [(texts[k2], raw[k2][4]) for k2 in ref_keys
                           if k2 != k]
                 kws_k = firm_keywords(others, docfreq, (),
-                                      firm_tc[firm], dicts)
+                                      firm_tc[firm], dicts, firm=firm)
             else:
                 kws_k = kws
             ev = match_evidence(texts[k], kws_k, syn)
@@ -1302,7 +1359,8 @@ def main():
         print(f'[evidence] {args.keywords}: {len(keys)} wins, '
               f'trusted trades {sorted(tc)}')
         print(firm_keywords([(texts[k], raw[k][4]) for k in keys],
-                            docfreq, lbl, tc, dicts))
+                            docfreq, lbl, tc, dicts,
+                            firm=args.keywords))
         return
     if args.benchmark:
         sys.exit(1 if run_benchmark(args.data_dir, args.tier3) else 0)
