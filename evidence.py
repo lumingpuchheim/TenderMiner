@@ -371,6 +371,14 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
             f_out = (df.get(w, 0) - k) / max(n - n_in, 1)
             if f_in / max(f_out, 1e-9) < DICT_MIN_RATIO:
                 continue
+            # phase 8l: vet the RAW word, before stem() truncates it. A root
+            # sitting at the TAIL of a compound is cut off by stemming —
+            # Ortbeton -> ortbeto, Stahlzargen -> stahlzarg, Bodenfliesen ->
+            # bodenflies — so a check applied after stemming rejects genuine
+            # trade words and would need dozens of truncated roots to
+            # compensate. Checking here needs none.
+            if not names_trade(w):
+                continue
             s = stem(w)
             score = f_in * min(f_in / max(f_out, 1e-9), 100.0)
             if score > cands.get(s, 0.0):
@@ -399,11 +407,9 @@ def firm_keywords(refs, docfreq, label_texts, trusted_codes, dicts):
     if TRADE_DICTS and dicts:
         for c in trusted_codes:
             for w in dicts.get(c, []):
-                # phase 8g: the dictionaries carry a procuring sector's
-                # legalese too ('kurzfristig', 'erfahrungswert'), so the
-                # vocabulary applies to them as well as to the firm's words
-                if not names_trade(w):
-                    continue
+                # phase 8l: NOT vetted here — dictionary entries are already
+                # stemmed, and stemming can cut the very root that would
+                # match. trade_dictionaries() vets the raw word instead.
                 if any(k in w for k in kws):
                     continue  # an existing (shorter) stem already hits w
                 kws = [k for k in kws if w not in k]  # w subsumes longer kws
