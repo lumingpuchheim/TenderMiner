@@ -1475,3 +1475,50 @@ arguably correct, since each of those firms can bid the relevant lot.
 
 Near-parity on recall, wrong-trade rejection from 58% to 87%. Rollback:
 `CONVICTION_NOMINATES=0`.
+
+## Phase 8n/8o — the trade recurs, the context varies (shipped 2026-08-07)
+
+**First, a structural finding.** Since phase 8k, `convicting` implies
+`nominated`, so `nominated and convicting` reduces to `convicting` alone.
+**Nomination no longer decides anything** — not the CPV code match, not the
+witness rule, not similarity. Only conviction moves the receipt. Phase 8n
+(a wide root lexicon feeding nomination) was built and measured before this
+was understood: it changes no verdict at all, and is kept only because a
+lot with wide witnesses and no narrow evidence lands in the visible
+borderline band instead of being rejected outright.
+
+**Phase 8o, at conviction.** A firm's won tenders describe the work AND its
+context — what it sits on, connects to, replaces — so a guardrail firm's
+texts carry `beton` (the posts are set in it), `bohr` (the holes) and
+`rueckbau` (the old barrier). Those are trades MENTIONED, not the trade the
+firm IS. A lexicon of every root mentioned matches far too much: measured
+alone it gave IN 60/74 but OUT 27/52.
+
+Recurrence separates them without judging what the words mean: **the trade
+appears in every win, the context only in some.** `core_keywords()` keeps
+the roots present in at least `CORE_SHARE` of a firm's references, and a
+core root in the TITLE convicts. The title is where the work is named —
+boilerplate lives in the description — so it is the safe place to admit
+evidence the firm's narrow lexicon happens to lack.
+
+| CORE_SHARE | IN (should pass) | OUT (should reject) | total |
+| --- | --- | --- | --- |
+| off | 34/74 | 45/52 | 79/126 |
+| **0.5 (shipped)** | **44/74** | **45/52** | **89/126** |
+| 0.75 | 42/74 | 45/52 | 87/126 |
+| 1.0 | 42/74 | 45/52 | 87/126 |
+
+Ten recall cases at **no precision cost**, and precision is identical at
+every threshold — a firm's core root appearing in a lot's title really does
+mean the lot is their work.
+
+**Standing against the gate shipped in `50eaca2`:**
+
+| | IN | OUT | total |
+| --- | --- | --- | --- |
+| base | 40/74 | 30/52 (58%) | 70/126 |
+| **now** | **44/74** | **45/52 (87%)** | **89/126** |
+
+Better on both axes for the first time in this sequence: recall above base,
+wrong-trade rejection 58% -> 87%. Rollback: `CORE_TITLE_CONVICTS=0`,
+`WIDE_NOMINATION=0`.

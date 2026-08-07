@@ -120,6 +120,17 @@ MIN_BUYERS = 2             # refs from fewer buyers cannot define a trade
 # umlauts so Tuer/Tür and Fussboden/Fußboden need one entry each.
 TRADE_ROOTS = os.environ.get('TRADE_ROOTS', '1') != '0'
 ROOTS_FILE = Path(__file__).with_name('cpv_trade_roots.txt')
+# Phase 8n: a SECOND, wider lexicon of trade roots, used only to NOMINATE.
+# Conviction keeps the narrow firm_keywords() lexicon. See wide_keywords().
+# Rollback: WIDE_NOMINATION=0.
+WIDE_NOMINATION = os.environ.get('WIDE_NOMINATION', '1') != '0'
+# Phase 8o: a recurring trade root in the TITLE convicts. Since phase 8k
+# conviction is the only stage that decides anything (convicting implies
+# nominated), so it is the only place a change can move the receipt.
+# CORE_SHARE = the share of the firm's references a root must appear in to
+# count as its trade rather than context. Rollback: CORE_TITLE_CONVICTS=0.
+CORE_TITLE_CONVICTS = os.environ.get('CORE_TITLE_CONVICTS', '1') != '0'
+CORE_SHARE = float(os.environ.get('CORE_SHARE', '0.5'))
 # rollback switch for phase 8f (A) and (B); env var overrides per run so the
 # A/B needs no edit (BUYER_DIVERSITY=0 reproduces the phase-8e lexicons)
 BUYER_DIVERSITY = os.environ.get('BUYER_DIVERSITY', '1') != '0'
@@ -155,9 +166,41 @@ def tokens(text):
     return WORD_RE.findall(str(text).casefold())
 
 
-def stem(word):
+def stem(word, known=None):
     """Light German plural/ending trim so a plural-only keyword still
-    substring-matches the singular in a candidate text."""
+    substring-matches the singular in a candidate text.
+
+    Phase 8m — `known` (the store's token -> count map) makes the trim
+    EVIDENCE-BASED. Without it this is a length-gated blind chop of a
+    trailing e/s/n that knows nothing about German: Beton -> beto,
+    Fassade -> fassad, Kabelrinne -> kabelrinn, Balkon -> balko. In each
+    the letter is part of the root, not a suffix. The length gate makes it
+    incoherent as well, leaving 'fliese' (6) alone while cutting
+    'bodenfliese' (11) to 'bodenflies' — one word stemmed two ways
+    depending on the compound it sits in, which is the opposite of what a
+    family collapse is for.
+
+    With `known`, a suffix comes off only when what remains is itself a
+    token the store actually uses: 'bodenfliesen' -> 'bodenfliese'
+    survives because that word exists, while 'ortbeton' -> 'ortbeto' does
+    not, so 'ortbeton' stays whole and still contains the root 'beton'.
+    No language model and no dependency — the corpus decides.
+
+    The trim is only ever needed in one direction: matching is substring,
+    so a stored singular already matches a plural in the candidate text.
+    """
+    if known is not None:
+        for cut in (2, 1):
+            if len(word) - cut < MIN_STEM_LEN:
+                continue
+            if cut == 2 and not word.endswith('en'):
+                continue
+            if cut == 1 and not word.endswith(('e', 's', 'n')):
+                continue
+            if word[:-cut] in known:
+                return word[:-cut]
+        return word
+    # legacy blind chop, kept for callers with no corpus at hand
     if len(word) > 8 and word.endswith('en'):
         return word[:-2]
     if len(word) > 7 and word.endswith(('e', 's', 'n')):
@@ -190,17 +233,23 @@ def trade_roots():
     return _ROOTS
 
 
-def names_trade(w):
-    """Does this word name a trade or a material? Substring against the
-    roots, so plurals and compounds need no entry of their own — minus the
-    listed collisions (Klassen|zimmer is a room, Hain|holz is a village)."""
-    if not TRADE_ROOTS:
-        return True
+def roots_in(w):
+    """Which trade roots does this word contain? Substring against the
+    committed list, so plurals and compounds need no entry of their own —
+    minus the listed collisions (Klassen|zimmer is a room, Hain|holz is a
+    village). Holzbauarbeiten -> ['holz'], Ortbeton -> ['beton']."""
     roots, nots = trade_roots()
     f = fold(str(w).casefold())
     if any(x in f for x in nots):
-        return False
-    return any(r in f for r in roots)
+        return []
+    return [r for r in roots if r in f]
+
+
+def names_trade(w):
+    """Does this word name a trade or a material?"""
+    if not TRADE_ROOTS:
+        return True
+    return bool(roots_in(w))
 
 
 def store_doc_freq(tenders, cache_path=None):
@@ -267,7 +316,7 @@ def derive_keywords(refs, docfreq, label_texts=()):
         # ABOVE the trade word; only the vocabulary can tell them apart.
         if not names_trade(w):
             continue
-        s = stem(w)
+        s = stem(w, df)
         if len(s) >= MIN_STEM_LEN:
             best = cands.get(s)
             if best is None or (c, -df.get(w, 0)) > best:
@@ -284,7 +333,7 @@ def derive_keywords(refs, docfreq, label_texts=()):
             # phase 8c (1): definitional waiver — see constants block
             definitional = label_doc_freq().get(w, 0) <= LABEL_DF_MAX
             if definitional or df.get(w, 0) / n_docs <= MAX_DOC_FREQ:
-                s = stem(w)
+                s = stem(w, df)
                 cands.setdefault(s, (len(refs), 0))
     kept = []
     for s in sorted(cands, key=len):  # shortest stem of a family wins
@@ -379,7 +428,7 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
             # compensate. Checking here needs none.
             if not names_trade(w):
                 continue
-            s = stem(w)
+            s = stem(w, df)
             score = f_in * min(f_in / max(f_out, 1e-9), 100.0)
             if score > cands.get(s, 0.0):
                 cands[s] = score
@@ -396,6 +445,72 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
             encoding='utf-8')
     _TRADE_DICTS = dicts
     return dicts
+
+
+def wide_keywords(refs):
+    """Phase 8n — the NOMINATION lexicon: every committed trade root found
+    in the firm's reference texts, ordered by how many references carry it.
+
+    Deliberately broader than firm_keywords(). A won tender describes the
+    work AND its context — what it sits on, connects to, replaces — so a
+    guardrail firm's texts carry 'beton' (the posts are set in it), 'bohr'
+    (the holes) and 'rueckbau' (the old barrier). Those are trades
+    MENTIONED, not the trade the firm IS, and a lexicon built from them
+    matches far too much: measured alone it moved the receipt to IN 60/74
+    but OUT 27/52.
+
+    So it is used for one thing only: deciding a lot is worth CONSIDERING.
+    Conviction still runs against firm_keywords(), the firm's own narrow
+    vocabulary, which a merely-concrete tender will not carry. The lot gets
+    considered and then rejected, rather than never considered (nomination
+    too tight) or wrongly picked (conviction too loose).
+
+    No stem() anywhere here: the roots are the canonical short forms, hand
+    written, so nothing is truncated and every inflection matches — 'holz'
+    is inside Holzbau, Holzbauarbeiten and Brettsperrholz alike.
+    """
+    if not (TRADE_ROOTS and WIDE_NOMINATION):
+        return []
+    found = Counter()
+    for t, _b in refs:
+        for r in {r for w in set(tokens(t)) for r in roots_in(w)}:
+            found[r] += 1
+    kept = []
+    for r in sorted(found, key=len):  # shortest root of a family wins
+        if not any(k in r for k in kept):
+            kept.append(r)
+    kept.sort(key=lambda r: -found[r])
+    return kept[:MAX_KEYWORDS]
+
+
+def core_keywords(refs):
+    """Phase 8o — the roots that RECUR across the firm's wins: present in
+    at least CORE_SHARE of its reference texts.
+
+    This is the distinction the wide lexicon could not make. A won tender
+    describes the work and its context, so a guardrail firm's texts all
+    carry 'leitplank' while only some carry 'beton' (the posts are set in
+    it). The trade recurs; the context varies. Recurrence separates them
+    without any judgement about what the words mean.
+
+    Used for one thing: a core root in the TITLE convicts. The title is the
+    field that names the work — boilerplate lives in the description — so
+    it is the safe place to admit evidence the firm's narrow lexicon
+    happens to lack.
+    """
+    if not (TRADE_ROOTS and CORE_TITLE_CONVICTS) or not refs:
+        return []
+    found = Counter()
+    for t, _b in refs:
+        for r in {r for w in set(tokens(t)) for r in roots_in(w)}:
+            found[r] += 1
+    need = max(2, int(len(refs) * CORE_SHARE + 0.999)) if len(refs) > 1 else 1
+    core = [r for r, n in found.items() if n >= need]
+    kept = []
+    for r in sorted(core, key=len):
+        if not any(k in r for k in kept):
+            kept.append(r)
+    return sorted(kept, key=lambda r: -found[r])
 
 
 def firm_keywords(refs, docfreq, label_texts, trusted_codes, dicts):

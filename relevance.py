@@ -399,7 +399,7 @@ def build_profile(gate, sub):
     foreign = [int(r) for r, t in zip(gate.trade_rows, gate.trade_trim)
                if not any(t.startswith(h) or h.startswith(t)
                           for h in hard_trim)] if hard_trim else []
-    keywords = None
+    keywords, wide, core = None, [], []
     if GATE_MODE == 'evidence':
         # phase 8: the profile's trade lexicon (TF-IDF over the reference
         # texts + trusted-label words; buyer-diverse, buyer-name-free),
@@ -418,6 +418,11 @@ def build_profile(gate, sub):
         keywords = evd.firm_keywords(
             refs, docfreq, [gate.lrows[r]['label_de'] for r in hard_rows],
             {c for c in ref_codes if c in gate.trusted}, dicts)
+        # phase 8n: the wide root lexicon — nomination only, never conviction
+        wide = evd.wide_keywords(refs)
+        # phase 8o: the roots that RECUR across the firm's wins — its trade
+        # rather than its context. A core root in the TITLE convicts.
+        core = evd.core_keywords(refs)
     return {
         'ref_matrix': np.vstack(expanded),
         'ref_titles': ref_titles,
@@ -433,6 +438,8 @@ def build_profile(gate, sub):
         'min_code_soft': float(sub.get('min_code_soft', DEFAULT_MIN_CODE_SOFT)),
         'version': sub.get('version', 1),
         'keywords': keywords,
+        'keywords_wide': wide,
+        'keywords_core': core,
     }
 
 
@@ -507,7 +514,7 @@ def evidence_components(gate, profile, scored_row, i):
 
 def _evidence_verdict(profile, text, c_hard, same_buyer, has_evidence,
                       bar=None, nomination_min=None, witnesses=0,
-                      convicting=None):
+                      convicting=None, wide_witnesses=0):
     """The phase-8 decision itself, pure arithmetic on the components —
     shared by the runtime ladder and the sweep. NOMINATE by a hard
     trusted-code match, or by the evidence itself when it carries enough
@@ -537,7 +544,13 @@ def _evidence_verdict(profile, text, c_hard, same_buyer, has_evidence,
                  # has_evidence, i.e. the any-evidence-nominates diagnostic
                  # (8.7% leakage) — the runtime always passes the real
                  # title-or-two value, the sweep must do so too.
-                 or (CONVICTION_NOMINATES and convicting))
+                 or (CONVICTION_NOMINATES and convicting)
+                 # phase 8n: the WIDE root lexicon may nominate but never
+                 # convict. A guardrail firm's texts carry 'beton' because
+                 # the posts are set in it, so a concrete tender becomes a
+                 # candidate — and then has to convict on the firm's own
+                 # narrow vocabulary, which it will not carry.
+                 or (nomination_min > 0 and wide_witnesses >= nomination_min))
     if nominated and convicting:
         return True, False
     if nominated or has_evidence:
@@ -561,10 +574,21 @@ def _judge_evidence(gate, profile, scored_row, i):
     if mismatch:
         passed, borderline = False, True
     else:
+        # phase 8n: the wide lexicon is matched separately and feeds ONLY
+        # the nomination count — `ev` (narrow) still decides conviction
+        wide = profile.get('keywords_wide') or []
+        ev_wide = evd.match_evidence(
+            evd.leistung_text(gate.all_title[i], gate.all_desc[i]),
+            wide) if wide else []
+        # phase 8o: a recurring trade root in the TITLE convicts too
+        core = profile.get('keywords_core') or []
+        title_f = evd.fold(str(gate.all_title[i] or '').casefold())
+        core_title = any(r in title_f for r in core)
         passed, borderline = _evidence_verdict(
-            profile, text, c_hard, same_buyer, bool(ev),
+            profile, text, c_hard, same_buyer, bool(ev) or core_title,
             witnesses=evidence_witnesses(ev),
-            convicting=evd.convicts(gate.all_title[i], ev))
+            convicting=evd.convicts(gate.all_title[i], ev) or core_title,
+            wide_witnesses=evidence_witnesses(ev_wide))
     # phase 8d: deterministic partial admit of the borderline band
     if (not passed and borderline and BORDERLINE_ADMIT_P > 0
             and _band_draw(scored_row['procedure_id'],
