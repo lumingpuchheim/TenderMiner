@@ -1,9 +1,9 @@
-"""TenderMining lexicon receipt — is a customer's lexicon made of trade
+﻿"""TenderMining lexicon receipt â€” is a customer's lexicon made of trade
 words, and do the hand-labeled cases still judge correctly?
 
 Answers the question the aggregate receipts cannot: `evidence.py --sweep`
 scores against synthetic off-class negatives, and its benchmark total hides
-direction — the committed cases are recall-heavy, so a change that stops
+direction â€” the committed cases are recall-heavy, so a change that stops
 wrong-trade picks can look like a regression in the total while doing
 exactly what it was built for. This receipt therefore
 
@@ -14,10 +14,13 @@ exactly what it was built for. This receipt therefore
      lexicon is reading it: every word should name a Gewerk or a material.
 
 Configurations are the two committed switches, so this is also the A/B for
-rolling either back:
-    base    BUYER_DIVERSITY=0 TRADE_ROOTS=0   (phase 8e, as shipped)
-    buyers  BUYER_DIVERSITY=1 TRADE_ROOTS=0   (phase 8f)
-    roots   BUYER_DIVERSITY=1 TRADE_ROOTS=1   (phase 8g, live default)
+rolling either back â€” and 'roots only' is the arm that answers whether the
+dictionary buyer-share test still earns its place now that the vocabulary
+judges each word directly:
+    base        BUYER_DIVERSITY=0 TRADE_ROOTS=0   (phase 8e, as shipped)
+    dicts       BUYER_DIVERSITY=1 TRADE_ROOTS=0   (phase 8f (A) alone)
+    roots only  BUYER_DIVERSITY=0 TRADE_ROOTS=1   (vocabulary alone)
+    both        BUYER_DIVERSITY=1 TRADE_ROOTS=1   (live default)
 
 Usage:
     python lexicon_receipt.py                     # all three, per direction
@@ -37,8 +40,8 @@ if hasattr(sys.stdout, 'reconfigure'):
 
 import evidence as evd
 
-CONFIGS = [('base', False, False), ('buyers', True, False),
-           ('roots', True, True)]
+CONFIGS = [('base', False, False), ('dicts', True, False),
+           ('roots-only', False, True), ('both', True, True)]
 BENCH = Path('benchmark_relevance.jsonl')
 
 
@@ -49,7 +52,7 @@ def load_cases():
 
 
 def apply(buyer_diversity, trade_roots):
-    """Set the switches and drop the memoised dictionaries — they are
+    """Set the switches and drop the memoised dictionaries â€” they are
     derived under the switches and must not survive a configuration
     change (this is why the on-disk cache carries them in its key)."""
     evd.BUYER_DIVERSITY = buyer_diversity
@@ -103,6 +106,46 @@ def run_config(data_dir, name, buyer_diversity, trade_roots, want_lexicons):
     return counts, lexicons, misses
 
 
+def coverage(data_dir, trade_roots):
+    """Lexicon size across EVERY firm with >= MIN_WINS wins, not just the
+    benchmark's. Vocabulary work shows up here and nowhere else: a trade
+    whose words are missing produces starved lexicons, which the 122
+    hand-labeled cases cannot see because they cover a handful of firms."""
+    import numpy as np
+    from calibrate import firm_win_rows, lot_codes
+    from embed import read_cpv_labels
+    apply(evd.BUYER_DIVERSITY, trade_roots)
+    tenders, awards, lots, texts, raw, docfreq = evd.load_world(data_dir)
+    labels = read_cpv_labels()
+    trust = json.loads(Path(f'trusted_codes_{__import__("embed").MODEL_TAG}'
+                            '.json').read_text(encoding='utf-8'))
+    trusted = {c for c, v in trust['codes'].items() if v['trusted']}
+    dicts = evd.trade_dictionaries(tenders, trusted, docfreq,
+                                   Path(data_dir) / 'trade_dicts.json')
+    wins = firm_win_rows(awards, tenders)
+    wins = wins[[k in texts
+                 for k in zip(wins['procedure_id'], wins['lot_id'])]]
+    wins = wins.drop_duplicates(subset=['winner_names'] + evd.KEY)
+    sizes = []
+    for firm, g in wins.groupby('winner_names'):
+        if len(g) < evd.MIN_WINS:
+            continue
+        keys = [k for k in zip(g['procedure_id'], g['lot_id']) if k in texts]
+        if not keys:
+            continue
+        codes = [lot_codes(m, a) for m, a in zip(g['cpv_main'],
+                                                 g['cpv_additional'])]
+        lbl = [labels[c] for cs in codes for c in cs
+               if c in trusted and c in labels]
+        tc = {c for cs in codes for c in cs if c in trusted}
+        sizes.append(len(evd.firm_keywords(
+            [(texts[k], raw[k][4]) for k in keys], docfreq, lbl, tc, dicts)))
+    a = np.array(sizes)
+    return {'firms': len(a), 'median': int(np.median(a)),
+            'mean': round(float(a.mean()), 1),
+            'empty': int((a == 0).sum()), 'under3': int((a < 3).sum())}
+
+
 def fmt(counts):
     rows = []
     for d in ('in', 'out'):
@@ -122,10 +165,23 @@ def main():
     ap.add_argument('--config', choices=[c[0] for c in CONFIGS], default=None,
                     help='run one configuration instead of all three')
     ap.add_argument('--lexicons', action='store_true',
-                    help="print every benchmark firm's lexicon — the words "
+                    help="print every benchmark firm's lexicon â€” the words "
                          'should each name a Gewerk or a material')
     ap.add_argument('--out', default=None, help='also write markdown here')
+    ap.add_argument('--coverage', action='store_true',
+                    help='lexicon sizes over EVERY firm with >= 3 wins, '
+                         'vocabulary on vs off â€” the measure for vocabulary '
+                         'work, which the 122 cases cannot see')
     args = ap.parse_args()
+
+    if args.coverage:
+        print(f'{"vocabulary":12s} {"firms":>6s} {"median":>7s} {"mean":>6s} '
+              f'{"empty":>6s} {"<3":>5s}')
+        for label, tr in (('off', False), ('on', True)):
+            c = coverage(args.data_dir, tr)
+            print(f'{label:12s} {c["firms"]:6d} {c["median"]:7d} '
+                  f'{c["mean"]:6.1f} {c["empty"]:6d} {c["under3"]:5d}')
+        return
 
     todo = [c for c in CONFIGS if args.config in (None, c[0])]
     lines = ['| configuration | IN (should pass) | OUT (should reject) | total |',

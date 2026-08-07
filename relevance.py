@@ -99,6 +99,69 @@ GATE_MODE = os.environ.get('GATE_MODE', 'evidence')
 # <= 0.50 leak >= 3.0%; bars >= 0.60 lose Kölln-Reisiek (18/19). Full
 # table in RELEVANCE.md phase 8.
 NOMINATION_BAR = 0.550
+# Phase 8i (operator decision 2026-08-07): SIMILARITY NO LONGER NOMINATES.
+# Route 2 -- "this lot's text resembles the customer's past tenders" -- is
+# off. Four reasons, in order of weight:
+#
+# 1. The test cannot see it. Positive cases are the firm's OWN past wins,
+#    which come from buyers already in its profile, so same_buyer is true
+#    and route 2 is MUTED for most of them. Production is the mirror
+#    image: open lots come overwhelmingly from buyers the firm never won
+#    from, so route 2 is ON. We measured a gate with this route disabled
+#    and shipped a gate with it enabled -- including when we chose
+#    NOMINATION_BAR itself, which is the knob that controls it.
+# 2. Its safety catch is a string comparison. same_buyer is buyer-NAME
+#    equality (_norm_buyer: casefold + whitespace). "SBH | Schulbau
+#    Hamburg" and "GMH | Gebaeudemanagement Hamburg GmbH" are different
+#    strings, so a shared municipal template sails through: the
+#    Norderschulweg heating lot (GMH) was nominated for a FLOORING firm
+#    whose six references are all SBH. The guard protects against one
+#    buyer repeating itself, not against a family of authorities sharing
+#    a document template -- which is the common case in German public
+#    procurement (a city and its Eigenbetrieb, a Landkreis and its Aemter).
+# 3. It contradicts phase 8's founding decision. Similarity was demoted
+#    because it is not trustworthy enough to CONVICT. But nomination is
+#    the door: whatever passes it need only clear the evidence test, and
+#    that test is satisfiable by coincidence (two filler words before the
+#    phase-8g vocabulary; 'dehnfug' in a water-reservoir spec after). A
+#    signal we do not trust to decide should not be trusted to decide who
+#    gets considered.
+# 4. It is the leakage source. The bar sweep moved leakage 0.4% -> 1.6%
+#    -> 6.0% as the bar dropped 0.70 -> 0.55 -> 0.40; that range is
+#    similarity admitting lots.
+#
+# What remains: the CPV hard-code match and the trade-evidence witnesses.
+# Both are buyer-independent, both mean the same thing in the test and in
+# production, and both are readable. With route 2 off, no part of the
+# evidence ladder consults the buyer name at all.
+#
+# KNOWN COST: route 2 uniquely rescued the lot whose TITLE names the trade
+# with a single keyword, since the witness rule demands
+# EVIDENCE_NOMINATION_MIN of them. The direct repair is to let a title
+# witness nominate (conviction already treats it as sufficient) -- measured
+# separately, not folded into this decision.
+# NOMINATION_BAR is inert while this is False; it stays because the
+# embedding ladder (GATE_MODE='embedding') and the sweep still use it.
+SIMILARITY_NOMINATES = os.environ.get('SIMILARITY_NOMINATES', '0') != '0'
+# Phase 8k (experiment 2026-08-07): CONVICTION-STRENGTH EVIDENCE NOMINATES
+# ITSELF. The gate already holds that a trade keyword in the TITLE convicts
+# on its own (evidence.convicts, the title-or-two rule) — yet nothing let
+# that same fact open the door, so a lot could be convictable and never
+# considered. Concrete case, 00367721-2025 'Estricharbeiten' (Thüringer
+# Landesamt für Bau) against the screed firm N3Bau: filed under CPV
+# 45216111 'Bau von Polizeirevieren', so hard=0.135 and route 1 fails; the
+# description is an address, so evidence is estrich(t1) alone and the
+# witness rule (which wants EVIDENCE_NOMINATION_MIN) fails; route 2 is gone
+# since phase 8i. Verdict ok=False — a tender whose title IS the firm's
+# trade. Unlike route 2 this cannot reopen the boilerplate hole: whole-
+# document similarity is dominated by a buyer's standard paragraphs, while
+# the title is the one field that names the actual work.
+# SHIPPED ON (receipt: IN 26/74 -> 34/74, OUT unchanged at 45/52, total
+# 71/126 -> 79/126). Eight recall cases for no measured precision cost --
+# the only free move found in this whole sequence, because it admits on the
+# field that names the work rather than on document resemblance.
+# Rollback: CONVICTION_NOMINATES=0.
+CONVICTION_NOMINATES = os.environ.get('CONVICTION_NOMINATES', '1') != '0'
 # Phase 8b, the witness rule (operator design, 2026-08-06): "one
 # coincidence is coincidence, multiple coincidences are a conviction."
 # Evidence alone may NOMINATE a lot (no similarity, no code — deliberately
@@ -336,7 +399,7 @@ def build_profile(gate, sub):
     foreign = [int(r) for r, t in zip(gate.trade_rows, gate.trade_trim)
                if not any(t.startswith(h) or h.startswith(t)
                           for h in hard_trim)] if hard_trim else []
-    keywords = None
+    keywords, wide, core = None, [], []
     if GATE_MODE == 'evidence':
         # phase 8: the profile's trade lexicon (TF-IDF over the reference
         # texts + trusted-label words; buyer-diverse, buyer-name-free),
@@ -355,6 +418,11 @@ def build_profile(gate, sub):
         keywords = evd.firm_keywords(
             refs, docfreq, [gate.lrows[r]['label_de'] for r in hard_rows],
             {c for c in ref_codes if c in gate.trusted}, dicts)
+        # phase 8n: the wide root lexicon — nomination only, never conviction
+        wide = evd.wide_keywords(refs)
+        # phase 8o: the roots that RECUR across the firm's wins — its trade
+        # rather than its context. A core root in the TITLE convicts.
+        core = evd.core_keywords(refs)
     return {
         'ref_matrix': np.vstack(expanded),
         'ref_titles': ref_titles,
@@ -370,6 +438,8 @@ def build_profile(gate, sub):
         'min_code_soft': float(sub.get('min_code_soft', DEFAULT_MIN_CODE_SOFT)),
         'version': sub.get('version', 1),
         'keywords': keywords,
+        'keywords_wide': wide,
+        'keywords_core': core,
     }
 
 
@@ -444,12 +514,14 @@ def evidence_components(gate, profile, scored_row, i):
 
 def _evidence_verdict(profile, text, c_hard, same_buyer, has_evidence,
                       bar=None, nomination_min=None, witnesses=0,
-                      convicting=None):
+                      convicting=None, wide_witnesses=0):
     """The phase-8 decision itself, pure arithmetic on the components —
-    shared by the runtime ladder and the sweep. NOMINATE by text similarity
-    against NOMINATION_BAR (same-buyer: text abstains), by a hard
+    shared by the runtime ladder and the sweep. NOMINATE by a hard
     trusted-code match, or by the evidence itself when it carries enough
-    distinct witnesses (phase 8b, EVIDENCE_NOMINATION_MIN); CONVICT by
+    distinct witnesses (phase 8b, EVIDENCE_NOMINATION_MIN) — and, only
+    when SIMILARITY_NOMINATES is set back on, by text similarity against
+    NOMINATION_BAR (phase 8i removed that route: it was invisible to the
+    test and guarded by a buyer-name string match); CONVICT by
     conviction-strength evidence (phase 8c(3): title witness or multiple
     distinct keywords; `convicting=None` falls back to any-evidence).
     Nominated with sub-conviction evidence, nominated without evidence,
@@ -462,8 +534,23 @@ def _evidence_verdict(profile, text, c_hard, same_buyer, has_evidence,
     if convicting is None:
         convicting = has_evidence
     nominated = (c_hard >= profile['min_code_hard']
-                 or (not same_buyer and text >= bar)
-                 or (nomination_min > 0 and witnesses >= nomination_min))
+                 # phase 8i: route 2 (similarity) is off by default — see
+                 # SIMILARITY_NOMINATES. `same_buyer` survives only to keep
+                 # the rollback arm honest; nothing else reads the buyer.
+                 or (SIMILARITY_NOMINATES and not same_buyer and text >= bar)
+                 or (nomination_min > 0 and witnesses >= nomination_min)
+                 # phase 8k: what convicts may also nominate. NB when the
+                 # caller passes convicting=None this falls back to plain
+                 # has_evidence, i.e. the any-evidence-nominates diagnostic
+                 # (8.7% leakage) — the runtime always passes the real
+                 # title-or-two value, the sweep must do so too.
+                 or (CONVICTION_NOMINATES and convicting)
+                 # phase 8n: the WIDE root lexicon may nominate but never
+                 # convict. A guardrail firm's texts carry 'beton' because
+                 # the posts are set in it, so a concrete tender becomes a
+                 # candidate — and then has to convict on the firm's own
+                 # narrow vocabulary, which it will not carry.
+                 or (nomination_min > 0 and wide_witnesses >= nomination_min))
     if nominated and convicting:
         return True, False
     if nominated or has_evidence:
@@ -487,10 +574,21 @@ def _judge_evidence(gate, profile, scored_row, i):
     if mismatch:
         passed, borderline = False, True
     else:
+        # phase 8n: the wide lexicon is matched separately and feeds ONLY
+        # the nomination count — `ev` (narrow) still decides conviction
+        wide = profile.get('keywords_wide') or []
+        ev_wide = evd.match_evidence(
+            evd.leistung_text(gate.all_title[i], gate.all_desc[i]),
+            wide) if wide else []
+        # phase 8o: a recurring trade root in the TITLE convicts too
+        core = profile.get('keywords_core') or []
+        title_f = evd.fold(str(gate.all_title[i] or '').casefold())
+        core_title = any(r in title_f for r in core)
         passed, borderline = _evidence_verdict(
-            profile, text, c_hard, same_buyer, bool(ev),
+            profile, text, c_hard, same_buyer, bool(ev) or core_title,
             witnesses=evidence_witnesses(ev),
-            convicting=evd.convicts(gate.all_title[i], ev))
+            convicting=evd.convicts(gate.all_title[i], ev) or core_title,
+            wide_witnesses=evidence_witnesses(ev_wide))
     # phase 8d: deterministic partial admit of the borderline band
     if (not passed and borderline and BORDERLINE_ADMIT_P > 0
             and _band_draw(scored_row['procedure_id'],

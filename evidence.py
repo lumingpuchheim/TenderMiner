@@ -95,18 +95,15 @@ DICT_MIN_RATIO = 8.0  # ... and >= 8x as often inside as outside
 #     two populations where lot share cannot, so a dictionary word must
 #     now also clear DICT_MIN_BUYER_SHARE of the trade's buyers and come
 #     from at least DICT_MIN_BUYERS of them — one buyer is not evidence.
-# (B) DERIVE_KEYWORDS lowered its own bar to nothing for single-buyer
-#     profiles: `min_buyers = min(2, n_buyers)` is 1 when every reference
-#     comes from one buyer, i.e. the guard switched off in exactly the
-#     case where 100% of the text read is one office's template. That is
-#     the whole polat-real-estate failure (6 refs, all SBH Schulbau
-#     Hamburg -> lexicon carried behörde, berufsbildung, landesbetrieb,
-#     nachstehend, bewirtschaft, and then convicted every other SBH/GMH
-#     Hamburg lot regardless of trade). Such a profile can no longer
-#     define its trade from its own prose; it falls back to its trusted
-#     trades' dictionaries, which (A) has just cleaned. The two fixes
-#     therefore ship together: (B) leans on the dictionaries, so it is
-#     only safe once (A) has removed the sector boilerplate from them.
+# (B) was a companion rule for single-buyer profiles, WITHDRAWN in phase
+#     8h -- the trade vocabulary subsumes it. See derive_keywords.
+#
+# Whether (A) still earns its place is an open question of the same kind:
+# every dictionary word it removes (kurzfristig, erfahrungswert,
+# fabrikneu, mengenansaetz, beschleunigt) ALSO fails names_trade(), so the
+# vocabulary may subsume it too. Kept for now because it costs almost
+# nothing, and measurable either way: BUYER_DIVERSITY=0 with TRADE_ROOTS=1
+# is the arm that answers it (lexicon_receipt.py runs it as 'roots only').
 DICT_MIN_BUYERS = 2        # a dictionary word needs >= this many buyers
 DICT_MIN_BUYER_SHARE = 0.10  # ... and >= this share of the trade's buyers
 MIN_BUYERS = 2             # refs from fewer buyers cannot define a trade
@@ -123,6 +120,17 @@ MIN_BUYERS = 2             # refs from fewer buyers cannot define a trade
 # umlauts so Tuer/Tür and Fussboden/Fußboden need one entry each.
 TRADE_ROOTS = os.environ.get('TRADE_ROOTS', '1') != '0'
 ROOTS_FILE = Path(__file__).with_name('cpv_trade_roots.txt')
+# Phase 8n: a SECOND, wider lexicon of trade roots, used only to NOMINATE.
+# Conviction keeps the narrow firm_keywords() lexicon. See wide_keywords().
+# Rollback: WIDE_NOMINATION=0.
+WIDE_NOMINATION = os.environ.get('WIDE_NOMINATION', '1') != '0'
+# Phase 8o: a recurring trade root in the TITLE convicts. Since phase 8k
+# conviction is the only stage that decides anything (convicting implies
+# nominated), so it is the only place a change can move the receipt.
+# CORE_SHARE = the share of the firm's references a root must appear in to
+# count as its trade rather than context. Rollback: CORE_TITLE_CONVICTS=0.
+CORE_TITLE_CONVICTS = os.environ.get('CORE_TITLE_CONVICTS', '1') != '0'
+CORE_SHARE = float(os.environ.get('CORE_SHARE', '0.5'))
 # rollback switch for phase 8f (A) and (B); env var overrides per run so the
 # A/B needs no edit (BUYER_DIVERSITY=0 reproduces the phase-8e lexicons)
 BUYER_DIVERSITY = os.environ.get('BUYER_DIVERSITY', '1') != '0'
@@ -158,9 +166,41 @@ def tokens(text):
     return WORD_RE.findall(str(text).casefold())
 
 
-def stem(word):
+def stem(word, known=None):
     """Light German plural/ending trim so a plural-only keyword still
-    substring-matches the singular in a candidate text."""
+    substring-matches the singular in a candidate text.
+
+    Phase 8m — `known` (the store's token -> count map) makes the trim
+    EVIDENCE-BASED. Without it this is a length-gated blind chop of a
+    trailing e/s/n that knows nothing about German: Beton -> beto,
+    Fassade -> fassad, Kabelrinne -> kabelrinn, Balkon -> balko. In each
+    the letter is part of the root, not a suffix. The length gate makes it
+    incoherent as well, leaving 'fliese' (6) alone while cutting
+    'bodenfliese' (11) to 'bodenflies' — one word stemmed two ways
+    depending on the compound it sits in, which is the opposite of what a
+    family collapse is for.
+
+    With `known`, a suffix comes off only when what remains is itself a
+    token the store actually uses: 'bodenfliesen' -> 'bodenfliese'
+    survives because that word exists, while 'ortbeton' -> 'ortbeto' does
+    not, so 'ortbeton' stays whole and still contains the root 'beton'.
+    No language model and no dependency — the corpus decides.
+
+    The trim is only ever needed in one direction: matching is substring,
+    so a stored singular already matches a plural in the candidate text.
+    """
+    if known is not None:
+        for cut in (2, 1):
+            if len(word) - cut < MIN_STEM_LEN:
+                continue
+            if cut == 2 and not word.endswith('en'):
+                continue
+            if cut == 1 and not word.endswith(('e', 's', 'n')):
+                continue
+            if word[:-cut] in known:
+                return word[:-cut]
+        return word
+    # legacy blind chop, kept for callers with no corpus at hand
     if len(word) > 8 and word.endswith('en'):
         return word[:-2]
     if len(word) > 7 and word.endswith(('e', 's', 'n')):
@@ -193,17 +233,23 @@ def trade_roots():
     return _ROOTS
 
 
-def names_trade(w):
-    """Does this word name a trade or a material? Substring against the
-    roots, so plurals and compounds need no entry of their own — minus the
-    listed collisions (Klassen|zimmer is a room, Hain|holz is a village)."""
-    if not TRADE_ROOTS:
-        return True
+def roots_in(w):
+    """Which trade roots does this word contain? Substring against the
+    committed list, so plurals and compounds need no entry of their own —
+    minus the listed collisions (Klassen|zimmer is a room, Hain|holz is a
+    village). Holzbauarbeiten -> ['holz'], Ortbeton -> ['beton']."""
     roots, nots = trade_roots()
     f = fold(str(w).casefold())
     if any(x in f for x in nots):
-        return False
-    return any(r in f for r in roots)
+        return []
+    return [r for r in roots if r in f]
+
+
+def names_trade(w):
+    """Does this word name a trade or a material?"""
+    if not TRADE_ROOTS:
+        return True
+    return bool(roots_in(w))
 
 
 def store_doc_freq(tenders, cache_path=None):
@@ -231,10 +277,9 @@ def derive_keywords(refs, docfreq, label_texts=()):
     filter. The final list keeps the shortest stem of every family and is
     small enough to read aloud.
 
-    Phase 8f (B): a profile whose references come from fewer than
-    MIN_BUYERS buyers contributes NO text-derived words — with one buyer
-    there is no way to tell its trade from its house style, so the
-    lexicon is the label words plus the trade dictionaries only."""
+    Phase 8h: single-buyer profiles contribute their own words again —
+    the trade vocabulary vets each word directly, so the blanket rule of
+    phase 8f (B) was redundant and cost recall (see the constants block)."""
     n_docs, df = docfreq['n'], docfreq['df']
     in_refs, buyers_of = Counter(), {}
     n_buyers = len({b for _, b in refs}) or 1
@@ -246,13 +291,17 @@ def derive_keywords(refs, docfreq, label_texts=()):
             in_refs[w] += 1
             buyers_of.setdefault(w, set()).add(b)
     min_refs = min(MIN_WITNESSES, len(refs)) or 1
-    # phase 8f (B): NOT min(2, n_buyers) — that lowered the bar to 1 for
-    # single-buyer profiles, disabling the guard exactly where every word
-    # read is one office's template. Below MIN_BUYERS the firm's own prose
-    # cannot be validated at all, so none of it enters; the profile falls
-    # back to its trusted trades' dictionaries (the label words below).
-    if BUYER_DIVERSITY and n_buyers < MIN_BUYERS:
-        in_refs = Counter()
+    # Phase 8h (2026-08-07): the single-buyer rule of phase 8f (B) is
+    # WITHDRAWN. It stripped a one-buyer profile of its own text entirely,
+    # on the grounds that nothing there could be told apart from the
+    # buyer's template. The trade vocabulary (phase 8g) answers that
+    # question directly instead: every word polat-real-estate's SBH
+    # boilerplate contributed -- behoerde, berufsbildung, landesbetrieb,
+    # nachstehend, bewirtschaft, hansestadt, schulen -- fails names_trade()
+    # on its own, so the rule was solving a problem the word list already
+    # solves, while discarding real trade words from any firm that wins
+    # mostly from one authority. Buyer diversity was a PROXY for "is this a
+    # trade word"; with the direct answer available the proxy gives way.
     min_buyers = min(MIN_BUYERS, n_buyers)
     cands = {}
     for w, c in in_refs.items():
@@ -267,7 +316,7 @@ def derive_keywords(refs, docfreq, label_texts=()):
         # ABOVE the trade word; only the vocabulary can tell them apart.
         if not names_trade(w):
             continue
-        s = stem(w)
+        s = stem(w, df)
         if len(s) >= MIN_STEM_LEN:
             best = cands.get(s)
             if best is None or (c, -df.get(w, 0)) > best:
@@ -284,7 +333,7 @@ def derive_keywords(refs, docfreq, label_texts=()):
             # phase 8c (1): definitional waiver — see constants block
             definitional = label_doc_freq().get(w, 0) <= LABEL_DF_MAX
             if definitional or df.get(w, 0) / n_docs <= MAX_DOC_FREQ:
-                s = stem(w)
+                s = stem(w, df)
                 cands.setdefault(s, (len(refs), 0))
     kept = []
     for s in sorted(cands, key=len):  # shortest stem of a family wins
@@ -371,7 +420,15 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
             f_out = (df.get(w, 0) - k) / max(n - n_in, 1)
             if f_in / max(f_out, 1e-9) < DICT_MIN_RATIO:
                 continue
-            s = stem(w)
+            # phase 8l: vet the RAW word, before stem() truncates it. A root
+            # sitting at the TAIL of a compound is cut off by stemming —
+            # Ortbeton -> ortbeto, Stahlzargen -> stahlzarg, Bodenfliesen ->
+            # bodenflies — so a check applied after stemming rejects genuine
+            # trade words and would need dozens of truncated roots to
+            # compensate. Checking here needs none.
+            if not names_trade(w):
+                continue
+            s = stem(w, df)
             score = f_in * min(f_in / max(f_out, 1e-9), 100.0)
             if score > cands.get(s, 0.0):
                 cands[s] = score
@@ -390,6 +447,72 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
     return dicts
 
 
+def wide_keywords(refs):
+    """Phase 8n — the NOMINATION lexicon: every committed trade root found
+    in the firm's reference texts, ordered by how many references carry it.
+
+    Deliberately broader than firm_keywords(). A won tender describes the
+    work AND its context — what it sits on, connects to, replaces — so a
+    guardrail firm's texts carry 'beton' (the posts are set in it), 'bohr'
+    (the holes) and 'rueckbau' (the old barrier). Those are trades
+    MENTIONED, not the trade the firm IS, and a lexicon built from them
+    matches far too much: measured alone it moved the receipt to IN 60/74
+    but OUT 27/52.
+
+    So it is used for one thing only: deciding a lot is worth CONSIDERING.
+    Conviction still runs against firm_keywords(), the firm's own narrow
+    vocabulary, which a merely-concrete tender will not carry. The lot gets
+    considered and then rejected, rather than never considered (nomination
+    too tight) or wrongly picked (conviction too loose).
+
+    No stem() anywhere here: the roots are the canonical short forms, hand
+    written, so nothing is truncated and every inflection matches — 'holz'
+    is inside Holzbau, Holzbauarbeiten and Brettsperrholz alike.
+    """
+    if not (TRADE_ROOTS and WIDE_NOMINATION):
+        return []
+    found = Counter()
+    for t, _b in refs:
+        for r in {r for w in set(tokens(t)) for r in roots_in(w)}:
+            found[r] += 1
+    kept = []
+    for r in sorted(found, key=len):  # shortest root of a family wins
+        if not any(k in r for k in kept):
+            kept.append(r)
+    kept.sort(key=lambda r: -found[r])
+    return kept[:MAX_KEYWORDS]
+
+
+def core_keywords(refs):
+    """Phase 8o — the roots that RECUR across the firm's wins: present in
+    at least CORE_SHARE of its reference texts.
+
+    This is the distinction the wide lexicon could not make. A won tender
+    describes the work and its context, so a guardrail firm's texts all
+    carry 'leitplank' while only some carry 'beton' (the posts are set in
+    it). The trade recurs; the context varies. Recurrence separates them
+    without any judgement about what the words mean.
+
+    Used for one thing: a core root in the TITLE convicts. The title is the
+    field that names the work — boilerplate lives in the description — so
+    it is the safe place to admit evidence the firm's narrow lexicon
+    happens to lack.
+    """
+    if not (TRADE_ROOTS and CORE_TITLE_CONVICTS) or not refs:
+        return []
+    found = Counter()
+    for t, _b in refs:
+        for r in {r for w in set(tokens(t)) for r in roots_in(w)}:
+            found[r] += 1
+    need = max(2, int(len(refs) * CORE_SHARE + 0.999)) if len(refs) > 1 else 1
+    core = [r for r, n in found.items() if n >= need]
+    kept = []
+    for r in sorted(core, key=len):
+        if not any(k in r for k in kept):
+            kept.append(r)
+    return sorted(kept, key=lambda r: -found[r])
+
+
 def firm_keywords(refs, docfreq, label_texts, trusted_codes, dicts):
     """The profile lexicon (phase 8c): the firm's own derived words plus
     the dictionaries of its trusted trades. Substring-redundant words are
@@ -399,11 +522,9 @@ def firm_keywords(refs, docfreq, label_texts, trusted_codes, dicts):
     if TRADE_DICTS and dicts:
         for c in trusted_codes:
             for w in dicts.get(c, []):
-                # phase 8g: the dictionaries carry a procuring sector's
-                # legalese too ('kurzfristig', 'erfahrungswert'), so the
-                # vocabulary applies to them as well as to the firm's words
-                if not names_trade(w):
-                    continue
+                # phase 8l: NOT vetted here — dictionary entries are already
+                # stemmed, and stemming can cut the very root that would
+                # match. trade_dictionaries() vets the raw word instead.
                 if any(k in w for k in kws):
                     continue  # an existing (shorter) stem already hits w
                 kws = [k for k in kws if w not in k]  # w subsumes longer kws

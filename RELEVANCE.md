@@ -1319,3 +1319,206 @@ is untouched at every phase, so nothing ships as a flag-day.
   firms is competitor identification for free: the same sidecar over award
   data answers "who competes with whom" per niche. Possible future
   analytics product; noted here so it is not re-derived from scratch.
+
+## Phase 8i — similarity no longer nominates (operator decision 2026-08-07)
+
+Route 2 of the nomination ladder — "this lot's text resembles the
+customer's past tenders" — is off (`SIMILARITY_NOMINATES = False`).
+Nomination is now the CPV hard-code match or the trade-evidence witnesses;
+no part of the evidence ladder reads the buyer name.
+
+**The decisive argument is that the test never exercised it.** The positive
+cases are the firm's OWN past wins, which come from buyers already in its
+profile, so `same_buyer` is true and route 2 is muted for most of them.
+Production is the mirror image: open lots come overwhelmingly from buyers
+the firm has never won from, so route 2 is on. We measured a gate with this
+route disabled and shipped one with it enabled — including when
+`NOMINATION_BAR` itself was chosen, which is the knob that controls it.
+
+Three supporting reasons. (a) Its safety catch is a string comparison:
+`same_buyer` is buyer-NAME equality, so "SBH | Schulbau Hamburg" and "GMH |
+Gebäudemanagement Hamburg GmbH" are different buyers and a shared municipal
+template passes — the Norderschulweg heating lot (GMH) reached a FLOORING
+firm whose six references are all SBH. It guards against one buyer
+repeating itself, not against a family of authorities sharing a template,
+which is the common German case. (b) It contradicts phase 8's founding
+decision: similarity was demoted because it cannot be trusted to CONVICT,
+yet it was still trusted to decide who gets considered — and the evidence
+test behind the door is satisfiable by coincidence ('dehnfug' in a
+water-reservoir spec). (c) The bar sweep moved leakage 0.4% → 1.6% → 6.0%
+as the bar dropped 0.70 → 0.55 → 0.40; that range is similarity admitting
+lots.
+
+**Receipt (`lexicon_receipt.py --config both`, 122 hand-labeled cases):**
+
+| route 2 | IN (should pass) | OUT (should reject) | total |
+| --- | --- | --- | --- |
+| on (rollback) | 29/74 | 45/52 | 74/126 |
+| **off (shipped)** | 26/74 | 45/52 | 71/126 |
+
+Read this honestly: removal costs 3 recall cases and buys **no measured
+precision**. That is not evidence the route was harmless — it is the same
+blind spot the decision is about. Route 2's harm lands on the ~3,000 open
+lots scored per production cycle, where it is on for nearly all of them;
+the benchmark's 52 rejection cases cannot see it. Its harm is also now
+partly masked by phase 8g: a wrongly nominated lot still needs convicting
+trade evidence, and the cleaned vocabulary usually denies it — which is why
+the polat picks that shipped in August no longer pass either way. The
+decision is made on the logic, not on this table.
+
+Known cost, unrepaired: route 2 uniquely rescued the lot whose TITLE names
+the trade with a single keyword, since the witness rule demands
+`EVIDENCE_NOMINATION_MIN` of them. The direct repair — let a title witness
+nominate, as conviction already treats it as sufficient — is measured
+separately, deliberately not folded into this decision. The 3 lost cases
+are the expected class.
+
+Rollback: `SIMILARITY_NOMINATES=1`.
+
+## Phase 8j — the store-rarity sieve is not a recall lever (measured 2026-08-07, NOTHING SHIPPED)
+
+A negative result, recorded so it is not re-run.
+
+**Hypothesis.** `MAX_DOC_FREQ` (2%) deletes a trade's own name for exactly
+the biggest trades — the constants block records malerarbeiten 2.0%,
+lüftung 2.1%, sanitär 2.6%, heizung 2.6%, abbruch 4.8% — because a trade's
+name is common in proportion to its market share. Firms in those trades
+should therefore be starved of their core word, and with phase 8g's
+vocabulary now vetting words, the rarity sieve should be waivable for
+approved ones.
+
+**Result (`lexicon_receipt.py --config both`, 122 hand-labeled cases):**
+
+| arm | IN (should pass) | OUT (should reject) | total |
+| --- | --- | --- | --- |
+| **cut 2% (shipped)** | **26/74** | **45/52** | **71/126** |
+| cut 5% | 26/74 | 41/52 | 67/126 |
+| cut 10% | 26/74 | 41/52 | 67/126 |
+| cut 50% | 26/74 | 41/52 | 67/126 |
+| waived for `names_trade()` words | 26/74 | 41/52 | 67/126 |
+
+**Recall does not move at all** — identical in every arm, including with the
+sieve effectively removed. Only precision moves, and only downward. It
+saturates already at 5%, so this is not a matter of degree.
+
+**Why the hypothesis was false.** Phase 8c had already solved it, twice.
+(1) The definitional waiver admits a word from the profile's own trusted
+CPV labels regardless of store frequency. (2) The trade dictionaries derive
+each trade's vocabulary from all lots carrying the code via a two-sided
+in/out ratio (`DICT_MIN_IN` / `DICT_MIN_RATIO`) which has **no corpus-rarity
+cap at all** — so `heizung` already reaches a heating firm's lexicon through
+its trade dictionary, and `abbruch` a demolition firm's. The firm-side
+sieve was never what blocked them. The phase-8c comment *describing* the
+problem was mistaken for the problem still being open.
+
+**Standing.** `MAX_DOC_FREQ` stays at 0.02. It is a precision instrument,
+not a recall one, and loosening it costs 4 rejection cases for nothing.
+
+**`MIN_STEM_LEN` stays too**, for a separate reason that no vocabulary can
+cover: it guards the MATCHING step, where a lexicon word is substring-
+matched against tender text. A four-letter `glas` would fire on "Glasgow",
+`dach` on "Obdachlosenunterkunft". The roots file's exception lines filter
+lexicon membership, not text matches, and word boundaries are not available
+as a fix because German compounds require substring matching in the first
+place (`Flachdach` carries the root mid-word).
+
+**Where recall actually has to come from**, after this: vocabulary coverage
+for the trades the list does not yet reach, then title-witness nomination
+(phase 8i's known unrepaired cost), then `EVIDENCE_NOMINATION_MIN` 2 -> 1
+once a clean vocabulary has changed what a witness means.
+
+## Phase 8k — what convicts may also nominate (shipped 2026-08-07)
+
+The gate already held that a trade keyword in the TITLE convicts on its own
+(`evidence.convicts`, the title-or-two rule). Nothing let that same fact
+open the door, so a lot could be convictable and never considered. This
+closes the gap: conviction-strength evidence nominates itself.
+
+**The case that showed it** — `00367721-2025`, *"Estricharbeiten"*
+(Thüringer Landesamt für Bau), against the screed firm N3Bau. Before:
+
+    verdict ok=False borderline=True  text=0.588 | hard 0.135 | evidence: estrich(t1)
+
+Route 1 fails because the buyer filed it under CPV 45216111 *Bau von
+Polizeirevieren*, so `hard` is 0.135 against a bar of 0.825. Route 3 fails
+because the description is an address — *"Neubau Polizeiinspektion
+Saale-Orla, Hofer Str. 54, Schleiz"* — leaving `estrich(t1)` as the single
+witness where the rule wants `EVIDENCE_NOMINATION_MIN`. Route 2 is gone
+since phase 8i. So a tender whose title IS the firm's trade was rejected —
+and it is exactly the case the evidence gate exists for, since the CPV code
+names the building and only the text names the work. After: `ok=True`.
+
+**Receipt (`lexicon_receipt.py --config both`):**
+
+| configuration | IN (should pass) | OUT (should reject) | total |
+| --- | --- | --- | --- |
+| phase 8i (route 2 removed) | 26/74 | 45/52 | 71/126 |
+| **+ conviction nominates** | **34/74** | **45/52** | **79/126** |
+
+Eight recall cases at **no measured precision cost** — the only free move in
+this sequence. Why it does not reopen what phase 8i closed: route 2 failed
+because whole-document similarity is dominated by a buyer's standard
+paragraphs, so it fired hardest on sibling authorities sharing a template.
+The title carries no boilerplate; it is the one field that names the actual
+work. The mechanisms are opposites, not variants.
+
+Residual risk: a large package whose title lists several trades
+(*"Neubau Schule: Estrich, Maler, Trockenbau"*) now reaches all of them —
+arguably correct, since each of those firms can bid the relevant lot.
+
+**Standing after phases 8f-8k**, against the gate as shipped in `50eaca2`:
+
+| | IN | OUT | total |
+| --- | --- | --- | --- |
+| base (phase 8e) | 36/74 | 30/52 (58%) | 66/126 |
+| **now** | 34/74 | **45/52 (87%)** | **79/126** |
+
+Near-parity on recall, wrong-trade rejection from 58% to 87%. Rollback:
+`CONVICTION_NOMINATES=0`.
+
+## Phase 8n/8o — the trade recurs, the context varies (shipped 2026-08-07)
+
+**First, a structural finding.** Since phase 8k, `convicting` implies
+`nominated`, so `nominated and convicting` reduces to `convicting` alone.
+**Nomination no longer decides anything** — not the CPV code match, not the
+witness rule, not similarity. Only conviction moves the receipt. Phase 8n
+(a wide root lexicon feeding nomination) was built and measured before this
+was understood: it changes no verdict at all, and is kept only because a
+lot with wide witnesses and no narrow evidence lands in the visible
+borderline band instead of being rejected outright.
+
+**Phase 8o, at conviction.** A firm's won tenders describe the work AND its
+context — what it sits on, connects to, replaces — so a guardrail firm's
+texts carry `beton` (the posts are set in it), `bohr` (the holes) and
+`rueckbau` (the old barrier). Those are trades MENTIONED, not the trade the
+firm IS. A lexicon of every root mentioned matches far too much: measured
+alone it gave IN 60/74 but OUT 27/52.
+
+Recurrence separates them without judging what the words mean: **the trade
+appears in every win, the context only in some.** `core_keywords()` keeps
+the roots present in at least `CORE_SHARE` of a firm's references, and a
+core root in the TITLE convicts. The title is where the work is named —
+boilerplate lives in the description — so it is the safe place to admit
+evidence the firm's narrow lexicon happens to lack.
+
+| CORE_SHARE | IN (should pass) | OUT (should reject) | total |
+| --- | --- | --- | --- |
+| off | 34/74 | 45/52 | 79/126 |
+| **0.5 (shipped)** | **44/74** | **45/52** | **89/126** |
+| 0.75 | 42/74 | 45/52 | 87/126 |
+| 1.0 | 42/74 | 45/52 | 87/126 |
+
+Ten recall cases at **no precision cost**, and precision is identical at
+every threshold — a firm's core root appearing in a lot's title really does
+mean the lot is their work.
+
+**Standing against the gate shipped in `50eaca2`:**
+
+| | IN | OUT | total |
+| --- | --- | --- | --- |
+| base | 40/74 | 30/52 (58%) | 70/126 |
+| **now** | **44/74** | **45/52 (87%)** | **89/126** |
+
+Better on both axes for the first time in this sequence: recall above base,
+wrong-trade rejection 58% -> 87%. Rollback: `CORE_TITLE_CONVICTS=0`,
+`WIDE_NOMINATION=0`.
