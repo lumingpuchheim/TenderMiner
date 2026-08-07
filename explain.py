@@ -21,6 +21,7 @@ import numpy as np
 
 import loop
 import relevance as rel
+import subscriptions
 from calibrate import is_deep
 
 if hasattr(sys.stdout, 'reconfigure'):
@@ -116,8 +117,8 @@ def main():
     args = ap.parse_args()
 
     today = loop.now_utc().date().isoformat()
-    subs = loop.load_subscriptions(f'{args.data_dir}/subscriptions.jsonl', today)
-    sub = next((s for s in subs if s['sub_id'] == args.sub), None)
+    sub = subscriptions.one(f'{args.data_dir}/subscriptions.jsonl',
+                            today, args.sub)
     if sub is None:
         sys.exit(f'[explain] no active subscription {args.sub!r}')
     if not rel.wants_gate(sub):

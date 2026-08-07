@@ -23,6 +23,7 @@ from pathlib import Path
 import pandas as pd
 
 import loop
+import subscriptions
 from loop import Paths, read_jsonl
 
 if hasattr(sys.stdout, 'reconfigure'):
@@ -46,25 +47,30 @@ def main():
 
     today = loop.now_utc().date()
     paths = Paths(args.data_dir, args.models_dir)
-    subs = loop.load_subscriptions(paths.subscriptions, today.isoformat())
-    base = next((s for s in subs if s['sub_id'] == args.sub), None)
+    base = subscriptions.one(paths.subscriptions, today.isoformat(), args.sub)
     if base is None:
         sys.exit(f'[tryout] no active subscription {args.sub!r} in '
                  f'{paths.subscriptions}')
 
-    sub = dict(base)
+    fields = {}
     for kv in args.overrides:
         key, sep, value = kv.partition('=')
         if not sep:
             sys.exit(f'[tryout] --set expects FIELD=VALUE, got {kv!r}')
         try:
-            sub[key] = json.loads(value)
+            fields[key] = json.loads(value)
         except json.JSONDecodeError:
-            sub[key] = value
+            fields[key] = value
     # a tryout version is sandbox-only and never appended to the real file;
     # bumping keeps the "newest version speaks" rule meaningful in stamps
-    sub['version'] = int(base.get('version', 1)) + 1
-    sub['effective_from'] = today.isoformat()
+    fields['version'] = int(base.get('version', 1)) + 1
+    fields['effective_from'] = today.isoformat()
+    try:
+        sub = subscriptions.override(base, **fields)
+    except subscriptions.SubscriptionError as e:
+        # a misspelled --set used to render the unchanged report, which looks
+        # exactly like "that setting made no difference"
+        sys.exit(f'[tryout] {e}')
 
     sandbox = paths.data / 'tryout' / args.sub
     if sandbox.exists():

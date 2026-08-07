@@ -41,6 +41,7 @@ import pyarrow.parquet as pq
 
 import relevance as rel
 import single_bidder as sb
+import subscriptions
 from calibrate import calibrate as run_calibration
 from embed import MODEL_TAG
 
@@ -93,10 +94,11 @@ def as_of_profile(gate, sub, awards_asof, cal_f):
                    if (p, l) in gate.by_key})
     if not refs:
         return None
-    spec = dict(sub, profile_refs=refs,
-                min_relevance=cal_f['threshold'],
-                min_code_hard=cal_f['code_threshold'],
-                min_code_soft=cal_f['soft_threshold'])
+    spec = subscriptions.override(
+        sub, profile_refs=refs,
+        min_relevance=cal_f['threshold'],
+        min_code_hard=cal_f['code_threshold'],
+        min_code_soft=cal_f['soft_threshold'])
     return rel.build_profile(gate, spec)
 
 
@@ -113,13 +115,15 @@ def replay(data_dir, step_days, sub_ids):
     outcome = {(a['procedure_id'], a['lot_id']): int(a['n_tenders'])
                for _, a in aw_latest.iterrows()}
 
-    subs = {}
-    for line in (Path(data_dir) / 'subscriptions.jsonl').read_text(
-            encoding='utf-8').splitlines():
-        if line.strip():
-            row = json.loads(line)
-            if row.get('sub_id') in sub_ids and row.get('active', True):
-                subs[row['sub_id']] = row  # last active version wins
+    # The subscription DEFINITION is taken as it stands now (the newest
+    # version in force), not as of each cutoff: as_of_profile() is what
+    # rewinds a customer to their historical wins, while their market
+    # filters are the thing under test. Resolving per cutoff would be a
+    # different experiment -- deliberately not this one.
+    subs = {s0['sub_id']: s0 for s0
+            in subscriptions.load(Path(data_dir) / 'subscriptions.jsonl',
+                                  date.today().isoformat())
+            if s0['sub_id'] in sub_ids}
 
     pub_a = pd.to_datetime(awards_full['publication_date'])
     first = pub_a.min() + pd.Timedelta(days=1)
@@ -191,12 +195,9 @@ def replay(data_dir, step_days, sub_ids):
                 continue
             cand = []
             for lot, row, sc, ok_dl in rows:
-                cpv = str(row.get('cpv_main') or '')
-                nuts = str(row.get('place_nuts3') or '')
-                if not any(cpv.startswith(p) for p in subs[s].get('cpv_prefixes') or ['']):
-                    continue
-                if subs[s].get('nuts_prefixes') and not any(
-                        nuts.startswith(p) for p in subs[s]['nuts_prefixes']):
+                # ONE market filter, shared with the renderer (subscriptions.py)
+                # -- this is where the second, drifted copy used to live
+                if not subscriptions.in_market(subs[s], row):
                     continue
                 d = {'procedure_id': lot[0], 'lot_id': lot[1],
                      'buyer_name': row.get('buyer_name'),
@@ -459,13 +460,11 @@ def main():
     args = ap.parse_args()
     sub_ids = args.sub
     if sub_ids is None:
-        sub_ids = []
-        for line in (Path(args.data_dir) / 'subscriptions.jsonl').read_text(
-                encoding='utf-8').splitlines():
-            if line.strip():
-                row = json.loads(line)
-                if row.get('profile_refs'):
-                    sub_ids.append(row['sub_id'])
+        sub_ids = [s0['sub_id'] for s0
+                   in subscriptions.load(
+                       Path(args.data_dir) / 'subscriptions.jsonl',
+                       date.today().isoformat())
+                   if s0.get('profile_refs')]
     res = replay(args.data_dir, args.step, set(sub_ids))
     if args.targets:
         res['targets_csv'] = args.targets

@@ -46,6 +46,7 @@ import calibrate as cal
 import loop
 import relevance as rel
 import single_bidder as sb
+import subscriptions
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -87,12 +88,11 @@ def main():
 
     sub = None
     if args.sub:
-        subs = loop.load_subscriptions(FULL / 'subscriptions.jsonl', str(D.date()))
-        sub = next((s for s in subs if s['sub_id'] == args.sub), None)
+        subs_path = FULL / 'subscriptions.jsonl'
+        sub = subscriptions.one(subs_path, str(D.date()), args.sub)
         if sub is None:  # subscription may postdate the cutoff — take today's line
-            subs = loop.load_subscriptions(FULL / 'subscriptions.jsonl',
-                                           str(pd.Timestamp.today().date()))
-            sub = next((s for s in subs if s['sub_id'] == args.sub), None)
+            sub = subscriptions.one(subs_path,
+                                    str(pd.Timestamp.today().date()), args.sub)
         if sub is None:
             sys.exit(f'[replay] no active subscription {args.sub!r}')
 

@@ -1,0 +1,367 @@
+"""TenderMining subscriptions — what a subscription IS, in one place.
+
+REFACTOR.md phase 1. Before this module the answers to three questions were
+folklore, re-derived wherever they were needed:
+
+  * **Which version speaks on date D?** Implemented six times (loop.deliver,
+    loop.learn_references, tryout, explain, replay, feedback) — same rule,
+    six spellings.
+  * **Is this lot in the customer's market?** Implemented twice, in
+    `loop._matches` and inline in `backtest.replay` — and they DRIFTED: one
+    compared the subscription's CPV prefix against the 3-digit slicing key,
+    the other against the full code. That drift was a real bug (a prefix
+    deeper than 3 digits matched nothing; fixed in `bbb5292`) and it meant
+    the backtest was not measuring the selection the product ships.
+  * **Is this field even real?** Nothing asked. `top_n` and `avoid_n` sat in
+    live subscription lines, read by no code at all, silently ignored.
+
+This module owns all three. It does NOT own storage: subscriptions are still
+lines in `data/subscriptions.jsonl` exactly as SUBSCRIPTIONS.md describes
+them. Moving them into SQLite is phase 2, and the point of doing phase 1
+first is that phase 2 then changes this file's internals and nothing else.
+
+## Validation is deliberately asymmetric
+
+An **unknown** field raises. It is a typo, and a typo that is silently
+ignored is discovered from a wrong report weeks later.
+
+A **retired** field warns and is ignored. The subscription file is
+append-only by design — a v2 line carrying `avoid_n` is a true historical
+record of what the operator decided in August 2026, and refusing to read it
+would mean the system can no longer read its own history. Retired fields are
+listed in RETIRED with what replaced them, so the warning says something
+useful.
+"""
+
+import json
+import sys
+from pathlib import Path
+
+# Every field a subscription line may carry. The comment is the field's
+# meaning; SUBSCRIPTIONS.md is the specification.
+KNOWN = {
+    'sub_id',             # stable customer key, required
+    'version',            # int >= 1; versions are appended, never edited
+    'effective_from',     # ISO date this version starts speaking; absent = always
+    'active',             # false deactivates (as a new version, never an edit)
+    'name',               # display name, and the default award_names entry
+    'award_names',        # winner_names spellings that are this customer
+    'cpv_prefixes',       # market: lot CPV starts with any of these (OR)
+    'nuts_prefixes',      # market: lot NUTS starts with any of these (OR)
+    'min_deadline_days',  # deadline promise; excludes unknown deadlines when > 0
+    'max_picks',          # cap on the delivered list
+    'profile_refs',       # publication numbers of the customer's own wins
+    'profile_texts',      # free-text descriptions of what they do
+    'min_relevance',      # gate: text-channel bar (enables the gate)
+    'min_code_hard',      # gate: trusted-code bar
+    'min_code_soft',      # gate: inferred-label bar
+}
+
+# Fields that were once real. Kept readable, never authoritative.
+RETIRED = {
+    'top_n': 'max_picks (decision 2026-08-04)',
+    'avoid_n': 'nothing — the warnings list was removed on 2026-08-06, so no '
+               'kind:"avoid" rows are written any more',
+}
+
+DEFAULT_MAX_PICKS = 5  # SUBSCRIPTIONS.md decision 2026-08-04
+
+
+class SubscriptionError(ValueError):
+    """A subscription line that cannot be trusted to mean what it says."""
+
+
+def _where(source, lineno):
+    return f'{source}:{lineno}' if lineno else str(source)
+
+
+def _is_missing(v):
+    """None and the JSON null a sandbox writer emits both mean 'not set'.
+    replay.py writes `min_relevance: null` for a firm with no resolvable
+    win — an explicit absence, not a bad value."""
+    return v is None
+
+
+def validate(row, source='<row>', lineno=None, retired_out=None):
+    """A validated copy of one subscription line, retired fields dropped.
+
+    Raises SubscriptionError with the file and line for anything that cannot
+    be read with confidence. Returns a plain dict: the wire format stays a
+    mapping, because relevance.build_profile is also handed synthetic specs
+    by the receipt harnesses (evidence.judge_run, backtest.as_of_profile).
+
+    `retired_out`: a dict collecting {field: count} instead of warning per
+    occurrence. An append-only file accumulates retired fields on every
+    historical line, so read_all aggregates one warning per field — a cycle
+    log should not carry eleven identical lines.
+    """
+    if not isinstance(row, dict):
+        raise SubscriptionError(f'{_where(source, lineno)}: not an object')
+    out = {}
+    for key, value in row.items():
+        if key in RETIRED:
+            if retired_out is None:
+                print(f'[subscriptions] {_where(source, lineno)}: ignoring '
+                      f'retired field {key!r} — superseded by {RETIRED[key]}')
+            else:
+                retired_out[key] = retired_out.get(key, 0) + 1
+            continue
+        if key not in KNOWN:
+            raise SubscriptionError(
+                f'{_where(source, lineno)}: unknown field {key!r}. '
+                f'Known fields: {", ".join(sorted(KNOWN))}')
+        out[key] = value
+
+    sub_id = out.get('sub_id')
+    if not isinstance(sub_id, str) or not sub_id.strip():
+        raise SubscriptionError(
+            f'{_where(source, lineno)}: sub_id is required and must be a '
+            f'non-empty string')
+
+    def _int(key, minimum):
+        v = out.get(key)
+        if _is_missing(v):
+            return
+        if isinstance(v, bool) or not isinstance(v, int) or v < minimum:
+            raise SubscriptionError(
+                f'{_where(source, lineno)}: {key} must be an integer '
+                f'>= {minimum}, got {v!r}')
+
+    _int('version', 1)
+    _int('min_deadline_days', 0)
+    _int('max_picks', 0)
+
+    for key in ('min_relevance', 'min_code_hard', 'min_code_soft'):
+        v = out.get(key)
+        if _is_missing(v):
+            continue
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 1:
+            raise SubscriptionError(
+                f'{_where(source, lineno)}: {key} must be a number in [0, 1], '
+                f'got {v!r}')
+
+    for key in ('cpv_prefixes', 'nuts_prefixes', 'profile_refs',
+                'profile_texts', 'award_names'):
+        v = out.get(key)
+        if _is_missing(v):
+            continue
+        if isinstance(v, str) or not isinstance(v, (list, tuple)):
+            raise SubscriptionError(
+                f'{_where(source, lineno)}: {key} must be a list, got {v!r}')
+        if not all(isinstance(x, str) and x.strip() for x in v):
+            raise SubscriptionError(
+                f'{_where(source, lineno)}: {key} must contain non-empty '
+                f'strings, got {v!r}')
+
+    # A CPV prefix is matched against the lot's full 8-digit code. A prefix
+    # that no code could start with is a mistake worth catching at load time:
+    # this is the class of error that gave jebsen-blitzschutz v1 an empty
+    # market for days (`cpv_prefixes: ["453123"]` tested against a 3-digit key).
+    for p in out.get('cpv_prefixes') or []:
+        if not p.isdigit() or not 2 <= len(p) <= 8:
+            raise SubscriptionError(
+                f'{_where(source, lineno)}: cpv_prefixes entry {p!r} is not '
+                f'2-8 digits — a CPV code is 8 digits and is matched by prefix')
+
+    eff = out.get('effective_from')
+    if not _is_missing(eff) and not _iso_date(str(eff)):
+        raise SubscriptionError(
+            f'{_where(source, lineno)}: effective_from must be YYYY-MM-DD, '
+            f'got {eff!r}')
+    active = out.get('active')
+    if not _is_missing(active) and not isinstance(active, bool):
+        raise SubscriptionError(
+            f'{_where(source, lineno)}: active must be true or false, '
+            f'got {active!r}')
+    return out
+
+
+def _iso_date(s):
+    return (len(s) == 10 and s[4] == '-' and s[7] == '-'
+            and s[:4].isdigit() and s[5:7].isdigit() and s[8:].isdigit())
+
+
+def read_all(path):
+    """Every version in the file, validated, in file order. Missing file is
+    not an error — a deployment simply has no customers yet."""
+    p = Path(path)
+    if not p.exists():
+        return []
+    rows, retired = [], {}
+    for i, line in enumerate(p.read_text(encoding='utf-8').splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as e:
+            raise SubscriptionError(f'{p}:{i}: not valid JSON ({e})') from e
+        rows.append(validate(row, source=p, lineno=i, retired_out=retired))
+    for field, n in sorted(retired.items()):
+        print(f'[subscriptions] {p.name}: ignoring retired field {field!r} on '
+              f'{n} line(s) — superseded by {RETIRED[field]}')
+    return rows
+
+
+def resolve(rows, as_of):
+    """The versions in force on `as_of`, active ones only.
+
+    SUBSCRIPTIONS.md: versioned, never edited — the newest version with
+    `effective_from <= as_of` speaks for the subscription, and `active:
+    false` deactivates. A line with no `effective_from` has always been in
+    force (replay.py writes such lines into its sandbox).
+    """
+    as_of = str(as_of)
+    in_force = {}
+    for row in rows:
+        eff = str(row.get('effective_from') or '')
+        if eff > as_of:
+            continue
+        key = (eff, int(row.get('version') or 1))
+        cur = in_force.get(row['sub_id'])
+        if cur is None or key >= cur[0]:
+            in_force[row['sub_id']] = (key, row)
+    return [row for _, row in in_force.values() if row.get('active', True)]
+
+
+def load(path, as_of):
+    """The active subscriptions in force on `as_of`. The one entry point."""
+    return resolve(read_all(path), as_of)
+
+
+def one(path, as_of, sub_id):
+    """The single subscription `sub_id` in force on `as_of`, or None."""
+    return next((s for s in load(path, as_of) if s['sub_id'] == sub_id), None)
+
+
+def override(sub, **fields):
+    """A validated copy with `fields` replaced — the sandbox operation.
+
+    Used by tryout.py's `--set`, backtest.as_of_profile and replay.py's
+    as-of spec. Validated, so a sandbox cannot explore a field that does not
+    exist: `--set min_relevence=0.6` now fails loudly instead of rendering
+    the unchanged report and looking like the setting had no effect.
+    """
+    merged = dict(sub)
+    merged.update(fields)
+    return validate(merged, source=f"override({sub.get('sub_id')})")
+
+
+# ------------------------------------------------------------ market filter
+
+def _cell(row, key):
+    """A row value, with pandas NaN normalised to None. Rows come from the
+    prediction ledger (dicts, NaN already stamped to null) and from the store
+    (pandas rows, where NaN is truthy and would poison a bare `or ''`)."""
+    v = row.get(key)
+    if v is None:
+        return None
+    if isinstance(v, float) and v != v:  # NaN
+        return None
+    return v
+
+
+def cpv_in_market(row, prefixes):
+    """Full-CPV prefix match (SUBSCRIPTIONS.md: a lot matches if "its CPV
+    starts with any listed prefix").
+
+    Tested against `cpv_main`, the full code. `cpv3` is the truncated slicing
+    key and is only a fallback for rows stamped before `cpv_main` was written
+    — live code, not a formality: no prediction-ledger row written so far
+    carries `cpv_main`, and tryout.py replays exactly those rows. Under the
+    fallback a prefix LONGER than the key it would be tested against cannot
+    be proven and therefore does not match, per the keyless-row rule.
+    """
+    code = _cell(row, 'cpv_main')
+    if code is not None:
+        return any(str(code).startswith(str(p)) for p in prefixes)
+    key = str(_cell(row, 'cpv3') or '')
+    return bool(key) and any(key.startswith(str(p)) for p in prefixes
+                             if len(str(p)) <= len(key))
+
+
+def in_market(sub, row):
+    """Is this lot inside the subscription's market? CPV and NUTS only — the
+    deadline promise is separate, because the annex needs a verdict for
+    short-deadline lots too. Omitted filter = no constraint.
+
+    A row that cannot prove it is in the slice does not match
+    (SUBSCRIPTIONS.md keyless-row rule).
+    """
+    if sub.get('cpv_prefixes'):
+        if not cpv_in_market(row, sub['cpv_prefixes']):
+            return False
+    if sub.get('nuts_prefixes'):
+        nuts = _cell(row, 'place_nuts3')
+        if nuts is None or not any(str(nuts).startswith(str(p))
+                                   for p in sub['nuts_prefixes']):
+            return False
+    return True
+
+
+def min_days(sub):
+    return int(sub.get('min_deadline_days') or 0)
+
+
+def max_picks(sub):
+    v = sub.get('max_picks')
+    return int(DEFAULT_MAX_PICKS if _is_missing(v) else v)
+
+
+def deadline_ok(sub, row, today, days=None):
+    """Does the lot honour the subscription's deadline promise on `today`?
+
+    An unknown deadline FAILS whenever a promise was made: "at least 14 days
+    left to bid" cannot be honoured for a lot whose notice does not state a
+    deadline. `days=0` disables the check.
+    """
+    import pandas as pd  # only the deadline path needs pandas
+    want = min_days(sub) if days is None else int(days)
+    if want <= 0:
+        return True
+    deadline = pd.to_datetime(_cell(row, 'deadline_date'), errors='coerce')
+    if pd.isna(deadline):
+        return False
+    return (deadline.date() - today).days >= want
+
+
+def matches(sub, row, today, days=None):
+    """in_market + deadline_ok. `days=0` gates on the market alone."""
+    return in_market(sub, row) and deadline_ok(sub, row, today, days)
+
+
+def describe_market(sub):
+    """The customer-facing one-liner for their market (German, as delivered)."""
+    parts = ['CPV ' + '/'.join(sub.get('cpv_prefixes') or ['alle']),
+             'Region ' + '/'.join(sub.get('nuts_prefixes') or ['alle'])]
+    if min_days(sub):
+        parts.append(f'≥{min_days(sub)} Tage bis zur Angebotsfrist')
+    return ', '.join(parts)
+
+
+def main():
+    """`python subscriptions.py [--data-dir data] [--as-of YYYY-MM-DD]` —
+    validate the file and print what is in force. The cheapest possible
+    check after editing a subscription."""
+    import argparse
+    from datetime import date
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+    ap = argparse.ArgumentParser(description=main.__doc__)
+    ap.add_argument('--data-dir', default='data')
+    ap.add_argument('--as-of', default=date.today().isoformat())
+    args = ap.parse_args()
+    path = Path(args.data_dir) / 'subscriptions.jsonl'
+    rows = read_all(path)
+    live = resolve(rows, args.as_of)
+    print(f'[subscriptions] {path}: {len(rows)} version(s) valid, '
+          f'{len(live)} active on {args.as_of}')
+    for s in sorted(live, key=lambda s: s['sub_id']):
+        gate = ('gated' if s.get('min_relevance') is not None
+                and (s.get('profile_refs') or s.get('profile_texts'))
+                else 'ungated')
+        print(f"  {s['sub_id']:24s} v{s.get('version', 1):<3} "
+              f"{describe_market(s)} | {gate}, max_picks={max_picks(s)}")
+
+
+if __name__ == '__main__':
+    main()

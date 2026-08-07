@@ -1,7 +1,8 @@
 # REFACTOR — separating the two questions, and giving subscriptions a home
 
-Status: phase 0 (the two bugs) **implemented**, 2026-08-06. Phases 1-5 are
-specified here and not started. Uses the vocabulary of
+Status: phase 0 (the two bugs) **implemented** 2026-08-06; phase 1
+(`subscriptions.py`) **implemented** 2026-08-07. Phases 2-5 are specified
+here and not started. Uses the vocabulary of
 [`ONLINE_LEARNING.md`](ONLINE_LEARNING.md) and
 [`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md) (**component** = a box that always
 runs; **phase** = build order in time, never a scope cut). Nothing here
@@ -48,7 +49,7 @@ here.
 
 | module | owns | called by |
 |---|---|---|
-| `subscriptions.py` | `Subscription` model, field validation, as-of resolution, slice matching | loop, backtest, replay, tryout, feedback |
+| `subscriptions.py` ✅ | field validation, as-of resolution, market filter | loop, backtest, replay, tryout, explain, feedback |
 | `relevance.py` | the verdict only; returns a `Verdict` object, config passed in | composer, explain, evidence harnesses |
 | `select.py` | slice → gate → rank → cap → `SliceResult(picks, borderline, market)`. No I/O, no HTML, ~40 lines | loop, backtest, replay |
 | `render.py` | `SliceResult` → report HTML, annex HTML, delivery rows | loop, tryout |
@@ -122,20 +123,56 @@ Fixed with `_lot_key(row) -> (procedure_id, lot_id)` — the pair `latest` is
 already keyed by, so uniqueness per pass is structural. Same values, no
 behaviour change.
 
-## Phase 1 — `subscriptions.py`, still file-backed
+## Phase 1 — `subscriptions.py`, still file-backed (done, 2026-08-07)
 
-Extract the `Subscription` model, its validation, the as-of resolution rule
-("the newest version with `effective_from <= D` speaks") and the slice
-matching into one module, and point all five callers at it — `loop`,
-`backtest`, `replay`, `tryout`, `feedback`. Keep JSONL as the backend for this
-phase so the change is pure de-duplication.
+[`subscriptions.py`](subscriptions.py) now owns the three questions that were
+folklore. The as-of resolution rule turned out to be implemented **six** times
+(`loop.deliver`, `loop.learn_references`, `tryout`, `explain`, `replay`,
+`feedback`) and the market filter twice; all of them now call one
+implementation. `loop.load_subscriptions`, `loop._matches` and
+`loop._cpv_matches` are deleted. Storage is unchanged — still lines in
+`data/subscriptions.jsonl` — which is the point: phase 2 changes this file's
+internals and nothing else.
 
-This is where **validation** arrives, and it is overdue: `top_n` (retired) and
-`avoid_n` (dead since the warnings list was removed, decision 2026-08-06) are
-still present in live subscription lines and are read by no code at all. A
-typo'd field is currently a silent no-op discovered from a wrong report. A
-validator that knows `cpv_prefixes` is matched against a full CPV code would
-also have caught defect 1 at load time.
+`python subscriptions.py` validates the file and prints what is in force: the
+cheapest possible check after editing a subscription.
+
+**Validation arrived, deliberately asymmetric.** An *unknown* field raises
+(it is a typo, and a silently ignored typo is discovered from a wrong report
+weeks later). A *retired* field warns once per field per load and is ignored:
+the file is append-only by design, so a v2 line carrying `avoid_n` is a true
+historical record, and refusing to read it would mean the system can no longer
+read its own history. `cpv_prefixes` entries are checked to be 2-8 digits —
+the class of error that gave `jebsen-blitzschutz` v1 an empty market — and
+`min_relevance`/`min_code_*` to be in [0, 1].
+
+One deliberate behaviour change: a misspelled `tryout.py --set` now exits with
+the list of known fields instead of rendering the unchanged report, which
+looked exactly like "that setting made no difference".
+
+Two latent bugs fell out of the consolidation. `backtest.replay` picked the
+last *active* line per subscription, so a customer deactivated by a newer
+version would have been resurrected by an older active one; `resolve()`
+applies `active` to the version in force, as SUBSCRIPTIONS.md specifies. And
+`in_market` normalises pandas NaN, which the store-row path reached via
+`str(row.get('cpv_main') or '')` — NaN is truthy, so that produced the string
+`'nan'` and worked only by accident.
+
+Receipts — a pure refactor has to prove it changed nothing:
+
+- **Market filter, old vs new, zero disagreements.** All 8 active
+  subscriptions against loop's deleted `_matches` over 6,000 real ledger rows
+  at both `min_days` settings, and against backtest's deleted inline filter
+  over 4,000 store rows: identical verdicts everywhere.
+- **Rendered output byte-identical.** `tryout.py` for `jebsen-blitzschutz`,
+  `brueckenbau-demo`, `beck` and `n3bau` — report *and* annex HTML diff clean
+  against renders captured from the pre-refactor code.
+- All 13 versions in the live file validate; the 8 in force resolve
+  unchanged; `explain.py`, `feedback.py --list` and the backtest's gated-sub
+  discovery all run through the new loader.
+
+It also removed a circular import: `feedback.py` no longer imports `loop`
+just to borrow its subscription loader.
 
 ## Phase 2 — subscriptions move to SQLite
 

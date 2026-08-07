@@ -32,6 +32,7 @@ import numpy as np
 import pandas as pd
 
 import single_bidder as sb
+import subscriptions
 
 REPO = Path(__file__).resolve().parent
 
@@ -676,21 +677,6 @@ def predict_open(paths, tenders, roles, aw, args):
 
 # --------------------------------------------------- step 4b: deliver to subs
 
-def load_subscriptions(path, today):
-    """Active subscription versions in force on `today` (SUBSCRIPTIONS.md:
-    versioned, never edited — the newest version with effective_from <= today
-    speaks for the subscription; active: false deactivates)."""
-    in_force = {}
-    for row in read_jsonl(path):
-        if str(row.get('effective_from', '')) > today:
-            continue
-        key = (str(row.get('effective_from', '')), int(row.get('version', 1)))
-        cur = in_force.get(row['sub_id'])
-        if cur is None or key >= cur[0]:
-            in_force[row['sub_id']] = (key, row)
-    return [row for _, row in in_force.values() if row.get('active', True)]
-
-
 def _lot_key(row):
     """The lot's identity — the key of every per-lot side table in deliver().
 
@@ -703,46 +689,6 @@ def _lot_key(row):
     per delivery pass by construction.
     """
     return row['procedure_id'], row['lot_id']
-
-
-def _cpv_matches(row, prefixes):
-    """Full-CPV prefix match (SUBSCRIPTIONS.md: a lot matches if "its CPV
-    starts with any listed prefix").
-
-    Tested against `cpv_main`, the full code. `cpv3` is the truncated slicing
-    key and is only a fallback for rows stamped before `cpv_main` was written
-    (no ledger row carries it yet, and tryout.py replays those rows — this
-    path is live, not a formality). A prefix LONGER than the key it would be
-    tested against cannot be proven and therefore does not match, per the
-    keyless-row rule; testing it against cpv3 anyway is what silently emptied
-    the slice of any subscription with a deeper prefix than 3 digits
-    (jebsen-blitzschutz v1, `cpv_prefixes: ["453123"]`).
-    """
-    code = row.get('cpv_main')
-    if code:
-        return any(str(code).startswith(str(p)) for p in prefixes)
-    key = str(row.get('cpv3') or '')
-    return bool(key) and any(key.startswith(str(p)) for p in prefixes
-                             if len(str(p)) <= len(key))
-
-
-def _matches(sub, row, today, min_days):
-    # .get: rows written before a slicing key was stamped cannot prove they
-    # are in the slice and therefore do not match (SUBSCRIPTIONS.md keyless-row
-    # rule; the fallback ladder absorbs the resulting thin slices)
-    if sub.get('cpv_prefixes'):
-        if not _cpv_matches(row, sub['cpv_prefixes']):
-            return False
-    if sub.get('nuts_prefixes'):
-        if not row.get('place_nuts3') or not any(str(row['place_nuts3']).startswith(str(p))
-                                                 for p in sub['nuts_prefixes']):
-            return False
-    if min_days > 0:
-        # a deadline promise cannot be honored for an unknown deadline
-        deadline = pd.to_datetime(row.get('deadline_date'), errors='coerce')
-        if pd.isna(deadline) or (deadline.date() - today).days < min_days:
-            return False
-    return True
 
 
 def _gate_stamp(profile, scores):
@@ -828,7 +774,7 @@ def learn_references(paths, tenders, awards, args):
     try:
         import feedback
         today = now_utc().date().isoformat()
-        subs = load_subscriptions(paths.subscriptions, today)
+        subs = subscriptions.load(paths.subscriptions, today)
         if not subs:
             return []
 
@@ -849,7 +795,7 @@ def deliver(paths, scored, args):
     customer's report, append delivery-ledger rows (the frozen record of what
     this customer actually saw). Never a model call, never a store join."""
     today = now_utc().date()
-    subs = load_subscriptions(paths.subscriptions, today.isoformat())
+    subs = subscriptions.load(paths.subscriptions, today.isoformat())
     if not subs:
         print('[deliver] no active subscriptions — skipped')
         return 0
@@ -889,7 +835,7 @@ def deliver(paths, scored, args):
         gate = None
     n_rows = 0
     for sub in subs:
-        min_days = int(sub.get('min_deadline_days', 0) or 0)
+        min_days = subscriptions.min_days(sub)
         profile, judged, borderline = None, {}, []
         if gate is not None and rel.wants_gate(sub):
             try:
@@ -899,7 +845,7 @@ def deliver(paths, scored, args):
                       f'delivering ungated')
         # gate the widest candidate set (deadline ignored — the annex needs a
         # verdict for short-deadline lots too); near-misses render separately
-        cand = [r for r in latest.values() if _matches(sub, r, today, 0)]
+        cand = [r for r in latest.values() if subscriptions.matches(sub, r, today, 0)]
         if profile:
             kept = []
             for r in cand:
@@ -910,14 +856,15 @@ def deliver(paths, scored, args):
                 elif near:
                     borderline.append(r)
             cand = kept
-        rows = sorted((r for r in cand if _matches(sub, r, today, min_days)),
+        rows = sorted((r for r in cand
+                       if subscriptions.matches(sub, r, today, min_days)),
                       key=lambda r: -r['score'])
         n_high = max(1, round(len(rows) * args.tier_high))
         n_med = max(1, round(len(rows) * args.tier_medium))
         # ONE bar (RELEVANCE.md decision 2026-08-05): passing the gate means
         # recommendable — a pick just needs the competition flag on top;
         # max_picks caps the list, and zero picks is a message
-        max_picks = int(sub.get('max_picks', 5) or 0)
+        max_picks = subscriptions.max_picks(sub)
         top = [r for r in rows if r.get('flag')][:max_picks]
 
         def tender_cell(r):
@@ -930,9 +877,7 @@ def deliver(paths, scored, args):
             return escape(clean_cell(r.get('buyer_name') or '', 40))
 
         name = sub.get('name', sub['sub_id'])
-        market = ('CPV ' + '/'.join(sub.get('cpv_prefixes') or ['alle'])
-                  + ', Region ' + '/'.join(sub.get('nuts_prefixes') or ['alle'])
-                  + (f', ≥{min_days} Tage bis zur Angebotsfrist' if min_days else ''))
+        market = subscriptions.describe_market(sub)
         if profile:
             n_refs = len(sub.get('profile_refs') or [])
             n_texts = len(sub.get('profile_texts') or [])

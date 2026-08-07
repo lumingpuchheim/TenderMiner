@@ -44,6 +44,8 @@ from pathlib import Path
 
 import pandas as pd
 
+import subscriptions
+
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
@@ -270,12 +272,11 @@ def main():
     if not (args.learn or args.dry_run or args.rebuild):
         ap.error('nothing to do — pass --list, --dry-run, --learn or --rebuild')
 
-    import loop
     data_dir = Path(args.data_dir)
     tenders = pd.read_parquet(data_dir / 'store' / 'tenders.parquet')
     awards = pd.read_parquet(data_dir / 'store' / 'awards.parquet')
     today = date.today().isoformat()
-    subs = loop.load_subscriptions(data_dir / 'subscriptions.jsonl', today)
+    subs = subscriptions.load(data_dir / 'subscriptions.jsonl', today)
     print(f'[learn] {len(subs)} active subscription(s)')
 
     if args.rebuild:
