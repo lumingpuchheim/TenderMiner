@@ -1374,3 +1374,55 @@ separately, deliberately not folded into this decision. The 3 lost cases
 are the expected class.
 
 Rollback: `SIMILARITY_NOMINATES=1`.
+
+## Phase 8j — the store-rarity sieve is not a recall lever (measured 2026-08-07, NOTHING SHIPPED)
+
+A negative result, recorded so it is not re-run.
+
+**Hypothesis.** `MAX_DOC_FREQ` (2%) deletes a trade's own name for exactly
+the biggest trades — the constants block records malerarbeiten 2.0%,
+lüftung 2.1%, sanitär 2.6%, heizung 2.6%, abbruch 4.8% — because a trade's
+name is common in proportion to its market share. Firms in those trades
+should therefore be starved of their core word, and with phase 8g's
+vocabulary now vetting words, the rarity sieve should be waivable for
+approved ones.
+
+**Result (`lexicon_receipt.py --config both`, 122 hand-labeled cases):**
+
+| arm | IN (should pass) | OUT (should reject) | total |
+| --- | --- | --- | --- |
+| **cut 2% (shipped)** | **26/74** | **45/52** | **71/126** |
+| cut 5% | 26/74 | 41/52 | 67/126 |
+| cut 10% | 26/74 | 41/52 | 67/126 |
+| cut 50% | 26/74 | 41/52 | 67/126 |
+| waived for `names_trade()` words | 26/74 | 41/52 | 67/126 |
+
+**Recall does not move at all** — identical in every arm, including with the
+sieve effectively removed. Only precision moves, and only downward. It
+saturates already at 5%, so this is not a matter of degree.
+
+**Why the hypothesis was false.** Phase 8c had already solved it, twice.
+(1) The definitional waiver admits a word from the profile's own trusted
+CPV labels regardless of store frequency. (2) The trade dictionaries derive
+each trade's vocabulary from all lots carrying the code via a two-sided
+in/out ratio (`DICT_MIN_IN` / `DICT_MIN_RATIO`) which has **no corpus-rarity
+cap at all** — so `heizung` already reaches a heating firm's lexicon through
+its trade dictionary, and `abbruch` a demolition firm's. The firm-side
+sieve was never what blocked them. The phase-8c comment *describing* the
+problem was mistaken for the problem still being open.
+
+**Standing.** `MAX_DOC_FREQ` stays at 0.02. It is a precision instrument,
+not a recall one, and loosening it costs 4 rejection cases for nothing.
+
+**`MIN_STEM_LEN` stays too**, for a separate reason that no vocabulary can
+cover: it guards the MATCHING step, where a lexicon word is substring-
+matched against tender text. A four-letter `glas` would fire on "Glasgow",
+`dach` on "Obdachlosenunterkunft". The roots file's exception lines filter
+lexicon membership, not text matches, and word boundaries are not available
+as a fix because German compounds require substring matching in the first
+place (`Flachdach` carries the root mid-word).
+
+**Where recall actually has to come from**, after this: vocabulary coverage
+for the trades the list does not yet reach, then title-witness nomination
+(phase 8i's known unrepaired cost), then `EVIDENCE_NOMINATION_MIN` 2 -> 1
+once a clean vocabulary has changed what a witness means.
