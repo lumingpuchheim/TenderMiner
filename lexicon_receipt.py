@@ -14,10 +14,13 @@ exactly what it was built for. This receipt therefore
      lexicon is reading it: every word should name a Gewerk or a material.
 
 Configurations are the two committed switches, so this is also the A/B for
-rolling either back:
-    base    BUYER_DIVERSITY=0 TRADE_ROOTS=0   (phase 8e, as shipped)
-    buyers  BUYER_DIVERSITY=1 TRADE_ROOTS=0   (phase 8f)
-    roots   BUYER_DIVERSITY=1 TRADE_ROOTS=1   (phase 8g, live default)
+rolling either back — and 'roots only' is the arm that answers whether the
+dictionary buyer-share test still earns its place now that the vocabulary
+judges each word directly:
+    base        BUYER_DIVERSITY=0 TRADE_ROOTS=0   (phase 8e, as shipped)
+    dicts       BUYER_DIVERSITY=1 TRADE_ROOTS=0   (phase 8f (A) alone)
+    roots only  BUYER_DIVERSITY=0 TRADE_ROOTS=1   (vocabulary alone)
+    both        BUYER_DIVERSITY=1 TRADE_ROOTS=1   (live default)
 
 Usage:
     python lexicon_receipt.py                     # all three, per direction
@@ -37,8 +40,8 @@ if hasattr(sys.stdout, 'reconfigure'):
 
 import evidence as evd
 
-CONFIGS = [('base', False, False), ('buyers', True, False),
-           ('roots', True, True)]
+CONFIGS = [('base', False, False), ('dicts', True, False),
+           ('roots-only', False, True), ('both', True, True)]
 BENCH = Path('benchmark_relevance.jsonl')
 
 

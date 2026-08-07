@@ -95,18 +95,15 @@ DICT_MIN_RATIO = 8.0  # ... and >= 8x as often inside as outside
 #     two populations where lot share cannot, so a dictionary word must
 #     now also clear DICT_MIN_BUYER_SHARE of the trade's buyers and come
 #     from at least DICT_MIN_BUYERS of them — one buyer is not evidence.
-# (B) DERIVE_KEYWORDS lowered its own bar to nothing for single-buyer
-#     profiles: `min_buyers = min(2, n_buyers)` is 1 when every reference
-#     comes from one buyer, i.e. the guard switched off in exactly the
-#     case where 100% of the text read is one office's template. That is
-#     the whole polat-real-estate failure (6 refs, all SBH Schulbau
-#     Hamburg -> lexicon carried behörde, berufsbildung, landesbetrieb,
-#     nachstehend, bewirtschaft, and then convicted every other SBH/GMH
-#     Hamburg lot regardless of trade). Such a profile can no longer
-#     define its trade from its own prose; it falls back to its trusted
-#     trades' dictionaries, which (A) has just cleaned. The two fixes
-#     therefore ship together: (B) leans on the dictionaries, so it is
-#     only safe once (A) has removed the sector boilerplate from them.
+# (B) was a companion rule for single-buyer profiles, WITHDRAWN in phase
+#     8h -- the trade vocabulary subsumes it. See derive_keywords.
+#
+# Whether (A) still earns its place is an open question of the same kind:
+# every dictionary word it removes (kurzfristig, erfahrungswert,
+# fabrikneu, mengenansaetz, beschleunigt) ALSO fails names_trade(), so the
+# vocabulary may subsume it too. Kept for now because it costs almost
+# nothing, and measurable either way: BUYER_DIVERSITY=0 with TRADE_ROOTS=1
+# is the arm that answers it (lexicon_receipt.py runs it as 'roots only').
 DICT_MIN_BUYERS = 2        # a dictionary word needs >= this many buyers
 DICT_MIN_BUYER_SHARE = 0.10  # ... and >= this share of the trade's buyers
 MIN_BUYERS = 2             # refs from fewer buyers cannot define a trade
@@ -231,10 +228,9 @@ def derive_keywords(refs, docfreq, label_texts=()):
     filter. The final list keeps the shortest stem of every family and is
     small enough to read aloud.
 
-    Phase 8f (B): a profile whose references come from fewer than
-    MIN_BUYERS buyers contributes NO text-derived words — with one buyer
-    there is no way to tell its trade from its house style, so the
-    lexicon is the label words plus the trade dictionaries only."""
+    Phase 8h: single-buyer profiles contribute their own words again —
+    the trade vocabulary vets each word directly, so the blanket rule of
+    phase 8f (B) was redundant and cost recall (see the constants block)."""
     n_docs, df = docfreq['n'], docfreq['df']
     in_refs, buyers_of = Counter(), {}
     n_buyers = len({b for _, b in refs}) or 1
@@ -246,13 +242,17 @@ def derive_keywords(refs, docfreq, label_texts=()):
             in_refs[w] += 1
             buyers_of.setdefault(w, set()).add(b)
     min_refs = min(MIN_WITNESSES, len(refs)) or 1
-    # phase 8f (B): NOT min(2, n_buyers) — that lowered the bar to 1 for
-    # single-buyer profiles, disabling the guard exactly where every word
-    # read is one office's template. Below MIN_BUYERS the firm's own prose
-    # cannot be validated at all, so none of it enters; the profile falls
-    # back to its trusted trades' dictionaries (the label words below).
-    if BUYER_DIVERSITY and n_buyers < MIN_BUYERS:
-        in_refs = Counter()
+    # Phase 8h (2026-08-07): the single-buyer rule of phase 8f (B) is
+    # WITHDRAWN. It stripped a one-buyer profile of its own text entirely,
+    # on the grounds that nothing there could be told apart from the
+    # buyer's template. The trade vocabulary (phase 8g) answers that
+    # question directly instead: every word polat-real-estate's SBH
+    # boilerplate contributed -- behoerde, berufsbildung, landesbetrieb,
+    # nachstehend, bewirtschaft, hansestadt, schulen -- fails names_trade()
+    # on its own, so the rule was solving a problem the word list already
+    # solves, while discarding real trade words from any firm that wins
+    # mostly from one authority. Buyer diversity was a PROXY for "is this a
+    # trade word"; with the direct answer available the proxy gives way.
     min_buyers = min(MIN_BUYERS, n_buyers)
     cands = {}
     for w, c in in_refs.items():
