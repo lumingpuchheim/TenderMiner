@@ -1426,3 +1426,52 @@ place (`Flachdach` carries the root mid-word).
 for the trades the list does not yet reach, then title-witness nomination
 (phase 8i's known unrepaired cost), then `EVIDENCE_NOMINATION_MIN` 2 -> 1
 once a clean vocabulary has changed what a witness means.
+
+## Phase 8k — what convicts may also nominate (shipped 2026-08-07)
+
+The gate already held that a trade keyword in the TITLE convicts on its own
+(`evidence.convicts`, the title-or-two rule). Nothing let that same fact
+open the door, so a lot could be convictable and never considered. This
+closes the gap: conviction-strength evidence nominates itself.
+
+**The case that showed it** — `00367721-2025`, *"Estricharbeiten"*
+(Thüringer Landesamt für Bau), against the screed firm N3Bau. Before:
+
+    verdict ok=False borderline=True  text=0.588 | hard 0.135 | evidence: estrich(t1)
+
+Route 1 fails because the buyer filed it under CPV 45216111 *Bau von
+Polizeirevieren*, so `hard` is 0.135 against a bar of 0.825. Route 3 fails
+because the description is an address — *"Neubau Polizeiinspektion
+Saale-Orla, Hofer Str. 54, Schleiz"* — leaving `estrich(t1)` as the single
+witness where the rule wants `EVIDENCE_NOMINATION_MIN`. Route 2 is gone
+since phase 8i. So a tender whose title IS the firm's trade was rejected —
+and it is exactly the case the evidence gate exists for, since the CPV code
+names the building and only the text names the work. After: `ok=True`.
+
+**Receipt (`lexicon_receipt.py --config both`):**
+
+| configuration | IN (should pass) | OUT (should reject) | total |
+| --- | --- | --- | --- |
+| phase 8i (route 2 removed) | 26/74 | 45/52 | 71/126 |
+| **+ conviction nominates** | **34/74** | **45/52** | **79/126** |
+
+Eight recall cases at **no measured precision cost** — the only free move in
+this sequence. Why it does not reopen what phase 8i closed: route 2 failed
+because whole-document similarity is dominated by a buyer's standard
+paragraphs, so it fired hardest on sibling authorities sharing a template.
+The title carries no boilerplate; it is the one field that names the actual
+work. The mechanisms are opposites, not variants.
+
+Residual risk: a large package whose title lists several trades
+(*"Neubau Schule: Estrich, Maler, Trockenbau"*) now reaches all of them —
+arguably correct, since each of those firms can bid the relevant lot.
+
+**Standing after phases 8f-8k**, against the gate as shipped in `50eaca2`:
+
+| | IN | OUT | total |
+| --- | --- | --- | --- |
+| base (phase 8e) | 36/74 | 30/52 (58%) | 66/126 |
+| **now** | 34/74 | **45/52 (87%)** | **79/126** |
+
+Near-parity on recall, wrong-trade rejection from 58% to 87%. Rollback:
+`CONVICTION_NOMINATES=0`.
