@@ -1218,7 +1218,12 @@ def judge_run(data_dir):
     are arithmetic replicas of the gate, this executes the gate."""
     import relevance as rel
     from calibrate import is_deep
-    gate = rel.Gate(data_dir)
+    # profiles carry the evidence lexicon; the embedding ladder ignores it,
+    # so ONE gate serves both modes and each judgment names its own config
+    # (REFACTOR.md phase 3 -- this used to assign to rel.GATE_MODE)
+    CFG = {m: rel.DEFAULT_CONFIG.replace(mode=m)
+           for m in ('embedding', 'evidence')}
+    gate = rel.Gate(data_dir, config=CFG['evidence'])
     tenders, awards, lots, texts, raw, docfreq = load_world(data_dir)
     from embed import MODEL_TAG
     trust = json.loads(Path(f'trusted_codes_{MODEL_TAG}.json').read_text(
@@ -1257,7 +1262,7 @@ def judge_run(data_dir):
              if line.strip() and not line.startswith('#')]
     results = {}
     for mode in ('embedding', 'evidence'):
-        rel.GATE_MODE = mode
+        cfg = CFG[mode]
         # --- benchmark through judge() ---
         fails = 0
         for case in cases:
@@ -1271,7 +1276,7 @@ def judge_run(data_dir):
                                                            [pub_of(r) for r in use]))
                 ok, *_ = rel.judge(gate, profile, {
                     'procedure_id': k[0], 'lot_id': k[1],
-                    'buyer_name': raw[k][4]})
+                    'buyer_name': raw[k][4]}, config=cfg)
                 got = 'in' if ok else 'out'
                 if got != case['expect']:
                     fails += 1
@@ -1287,7 +1292,7 @@ def judge_run(data_dir):
                 profile = rel.build_profile(gate, firm_sub(firm, use))
                 ok, *_ = rel.judge(gate, profile, {
                     'procedure_id': k[0], 'lot_id': k[1],
-                    'buyer_name': raw[k][4]})
+                    'buyer_name': raw[k][4]}, config=cfg)
                 n_pos += 1
                 hits += bool(ok)
             profile = rel.build_profile(gate, firm_sub(
@@ -1302,14 +1307,14 @@ def judge_run(data_dir):
                     k = neg_pool[pi]
                     ok, *_ = rel.judge(gate, profile, {
                         'procedure_id': k[0], 'lot_id': k[1],
-                        'buyer_name': raw[k][4]})
+                        'buyer_name': raw[k][4]}, config=cfg)
                     n_neg += 1
                     neg_pass += bool(ok)
             for pi in rng.choice(len(all_keys), VOL_PER_FIRM, replace=False):
                 k = all_keys[pi]
                 ok, *_ = rel.judge(gate, profile, {
                     'procedure_id': k[0], 'lot_id': k[1],
-                    'buyer_name': raw[k][4]})
+                    'buyer_name': raw[k][4]}, config=cfg)
                 n_vol += 1
                 vol_pass += bool(ok)
         results[mode] = {'benchmark': bench, 'recall': hits / n_pos,
@@ -1341,9 +1346,11 @@ def judge_sweep(data_dir, limit=None):
     the real judge() inside the same loops as the reference row."""
     import relevance as rel
     from calibrate import is_deep
-    rel.GATE_MODE = 'evidence'  # profiles carry the lexicon; the embedding
-    #                             ladder ignores it, so one build serves both
-    gate = rel.Gate(data_dir)
+    # profiles carry the lexicon; the embedding ladder ignores it, so one
+    # build serves both (REFACTOR.md phase 3: a config, not a global)
+    CFG = {m: rel.DEFAULT_CONFIG.replace(mode=m)
+           for m in ('embedding', 'evidence')}
+    gate = rel.Gate(data_dir, config=CFG['evidence'])
     tenders, awards, lots, texts, raw, docfreq = load_world(data_dir)
     from embed import MODEL_TAG
     trust = json.loads(Path(f'trusted_codes_{MODEL_TAG}.json').read_text(
@@ -1370,9 +1377,8 @@ def judge_sweep(data_dir, limit=None):
         """(embedding verdict through the real judge(), evidence components
         incl. the phase-8b witness counts under both definitions)"""
         row = {'procedure_id': k[0], 'lot_id': k[1], 'buyer_name': raw[k][4]}
-        rel.GATE_MODE = 'embedding'
-        emb_ok, emb_bord, *_ = rel.judge(gate, profile, row)
-        rel.GATE_MODE = 'evidence'
+        emb_ok, emb_bord, *_ = rel.judge(gate, profile, row,
+                                         config=CFG['embedding'])
         text, c_hard, mismatch, same_buyer, ev = rel.evidence_components(
             gate, profile, row, gate.by_key[k])
         return (bool(emb_ok), bool(emb_bord), text, c_hard, mismatch,
@@ -1528,8 +1534,10 @@ def judge_benchmark(data_dir):
     modes — the seconds-fast per-case receipt (the store-wide loops live in
     --judge/--sweep). References are judged leave-one-out as everywhere."""
     import relevance as rel
-    rel.GATE_MODE = 'evidence'  # profiles carry the lexicon; embedding ignores it
-    gate = rel.Gate(data_dir)
+    # profiles carry the lexicon; embedding ignores it (REFACTOR.md phase 3)
+    CFG = {m: rel.DEFAULT_CONFIG.replace(mode=m)
+           for m in ('embedding', 'evidence')}
+    gate = rel.Gate(data_dir, config=CFG['evidence'])
     tenders, awards, lots, texts, raw, docfreq = load_world(data_dir)
     all_keys = [k for k in texts if k in gate.by_key]
     cases = [json.loads(line) for line in
@@ -1550,7 +1558,6 @@ def judge_benchmark(data_dir):
             continue
         for k in sel:
             use = [r for r in refs if r != k]
-            rel.GATE_MODE = 'evidence'
             profile = rel.build_profile(gate, {
                 'sub_id': 'judge-benchmark', 'version': 0, 'name': firm,
                 'profile_refs': [gate.rows[gate.by_key[r]]
@@ -1560,11 +1567,9 @@ def judge_benchmark(data_dir):
                    'buyer_name': raw[k][4]}
             got = {}
             for mode in ('embedding', 'evidence'):
-                rel.GATE_MODE = mode
-                ok, *_ = rel.judge(gate, profile, row)
+                ok, *_ = rel.judge(gate, profile, row, config=CFG[mode])
                 got[mode] = 'in' if ok else 'out'
                 fails[mode] += got[mode] != case['expect']
-            rel.GATE_MODE = 'evidence'
             marks = ' '.join(
                 f"{m}:{'OK' if got[m] == case['expect'] else 'FAIL(' + got[m] + ')'}"
                 for m in ('embedding', 'evidence'))

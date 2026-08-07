@@ -693,13 +693,45 @@ def _lot_key(row):
 
 def _gate_stamp(profile, scores):
     """Delivery-row stamps for gated subscriptions (RELEVANCE.md phase 3);
-    empty for ungated ones so their rows stay byte-identical to before."""
+    empty for ungated ones so their rows stay byte-identical to before.
+
+    `gate_config` (REFACTOR.md phase 3) is the fingerprint of the rules that
+    judged this lot. Without it a pick delivered under the embedding ladder
+    and one delivered under the evidence gate are indistinguishable in the
+    ledger, so a customer's retrospective silently pools two different
+    decision procedures. The competition model was always stamped; the gate
+    that decided the lot was the customer's business at all was not.
+    """
     if not profile or scores is None:
         return {}
     from embed import MODEL_TAG
     text, code = scores[0], scores[1]
+    cfg = profile.get('config')
     return {'relevance_score': text, 'code_relevance': code,
-            'profile_version': profile['version'], 'embed_model_tag': MODEL_TAG}
+            'profile_version': profile['version'], 'embed_model_tag': MODEL_TAG,
+            **({'gate_config': cfg.fingerprint, 'gate_mode': cfg.mode}
+               if cfg is not None else {})}
+
+
+def record_gate_config(paths, config):
+    """Append this configuration to the gate-config registry the first time
+    its fingerprint is seen, so the stamp on a delivery row is resolvable
+    from the data directory alone — not from git archaeology over whichever
+    commit was deployed that week. Append-only, one line per configuration,
+    like every other ledger here.
+
+    Scoped to the DELIVERY ledger, not to the data dir: tryout.py and
+    replay.py redirect deliveries into a sandbox while still reading the real
+    store, and a sandbox experiment must not append a configuration to the
+    record of what customers were actually served under."""
+    path = paths.deliveries.parent / 'gate_configs.jsonl'
+    if any(r.get('fingerprint') == config.fingerprint for r in read_jsonl(path)):
+        return False
+    append_jsonl(path, [{'fingerprint': config.fingerprint,
+                         'first_seen': now_utc().isoformat(timespec='seconds'),
+                         **config.as_dict()}])
+    print(f'[deliver] new gate configuration recorded: {config.describe()}')
+    return True
 
 
 MAX_RECEIPTS = 15  # itemized reviewed picks shown per report; the rest is counted
@@ -830,6 +862,9 @@ def deliver(paths, scored, args):
             # (feedback.py); without it a profile is the subscription line
             # alone — see relevance.Gate
             gate = rel.Gate(paths.data, as_of=today.isoformat())
+            # the rules this cycle judges under, on the record before any
+            # verdict is written (REFACTOR.md phase 3)
+            record_gate_config(paths, gate.config)
     except Exception as e:
         print(f'[deliver] relevance gate unavailable ({e}) — delivering ungated')
         gate = None

@@ -117,17 +117,20 @@ def main():
          'codes': {k: {'n': v['n'], 'cohesion': v['cohesion'],
                        'trusted': v['cohesion'] >= r['trust_cut']}
                    for k, v in r['cohesion'].items()}}), encoding='utf-8')
-    rel.TRUSTED_CODES = trust_json
-    rel.SOFT_FLOOR = H['soft_floor']
-    rel.SOFT_CONSENSUS = H['soft_consensus']
-    rel.TRADE_READ_FORM = H['corr_form'] if H['corr_form'] != 'off' else 'off'
-    rel.TRADE_READ_PARAM = H['corr_param']
+    # the as-of calibration as a config value (REFACTOR.md phase 3);
+    # assigning to relevance's module globals no longer reaches the gate
+    cfg = rel.DEFAULT_CONFIG.replace(
+        trusted_codes=trust_json,
+        soft_floor=H['soft_floor'],
+        soft_consensus=H['soft_consensus'],
+        trade_read_form=H['corr_form'] if H['corr_form'] != 'off' else 'off',
+        trade_read_param=H['corr_param'])
     print(f"[replay] as-of gate H: text {H['threshold']:.3f}, hard "
           f"{H['code_threshold']:.3f}, soft {H['soft_threshold']:.3f}, "
           f"corr {H['corr_form']}@{H['corr_param']:.3f}")
 
     # ---- as-of profile from the wins the firm had at D ----------------------
-    gate = rel.Gate(str(ASOF))
+    gate = rel.Gate(str(ASOF), config=cfg)
     awards_asof = pd.read_parquet(ASOF / 'store' / 'awards.parquet')
     tenders_asof = pd.read_parquet(ASOF / 'store' / 'tenders.parquet')
     lots_nuts = {(p, l): n for p, l, n in zip(

@@ -129,14 +129,14 @@ def main():
 
     print(f"profile: {sub.get('name', args.sub)} "
           f"(v{sub.get('version')}, min_relevance {profile['min_relevance']}, "
-          f'gate={rel.GATE_MODE})')
+          f'gate={gate.config.describe()})')
     if profile.get('keywords') is not None:
         print(f"trade lexicon: {profile['keywords']}")
     print('hard labels (trusted codes on the wins):')
     for r in profile['hard_rows']:
         print(f"   {gate.lrows[r]['code']}  {gate.lrows[r]['label_de']}")
     print(f'soft labels (inferred from reference texts, floor '
-          f'{rel.SOFT_FLOOR}/k{rel.SOFT_CONSENSUS}):')
+          f'{gate.config.soft_floor}/k{gate.config.soft_consensus}):')
     R = gate.lmat[profile['soft_rows']] @ profile['ref_matrix'].T
     for j, r in enumerate(profile['soft_rows']):
         print(f"   {gate.lrows[r]['code']}  {gate.lrows[r]['label_de']}"

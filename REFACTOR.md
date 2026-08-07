@@ -1,8 +1,11 @@
 # REFACTOR — separating the two questions, and giving subscriptions a home
 
 Status: phase 0 (the two bugs) **implemented** 2026-08-06; phase 1
-(`subscriptions.py`) **implemented** 2026-08-07. Phases 2-5 are specified
-here and not started. Uses the vocabulary of
+(`subscriptions.py`) and phase 3 (`GateConfig`) **implemented** 2026-08-07.
+Phase 2 (SQLite) and phase 4 (`select.py` / `render.py`) are specified here
+and not started — phase 3 was taken before phase 2 because the ledger could
+not say which rules produced a pick, while the storage problems are ones the
+system will have rather than has. Uses the vocabulary of
 [`ONLINE_LEARNING.md`](ONLINE_LEARNING.md) and
 [`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md) (**component** = a box that always
 runs; **phase** = build order in time, never a scope cut). Nothing here
@@ -50,7 +53,7 @@ here.
 | module | owns | called by |
 |---|---|---|
 | `subscriptions.py` ✅ | field validation, as-of resolution, market filter | loop, backtest, replay, tryout, explain, feedback |
-| `relevance.py` | the verdict only; returns a `Verdict` object, config passed in | composer, explain, evidence harnesses |
+| `relevance.py` ✅ config | the verdict only; config passed in (a `Verdict` object is still open) | composer, explain, evidence harnesses |
 | `select.py` | slice → gate → rank → cap → `SliceResult(picks, borderline, market)`. No I/O, no HTML, ~40 lines | loop, backtest, replay |
 | `render.py` | `SliceResult` → report HTML, annex HTML, delivery rows | loop, tryout |
 
@@ -240,24 +243,61 @@ artifact. Test fixtures move into the repo (committed, tiny) behind
 sandbox dance, since an in-memory repository with one overridden subscription
 is exactly what that code emulates today.
 
-## Phase 3 — `GateConfig`, and stamping it on every delivery
+## Phase 3 — `GateConfig`, stamped on every delivery (done, 2026-08-07)
 
-The gate's calibration is mutable module state. `backtest.py` assigns
-`rel.TRUSTED_CODES`, `rel.SOFT_FLOOR` and `rel.SOFT_CONSENSUS`;
-`evidence.judge_run` assigns `rel.GATE_MODE` inside a loop. Two consequences:
+The gate's rules were mutable module state, and the ledger could not say
+which rules picked a lot.
 
-1. Two configurations cannot be judged in one process. The nomination-bar
-   sweep already works around this by hand.
-2. **The delivery ledger does not record which configuration judged a pick.**
-   `_gate_stamp` writes `profile_version` and `embed_model_tag` but not
-   `GATE_MODE`, `NOMINATION_BAR`, `EVIDENCE_NOMINATION_MIN` or
-   `BORDERLINE_ADMIT_P`. The flip from `embedding` to `evidence` went live on
-   2026-08-06; delivery rows from before and after that flip are
-   indistinguishable in the ledger. For a product whose pitch *is* the
-   receipt, that is the gap to close first.
+`GateConfig` is a frozen dataclass holding every tunable that changes a
+verdict. The constants stay exactly where they were — they carry the decision
+history that gives each number its meaning — and the dataclass takes them as
+its defaults. `Gate(data_dir, config=...)` carries one; `build_profile(...)`
+and `judge(...)` take an optional `config=` that defaults to the gate's, so
+every existing call site is unchanged and a single loaded gate can serve two
+configurations at once.
 
-A frozen `GateConfig` dataclass passed into `Gate`/`judge` gives both the
-parallel-configuration ability and a config hash to stamp, for free.
+**The stamp.** `_gate_stamp` now writes `gate_config` (a 10-char hash of the
+whole rule set) and `gate_mode` on every delivery row, and `deliver()` appends
+each newly seen configuration to `<ledger>/gate_configs.jsonl` — so the hash
+resolves from the data directory alone, not from git archaeology over
+whichever commit was deployed that week. The registry is scoped to the
+delivery ledger rather than the data dir, so `tryout.py` and `replay.py`
+sandboxes cannot append a configuration to the record of what customers were
+actually served under. `python relevance.py` prints the live configuration and
+its fingerprint, marking any field an environment variable is overriding.
+
+That last part matters more than it did when this phase was written. The gate
+had one env switch (`GATE_MODE`) then; by the time the phase was built it had
+three — `SIMILARITY_NOMINATES` and `CONVICTION_NOMINATES` arrived on
+2026-08-07 with the phase-8i/8k decisions. Three environment variables that
+silently change what a customer is shown, and nothing on the row to say which
+way they were set. All three are config fields now, so flipping one changes
+the fingerprint and the change is visible in the ledger forever.
+
+**No more global mutation.** `backtest.py`, `playback.py` and `replay.py`
+assigned to `rel.TRUSTED_CODES` / `rel.SOFT_FLOOR` / `rel.SOFT_CONSENSUS` /
+`rel.TRADE_READ_*` to install their as-of calibration; `evidence.py` assigned
+`rel.GATE_MODE` in three functions. All of them build configs now. This was
+not optional: once the constants are only read as dataclass defaults at import
+time, assigning to them afterwards is a silent no-op, so the as-of calibration
+in both time-isolation harnesses would have quietly stopped applying.
+
+Receipts:
+
+- **The gate benchmark is identical.** `evidence.py --judge-benchmark`, all
+  122 cases, BOTH gate modes, old code vs config-threaded code: byte-identical
+  output.
+- **Rendered reports are identical.** `tryout.py` for `jebsen-blitzschutz` and
+  `beck`, report and annex HTML.
+- Delivery rows now carry `gate_config: 7d29fa0dce`, `gate_mode: evidence`,
+  and the registry line expands that hash to all 20 fields.
+
+*Method note, learned the hard way:* both comparisons must be run
+back-to-back. The first attempt compared a baseline captured 40 minutes
+earlier and showed a 20-case "regression" that was entirely the store and
+lexicon caches moving underneath — re-running the OLD code reproduced the
+"new" numbers exactly. On a live system, an equivalence test is only evidence
+if both arms see the same data.
 
 ## Phase 4 — `select.py`, then `render.py`
 

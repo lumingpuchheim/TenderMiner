@@ -101,10 +101,12 @@ print(f"[playback] as-of F: text {F['threshold']:.3f}, hard {F['code_threshold']
       f"leakage {F['leakage']:.1%}")
 
 # ---- step 4: as-of profile + gate -------------------------------------------
-rel.TRUSTED_CODES = trust_json
-rel.SOFT_FLOOR = F['soft_floor']
-rel.SOFT_CONSENSUS = F['soft_consensus']
-gate = rel.Gate(str(ASOF / 'data'))
+# the as-of calibration as a config value (REFACTOR.md phase 3); assigning
+# to relevance's module globals no longer reaches the gate
+cfg = rel.DEFAULT_CONFIG.replace(trusted_codes=trust_json,
+                                 soft_floor=F['soft_floor'],
+                                 soft_consensus=F['soft_consensus'])
+gate = rel.Gate(str(ASOF / 'data'), config=cfg)
 jb_asof = awards[awards['winner_names'].apply(
     lambda x: x is not None and args.firm in list(x))]
 refs = sorted({gate.rows[gate.by_key[(p, l)]]['publication_number']

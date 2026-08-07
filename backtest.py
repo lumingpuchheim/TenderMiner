@@ -135,7 +135,7 @@ def replay(data_dir, step_days, sub_ids):
     week_flags = {}       # cutoff -> [(lot, score, cpv3, nuts1)] for target sim
     sub_picks = {s: {} for s in subs}
     sub_market = {s: set() for s in subs}
-    cal_f, n_run = None, 0
+    cal_f, cfg, n_run = None, None, 0
     for D in cutoffs:
         write_world(full_store, work / 'store', D)
         tenders_r, roles = sb.load_with_roles(work / 'store' / 'tenders.parquet')
@@ -153,9 +153,12 @@ def replay(data_dir, step_days, sub_ids):
                  'codes': {k: {'n': v['n'], 'cohesion': v['cohesion'],
                                'trusted': v['cohesion'] >= r['trust_cut']}
                            for k, v in r['cohesion'].items()}}), encoding='utf-8')
-            rel.TRUSTED_CODES = trust
-            rel.SOFT_FLOOR = cal_f['soft_floor']
-            rel.SOFT_CONSENSUS = cal_f['soft_consensus']
+            # the as-of configuration, as a value rather than by assigning
+            # to relevance's module globals (REFACTOR.md phase 3)
+            cfg = rel.DEFAULT_CONFIG.replace(
+                trusted_codes=trust,
+                soft_floor=cal_f['soft_floor'],
+                soft_consensus=cal_f['soft_consensus'])
         n_run += 1
 
         X, cat_cols, _, _ = sb.build_features(data, roles, list_frame=tenders_r)
@@ -170,7 +173,7 @@ def replay(data_dir, step_days, sub_ids):
         Xo, _, _, _ = sb.build_features(open_t, roles, list_frame=tenders_r)
         scores = sb.predict(model, Xo)
 
-        gate = rel.Gate(str(work))
+        gate = rel.Gate(str(work), config=cfg)
         profiles = {s: as_of_profile(gate, subs[s], awards_r, cal_f)
                     for s in subs}
         dl_ok = (deadline.loc[open_t.index]
