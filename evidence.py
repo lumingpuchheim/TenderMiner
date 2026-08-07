@@ -94,7 +94,17 @@ DICT_MIN_LOTS = 20    # trades with fewer coded lots keep no dictionary
 # The dictionary's OWN tests are the ones that matter and they stay:
 # DICT_MIN_IN, DICT_MIN_RATIO, the buyer-diversity pair, and names_trade().
 # Rollback: DICT_TRUSTED_ONLY=1.
-DICT_TRUSTED_ONLY = os.environ.get('DICT_TRUSTED_ONLY', '0') != '0'
+#
+# SHIPS DORMANT (2026-08-07). Removing the gate is right on the merits and
+# wrong as it stands, because a firm's code set has the SAME defect the
+# pool had: a lot carries every trade of its procurement in cpv_additional,
+# so Heberger -- three won tenders in wastewater plants -- inherits seven
+# dictionaries spanning fire alarms, building automation, lightning
+# protection and structural concrete, 24 words, and convicts on all of
+# them. Measured cost, voting held on in both arms: OUT 45/52 -> 36/52.
+# Turn this on once a firm's trade is taken from the cpv_main of the lots
+# it actually won, not from every code listed on the procurement.
+DICT_TRUSTED_ONLY = os.environ.get('DICT_TRUSTED_ONLY', '1') != '0'
 # Phase 8u (operator idea 2026-08-07): THE POOL VOTES. A dictionary is only
 # as good as the lots filed under its code, and most of them are not filed
 # under it deliberately -- measured on 45261420 (Abdichtungsarbeiten gegen
@@ -200,7 +210,7 @@ BUYER_DIVERSITY = os.environ.get('BUYER_DIVERSITY', '1') != '0'
 # existed, which is exactly the value the new default carries, so a stale
 # trusted-only cache matched the key and was silently reused. Any change to
 # what the dictionaries contain must bump this version too.
-DICT_CACHE_V = 4
+DICT_CACHE_V = 5
 DICT_MAX_WORDS = 30   # per-trade cap, keeps lexicons readable
 SEED = 7              # mirrors calibrate.py sampling
 NEG_PER_FIRM = 50
@@ -531,7 +541,8 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
         if (d.get('n') == int(len(lots)) and d.get('v') == DICT_CACHE_V
                 and bool(d.get('bd')) == bool(BUYER_DIVERSITY)
                 and bool(d.get('tr')) == bool(TRADE_ROOTS)
-                and bool(d.get('to')) == bool(DICT_TRUSTED_ONLY)):
+                and bool(d.get('to')) == bool(DICT_TRUSTED_ONLY)
+                and bool(d.get('vo')) == bool(DICT_VOTE)):
             _TRADE_DICTS = d['dicts']
             return _TRADE_DICTS
     n, df = docfreq['n'], docfreq['df']
@@ -616,7 +627,8 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
             json.dumps({'n': int(len(lots)), 'v': DICT_CACHE_V,
                         'bd': bool(BUYER_DIVERSITY),
                         'tr': bool(TRADE_ROOTS),
-                        'to': bool(DICT_TRUSTED_ONLY), 'dicts': dicts}),
+                        'to': bool(DICT_TRUSTED_ONLY),
+                        'vo': bool(DICT_VOTE), 'dicts': dicts}),
             encoding='utf-8')
     _TRADE_DICTS = dicts
     return dicts

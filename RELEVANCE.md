@@ -1872,3 +1872,129 @@ first — `Stück` would fold onto the `stuck` root of Stuckateur, and *Stück*
 is in every Leistungsverzeichnis. Not attempted here.
 
 Rollback: `NAME_KEYWORDS=0`.
+
+## Phases 8r-8u — the lexicon stops measuring surface forms (2026-08-07)
+
+Four changes to how a lexicon is built, each from reading firms' actual word
+lists rather than moving a threshold. Three ship; the fourth ships dormant.
+
+**8r — the firm's own name.** Every source read text *about projects*; the
+name was never read, and in German construction it states the trade.
+`Tischlerei Fischer` -> `tischler`, `Metallbau Politz` -> `metallbau`,
+`Elektro Böhe` -> `elektro`, `KSG Kabel-Signal-Gleisbau` -> `kabel gleis`.
+Ungated by operator decision (*"a broad business is better than no business
+mentioned at all"*): where the name says nothing it contributes nothing.
+
+**8s — count ROOTS, not surface forms.** Braun GmbH's four references say
+Wärmepumpenanlage, Wärmepumpen and Wärmepumpe — one trade word, three
+surface forms. Counted as tokens that is three words with one mention each
+and the recurrence rule refused all three; counted as roots it is `pump` in
+three references of four. The proof was already in the code: Braun's core
+list (root-counted) read `pump daemm leitung` while its narrow lexicon
+(token-counted) was empty. Every other list was already canonical;
+`derive_keywords` was the last one measuring the surface.
+
+**8u — the pool votes (operator idea).** A dictionary is only as good as the
+lots filed under its code. Read for 45261420 *Abdichtungsarbeiten gegen
+Wasser*: 17 lots arrive via `cpv_main`, all genuinely waterproofing, and 88
+via `cpv_additional` — 84% of the pool — titled "Rohbauarbeiten 3.
+Bauabschnitt", "Spraypark", "Baumeisterarbeiten". A procurement lists every
+trade it contains as an additional code on each of its lots. `DICT_MIN_IN`
+and `DICT_MIN_RATIO` are built for noise and this is not noise.
+
+The fix: wrongly-filed lots are wrong in every direction at once while
+correctly-filed ones all say the same thing, so the right trade outvotes the
+wrong ones. Each lot votes with the trade roots in its text; the roots
+carrying the vote are the code's signature; a lot holding none of them
+leaves the pool before any word is counted.
+
+It makes dictionaries **richer**, not smaller — dropping miscoded lots
+shrinks the denominator, so a genuine word's in-trade share rises above the
+10% bar it had been failing. Landschaftsbau went from `erdarbeit aushub
+pflaster` to `rasenflaeche pflanzarbeit fallschutz dachbegruenung sitzstufen
+mauern`, derived from 421 lots rather than hand-written.
+
+**Two generic heads removed from the vocabulary.** `leitung` matches
+Bauleitung, Projektleitung, Objektleitung — site *management* — and sat in a
+large share of all lexicons; `pump` covers Wärmepumpe (HLK),
+Abwasserpumpwerk (Tiefbau) and Betonpumpe (equipment) alike. Both violated
+the file's own "no generic heads" rule. Replaced by compounds naming an
+actual thing. **A third is still open: `schal` matches Schaltschrank,
+Schalter and Schallschutz.**
+
+**Receipt.**
+
+| | master | shipped here |
+| --- | --- | --- |
+| firms with no lexicon | 77 | **33** |
+| under 3 words | 240 | **133** |
+| IN (should pass) | 45/74 | **50/74** |
+| OUT (should reject) | **47/52 (90%)** | 45/52 (87%) |
+
+Not free: five recall cases and half the starved firms, for two rejection
+cases. Read the lexicons for what it bought — Braun `daemm waermepump`,
+YUNEX `signalgeber lichtsignal`, Hohenloher `einbaumöbel schreinerarbeit
+tischler` (school furniture, previously the roof and concrete of the
+building it furnishes).
+
+### 8t — dictionaries beyond `trusted`: right, and SHIPPED DORMANT
+
+A dictionary was built only for a code marked *trusted*, which means the
+code's lot texts sit close together in embedding space — a test invented to
+certify clean negatives during calibration, reused as a gate on vocabulary,
+about which it says nothing. Landschaftsbau scores low because its projects
+are parks, schools and roadsides; its vocabulary is perfectly sharp.
+Measured: 212 deep codes, 56 trusted, 47 dictionaries built; 135 codes carry
+>= 20 lots but only 33 of those are trusted. The 102 excluded are the major
+trades — Metallbau 702 lots, HLK 579, Rohbau 513, Elektroinstallation 499,
+Fassade 443, Landschaftsbau 421, Bahnbau 347, Aufzüge 245.
+
+Opening it takes empty lexicons from 33 to 3. It also costs **nine**
+rejection cases (OUT 45/52 -> 36/52, voting held on in both arms), because
+a firm's code set has the same defect the pool had. Heberger — three won
+tenders in wastewater plants — inherits seven dictionaries spanning fire
+alarms, building automation, lightning protection and structural concrete:
+24 words, and it convicts on all of them. The procurement's `cpv_additional`
+lists every trade it contains, so as the pool absorbed lots that were not
+its trade, the firm absorbs codes that are not its trade.
+
+So `DICT_TRUSTED_ONLY` ships **on** and the work sits behind it. Turn it off
+once a firm's trade is taken from the `cpv_main` of the lots it actually
+won.
+
+**Isolation grid** (`lexicon_receipt.py --config both`), the reason each
+change can be judged separately:
+
+| root lexicon | trust gate open | voting | IN | OUT |
+| --- | --- | --- | --- | --- |
+| — | — | — | 44/74 | 47/52 |
+| ✓ | — | — | 50/74 | 45/52 |
+| **✓** | — | **✓** | **50/74** | **45/52** |
+| ✓ | ✓ | — | 54/74 | 37/52 |
+| ✓ | ✓ | ✓ | 54/74 | 36/52 |
+
+Note what this says about voting: it buys **no** precision anywhere and
+costs one case where the gate is open, even though it visibly improves the
+word lists. Pool contamination was not what drove the loss — firm-level code
+inheritance is. The two are different problems and were conflated once.
+
+**A trap that caught this work three times.** `trade_dicts.json` keyed its
+cache on some but not all of the switches the dictionaries are derived
+under. Adding a field is not enough on its own: `bool(d.get('to'))` is False
+for a cache written before the field existed, which is exactly what the new
+default carries, so a stale cache matches the key and is silently reused.
+Every change to what the dictionaries contain must bump `DICT_CACHE_V`.
+
+**New tools.** `evidence.py --keywords FIRM` tags each word with its SOURCE
+(own text / CPV label / dictionary <code> / firm name) — the merged list hid
+the one thing worth reading. `evidence.py --dict CODE` reads a dictionary's
+pool split by `cpv_main` vs `cpv_additional`. `evidence.py --pairs` measures
+what the embedder scores on INFLECTION (0.88-0.96, passes) against SYNONYMS
+(0.29, fails) and against a max-over-document noise floor — the first
+receipt `SYN_THRESHOLD = 0.80` has ever had, since it was picked in the
+original phase-8 commit and never calibrated. `lexicon_receipt.py --show
+FIRMS` prints source-tagged lexicons; `--empty` dumps starved firms with the
+filter that killed each word.
+
+Rollbacks: `ROOT_LEXICON=0`, `NAME_KEYWORDS=0`, `DICT_VOTE=0`,
+`DICT_TRUSTED_ONLY=0` (opens the dormant work).
