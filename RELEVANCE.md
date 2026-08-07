@@ -1319,3 +1319,58 @@ is untouched at every phase, so nothing ships as a flag-day.
   firms is competitor identification for free: the same sidecar over award
   data answers "who competes with whom" per niche. Possible future
   analytics product; noted here so it is not re-derived from scratch.
+
+## Phase 8i — similarity no longer nominates (operator decision 2026-08-07)
+
+Route 2 of the nomination ladder — "this lot's text resembles the
+customer's past tenders" — is off (`SIMILARITY_NOMINATES = False`).
+Nomination is now the CPV hard-code match or the trade-evidence witnesses;
+no part of the evidence ladder reads the buyer name.
+
+**The decisive argument is that the test never exercised it.** The positive
+cases are the firm's OWN past wins, which come from buyers already in its
+profile, so `same_buyer` is true and route 2 is muted for most of them.
+Production is the mirror image: open lots come overwhelmingly from buyers
+the firm has never won from, so route 2 is on. We measured a gate with this
+route disabled and shipped one with it enabled — including when
+`NOMINATION_BAR` itself was chosen, which is the knob that controls it.
+
+Three supporting reasons. (a) Its safety catch is a string comparison:
+`same_buyer` is buyer-NAME equality, so "SBH | Schulbau Hamburg" and "GMH |
+Gebäudemanagement Hamburg GmbH" are different buyers and a shared municipal
+template passes — the Norderschulweg heating lot (GMH) reached a FLOORING
+firm whose six references are all SBH. It guards against one buyer
+repeating itself, not against a family of authorities sharing a template,
+which is the common German case. (b) It contradicts phase 8's founding
+decision: similarity was demoted because it cannot be trusted to CONVICT,
+yet it was still trusted to decide who gets considered — and the evidence
+test behind the door is satisfiable by coincidence ('dehnfug' in a
+water-reservoir spec). (c) The bar sweep moved leakage 0.4% → 1.6% → 6.0%
+as the bar dropped 0.70 → 0.55 → 0.40; that range is similarity admitting
+lots.
+
+**Receipt (`lexicon_receipt.py --config both`, 122 hand-labeled cases):**
+
+| route 2 | IN (should pass) | OUT (should reject) | total |
+| --- | --- | --- | --- |
+| on (rollback) | 29/74 | 45/52 | 74/126 |
+| **off (shipped)** | 26/74 | 45/52 | 71/126 |
+
+Read this honestly: removal costs 3 recall cases and buys **no measured
+precision**. That is not evidence the route was harmless — it is the same
+blind spot the decision is about. Route 2's harm lands on the ~3,000 open
+lots scored per production cycle, where it is on for nearly all of them;
+the benchmark's 52 rejection cases cannot see it. Its harm is also now
+partly masked by phase 8g: a wrongly nominated lot still needs convicting
+trade evidence, and the cleaned vocabulary usually denies it — which is why
+the polat picks that shipped in August no longer pass either way. The
+decision is made on the logic, not on this table.
+
+Known cost, unrepaired: route 2 uniquely rescued the lot whose TITLE names
+the trade with a single keyword, since the witness rule demands
+`EVIDENCE_NOMINATION_MIN` of them. The direct repair — let a title witness
+nominate, as conviction already treats it as sufficient — is measured
+separately, deliberately not folded into this decision. The 3 lost cases
+are the expected class.
+
+Rollback: `SIMILARITY_NOMINATES=1`.

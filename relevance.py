@@ -99,6 +99,50 @@ GATE_MODE = os.environ.get('GATE_MODE', 'evidence')
 # <= 0.50 leak >= 3.0%; bars >= 0.60 lose Kölln-Reisiek (18/19). Full
 # table in RELEVANCE.md phase 8.
 NOMINATION_BAR = 0.550
+# Phase 8i (operator decision 2026-08-07): SIMILARITY NO LONGER NOMINATES.
+# Route 2 -- "this lot's text resembles the customer's past tenders" -- is
+# off. Four reasons, in order of weight:
+#
+# 1. The test cannot see it. Positive cases are the firm's OWN past wins,
+#    which come from buyers already in its profile, so same_buyer is true
+#    and route 2 is MUTED for most of them. Production is the mirror
+#    image: open lots come overwhelmingly from buyers the firm never won
+#    from, so route 2 is ON. We measured a gate with this route disabled
+#    and shipped a gate with it enabled -- including when we chose
+#    NOMINATION_BAR itself, which is the knob that controls it.
+# 2. Its safety catch is a string comparison. same_buyer is buyer-NAME
+#    equality (_norm_buyer: casefold + whitespace). "SBH | Schulbau
+#    Hamburg" and "GMH | Gebaeudemanagement Hamburg GmbH" are different
+#    strings, so a shared municipal template sails through: the
+#    Norderschulweg heating lot (GMH) was nominated for a FLOORING firm
+#    whose six references are all SBH. The guard protects against one
+#    buyer repeating itself, not against a family of authorities sharing
+#    a document template -- which is the common case in German public
+#    procurement (a city and its Eigenbetrieb, a Landkreis and its Aemter).
+# 3. It contradicts phase 8's founding decision. Similarity was demoted
+#    because it is not trustworthy enough to CONVICT. But nomination is
+#    the door: whatever passes it need only clear the evidence test, and
+#    that test is satisfiable by coincidence (two filler words before the
+#    phase-8g vocabulary; 'dehnfug' in a water-reservoir spec after). A
+#    signal we do not trust to decide should not be trusted to decide who
+#    gets considered.
+# 4. It is the leakage source. The bar sweep moved leakage 0.4% -> 1.6%
+#    -> 6.0% as the bar dropped 0.70 -> 0.55 -> 0.40; that range is
+#    similarity admitting lots.
+#
+# What remains: the CPV hard-code match and the trade-evidence witnesses.
+# Both are buyer-independent, both mean the same thing in the test and in
+# production, and both are readable. With route 2 off, no part of the
+# evidence ladder consults the buyer name at all.
+#
+# KNOWN COST: route 2 uniquely rescued the lot whose TITLE names the trade
+# with a single keyword, since the witness rule demands
+# EVIDENCE_NOMINATION_MIN of them. The direct repair is to let a title
+# witness nominate (conviction already treats it as sufficient) -- measured
+# separately, not folded into this decision.
+# NOMINATION_BAR is inert while this is False; it stays because the
+# embedding ladder (GATE_MODE='embedding') and the sweep still use it.
+SIMILARITY_NOMINATES = os.environ.get('SIMILARITY_NOMINATES', '0') != '0'
 # Phase 8b, the witness rule (operator design, 2026-08-06): "one
 # coincidence is coincidence, multiple coincidences are a conviction."
 # Evidence alone may NOMINATE a lot (no similarity, no code — deliberately
@@ -446,10 +490,12 @@ def _evidence_verdict(profile, text, c_hard, same_buyer, has_evidence,
                       bar=None, nomination_min=None, witnesses=0,
                       convicting=None):
     """The phase-8 decision itself, pure arithmetic on the components —
-    shared by the runtime ladder and the sweep. NOMINATE by text similarity
-    against NOMINATION_BAR (same-buyer: text abstains), by a hard
+    shared by the runtime ladder and the sweep. NOMINATE by a hard
     trusted-code match, or by the evidence itself when it carries enough
-    distinct witnesses (phase 8b, EVIDENCE_NOMINATION_MIN); CONVICT by
+    distinct witnesses (phase 8b, EVIDENCE_NOMINATION_MIN) — and, only
+    when SIMILARITY_NOMINATES is set back on, by text similarity against
+    NOMINATION_BAR (phase 8i removed that route: it was invisible to the
+    test and guarded by a buyer-name string match); CONVICT by
     conviction-strength evidence (phase 8c(3): title witness or multiple
     distinct keywords; `convicting=None` falls back to any-evidence).
     Nominated with sub-conviction evidence, nominated without evidence,
@@ -462,7 +508,10 @@ def _evidence_verdict(profile, text, c_hard, same_buyer, has_evidence,
     if convicting is None:
         convicting = has_evidence
     nominated = (c_hard >= profile['min_code_hard']
-                 or (not same_buyer and text >= bar)
+                 # phase 8i: route 2 (similarity) is off by default — see
+                 # SIMILARITY_NOMINATES. `same_buyer` survives only to keep
+                 # the rollback arm honest; nothing else reads the buyer.
+                 or (SIMILARITY_NOMINATES and not same_buyer and text >= bar)
                  or (nomination_min > 0 and witnesses >= nomination_min))
     if nominated and convicting:
         return True, False
