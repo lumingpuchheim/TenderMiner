@@ -406,9 +406,33 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint):
 
     # promotion: all trust checks passed AND match-or-beat the champion's val PR-AUC
     champ = current_champion(paths)
+    # A champion trained on a different feature schema cannot score today's
+    # build AT ALL (predict_open compares the column list), so comparing PR-AUC
+    # to it decides nothing: the candidate is the only usable model. A feature
+    # change is therefore a forced, announced flag day — never a promotion rule
+    # that keeps a champion the next step cannot call.
+    champ_meta = (champ or {}).get('meta') or {}
+    champ_features = champ_meta.get('features')
+    incompatible = bool(champ and champ_features is not None
+                        and list(champ_features) != list(features))
     if gate['failures']:
         promote = False
         gate['warnings'].append('champion kept: trust check failed')
+        if incompatible:
+            gate['warnings'].append(
+                'AND the kept champion cannot score the current feature build — '
+                'this cycle will not predict until the failure above is fixed')
+    elif incompatible:
+        promote = True
+        added = [f for f in features if f not in set(champ_features)]
+        dropped = [f for f in champ_features if f not in set(features)]
+        gate['feature_schema_change'] = {'added': added, 'dropped': dropped,
+                                         'champion': champ['model_id']}
+        gate['warnings'].append(
+            f"feature schema changed vs champion {champ['model_id']} "
+            f'(+{len(added)}: {added or "-"}; -{len(dropped)}: {dropped or "-"}) '
+            '— candidate promoted unconditionally: the champion can no longer '
+            'score this build, so a PR-AUC comparison is not defined')
     elif small_val:
         promote = champ is None
         if champ:
@@ -584,8 +608,22 @@ def predict_open(paths, tenders, roles, aw, args):
         print('[predict] no open lots')
         return [], np.array([]), []
     X_open, cats_open, _, _ = sb.build_features(open_t, roles, list_frame=tenders)
-    assert list(X_open.columns) == list(model.feature_names_), \
-        'store schema no longer matches the champion model — retrain required'
+    if list(X_open.columns) != list(model.feature_names_):
+        # Reachable only when learn() could not promote a candidate (a trust
+        # check blocked it) across a feature change: the champion predates the
+        # current build and cannot score it. Loud skip, not a stack trace —
+        # ONLINE_LEARNING.md: "blocks keep the champion and notify; nothing
+        # fails silently". No scores this cycle means no picks this cycle, which
+        # the report and every subscription already state as an outcome.
+        now = set(X_open.columns)
+        had = set(model.feature_names_)
+        print(f'[predict] SCHEMA MISMATCH — champion {champ["model_id"]} was '
+              f'trained on a different feature set, so it cannot score this '
+              f'build. Not scoring this cycle. '
+              f'new: {sorted(now - had) or "-"}; '
+              f'gone: {sorted(had - now) or "-"}. '
+              f'Fix the blocked trust check in [learn] and rerun.')
+        return [], np.array([]), []
     scores = sb.predict(model, X_open)
     why_lonely, why_crowded = explain_rows(model, X_open, cats_open)
 

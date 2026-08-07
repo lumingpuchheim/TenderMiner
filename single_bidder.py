@@ -105,7 +105,24 @@ def _cat_str(v):
 
 
 def _hier_levels(col):
+    if col == 'cpv_main':
+        # Depth decision 2026-08-06 (TRAINING.md): the main code is expanded to
+        # its FULL 8 digits. cpv2 is dropped — under a CPV-45 scope it has one
+        # category, i.e. a constant column (measured: dropping it moves val
+        # PR-AUC by +0.0000). Digits 5-8 were previously discarded on 75.7% of
+        # lots, and they carry signal cpv4 cannot express: inside one cpv4
+        # bucket, cpv6 sub-buckets spread 13.2pt against a 10.3% base rate
+        # (permutation null 6.8pt, p ~ 0.000). A/B on the temporal holdout:
+        # PR-AUC 0.2766 -> 0.3071, +9.6% relative, positive in 4/4 split
+        # dates. Receipt: python cpv_depth_receipt.py
+        return [('cpv3', 3), ('cpv4', 4), ('cpv6', 6), ('cpv8', 8)]
     if 'cpv' in col:
+        # cpv_additional stays shallow and MUST: it is a list column, joined
+        # into one combination string per level, so its cardinality explodes
+        # with depth — 632 categories at cpv4 but 1048 at cpv5, over
+        # one_hot_max_size=1024, where CatBoost silently switches to CTR target
+        # statistics (leakage rule 4). The guard would fire; deepening this
+        # column needs a different encoding first, not a bigger cap.
         return [('cpv2', 2), ('cpv3', 3), ('cpv4', 4)]
     if 'nuts' in col:
         return [('nuts1', 3), ('nuts2', 4), ('nuts3', 5)]

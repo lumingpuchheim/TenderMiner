@@ -1,8 +1,10 @@
 # TRAINING — single-bidder classifier
 
-Status: agreed approach, not yet implemented. Complements [`MODELING.md`](MODELING.md)
-(older, broader price+bidders sketch); this document is the concrete recipe for the
-first model. Field roles: [`FIELDS.md`](FIELDS.md). EDA:
+Status: implemented in [`single_bidder.py`](single_bidder.py) and trained every cycle by
+[`loop.py`](loop.py) (`learn()`). Complements [`MODELING.md`](MODELING.md)
+(older, broader price+bidders sketch — where it says "first 4–5 digits" of the CPV,
+the CPV depth section below supersedes it); this document is the concrete recipe for
+the first model. Field roles: [`FIELDS.md`](FIELDS.md). EDA:
 [`eda_single_bidder.ipynb`](eda_single_bidder.ipynb).
 
 ## Label
@@ -27,7 +29,9 @@ Select mechanically by role (embedded in the parquet schema, see FIELDS.md):
 
 - `numeric`, `bool`, `categorical` → use as-is.
 - `hierarchical` → expand to prefix columns, then treat as categorical:
-  `cpv2/cpv3/cpv4`, `nuts1/nuts2/nuts3`, postal-zone first digit. The tree picks its
+  `cpv_main` → `cpv3/cpv4/cpv6/cpv8` (full depth — see **CPV depth** below),
+  `cpv_additional` → `cpv2/cpv3/cpv4` (shallow, and it must stay shallow — same
+  section), `nuts1/nuts2/nuts3`, postal-zone first digit. The tree picks its
   own level per split — the standard way to learn hierarchical categories.
 - `entity` (`buyer_name`) → **excluded in v1** (1,561 buyers, most with one lot —
   any encoding would memorize labels; see leakage rules 4-5). Returns in v2 as an
@@ -62,6 +66,85 @@ columns are NOT small (first training run, 2026-07-31, cpv45 Jan–Jun extract:
 `selection_criteria_types` joined-combo 650 categories, `cpv_additional__cpv4` 438,
 `place_nuts3__nuts3` 336, `buyer_nuts__nuts3` 300, `cpv_additional__cpv3` 210).
 1024 covers these; raise it (and rely on the assertion) if a new extract grows past it.
+
+Current measurement (2026-08-06, 6,353 labeled lots): `selection_criteria_types` 890,
+`cpv_additional__cpv4` 632, `place_nuts3__nuts3` 364, `buyer_nuts__nuts3` 334. The
+guard passes with 890 of a permitted 1024 — but the headroom is thin, and it is
+`cpv_additional` that will spend it first (see below). Regenerate with
+`python cpv_depth_receipt.py`.
+
+## CPV depth (decision 2026-08-06)
+
+`cpv_main` is expanded to its **full 8 digits**; `cpv_additional` stays at 4. The two
+codes are treated differently on purpose.
+
+The main code is a single string: at full depth it has **362** distinct values on the
+labeled frame, comfortably under the 1024 cap. `cpv_additional` is a *list* column,
+encoded as one joined combination string per level, so its cardinality grows with
+depth — **632** categories at cpv4 but **1048** at cpv5, already over the cap, where
+CatBoost silently switches the column to CTR target statistics. That is exactly what
+leakage rule 4 forbids, so deepening the additional codes needs a different encoding
+(per-code indicators, or a count), not a bigger cap.
+
+What the old `cpv2/cpv3/cpv4` build cost:
+
+- `cpv_main__cpv2` had **1** category under a CPV-45 scope — a constant column. The
+  A/B arm that simply drops it reproduces the old model to ±0.0000.
+- Digits 5-8 were discarded on **75.7%** of stored lots, and they name the actual
+  trade: `45312310` is Blitzschutz, not merely `4531` electrical installation.
+- Inside one cpv4 bucket the model could express exactly one rate, but the cpv6
+  sub-buckets diverge: weighted-mean spread **13.2pt** against a 10.3% base rate, vs
+  a permutation null (cpv6 shuffled within cpv4) of 6.8pt mean / 8.5pt p95 — 1.93x
+  the noise floor, p ~ 0.000. `4523` alone spans 5.4%–31.6% under one 22.0% price.
+
+A/B retrain, same features otherwise, temporal holdout, 3 seeds:
+
+| arm | `cpv_main` levels | val PR-AUC | Δ |
+|---|---|---|---|
+| old | cpv2,3,4 | 0.2766 (sd .0032) | — |
+| — | cpv3,4,5,6 | 0.2934 | +0.0169 |
+| **shipped** | **cpv3,4,6,8** | **0.3071** (sd .0028) | **+0.0305** |
+| — | cpv3,4 | 0.2766 | +0.0000 |
+
+Robust across split dates (quantiles 0.70/0.75/0.80/0.85): +0.0269 / +0.0290 /
++0.0292 / +0.0217 — positive 4/4, mean **+0.0267 (+9.6% relative)**. Not a leak: CPV
+is contract-notice metadata, the shuffled-label tripwire still collapses (0.1688 vs
+base rate 0.1519) and ROC-AUC 0.654 stays under the too-good limit. `cpv_main__cpv6`
+and `cpv_main__cpv8` come out **#1 and #2 of 83** features by importance.
+
+Read the gain as **ranking**, not accuracy at the operating point: precision at
+threshold 0.5 moves 0.285 → 0.289 and recall 0.220 → 0.211, i.e. flat. Delivery hands
+each customer the top ≤`max_picks` flagged lots in their slice
+([`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md)), so better ordering is what the product
+consumes — but +9.6% PR-AUC is not a promise that a flagged lot is more often right.
+
+Scope caveat: one store snapshot, CPV 45 / Germany. When the scope widens, `cpv2` and
+`cpv3` stop being near-constant and every cardinality above must be re-checked
+against `one_hot_max_size`.
+
+### A feature change is a flag day, and the loop now says so
+
+Changing the feature columns invalidates the champion: it cannot score the new build
+at all (`predict_open` compares the column list against `model.feature_names_`).
+Promotion used to require match-or-beating the champion's validation PR-AUC, which is
+undefined across a schema change — and a kept-but-unusable champion would have
+crashed the next cycle at the predict step. `learn()` therefore now detects a feature
+schema differing from the champion's and **promotes the candidate unconditionally**
+(trust checks still binding), naming the added and dropped columns in the gate.
+`predict_open` no longer asserts: on a mismatch it prints the two column sets and
+scores nothing this cycle, which the report and every subscription already express as
+an outcome. Reachable only when a trust check blocked the candidate across a change.
+
+For this decision that meant one forced promotion: champion `m2026-08-04-093924` (82
+features) → +`cpv_main__cpv6`, +`cpv_main__cpv8`, −`cpv_main__cpv2` (83 features).
+
+Rehearsed against a scratch copy of the registry before shipping (the real one was
+not opened for writing): `learn()` recorded the schema change, promoted, and the new
+champion could score the open lots. On the loop's OWN 8-week validation window — a
+different, smaller, later window than the holdout table above, so the two sets of
+numbers are not comparable — val PR-AUC went **0.6471 → 0.6690**. It would therefore
+have promoted on merit as well; the unconditional rule was not load-bearing this time,
+which is precisely why it should be in place before a change where it is.
 
 ## Evaluation
 
@@ -138,7 +221,10 @@ Enforceable rules, in order of application:
 
 ## Known caveats
 
-- ~700 labeled lots today and growing; retrain as awards arrive.
+- ~700 labeled lots when this was written; 6,353 as of 2026-08-06 and growing —
+  retrain as awards arrive (the loop does, every cycle).
 - Corpus is homogeneous (German open-procedure construction works) — `procedure_type`
-  and top-level CPV carry no signal; do not conclude they never would.
+  and top-level CPV carry no signal; do not conclude they never would. Measured, and
+  acted on: `cpv_main__cpv2` was literally constant and is gone (CPV depth above).
+  *Deep* CPV is the opposite case — it is the single strongest feature group.
 - `accelerated` is still a `"true"/"false"` string (open fix).
