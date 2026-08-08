@@ -161,6 +161,89 @@ Receipts:
   directly; `explain.py`, `feedback.py --list` and the `subscriptions.py` CLI
   all still work on the file path.
 
+## 4d. The migration was run on live data (2026-08-08)
+
+`python db.py --migrate` against the real `data/`, on operator instruction.
+
+| | |
+|---|---|
+| migrated | 13 subscription versions, 90,604 predictions, 55 deliveries, 7 grades, 5 learned refs |
+| derived | 8 customers, from the newest version of each subscription |
+| `gate_configs` | no source file yet — no cycle had run since the stamp shipped |
+| database size | 81 MB |
+| duration | 18 seconds |
+
+`--verify` passed: every table exported back out reproduces its source file
+line for line. The six source files' MD5 sums are **unchanged** — migration
+does not touch them. `subscriptions.py` then reported
+`data	endermining.db [db]` and `tryout.py` rendered `beck` and
+`jebsen-blitzschutz` identically to the pre-migration run.
+
+### The first cycle on the database
+
+`python loop.py run --last 7d --skip-download`, same day. Promoted
+`m2026-08-08-081530`, scored 3,873 open lots, all four drift monitors ok
+(single-bid rate 0.103 in a 0.019–0.229 band; score PSI 0.009 against a 0.25
+warning). Delivered 21 recommendations to six of eight customers;
+`jebsen-blitzschutz` (1 lot matched) and `polat-real-estate` (2) had nothing
+clear the bar, which is the product working rather than failing.
+
+Phase 3's stamp appeared on real rows for the first time: **16 of the 21 new
+delivery rows carry `gate_config=7d29fa0dce`, `gate_mode=evidence`**, and the
+registry recorded that configuration with a timestamp. The other 5 are
+`brueckenbau-demo`, the one ungated subscription — no gate judged those lots,
+so there is correctly nothing to stamp.
+
+### And immediately, the argument for step 3
+
+One cycle later the database's copies of the ledgers are already behind:
+
+| table | in database | in file | file ahead by |
+|---|---|---|---|
+| `prediction` | 90,604 | 94,477 | 3,873 |
+| `delivery` | 55 | 76 | 21 |
+
+Harmless, because nothing reads those tables — and exactly the point. Two
+copies of the same ledger with only one of them true is a state to leave
+quickly, not to live in.
+
+## 4e. Step 3 landed: the small ledgers (2026-08-08)
+
+[`ledger.py`](../ledger.py) is `subscriptions.py`'s shape one layer over: a
+caller names a **home directory** and a ledger by name, and the module decides
+whether that home's records are in the database or still in
+`<home>/ledger/<name>.jsonl`.
+
+    rows = ledger.read(paths.deliveries_home, 'deliveries')
+    ledger.append(paths.deliveries_home, 'deliveries', new_rows)
+
+Switched over: `delivery`, `learned_ref`, `gate_config`. `loop.Paths.deliveries`
+(a file) became `Paths.deliveries_home` (a directory); `feedback.read_learned`
+and `append_learned` go through it; `tryout.py` and `replay.py` build their
+sandbox with `ledger.start()`, so a scratch world is the shipped storage rather
+than a private format. It is generic over the ledger name, so step 4 is a
+call-site change with no new storage logic.
+
+**The staleness guard earned its keep immediately.** Pointed at the live `data/`
+it refused to read: the delivery file held 76 rows against the database's 55,
+because a cycle had run since the migration. Those 21 rows would have been
+invisible to a database-backed read — a customer's retrospective missing its
+most recent week. The guard compares row COUNTS rather than content: these are
+append-only logs, so "the file has more lines than the table has rows" is
+exactly the question, and it costs one `COUNT(*)` instead of diffing 90,000
+rows per read.
+
+The live database was then brought current — `db.py --migrate` took in the
+3,873 new predictions, 21 deliveries and 1 gate config, and `--verify` still
+reports byte-faithful.
+
+Receipts: file-backed and database-backed reads return identical rows for all
+three ledgers; appending the same row to both gives identical read-back;
+appending it twice to the database writes 0 the second time, so a re-run cannot
+duplicate a customer's record. `tryout.py` renders `beck` and `n3bau`
+byte-identically against the pre-change code, run back-to-back, with the
+sandbox now containing nothing but `tendermining.db`.
+
 ## 5. Open calls — these need an operator decision
 
 ### 5.1 `models/registry.jsonl` (21 rows) and `models/CURRENT`
@@ -198,10 +281,16 @@ piece of work with 5.1 and the ledger writes together.
 A cron cycle that fires mid-migration would append to a file about to be
 frozen, and those rows would be lost.
 
-**Recommendation:** migrate immediately after a cycle completes, and have the
-JSONL writers refuse to write once a `.migrated-*` marker exists — so the
-worst case is a loud failure, not silent data loss. If a cycle is scheduled
-during the window, disable the cron first.
+**Partly answered by how step 2 was built (2026-08-08).** Because storage is
+dual-read — database when present, file when not — there was no window to hit
+for subscriptions: the migration ran on live data mid-week with no cron
+coordination and no flag day, and deleting the database would have reverted
+it.
+
+That holds for every step where the file remains readable. It stops holding at
+two points: **step 4**, when predictions and grades become load-bearing, and
+**the freeze**, when the files stop being readable at all. For those two:
+migrate right after a cycle completes, and disable the cron for the window.
 
 ### 5.4 Does `simulation` belong at all?
 
@@ -236,6 +325,10 @@ conversation.
 |---|---|---|
 | 2026-08-07 | SQLite replaces the JSONL ledgers completely, not just subscriptions | operator |
 | 2026-08-08 | callers name a subscription *home directory*, never a storage file; `write_sandbox` replaces hand-written sandbox files | implemented, see REFACTOR.md phase 2 pre-work |
+| 2026-08-08 | step 1: `db.py` — schema, migration, byte-faithful export, `--verify` | implemented |
+| 2026-08-08 | step 2: subscriptions read from the database, dual-read, no flag day | implemented |
+| 2026-08-08 | **migration run on live `data/`**, verified, first cycle green | operator instruction |
+| 2026-08-08 | step 3: `ledger.py` — deliveries, learned refs, gate configs read/append through storage | implemented |
 | | 5.1 registry / CURRENT: | |
 | | 5.2 loop_checkpoint: | |
 | | 5.3 migration window: | |

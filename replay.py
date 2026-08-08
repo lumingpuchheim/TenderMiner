@@ -43,6 +43,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 import calibrate as cal
+import ledger
 import loop
 import relevance as rel
 import single_bidder as sb
@@ -285,7 +286,7 @@ def main():
     paths.subs_home = OUT
     paths.predictions = OUT / 'ledger' / 'predictions.jsonl'
     paths.grades = OUT / 'ledger' / 'grades.jsonl'
-    paths.deliveries = OUT / 'ledger' / 'deliveries.jsonl'
+    paths.deliveries_home = ledger.start(OUT)
     paths.reports = OUT / 'reports'
 
     weeks = max(1, int((D2 - D).days / 7) + 2)
@@ -327,8 +328,7 @@ def main():
     rep2 = paths.reports / 'subscriptions' / sub_id / f'report_{D2.date()}.html'
 
     print()
-    delivered = [json.loads(line) for line in
-                 open(paths.deliveries, encoding='utf-8')]
+    delivered = ledger.read(paths.deliveries_home, 'deliveries')
     outcome = {(g['procedure_id'], g['lot_id']): g for g in grades}
     for d in [d for d in delivered if d.get('kind') == 'pick']:
         g = outcome.get((d['procedure_id'], d['lot_id']))

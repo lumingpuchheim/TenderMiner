@@ -31,6 +31,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+import ledger
 import single_bidder as sb
 import subscriptions
 
@@ -145,7 +146,10 @@ class Paths:
         self.store_awards = self.data / 'store' / 'awards.parquet'
         self.predictions = self.data / 'ledger' / 'predictions.jsonl'
         self.grades = self.data / 'ledger' / 'grades.jsonl'
-        self.deliveries = self.data / 'ledger' / 'deliveries.jsonl'
+        # the HOME whose storage holds the delivery record and the gate-config
+        # registry — a directory, not a file (ledger.py owns the format).
+        # tryout/replay point this at a sandbox.
+        self.deliveries_home = self.data
         # the DIRECTORY subscriptions live in, not the file: the storage
         # format belongs to subscriptions.py (tryout/replay point this at a
         # sandbox dir instead)
@@ -727,12 +731,14 @@ def record_gate_config(paths, config):
     replay.py redirect deliveries into a sandbox while still reading the real
     store, and a sandbox experiment must not append a configuration to the
     record of what customers were actually served under."""
-    path = paths.deliveries.parent / 'gate_configs.jsonl'
-    if any(r.get('fingerprint') == config.fingerprint for r in read_jsonl(path)):
+    home = paths.deliveries_home
+    if any(r.get('fingerprint') == config.fingerprint
+           for r in ledger.read(home, 'gate_configs')):
         return False
-    append_jsonl(path, [{'fingerprint': config.fingerprint,
-                         'first_seen': now_utc().isoformat(timespec='seconds'),
-                         **config.as_dict()}])
+    ledger.append(home, 'gate_configs',
+                  [{'fingerprint': config.fingerprint,
+                    'first_seen': now_utc().isoformat(timespec='seconds'),
+                    **config.as_dict()}])
     print(f'[deliver] new gate configuration recorded: {config.describe()}')
     return True
 
@@ -840,7 +846,7 @@ def deliver(paths, scored, args):
         key = (row['procedure_id'], row['lot_id'])
         if key not in latest or str(row['publication_date']) >= str(latest[key]['publication_date']):
             latest[key] = row
-    past = read_jsonl(paths.deliveries)
+    past = ledger.read(paths.deliveries_home, 'deliveries')
     already = {(d['sub_id'], d['procedure_id'], d['lot_id'], str(d['ts'])[:10])
                for d in past}
     by_sub = {}
@@ -1081,7 +1087,7 @@ def deliver(paths, scored, args):
             # still written as the operator's lookup
             print(f"[deliver] {sub['sub_id']}: nothing to report — "
                   f'no report written')
-        append_jsonl(paths.deliveries, deliveries)
+        ledger.append(paths.deliveries_home, 'deliveries', deliveries)
         n_rows += len(deliveries)
         print(f"[deliver] {sub['sub_id']}: {len(top)} lots delivered "
               f'({len(rows)} matched, {len(deliveries)} new delivery rows)')

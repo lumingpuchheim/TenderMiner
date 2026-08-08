@@ -44,6 +44,7 @@ from pathlib import Path
 
 import pandas as pd
 
+import ledger
 import subscriptions
 
 if hasattr(sys.stdout, 'reconfigure'):
@@ -60,16 +61,14 @@ LEDGER_NAME = 'learned_refs.jsonl'
 
 
 def ledger_path(data_dir):
-    return Path(data_dir) / 'ledger' / LEDGER_NAME
+    """Kept for messages and --rebuild; the records themselves go through
+    ledger.py, which decides whether they live in the file or the database."""
+    return ledger.file_path(data_dir, 'learned_refs')
 
 
 def read_learned(data_dir):
-    """All learned rows, oldest first. Missing file is not an error."""
-    p = ledger_path(data_dir)
-    if not p.exists():
-        return []
-    return [json.loads(line) for line in
-            p.read_text(encoding='utf-8').splitlines() if line.strip()]
+    """All learned rows, oldest first. Absent storage is not an error."""
+    return ledger.read(data_dir, 'learned_refs')
 
 
 def refs_for(rows, sub_id, as_of):
@@ -87,18 +86,17 @@ def refs_for(rows, sub_id, as_of):
 
 
 def append_learned(data_dir, new_rows):
-    """Append rows, skipping any (sub_id, pub) already recorded."""
+    """Append rows, skipping any (sub_id, pub) already recorded.
+
+    The dedup is still done here rather than left to the table's primary key,
+    because the count returned is reported to the operator as "how many were
+    new" — and because this must give the same answer on file storage, which
+    has no key at all."""
     if not new_rows:
         return 0
-    p = ledger_path(data_dir)
-    p.parent.mkdir(parents=True, exist_ok=True)
     seen = {(r.get('sub_id'), r.get('pub')) for r in read_learned(data_dir)}
     fresh = [r for r in new_rows if (r['sub_id'], r['pub']) not in seen]
-    if fresh:
-        with p.open('a', encoding='utf-8') as f:
-            for r in fresh:
-                f.write(json.dumps(r, ensure_ascii=False) + '\n')
-    return len(fresh)
+    return ledger.append(data_dir, 'learned_refs', fresh)
 
 
 def award_names(sub):
