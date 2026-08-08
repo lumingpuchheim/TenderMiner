@@ -15,10 +15,12 @@ folklore, re-derived wherever they were needed:
   * **Is this field even real?** Nothing asked. `top_n` and `avoid_n` sat in
     live subscription lines, read by no code at all, silently ignored.
 
-This module owns all three. It does NOT own storage: subscriptions are still
-lines in `data/subscriptions.jsonl` exactly as SUBSCRIPTIONS.md describes
-them. Moving them into SQLite is phase 2, and the point of doing phase 1
-first is that phase 2 then changes this file's internals and nothing else.
+This module owns all three, **and it owns storage** — which is the point.
+Phase 2 moved subscriptions from `data/subscriptions.jsonl` into the SQLite
+database (`db.py`) by changing this file's internals and nothing else: not one
+call site moved, because callers name a home DIRECTORY and let `storage()`
+resolve it. A home with a database is served from it; a home with only the
+file is served from the file, so there was no flag day. See doc/STORAGE.md.
 
 ## Validation is deliberately asymmetric
 
@@ -230,7 +232,23 @@ def storage(home):
     return ('jsonl', live) if live.exists() else None
 
 
-def _read_jsonl(path):
+# Retired-field notices are announced ONCE per process per field. A cycle
+# calls load() twice and each call reads both the database and (for the
+# staleness cross-check) the file, so an announce-every-read notice printed
+# eight identical lines into the cycle log. The operator needs to know once.
+_WARNED = set()
+
+
+def _announce_retired(where, retired, unit):
+    for field, n in sorted(retired.items()):
+        if field in _WARNED:
+            continue
+        _WARNED.add(field)
+        print(f'[subscriptions] {where}: ignoring retired field {field!r} on '
+              f'{n} {unit}(s) — superseded by {RETIRED[field]}')
+
+
+def _read_jsonl(path, quiet=False):
     rows, retired = [], {}
     for i, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
         if not line.strip():
@@ -240,9 +258,8 @@ def _read_jsonl(path):
         except json.JSONDecodeError as e:
             raise SubscriptionError(f'{path}:{i}: not valid JSON ({e})') from e
         rows.append(validate(row, source=path, lineno=i, retired_out=retired))
-    for field, n in sorted(retired.items()):
-        print(f'[subscriptions] {path.name}: ignoring retired field {field!r} '
-              f'on {n} line(s) — superseded by {RETIRED[field]}')
+    if not quiet:
+        _announce_retired(path.name, retired, 'line')
     return rows
 
 
@@ -271,14 +288,12 @@ def read_all(home):
     retired = {}
     rows = [validate(r, source=path, retired_out=retired)
             for r in db.subscription_rows(con)]
-    for field, n in sorted(retired.items()):
-        print(f'[subscriptions] {path.name}: ignoring retired field {field!r} '
-              f'on {n} version(s) — superseded by {RETIRED[field]}')
+    _announce_retired(path.name, retired, 'version')
     legacy = Path(home) / FILE_NAME
     if legacy.exists():
         stored = db.subscription_versions_present(con)
         missing = [(r.get('sub_id'), int(r.get('version') or 1))
-                   for r in _read_jsonl(legacy)
+                   for r in _read_jsonl(legacy, quiet=True)
                    if (r.get('sub_id'), int(r.get('version') or 1)) not in stored]
         if missing:
             raise SubscriptionError(
