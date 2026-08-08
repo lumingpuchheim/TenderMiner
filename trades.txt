@@ -73,7 +73,9 @@ schlitzwand
 terrassier
 
 = Garten- und Landschaftsbau
+landschaftsbau
 landschaftsgaertner
+galabau
 begruenung
 pflanzarbeit
 gehoelz
@@ -85,6 +87,7 @@ gestruepp
 
 = Beton- und Stahlbetonarbeiten
 betonarbeit
+stuetzwand
 betonbau
 ortbeton
 sichtbeton
@@ -114,6 +117,7 @@ steinmetz
 
 = Stahl- und Metallbau
 stahlbau
+leichtmetall
 metallbau
 metallkonstruktion
 schlosser
@@ -336,6 +340,7 @@ beschlag
 
 = Elektroinstallation
 elektroinstallation
+umspannwerk
 elektroarbeit
 elektrotechn
 starkstrom
@@ -375,6 +380,8 @@ netzersatzanlage
 
 = Gebäudeautomation und Datennetz
 gebaeudeautomation
+fernmelde
+medientechn
 gebaeudeleittechn
 regelungstechn
 messtechn
@@ -427,6 +434,9 @@ eckventil
 
 = Heizungstechnik
 heizung
+geothermie
+nahwaerm
+waermeversorg
 zentralheizung
 heizkoerper
 brennwertkessel
@@ -466,6 +476,9 @@ kuehldeck
 
 = Aufzüge und Fördertechnik
 aufzug
+fahrtreppe
+treppenlift
+foerderanlag
 aufzueg
 fahrsteig
 rolltreppe
@@ -486,6 +499,7 @@ mittelstreif
 
 = Kanalbau und Rohrsanierung
 kanalbau
+kanalsanier
 kanalisation
 schachtunterteil
 rohrsanier
@@ -506,6 +520,8 @@ strassenbahn
 
 = Verkehrssicherung und Schutzeinrichtungen
 leitplank
+signalausleg
+beschilder
 schutzplank
 fahrzeugrueckhalt
 anpralldaempf
@@ -550,3 +566,45 @@ laboreinricht
 buehnentechn
 empfangstheke
 sitzstufen
+
+= Brückenbau
+brueckenbau
+behelfsbrueck
+hilfsbrueck
+ueberfuehrungsbauwerk
+eisenbahnueberfuehr
+
+= Modulbau
+modulbau
+
+= Sportstätten und Sportgeräte
+sportplatzbau
+sportgeraet
+sporteinbau
+prallwand
+kletterwand
+trennvorh
+# "Sportgeräte" and "Transportgeräte" differ by one letter this matcher
+# cannot see — the same collision cpv_trade_roots.txt lists as an exception.
+-transportgeraet
+
+= Schwimmbad- und Badewassertechnik
+badewassertechn
+schwimmbadtechn
+badetechn
+edelstahlbeck
+beckenabdeck
+hubboden
+-schubboden
+
+= Möbel und Raumausstattung
+moeblier
+kuechenausstatt
+labortisch
+fachraumausstatt
+fachraumeinricht
+
+= Bau- und Gebäudereinigung
+baureinig
+gebaeudereinig
+feinreinig
