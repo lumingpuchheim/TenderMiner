@@ -56,7 +56,13 @@
 # A word can contain a trade root and still not name the trade: Klassen|
 # zimmer is a room, not carpentry, and Hain|holz is a village. Lines
 # beginning with "-" are exceptions -- a candidate containing one is
-# rejected even if it also contains a root. Keep that list short: it is a
+# rejected even if it also contains a root. They may sit anywhere; the ones
+# written since are kept BESIDE the root they patch, because an exception
+# read away from its root looks arbitrary (-podestwang means nothing until
+# you see `estw` above it). Write them as narrow as the collision: -podest
+# would also have thrown away podestgelaender, gitterrostpodeste and
+# holzpodeste -- 25 lots of real trade words to remove 3 of noise.
+# Keep the list short: it is a
 # patch for compound collisions, not a second vocabulary. Everything else
 # still runs on top (buyer diversity, store rarity), and jargon whose root
 # is missing is simply lost -- add the root, do not weaken the rule.
@@ -107,6 +113,8 @@ fundament
 homogenbereich
 baustelleneinrichtung
 landschaftsgaertner
+landschaftsbau
+galabau
 begruenung
 gestruepp
 pflanzarbeit
@@ -115,6 +123,7 @@ baumpflege
 rasen
 kunstrasen
 tartan
+sportplatzbau
 fallschutz
 spielplatzgeraet
 altlast
@@ -123,9 +132,11 @@ asbest
 kampfmittel
 wasserhaltung
 spundwand
+stuetzwand
 uferbefestig
 deichbau
 rohrsanier
+kanalsanier
 schlauchliner
 inliner
 kanalfernsehen
@@ -157,6 +168,7 @@ naturwerkstein
 naturstein
 quaderstein
 rohbau
+baumeister
 schalung
 betonschal
 ausschal
@@ -166,6 +178,7 @@ einpress
 ummantel
 fertigteil
 fertigbau
+modulbau
 baustahl
 stahlbau
 metallbau
@@ -331,6 +344,7 @@ pfosten-riegel
 vorhangfassad
 elementfassad
 aluminiumfenster
+leichtmetall
 kunststofffenster
 holzfenster
 fensterbank
@@ -367,14 +381,26 @@ vorvergraut
 trennwand
 trennwaend
 einbaumoebel
+moebel
+moeblier
 einbaukueche
 grosskueche
 kuechentechn
+kuechenausstatt
 laboreinricht
+labortisch
+fachraumausstatt
+fachraumeinricht
 buehnentechn
 empfangstheke
 garderobe
 sitzstufen
+sportgeraet
+sporteinbau
+-transportgeraet
+prallwand
+trennvorh
+kletterwand
 beschlag
 schliessanlage
 schliesszylind
@@ -387,6 +413,9 @@ fresk
 epoxidharz
 industrieboden
 bodenbeschicht
+baureinig
+gebaeudereinig
+feinreinig
 
 # === Technische Gebaeudeausruestung
 elektro
@@ -397,6 +426,8 @@ hochspannung
 mittelspannung
 niederspannung
 transformator
+trafo
+umspannwerk
 schaltanlage
 schaltschrank
 stromversorg
@@ -442,11 +473,15 @@ gebaeudeautomation
 gebaeudeleittechn
 regelungstechn
 messtechn
+msr
+-umsraeum
 datennetz
 netzwerktechn
+fernmelde
 strukturierte
 lichtwellenleiter
 elektroakust
+medientechn
 sprachalarm
 zutrittskontroll
 videoueberwach
@@ -465,6 +500,7 @@ sprinkler
 feuerloesch
 sanitaer
 sanitaerkeramik
+nasszelle
 installateur
 armatur
 mischbatterie
@@ -497,9 +533,12 @@ druckhaltestation
 entgasung
 nachspeisung
 waermepump
+geothermie
 pufferspeicher
 warmwasserspeicher
 fernwaerme
+nahwaerm
+waermeversorg
 uebergabestation
 heizkreis
 thermostatventil
@@ -524,6 +563,7 @@ kulissenschalldaempf
 schalldaempf
 schalldaemmlueft
 kreuzstromwaermetausch
+waermetausch
 waermerueckgewinn
 wickelfalzrohr
 lueftungskanal
@@ -553,6 +593,9 @@ aufzueg
 tragmittel
 fahrsteig
 rolltreppe
+fahrtreppe
+treppenlift
+foerderanlag
 krananlage
 hebebuehne
 foerdertechn
@@ -573,6 +616,13 @@ schlammbehandl
 belebungsbecken
 nachklaerbecken
 schlammentwaess
+badewassertechn
+schwimmbadtechn
+badetechn
+edelstahlbeck
+hubboden
+-schubboden
+beckenabdeck
 
 # === Verkehrswege, Kanal, Gleis und Aussenanlagen
 strassenbau
@@ -580,7 +630,13 @@ asphalt
 pflaster
 fahrbahn
 oberbau
+belastungsklass
 tiefbau
+brueckenbau
+behelfsbrueck
+hilfsbrueck
+ueberfuehrungsbauwerk
+eisenbahnueberfuehr
 kanalbau
 kanalisation
 schachtunterteil
@@ -590,6 +646,12 @@ gleisbett
 weichen
 oberleitung
 fahrleitung
+estw
+-mindestw
+-podestwang
+-festwert
+-westwerk
+signalausleg
 stadtbahn
 strassenbahn
 markierung
@@ -610,6 +672,7 @@ ampel
 lichtsignal
 signalgeber
 strassenschild
+beschilder
 zaun
 gelaender
 handlauf

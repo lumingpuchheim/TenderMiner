@@ -1,0 +1,59 @@
+<svg viewBox="0 0 780 452" xmlns="http://www.w3.org/2000/svg" width="780" height="452" role="img">
+<title>Precision, recall and slipped-in on the 1,600-lot benchmark (2026-08-08)</title>
+<desc>Each panel is the 1,600 hand-read lots: a circle of 554 lots that are the firm's own business, and a circle of what the gate shows. The evidence gate overlaps 387, misses 167, admits 106 wrong lots. The embedding gate overlaps 274, misses 280, admits 82. Precision divides the overlap by the shown circle; slipped-in divides the wrong lots by all 1,046 lots that are not the firm's business.</desc>
+<style>
+  svg { --fg: #1a1a19; --fg2: #6b6b68; --line: #c9c9c4; --acc: #b8593b; --neu: #6b6b68; }
+  @media (prefers-color-scheme: dark) {
+    svg { --fg: #f2f2ee; --fg2: #a3a39d; --line: #4a4a46; --acc: #e08768; --neu: #a3a39d; }
+  }
+  text { font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif; }
+</style>
+
+<g font-size="12" fill="var(--fg2)">
+  <circle cx="240" cy="18" r="7" fill="var(--acc)" fill-opacity="0.2" stroke="var(--acc)" stroke-width="1.5"/>
+  <text x="254" y="22">actually your business (554)</text>
+  <circle cx="460" cy="18" r="7" fill="var(--neu)" fill-opacity="0.18" stroke="var(--neu)" stroke-width="1.5" stroke-dasharray="3 2"/>
+  <text x="474" y="22">what the gate shows you</text>
+</g>
+
+<g>
+  <text x="248" y="56" text-anchor="middle" font-size="14" font-weight="600" fill="var(--fg)">evidence gate (live)</text>
+  <rect x="112" y="70" width="272" height="266" rx="10" fill="none" stroke="var(--line)" stroke-width="1"/>
+  <text x="122" y="90" font-size="11" fill="var(--fg2)">1,600 lots read</text>
+  <circle cx="215" cy="205" r="85" fill="var(--acc)" fill-opacity="0.2" stroke="var(--acc)" stroke-width="1.5"/>
+  <circle cx="288" cy="205" r="80" fill="var(--neu)" fill-opacity="0.18" stroke="var(--neu)" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="158" y="200" text-anchor="middle" font-size="17" font-weight="600" fill="var(--fg)">167</text>
+  <text x="158" y="216" text-anchor="middle" font-size="10" fill="var(--fg2)">missed</text>
+  <text x="251" y="200" text-anchor="middle" font-size="19" font-weight="700" fill="var(--fg)">387</text>
+  <text x="251" y="216" text-anchor="middle" font-size="10" fill="var(--fg2)">right picks</text>
+  <text x="337" y="200" text-anchor="middle" font-size="17" font-weight="600" fill="var(--fg)">106</text>
+  <text x="337" y="216" text-anchor="middle" font-size="10" fill="var(--fg2)">wrong</text>
+  <text x="122" y="326" font-size="11" fill="var(--fg2)">940 correctly ignored</text>
+</g>
+
+<g>
+  <text x="628" y="56" text-anchor="middle" font-size="14" font-weight="600" fill="var(--fg)">embedding gate (retired)</text>
+  <rect x="492" y="70" width="272" height="266" rx="10" fill="none" stroke="var(--line)" stroke-width="1"/>
+  <text x="502" y="90" font-size="11" fill="var(--fg2)">1,600 lots read</text>
+  <circle cx="595" cy="205" r="85" fill="var(--acc)" fill-opacity="0.2" stroke="var(--acc)" stroke-width="1.5"/>
+  <circle cx="668" cy="205" r="68" fill="var(--neu)" fill-opacity="0.18" stroke="var(--neu)" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="540" y="200" text-anchor="middle" font-size="17" font-weight="600" fill="var(--fg)">280</text>
+  <text x="540" y="216" text-anchor="middle" font-size="10" fill="var(--fg2)">missed</text>
+  <text x="630" y="200" text-anchor="middle" font-size="19" font-weight="700" fill="var(--fg)">274</text>
+  <text x="630" y="216" text-anchor="middle" font-size="10" fill="var(--fg2)">right picks</text>
+  <text x="712" y="200" text-anchor="middle" font-size="17" font-weight="600" fill="var(--fg)">82</text>
+  <text x="712" y="216" text-anchor="middle" font-size="10" fill="var(--fg2)">wrong</text>
+  <text x="502" y="326" font-size="11" fill="var(--fg2)">964 correctly ignored</text>
+</g>
+
+<g font-size="12" fill="var(--fg)">
+  <text x="112" y="366">precision = 387 / (387+106) = <tspan font-weight="700">79%</tspan></text>
+  <text x="112" y="386">recall = 387 / 554 = <tspan font-weight="700">70%</tspan></text>
+  <text x="112" y="406">slipped in = 106 / 1,046 = <tspan font-weight="700">10%</tspan></text>
+  <text x="492" y="366">precision = 274 / (274+82) = <tspan font-weight="700">77%</tspan></text>
+  <text x="492" y="386">recall = 274 / 554 = <tspan font-weight="700">49%</tspan></text>
+  <text x="492" y="406">slipped in = 82 / 1,046 = <tspan font-weight="700">8%</tspan></text>
+</g>
+
+<text x="112" y="438" font-size="11" fill="var(--fg2)">Same 106 wrong lots on top of both fractions; precision divides by what the gate shows, slipped-in by all 1,046 lots that are not your business.</text>
+</svg>

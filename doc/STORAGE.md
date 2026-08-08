@@ -348,14 +348,27 @@ two points: **step 4**, when predictions and grades become load-bearing, and
 **the freeze**, when the files stop being readable at all. For those two:
 migrate right after a cycle completes, and disable the cron for the window.
 
-### 5.4 Does `simulation` belong at all?
+### 5.4 `simulation` — DECIDED and DONE 2026-08-08
 
-15,822 rows of market-scale simulated picks, used by `simulation.py check` and
-`outreach.py`. It is a record of decisions, so section 1 says database.
+15,835 rows of market-scale simulated picks, read by `simulation.py check` and
+`outreach.py`. The operator settled it: *"I want to see the numbers."* Simulated
+picks joined against outcomes **are** numbers, and leaving the one ledger outside
+the system so it could not be joined to the others was the wrong side of the
+line.
 
-**Recommendation: move it**, but last, and note that it is the one table whose
-rows nobody has ever queried by key — it is read whole. If it turns out to be
-a pure analysis artifact, it could equally stay a file.
+Now the `simulation` table, unique on `(company, procedure_id, lot_id)` — which
+is the dedup rule `simulation.py` was keeping in a Python set. `outreach.py`
+counted the file's lines to get each company's product volume; through
+`ledger.py` now, or it would have undercounted by every cycle since the table
+landed.
+
+Receipts: 15,835 rows migrated, `--verify` byte-faithful, `ledger.read` returns
+rows identical to the frozen file, `outreach.simulated_picks` agrees across all
+3,451 companies, and `simulation.py check` still reports "15,835 simulated picks
+· 3,451 companies".
+
+**All eight ledgers are now in the database.** `models/registry.jsonl`,
+`models/CURRENT` and `loop_checkpoint.json` remain files by decision (5.1, 5.2).
 
 ### 5.5 Erasure is incomplete — found by the tests (2026-08-08)
 
@@ -457,23 +470,80 @@ nothing, which looked exactly like the append-only guard being absent. Every
 ledger table is seeded now, and a second test asserts the seeding so the first
 cannot go vacuous.
 
-### 6.4 Finish the migration: `prediction` and `grade` (medium)
+### 6.4 Finish the migration: `prediction` and `grade` — DONE 2026-08-08
 
-The cycle reads the 51 MB prediction file three times per run — to skip
-already-scored tenders, to find each lot's last score before its award, and to
-look up a title for a report. Each becomes an indexed query.
+**The plan said three reads. There were thirteen, across five files** —
+`loop.py` (eight), `render_dashboard.py`, `simulation.py` (two) and
+`tryout.py`. The sizing above was wrong and is corrected here rather than
+quietly grown.
 
-*Honest sizing:* the speed saving is seconds, not minutes; an earlier section
-oversold it. The real reason is that there is presently **one set of records in
-two storage systems**, with the database's copies of these two tables going
-stale every cycle. That is the state to leave.
+`ledger.py` gained four targeted queries so the cycle stops asking for 94,000
+rows to answer a narrow question: `prediction_keys` (the dedup rule),
+`predictions_by_lot(lots=…)` (grading needs only lots whose award just
+published), `prediction_titles` (the receipt fallback) and
+`prediction_scores_since` (the drift window is a WHERE clause). Each keeps a
+file branch that is the *original* code, deliberately: while a ledger can still
+live in a file, "the two paths agree" must stay checkable, and the file branch
+is what the tests compare against.
 
-*What changes in risk:* until now the files stayed complete and deleting the
-database reverted everything. After this the database is the only current copy,
-so this item includes **proving** the rollback — export, revert, run a cycle
-from files — rather than describing it.
+`loop.Paths.predictions`/`.grades` (two files) became `Paths.ledger_home` (a
+directory). `replay.py` writes its sandbox world through `ledger.append`
+instead of truncating two files.
+
+**The dangerous part was the three peripheral readers.** `render_dashboard.py`,
+`simulation.py` and `tryout.py` each parsed `predictions.jsonl` directly. Once
+the cycle writes to the database the file stops growing — so left alone they
+would have shown a market weeks out of date, silently, with no error anywhere.
+Converted in the same change.
+
+One behaviour subtlety: the score-distribution drift monitor used a snapshot of
+the ledger taken *before* `predict_open` appended. A query runs after, so this
+cycle's own rows are now inside the trailing window; they are excluded
+explicitly, keeping the comparison "this cycle against the month before it".
+
+Receipts — a full offline cycle on a **clone** of the live data, old code and
+new, same inputs:
+
+| | old code | new code |
+|---|---|---|
+| predictions after the cycle | file 98,350 / db 94,477 | file 94,477 / **db 98,350** |
+| the 3,873 new rows | — | **identical** (ignoring `ts` and model id) |
+| cycle report | — | **identical** (model id normalised) |
+| grade, learn, predict, all four drift monitors, all eight deliveries | — | **identical decisions** |
+
+**The rollback is tested, not described.** Export the database over the text
+ledgers (`predictions.jsonl` back to 98,350 rows), delete the database
+entirely, and run the *previous* code: it reads all 98,350 rows and completes a
+normal cycle. So the database being load-bearing costs one command to undo.
+
+### 6.4b Housekeeping: `data/backtest_world` is swept — DONE 2026-08-08
+
+203.8 MB, the second largest thing under `data/` after the notice archive, and
+entirely reconstructible: `backtest.py` rewrites it per cutoff (a copy of the
+parquet store plus a full copy of the embeddings) and rebuilds it from the real
+store on every run. Nothing reads it in between.
+
+Swept by the cycle on the same 30-day rule as the discovery cache. **Age is the
+safety catch, not a policy** — a backtest can run for hours, so fresh files are
+never touched.
+
+Receipts: `tests/test_housekeeping.py`, seven tests covering both sweeps — a
+fresh world left alone, an aged one removed, an absent one not an error,
+`prune_caches` never raising, and for the discovery cache: fresh survives, both
+the old and new locations are cleared (or the relocation leaves 1.13 GB behind),
+and `--dry-run` deletes nothing. Kept in its own file because importing `loop`
+pulls in pandas, numpy and CatBoost, and the storage suite is worth keeping free
+of the ML stack.
 
 ### 6.5 A Dockerfile that runs one cycle (small-medium)
+
+**Blocked on the operator's machine, not on the work.** Docker is not on PATH
+here, so a Dockerfile written now could not be built or run — and an unverified
+Dockerfile is precisely the artifact that looks finished and is not. Every other
+item in this document carries a receipt; this one would carry a claim. It waits
+for a machine that can execute `docker build`.
+
+
 
 `docker run` produces a week's reports with nothing from the operator's laptop.
 

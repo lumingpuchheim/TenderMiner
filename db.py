@@ -228,6 +228,32 @@ CREATE INDEX IF NOT EXISTS ix_learned_seq ON learned_ref (seq);
 CREATE INDEX IF NOT EXISTS ix_learned_asof ON learned_ref (sub_id, learned_at);
 
 -- Resolves the gate_config fingerprint stamped on delivery rows.
+-- Market-scale simulated picks: what the system WOULD have recommended to
+-- every winner company in the store, joined against outcomes by
+-- `simulation.py check`. A record of decisions like any other, and the last
+-- ledger to get a table (doc/STORAGE.md 5.4) -- left outside for a while
+-- because nothing ever queried it by key, which is also why it could not be
+-- joined to anything else.
+CREATE TABLE IF NOT EXISTS simulation (
+    ts                 TEXT NOT NULL,
+    company            TEXT NOT NULL,
+    procedure_id       TEXT NOT NULL,
+    lot_id             TEXT NOT NULL,
+    notice_id          TEXT,
+    model              TEXT,
+    score              REAL,
+    cpv3               TEXT,
+    place_nuts3        TEXT,
+    publication_number TEXT,
+    deadline_date      TEXT,
+    seq                INTEGER NOT NULL,
+    raw                BLOB NOT NULL,
+    UNIQUE (company, procedure_id, lot_id)
+);
+CREATE INDEX IF NOT EXISTS ix_sim_seq     ON simulation (seq);
+CREATE INDEX IF NOT EXISTS ix_sim_company ON simulation (company);
+CREATE INDEX IF NOT EXISTS ix_sim_lot     ON simulation (procedure_id, lot_id);
+
 CREATE TABLE IF NOT EXISTS gate_config (
     fingerprint TEXT PRIMARY KEY,
     first_seen  TEXT NOT NULL,
@@ -241,7 +267,7 @@ CREATE TABLE IF NOT EXISTS gate_config (
 # deliberately excluded because personal data must stay correctable and
 # erasable.
 LEDGER_TABLES = ('subscription_version', 'prediction', 'grade', 'delivery',
-                 'learned_ref', 'gate_config')
+                 'learned_ref', 'gate_config', 'simulation')
 
 # The one deliberate SQLite-specific construct left (doc/STORAGE.md 6.2). The
 # RULE — a ledger row is never updated or deleted — is portable; only this
@@ -351,6 +377,7 @@ LEDGERS = {
     'deliveries': ('ledger/deliveries.jsonl', 'delivery'),
     'learned_refs': ('ledger/learned_refs.jsonl', 'learned_ref'),
     'gate_configs': ('ledger/gate_configs.jsonl', 'gate_config'),
+    'simulations': ('ledger/simulations.jsonl', 'simulation'),
 }
 
 # Fields that are JSON arrays in the ledger and stay JSON text in a column.
@@ -627,14 +654,27 @@ def verify(data_dir):
         if orig == back:
             print(f'  {name:14s} {len(orig):7d} lines  identical')
             continue
-        # a mismatch that is only ORDER is still a loss of the append sequence
+        # The check is CONTAINMENT, not equality. Once a ledger's writes go to
+        # the database the file stops growing, so the table legitimately holds
+        # more than the file — and demanding equality would report every
+        # migrated-and-since-written ledger as broken. What must never happen is
+        # a line in the file that the table does not have: that would be a lost
+        # record. Sets built ONCE: the first version rebuilt them inside a
+        # comprehension, which turned the first real mismatch into a hang.
+        set_orig, set_back = set(orig), set(back)
+        missing = [l for l in orig if l not in set_back]
+        if not missing and len(back) >= len(orig):
+            print(f'  {name:14s} {len(orig):7d} lines  all present; database '
+                  f'has {len(back) - len(orig)} newer row(s)')
+            continue
         if sorted(orig) == sorted(back):
+            # same records, different sequence — the append order is itself a
+            # record, so this is still a failure
             print(f'  {name:14s} {len(orig):7d} lines  SAME SET, ORDER DIFFERS')
         else:
-            missing = len([l for l in orig if l not in set(back)])
-            extra = len([l for l in back if l not in set(orig)])
-            print(f'  {name:14s} MISMATCH: {len(orig)} original, {len(back)} '
-                  f'exported, {missing} missing, {extra} unexpected')
+            extra = len([l for l in back if l not in set_orig])
+            print(f'  {name:14s} MISMATCH: {len(orig)} in the file, {len(back)} '
+                  f'exported, {len(missing)} MISSING, {extra} unexpected')
         ok = False
     return ok
 

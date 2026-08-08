@@ -279,15 +279,14 @@ def main():
         shutil.rmtree(OUT)
     (OUT / 'ledger').mkdir(parents=True)
     subscriptions.write_sandbox(OUT, [replay_sub])
-    with open(OUT / 'ledger' / 'predictions.jsonl', 'w', encoding='utf-8') as f:
-        for row in scored:
-            f.write(json.dumps(row, ensure_ascii=False) + '\n')
-    (OUT / 'ledger' / 'grades.jsonl').write_text('', encoding='utf-8')
     paths = loop.Paths(str(ASOF), 'models')
     paths.subs_home = OUT
-    paths.predictions = OUT / 'ledger' / 'predictions.jsonl'
-    paths.grades = OUT / 'ledger' / 'grades.jsonl'
-    paths.deliveries_home = ledger.start(OUT)
+    # one sandbox home for every ledger this replay writes. OUT is recreated on
+    # each run (rmtree above), so appending to an empty store is what the old
+    # truncate-and-write of two files amounted to.
+    paths.ledger_home = ledger.start(OUT)
+    paths.deliveries_home = OUT
+    ledger.append(OUT, 'predictions', scored)
     paths.reports = OUT / 'reports'
 
     weeks = max(1, int((D2 - D).days / 7) + 2)
@@ -316,9 +315,7 @@ def main():
                        'n_tenders': None if pd.isna(n) else int(n),
                        'label': bool(pd.notna(n) and n <= 1),
                        'publication_number': a.get('publication_number')})
-    with open(paths.grades, 'w', encoding='utf-8') as f:
-        for g in grades:
-            f.write(json.dumps(g, ensure_ascii=False) + '\n')
+    ledger.append(paths.ledger_home, 'grades', grades)
     print(f'[replay] {len(grades)} of the scored lots have outcomes published '
           f'by {D2.date()}')
 

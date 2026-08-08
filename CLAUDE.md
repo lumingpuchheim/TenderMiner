@@ -54,6 +54,37 @@ migration invisible to everyone else:
 In-process subscription *dicts* are unaffected: `relevance.build_profile`
 takes a mapping, so the receipt harnesses that synthesise
 `{'sub_id': 'judge-run', 'profile_refs': [...], ...}` keep working untouched.
-The ledgers (`deliveries`, `learned_refs`, `predictions`, `grades`) are moving
-too; read them through `loop.py` / `feedback.py`, which already take a data
-directory rather than a filename.
+
+## The JSONL ledger files are NOT authoritative any more
+
+As of 2026-08-08 the database is the record. `data/tendermining.db` is what the
+cycle reads and writes; the files beside it are frozen snapshots from before the
+migration and they fall further behind with every cycle.
+
+**`data/ledger/predictions.jsonl` is the clearest trap.** It stopped growing and
+is thousands of rows behind — do not read it, do not join against it, and above
+all do not restore it from a backup expecting it to be true. Same for
+`grades.jsonl`, `deliveries.jsonl`, `learned_refs.jsonl`, `gate_configs.jsonl`
+and `subscriptions.jsonl`.
+
+Read every one of them through [`ledger.py`](ledger.py), which takes the
+**directory** and the ledger's name and decides where the records actually are:
+
+```python
+rows = ledger.read(data_dir, 'predictions')      # or 'grades', 'deliveries', ...
+ledger.append(data_dir, 'deliveries', new_rows)
+```
+
+For predictions specifically, prefer the targeted queries over reading 98,000
+rows to answer a narrow question: `ledger.prediction_keys`,
+`ledger.predictions_by_lot(lots=…)`, `ledger.prediction_titles`,
+`ledger.prediction_scores_since`.
+
+If a ledger file ever holds more rows than its table, `ledger.read` **raises**
+rather than serving stale records, and the message names the fix
+(`python db.py --migrate`). That guard is the only thing standing between a
+restored backup and a customer being served last month's market.
+
+To get readable, greppable, diffable text back at any time:
+`python db.py --export-jsonl DIR`. That is also the tested rollback path —
+export, delete the database, and the previous code runs from files again.

@@ -1,0 +1,300 @@
+# Cases a reader could not decide, from the 2026-08-08 10% sample (task-3).
+# NOT read by any program: this file exists so the undecidable share of the
+# store is countable and re-readable instead of vanishing. Same shape as
+# benchmark_relevance.jsonl with "skip": "<reason>" in place of "expect".
+# The commonest reason by far is a firm with no single trade (Deutsche Bahn and
+# subsidiaries, general contractors, TGA houses spanning Elektro and HKLS) --
+# for those "is this my business" has no answer, so no label is the answer.
+{"pub": "00437580-2026", "firm": "Sell GmbH", "skip": "firm has no single trade: Schlosser/Metallbau und Lueftungs-/Kaeltetechnik"}
+{"pub": "00064526-2026", "title_contains": "Los 2: Fassadenarbeiten", "firm": "Heinrich Schmid GmbH & Co. KG", "skip": "Fassadenarbeiten nicht spezifiziert (WDVS/Anstrich vs Metall-/Vorhangfassade)"}
+{"pub": "00428024-2026", "title_contains": "Position", "firm": "Söll Gerüstbau GmbH", "skip": "unreadable: lot title is 'Position' und die Publikation hat 2 Lose - kein trennscharfes title_contains"}
+{"pub": "00036948-2026", "firm": "Neumühler Bauhütte GmbH", "skip": "firm has no single trade: Dachabdichtung/Klempner, Holzbau, Metallanstrich, Terrakotta-Restaurierung"}
+{"pub": "00582335-2025", "firm": "Völker Bauunternehmen GmbH", "skip": "candidate's won titles name no trade (DB InfraGO Regional-Rahmenlose 'Los 26 Regionalbereich Mitte')"}
+{"pub": "00115734-2026", "firm": "STRABAG AG", "skip": "firm has no single trade: Autobahn-, Gleis-, Gas-, Kanal- und Hochbau (Grossbauunternehmen)"}
+{"pub": "00116687-2026", "firm": "Sell GmbH", "skip": "firm has no single trade: Schlosser/Metallbau und Lueftungs-/Kaeltetechnik"}
+{"pub": "00158910-2026", "firm": "Rud. Otto Meyer Technik GmbH & Co.KG", "skip": "firm has no single trade: Stromversorgung/Elektro, HKLS, Heizung-Kaelte, RLT — TGA-Generalist"}
+{"pub": "00172263-2026", "title_contains": "Stadtverwaltung Pockau", "firm": "Peter Gross Infrastruktur GmbH & Co. KG", "skip": "lot procures Strassenbeleuchtung (Elektro) plus Leerrohr-/Kabeltiefbau; Tiefbau-/GU-Infrastrukturfirma arguable in both directions"}
+{"pub": "00288420-2026", "firm": "Blackstone Industrie- & Gebäudetechnik GmbH", "skip": "lot is RLT/Lueftungszentrale; firm evidenced only in Heizung and Kaelte — adjacent TGA discipline, cannot decide"}
+{"pub": "00420067-2026", "firm": "Mennigmann Garten- und Landschaftsbau GmbH", "skip": "unreadable: Baustelleneinrichtung — title and description name no procured trade"}
+{"pub": "00306550-2026", "firm": "LEONHARD WEISS GmbH & Co. KG", "skip": "firm has no single trade: Gleisbau, Kabeltiefbau, Rohbau, Spezialtiefbau, Brueckenbau"}
+{"pub": "00499761-2026", "title_contains": "Fußbodenheizung Sportboden", "firm": "Momtaz & Sohn Gebäudetechnik GmbH & Co. KG", "skip": "candidate's won titles unreadable ('Ausgeschriebene Leistung' x2); only Lueftung evidenced, lot is Fussbodenheizung"}
+{"pub": "00028596-2026", "firm": "Groth & Co. Bauunternehmung GmbH", "skip": "firm spans Strassen-/Tiefbau, Erschliessung and Hochbau-Rohbau; lot is Gewaesser-/Erdbau — no single trade to match"}
+{"pub": "00269927-2026", "firm": "Pletschacher Holzbau GmbH", "skip": "unreadable: description is project prose about the Mensa only; Hebefaltladen material/trade not stated"}
+{"pub": "00098342-2026", "firm": "Gebrüder Peters Gebäudetechnik SE", "skip": "firm has no single trade: Elektro, Sanitär, Heizung, Lüftung, Stahlbau/Anlagenbau"}
+{"pub": "00172535-2026", "firm": "Eiffage Infra-West GmbH", "skip": "unreadable: Herrichtung Marstallumfeld -- Beschreibung wiederholt nur den Titel, kein Gewerk"}
+{"pub": "00268601-2026", "title_contains": "Südost", "firm": "SPIE SAG GmbH", "skip": "unreadable: Los \"Südost\" nennt nur Bezirk und 19.508 Mieteinheiten, kein Gewerk"}
+{"pub": "00435801-2026", "firm": "Gebrüder Peters Gebäudetechnik SE", "skip": "firm has no single trade: Elektro, Sanitär, Heizung, Lüftung, Stahlbau/Anlagenbau"}
+{"pub": "00523608-2026", "firm": "Kemmlit Bauelemente GmbH", "skip": "Trennwand-Bauelemente vs Tischler-Schrankanlagen: gleiche HPL-Elementfamilie, nicht entscheidbar"}
+{"pub": "00216294-2026", "firm": "Fliesen Mauz GmbH", "skip": "3 der 4 Lose tragen den Titel \"Ausgeschriebene Leistung\" -- kein eindeutiges title_contains möglich"}
+{"pub": "00298813-2026", "firm": "ELIQUO KGSTULZ GmbH", "skip": "Lospaket \"Bauleistungen Kläranlagenerweiterung\": ein Satz, CPV von Abbruch bis Ausrüstung, Umfang unklar"}
+{"pub": "00103806-2026", "title_contains": "Außenanlagen TO2", "firm": "STRABAG GmbH", "skip": "firm has no single trade: Rohbau, Autobahn-Grunderneuerung, Asphaltoberbau, Regenrueckhaltebecken"}
+{"pub": "00302872-2026", "title_contains": "südlich Militärring", "firm": "LEONHARD WEISS GmbH & Co. KG", "skip": "firm has no single trade: Gleisbau, Rohbau, Spezialtiefbau, Bruecke, Kabeltiefbau"}
+{"pub": "00321324-2026", "firm": "Söll Gerüstbau GmbH", "skip": "firm has no single trade: Geruestbau und Lueftung-Klima-Kaelte -- Sanitaer dadurch in beide Richtungen vertretbar"}
+{"pub": "00304019-2026", "firm": "Heinrich Jürgens GmbH & Co. KG", "skip": "GU lot, trade is sub-scope"}
+{"pub": "00135945-2026", "firm": "Groth & Co. Bauunternehmung GmbH", "skip": "firm has no single trade: Verkehrsanlagen/Flaechenbefestigung und Rohbau"}
+{"pub": "00015137-2026", "firm": "ENGIE Deutschland GmbH", "skip": "firm has no single trade: multitechnischer Konzern (RLT, Gebaeudeautomation); Sanitaer beidseitig vertretbar"}
+{"pub": "00288045-2026", "firm": "Melf Söth Schaltanlagen GmbH", "skip": "GU lot, trade is sub-scope"}
+{"pub": "00396372-2026", "firm": "LEONHARD WEISS GmbH & Co. KG", "skip": "firm has no single trade: Gleisbau, Rohbau, Spezialtiefbau, Bruecke, Kabeltiefbau"}
+{"pub": "00216903-2026", "firm": "ASGE Rümenapp Metallbaugesell. mbH", "skip": "lot not identifiable: 3 of 4 lots in pub share the title \"Ausgeschriebene Leistung\""}
+{"pub": "00056742-2026", "firm": "Köster GmbH", "skip": "firm has no single trade: Bodenplatte, GU-Leistungen Feuerwache, Infrastruktur Rathaus"}
+{"pub": "00498940-2026", "firm": "ENGIE Deutschland GmbH", "skip": "TGA neighbours: firm reads Lüftung/Klima+GA, lot is Heizung/Kälte/Sanitär — both arguable"}
+{"pub": "00288777-2026", "firm": "DB Bahnbau Gruppe GmbH", "skip": "firm has no single trade: DB subsidiary — Gleis-/Weichenbau, Kabelbau, Bahnhofslose"}
+{"pub": "00445728-2026", "firm": "Semrau Isoliertechnik GmbH", "skip": "trade only in passing: lot is Dampf-/Rohrleitungsbau, Dämmung nur als Nebenanforderung"}
+{"pub": "00364920-2026", "title_contains": "Unterregion München", "firm": "GRB Rostock GmbH", "skip": "unreadable: Los 19 Regionalbereich Süd Unterregion München — kein Gewerk erkennbar"}
+{"pub": "00364920-2026", "title_contains": "Unterregion Frankfurt/M.", "firm": "Hubert Schmid Bauunternehmen GmbH", "skip": "firm has no single trade: Spezialtiefbau, Klärwerks-Neubau, Zimmerer/Fassade; Lostitel zudem unlesbar"}
+{"pub": "00364920-2026", "title_contains": "Unterregion Duisburg", "firm": "Waldner Laboreinrichtungen SE & Co. KG", "skip": "unreadable: Los 34 Regionalbereich West Unterregion Duisburg — kein Gewerk erkennbar"}
+{"pub": "00276979-2026", "firm": "Dobler GmbH & Co. KG Bauunternehmung", "skip": "firm has no single trade: ELT, Verkehrsanlagen, Baumeister-/Zimmerer-/Stahlbauarbeiten"}
+{"pub": "00612975-2025", "firm": "Sell GmbH", "skip": "firm has no single trade: Metallbau/Schlosser Geländer und Lüftungs-/Technikzentralen-Bau"}
+{"pub": "00105268-2026", "firm": "Ed. Züblin AG", "skip": "firm has no single trade: GU-Leistungen, Rohbau, Baulogistik/Baustelleneinrichtung"}
+{"pub": "00219288-2026", "firm": "YG Bau- und Baustoffe GmbH", "skip": "GU lot, trade is sub-scope: Generalübernehmer Schulcampus-Neubau, Estrich nur Teilgewerk"}
+{"pub": "00114921-2026", "firm": "Söll Gerüstbau GmbH", "skip": "firm titles disagree: 2x Gerüstbau, 1x Lüftung-Klima-Kälte — genau das Gewerk dieses Lots"}
+{"pub": "00199228-2026", "firm": "Strabag AG", "skip": "firm has no single trade: Konzern-Bauunternehmen (Straßen-, Tief-, Ingenieurbau) — Betonbeschichtung liegt im Konzernumfang"}
+{"pub": "00384213-2025", "firm": "Probat Bau AG", "skip": "firm has no single trade: Trockenbau, Baumeisterarbeiten, Fenster"}
+{"pub": "00734427-2025", "firm": "Siegfried Nass GmbH", "skip": "nicht entscheidbar: E-Bus-Ladeinfrastruktur (Pantograph, 2 MW MS) vs. Gebäude-Stark/Schwachstrom-Firma"}
+{"pub": "00264366-2026", "firm": "STRABAG AG", "skip": "firm has no single trade: Straßen-, Gleis-, Kanal-, Gas-, Brücken- und Bahnhofs-Hochbau"}
+{"pub": "00186153-2026", "firm": "GRB Rostock GmbH", "skip": "trade only in passing: Abbrucharbeiten sind eine Position in einem reinen Landschaftsbau-LV"}
+{"pub": "00317575-2026", "firm": "Seufert-Niklaus GmbH", "skip": "cannot decide: Los sind Innentueren/Geraeteraumtore, Firma ist Fenster-/PR-Fassadenbauer mit Aussentueren"}
+{"pub": "00213677-2026", "firm": "Plus-Pohl GmbH", "skip": "firm has no single trade: Stahlbetonarbeiten, Bahn-Regionallos, Hochbau Strassenmeisterei"}
+{"pub": "00042455-2026", "title_contains": "Los 2 - Gigabitförderung 2.0", "firm": "SPIE SAG GmbH", "skip": "firm has no single trade: Beleuchtung, Hoch-/Mittelspannung, Kabeltiefbau, Betonwerksteinpflaster"}
+{"pub": "00143845-2026", "firm": "Edgar Fuchs GmbH", "skip": "GU lot, trade is sub-scope: Investorenausschreibung Areal inkl. Errichtung Schule/Kita/Dialysezentrum"}
+{"pub": "00269273-2026", "firm": "Nutz GmbH", "skip": "firm has no single trade: Stark-/Schwachstrom und Metallbau PR-Fassaden"}
+{"pub": "00291139-2026", "firm": "Kattner Stahlbau GmbH", "skip": "Titel 'Wartung' widerspricht dem Text (Errichtung Hubbodenanlage); Schwimmbadtechnik vs Stahlbau nicht entscheidbar, und der Titel trennt das Los nicht vom Geschwisterlos"}
+{"pub": "00193542-2026", "firm": "BplusL Infra Log GmbH", "skip": "2 Lose, Titel nur 'Ausgeschriebene Leistung' - kein title_contains möglich, das dieses Los und kein Geschwisterlos trifft"}
+{"pub": "00129969-2026", "firm": "Schleith GmbH Baugesellschaft", "skip": "firm has no single trade: Erdbau/Beton/Maurer, Technikgebäude, Tunnelvorfeld, Bahn-Fernmeldeanlagen"}
+{"pub": "00192295-2026", "firm": "Knape Bahnbau GmbH", "skip": "unreadable: Möttingen, Baut. Anp. BÜ km 62,181 ... Los 4 - Gewerk (Gleisbau/LST/Straßenbau) nicht genannt"}
+{"pub": "00447340-2026", "firm": "Wakubau Mirow GmbH", "skip": "firm has no single trade: alle Zuschläge sind DB-Regionalbereich-Rahmenlose ohne Gewerksangabe"}
+{"pub": "00641453-2025", "firm": "Johmann GmbH", "skip": "GU lot, trade is sub-scope: schlüsselfertiges Seminargebäude in Raummodulbauweise inkl. Planung aller Gewerke"}
+{"pub": "00048849-2026", "firm": "Quadra Bau GmbH", "skip": "Los mischt Fertig-Telefonboxen (Produkt) mit 75 m2 Akustikbekleidung (Trockenbau) - Zuordnung zum Trockenbau-/Türenbetrieb wäre geraten"}
+{"pub": "00264045-2026", "firm": "Lindner SE", "skip": "unreadable: Los 0.22-3 BOS (Beschreibung nur 'BOS')"}
+{"pub": "00139628-2026", "firm": "Plus-Pohl GmbH", "skip": "firm has no single trade: DB-Regionalbereich-Rahmenlos, Stahlbetonarbeiten, Neubau Straßenmeisterei"}
+{"pub": "00484485-2026", "firm": "Hubert Schmid Bauunternehmen GmbH", "skip": "firm has no single trade: Spezialtiefbau und Dach-/Zimmerer-/Fassadenarbeiten"}
+{"pub": "00433299-2026", "title_contains": "SPORTPLATZBAUARBEITEN - BA 1", "firm": "Groth & Co. Bauunternehmung GmbH", "skip": "firm has no single trade: Strassen-/Tiefbau, Erschliessung und Rohbau"}
+{"pub": "00349015-2026", "title_contains": "Los 7 Fachlos 1 Regionalbereich Ost Unterregion Neustrelitz", "firm": "GP Verkehrswegebau GmbH", "skip": "unreadable: Fachlos-Nummer nennt kein Gewerk (Los 7 Fachlos 1 Regionalbereich Ost)"}
+{"pub": "00349015-2026", "title_contains": "Los 14 Fachlos 1 Regionalbereich Südost Unterregion Zwickau", "firm": "JOHANN BUNTE Bauunternehmung SE & Co. KG", "skip": "unreadable: Fachlos-Nummer nennt kein Gewerk (Los 14 Fachlos 1 Regionalbereich Suedost)"}
+{"pub": "00349015-2026", "title_contains": "Los 28 Fachlos 1 Regionalbereich Mitte Unterregion Mainz", "firm": "Bernemann GmbH", "skip": "unreadable: Fachlos-Nummer nennt kein Gewerk (Los 28 Fachlos 1 Regionalbereich Mitte)"}
+{"pub": "00349015-2026", "title_contains": "Los 31 Fachlos 1 Regionalbereich West Unterregion Düsseldorf", "firm": "Eiffage Infra-Lärmschutz GmbH", "skip": "unreadable: Fachlos-Nummer nennt kein Gewerk (Los 31 Fachlos 1 Regionalbereich West)"}
+{"pub": "00349015-2026", "title_contains": "Los 45 Fachlos 2 Regionalbereich Südost Unterregion Leipzig", "firm": "Rudolf Schrader GmbH", "skip": "unreadable: Fachlos-Nummer nennt kein Gewerk (Los 45 Fachlos 2 Regionalbereich Suedost)"}
+{"pub": "00523754-2026", "firm": "H. Hüther GmbH", "skip": "Gewerkepaket Innenausbau (Sammellos Trockenbau/Estrich/Belaege); Tueren allenfalls Teilleistung"}
+{"pub": "00326062-2026", "firm": "Stübler GmbH", "skip": "Kandidat nur mit Baustrom-/BE-Losen belegt: Gebaeude-Elektroinstallation nicht entscheidbar"}
+{"pub": "00212720-2026", "firm": "ITB Ingenieurtiefbau GmbH", "skip": "Kombilos Bruecken-Ersatzneubau + Strassenbau; Kanal-/Verkehrsanlagenbau waere Teilleistung"}
+{"pub": "00150276-2026", "firm": "Becker GmbH & Co. KG", "skip": "firm has no single trade: mobile Trennwaende und Bruecken-/Ingenieurbau"}
+{"pub": "00365048-2025", "firm": "Wärme + Wasser GmbH", "skip": "TGA nur Nebenposition in einem Rohbau-/Erdbaulos (Regel: nur beilaeufig erwaehnt)"}
+{"pub": "00106634-2026", "firm": "Garzon Bútor Kereskedelmi Kft.", "skip": "Kandidat baut Einbaumoebel/Bekleidungen; Innentuerelemente angrenzendes Tischler-Teilgewerk"}
+{"pub": "00158556-2026", "firm": "Max Bögl Stiftung & Co. KG", "skip": "firm has no single trade: Autobahn-Fahrbahndecke, Erd-/Oberbau, Rueckbau, Talbruecke", "note": "Hochbau-Rohbau OP-Neubau gegen Schwerverkehrsbauer - in und out beide begruendbar"}
+{"pub": "00011407-2026", "firm": "Ed. Züblin AG", "skip": "firm has no single trade: GU-Leistungen, erweiterter Rohbau, Baulogistik, Baustelleneinrichtung", "note": "Malerlos gegen Generalunternehmer - Gewerk waere Nachunternehmerscope"}
+{"pub": "00264927-2026", "firm": "LEONHARD WEISS GmbH & Co. KG", "skip": "firm has no single trade: Gleisbau, Rohbau, Spezialtiefbau, Bruecke, Kabeltiefbau", "note": "Estrich-/Fliesenlos gegen Grossbauunternehmen"}
+{"pub": "00354099-2026", "firm": "Max Bögl Stiftung & Co. KG", "skip": "firm has no single trade: Autobahn-Fahrbahndecke, Erd-/Oberbau, Rueckbau, Talbruecke", "note": "Rueckbau/Schadstoffsanierung Kleingartenanlage - Rueckbau-Referenz macht in vertretbar"}
+{"pub": "00239972-2026", "firm": "Max Bögl Stiftung & Co. KG", "skip": "GU lot, trade is sub-scope", "note": "Barrierefreier Haltestellenausbau ausdruecklich als Generalunternehmerleistung vergeben"}
+{"pub": "00213658-2026", "firm": "Eiffage Infra-West GmbH", "skip": "unreadable: \"Erneuerung Schrammborde an Schwebebahnhaltestellen\" - Einzeiler, Gewerk nicht bestimmbar", "note": "Schrammbord kann Beton-, Stahl- oder Belagsarbeit sein; Text gibt nichts her"}
+{"pub": "00234581-2026", "firm": "W.Müller Bedachungen GmbH", "skip": "GU lot, trade is sub-scope", "note": "Schluesselfertige Erstellung der Fahrzeughalle; Dachgewerk der Firma waere Teilleistung"}
+{"pub": "00523487-2026", "firm": "Lindner Metall GmbH & Co. KG", "skip": "Firmenwins nennen nur \"Schlosserarbeiten\" - Pfosten-Riegel-Fassade und Verglasung nicht belegt", "note": "Gleicher CPV 45262670; Metallbau umfasst Schlosser und Fassade, hier nicht entscheidbar"}
+{"pub": "00108535-2026", "firm": "Rolfes Bau GmbH & Co. KG", "skip": "Mischlos ueber alle Gewerke (Abbruch, Beton, Putz, Fliesen, Estrich, Maler, Belag) - Rohbau nur Teilscope", "note": "Umbau Betriebsraeume U-Bhf als Komplettpaket an ein Bauunternehmen"}
+{"pub": "00156081-2026", "firm": "SPIE SNG GmbH", "skip": "PV-Anlage mit Batteriespeicher vs Starkstrom-/Trafoanlagen der Firma: benachbarte Elektro-Gewerke, nicht entscheidbar"}
+{"pub": "00177080-2026", "firm": "DAMIAN WERNER GmbH", "skip": "Prallwand + Hallentore ist Sportstaettenausbau; Tischler-/Bekleidungsgewerk der Firma nur Teilscope"}
+{"pub": "00384709-2025", "firm": "Josef Rädlinger Bauunternehmen GmbH", "skip": "GU lot, trade is sub-scope (Teil-Generalunternehmer Holz-Hybrid ohne ELT/Haustechnik)"}
+{"pub": "00317721-2026", "firm": "Johann Bunte Bauunternehmung SE & Co. KG", "skip": "Spezialtiefbau (Spundwand, Unterwasseraushub) vs Verkehrswege-/Wasserbau der Firma: nicht entscheidbar"}
+{"pub": "00491688-2026", "firm": "HTR-Bau GmbH", "skip": "Mehrgewerke-Paket Bahnhofsumbau (Bahnsteige, Daecher, Aufzuege); Tiefbau der Firma nur Teilscope"}
+{"pub": "00496170-2026", "firm": "HOCHTIEF Infrastructure GmbH", "skip": "firm has no single trade: Konzern-Infrastrukturbau (Bahn, Strasse, Ingenieurbau), Dossier zeigt nur KTB-Lose"}
+{"pub": "00184467-2026", "firm": "HTS Bau GmbH", "skip": "Storedaten widerspruechlich: Titel 'Garten- und Landschaftsbau', Beschreibung und CPV sind 49 Innentueren"}
+{"pub": "00467063-2026", "firm": "Rud. Otto Meyer Technik GmbH & Co.KG", "skip": "firm has no single trade: Elektro/Stromversorgung und HKLS/RLT/Kaelte; Lotbeschreibung nur '...'"}
+{"pub": "00055682-2026", "title_contains": "Los 2", "firm": "SPIE Building Technology Automation & Traffic GmbH", "skip": "Titel der Firma nur Starkstrom/NSP/GMA, Name sagt Automation - GA-Los beidseitig begruendbar"}
+{"pub": "00514425-2025", "firm": "BROCKMANN KLIMA GmbH, Geschäftsbereich Klima + Kälte", "skip": "Lueftung nur Nebenposition (Abluftventilator/-leitung) in klarem Sanitaerlos"}
+{"pub": "00372181-2026", "firm": "Josef Rädlinger Bauunternehmen GmbH", "skip": "Firma spannt Kabeltiefbau und Gebaeude-Elektro; Kommunikations-/Sicherheitstechnik beidseitig begruendbar"}
+{"pub": "00217293-2026", "firm": "Held Metallwaren GmbH & Co. KG", "skip": "Stahltueren-Spezialist gegen Treppe/Gelaender - gleiches Schlosserhandwerk, beides begruendbar"}
+{"pub": "00221059-2026", "firm": "Hahner + Krappmann GmbH", "skip": "Drei Geschwisterlose heissen identisch \"Ausgeschriebene Leistung\" - title_contains nicht eindeutig"}
+{"pub": "00086223-2026", "firm": "Diaplan Innenausbau GesmbH", "skip": "Firma laut Titeln Prallwand/Sporthallenausbau; allgemeines Trockenbaulos ueberschneidet sich damit"}
+{"pub": "00601708-2025", "firm": "Holthaus GmbH & Co. KG", "skip": "Parkhaus in Systembauweise als Komplettleistung - GU-Los, Gewerk waere Teilleistung"}
+{"pub": "00250743-2026", "firm": "Müller GmbH", "skip": "Titel der Firma uneinheitlich/unlesbar: \"RV EM Emmendingen\" (Elektro) und 2x Trockenbau-Los ohne Titel"}
+{"pub": "00278602-2026", "firm": "LEONHARD WEISS GmbH & Co. KG", "skip": "TGM-Rahmenlos mischt Landschaftsbau und Tiefbau-Stoerfallbeseitigung - fuer Grossbauunternehmen beides begruendbar"}
+{"pub": "00119869-2026", "firm": "ELIQUO KGSTULZ GmbH", "skip": "gewerkeübergreifendes Anlagenlos (Verfahrens-, Elektro-, Leit-, Bautechnik) - Gewerk nur Teilumfang"}
+{"pub": "00258267-2026", "firm": "Schüttler Gerüstbau GmbH", "skip": "Gerüstarbeiten nur eine Nebenposition im Abbruch-/Maurerlos"}
+{"pub": "00469737-2026", "firm": "Weßling Bau GmbH", "skip": "GU lot, trade is sub-scope (Generalunternehmervertrag Innenausbau über alle Gewerke)"}
+{"pub": "00144185-2026", "title_contains": "Los 5 KTB Bönen STW", "firm": "Groth & Co. Bauunternehmung GmbH", "skip": "unreadable: Los 5 KTB Bönen STW (Beschreibung wiederholt nur den Titel)"}
+{"pub": "00501213-2026", "firm": "STRABAG GmbH", "skip": "firm has no single trade: Hochbau-Rohbau, Autobahn-/Verkehrswegebau, Regenrückhaltebecken"}
+{"pub": "00633344-2025", "firm": "Rud. Otto Meyer GmbH", "skip": "Beschreibung nur Projektprosa; 'Mietheizung' = Anmietung/Betrieb, Gewerkzuordnung unsicher"}
+{"pub": "00143062-2026", "firm": "Amand Bau NRW GmbH & Co. KG", "skip": "Los bündelt Abbruch, Stahlbetongarage, Erd-/Leitungs- und Asphaltarbeiten; Firma ist Brücken-/Ingenieurbau"}
+{"pub": "00191213-2026", "firm": "Bodenbau Dursun GmbH", "skip": "GU lot, trade is sub-scope: Innenausbau-Gesamtpaket enthält Zementestrich"}
+{"pub": "00417933-2025", "firm": "DB Bahnbau Gruppe GmbH", "skip": "firm has no single trade: DB-Tochter, Gleis, Weichen, Kabel, Bahnhöfe, Tiefbau"}
+{"pub": "00266649-2026", "firm": "Söll Gerüstbau GmbH", "skip": "firm has no single trade: Gerüstbau und Lüftung-Klima-Kälte"}
+{"pub": "00425316-2025", "firm": "Becker GmbH & Co. KG", "skip": "firm has no single trade: mobile Trennwände und Brücken-/Straßenbau"}
+{"pub": "00431479-2025", "title_contains": "Baggergutdeponierung", "firm": "AWR Abbruch GmbH", "skip": "Deponiebetrieb (Baggergut laden, mit Raupen einbauen); Firma Abbruch/Schadstoffsanierung - beide Richtungen vertretbar"}
+{"pub": "00089781-2026", "firm": "DB Bahnbau Gruppe GmbH", "skip": "firm has no single trade: DB-Tochter, Gleis, Weichen, Kabel, Bahnhöfe, Tiefbau"}
+{"pub": "00449201-2026", "firm": "Josef Rädlinger Bauunternehmen GmbH", "skip": "Lot sagt nur \"Elektroarbeiten\"; Firma mischt Tief-/Kabelbau mit einem Elektro-Los - nicht entscheidbar"}
+{"pub": "00030509-2026", "firm": "Bernemann GmbH", "skip": "firm has no single trade: Abbruch, Erdarbeiten und unlesbare DB-Personenbahnhöfe-Lose"}
+{"pub": "00364541-2025", "title_contains": "Sanderhäuser Str. (Strecke)", "firm": "GP Verkehrswegebau GmbH", "skip": "unreadable: Los nur nach Straße benannt (\"Strecke\"), Beschreibung nennt Bahntransformator-Erneuerung"}
+{"pub": "00602606-2025", "firm": "JMF Metallbautechnik GmbH", "skip": "trade only in passing: 2 Alu-Pfosten-Riegel-Positionen in einem Los aus 39 Holz-Innentüren"}
+{"pub": "00529213-2026", "firm": "STRABAG AG", "skip": "firm has no single trade: Straßen-, Gleis-, Rohrleitungs- und Hochbau"}
+{"pub": "00484747-2025", "firm": "Müller GmbH", "skip": "firm has no single trade: 2 von 3 Zuschlaegen heissen 'Ausgeschriebene Leistung', CPV Elektro und Trockenbau"}
+{"pub": "00138049-2026", "firm": "Siemens Healthineers AG", "skip": "unreadable: Befestigungskonstruktion (VE071) - Leistung nur im LV, TGA-Traggeruest oder Geraetemontage offen"}
+{"pub": "00485024-2026", "firm": "Schandert GmbH", "skip": "GU lot, trade is sub-scope: Totalunternehmerleistung Planung + Bau von 10 Lagerhallen"}
+{"pub": "00583308-2025", "title_contains": "Los 7 Regionalbereich Ost Unterregion Neustrelitz", "firm": "DB Bahnbau Gruppe GmbH", "skip": "firm has no single trade: DB-Tochter, Titel spannen Gleis-/Weichenbau, Kabelverlegung, Bahnhofslose"}
+{"pub": "00583308-2025", "title_contains": "Los 7 Regionalbereich Ost Unterregion Neustrelitz", "firm": "KÖNIGBAU GmbH - Ingenieurbau Bahnbau Tiefbau", "skip": "unreadable: Bahnhofs-Rahmenlos, Beschreibung ist der Titel, kein Gewerk genannt"}
+{"pub": "00583308-2025", "title_contains": "Los 15 Regionalbereich Südost Unterregion Magdeburg", "firm": "DB Bahnbau Gruppe GmbH", "skip": "firm has no single trade: DB-Tochter, Titel spannen Gleis-/Weichenbau, Kabelverlegung, Bahnhofslose"}
+{"pub": "00583308-2025", "title_contains": "Los 15 Regionalbereich Südost Unterregion Magdeburg", "firm": "Rail Power Systems GmbH", "skip": "unreadable: Bahnhofs-Rahmenlos, Beschreibung ist der Titel, kein Gewerk genannt"}
+{"pub": "00583308-2025", "title_contains": "Los 21 Regionalbereich Südwest Unterregion Saarbrücken", "firm": "DB Bahnbau Gruppe GmbH", "skip": "firm has no single trade: DB-Tochter, Titel spannen Gleis-/Weichenbau, Kabelverlegung, Bahnhofslose"}
+{"pub": "00583308-2025", "title_contains": "Los 21 Regionalbereich Südwest Unterregion Saarbrücken", "firm": "M.H. Preis GmbH", "skip": "unreadable: Bahnhofs-Rahmenlos, Beschreibung ist der Titel, kein Gewerk genannt"}
+{"pub": "00583308-2025", "title_contains": "Los 24 Regionalbereich Südwest Unterregion Ulm", "firm": "DB Bahnbau Gruppe GmbH", "skip": "firm has no single trade: DB-Tochter, Titel spannen Gleis-/Weichenbau, Kabelverlegung, Bahnhofslose"}
+{"pub": "00583308-2025", "title_contains": "Los 24 Regionalbereich Südwest Unterregion Ulm", "firm": "Hallertauer Landschaft GmbH & Co. KG", "skip": "unreadable: Bahnhofs-Rahmenlos, Beschreibung ist der Titel, kein Gewerk genannt"}
+{"pub": "00583308-2025", "title_contains": "Los 29 Regionalbereich Mitte Unterregion Koblenz", "firm": "DB Bahnbau Gruppe GmbH", "skip": "firm has no single trade: DB-Tochter, Titel spannen Gleis-/Weichenbau, Kabelverlegung, Bahnhofslose"}
+{"pub": "00583308-2025", "title_contains": "Los 29 Regionalbereich Mitte Unterregion Koblenz", "firm": "Bickhardt Bau SE", "skip": "unreadable: Bahnhofs-Rahmenlos, Beschreibung ist der Titel, kein Gewerk genannt"}
+{"pub": "00583308-2025", "title_contains": "Los 34 Regionalbereich West Unterregion Duisburg", "firm": "Peter Gross Rail GmbH & Co. KG", "skip": "unreadable: Bahnhofs-Rahmenlos, Beschreibung ist der Titel, kein Gewerk genannt"}
+{"pub": "00479562-2026", "firm": "HSH Werner Oeser OHG", "skip": "BE-Los buendelt Bauzaun/Container/Baustrom/Bauwasser; Firma ist HLS mit einem Bauwasser-Zuschlag - offen"}
+{"pub": "00520640-2025", "firm": "SPIE SAG GmbH", "skip": "GU lot, trade is sub-scope: Totalunternehmer, schluesselfertiger Schulneubau inkl. aller Planung"}
+{"pub": "00381805-2026", "firm": "Neumühler Bauhütte GmbH", "skip": "firm has no single trade: Dachabdichtung/Klempner, Holzunterstand, Metall-Anstrich, Terrakotta-Rekonstruktion"}
+{"pub": "00484618-2026", "firm": "LEONHARD WEISS GmbH & Co. KG", "skip": "firm has no single trade: Gleisbau, Kabeltiefbau, Bruecke, Spezialtiefbau, Rohbau; Abbruch nicht entscheidbar"}
+{"pub": "00262331-2026", "firm": "HOCHTIEF Infrastructure GmbH", "skip": "firm has no single trade: HOCHTIEF Infrastructure ist Universal-Infrastrukturbauer (Zuschlaege nur Kabeltiefbau)"}
+{"pub": "00563129-2025", "firm": "Müller GmbH", "skip": "unreadable candidate: Zuschlagstitel \"Ausgeschriebene Leistung\" nennen kein Gewerk"}
+{"pub": "00184929-2026", "firm": "Josef Rädlinger Ingenieurbau GmbH", "skip": "firm has no single trade: Bahndammsanierung, Bahnsteigbau, Korrosionsschutz, Laermschutzwand, Baugrube"}
+{"pub": "00649991-2025", "firm": "Johann Bunte Bauunternehmung SE & Co. KG", "skip": "cannot decide: Pflaster-/Wegebau grenzt an Erschliessung des Kandidaten, Freibad-Aussenanlagen aber GaLaBau"}
+{"pub": "00277655-2026", "firm": "Hohenloher Schuleinrichtungen GmbH & Co. KG", "skip": "Schreinerarbeiten Museumsausbau vs. Serien-Fachraumeinrichtung: Möbelanteil macht in/out beide vertretbar"}
+{"pub": "00067965-2026", "firm": "Siemens AG", "skip": "firm has no single trade: Konzern - Zuschläge nur GA/MSR, Mittelspannungsschaltanlagen aber eigenes Produkt"}
+{"pub": "00302766-2026", "firm": "Gebrüder Peters Gebäudetechnik SE", "skip": "firm has no single trade: Elektro, Lüftung, Heizung, Sanitär, Stahl-/Anlagenbau"}
+{"pub": "00253980-2026", "firm": "Schandert GmbH", "skip": "firm has no single trade: Bodenbelag, Rollladen/Sonnenschutz, Tischler-Festeinbauten"}
+{"pub": "00163956-2026", "firm": "Rud. Otto Meyer Technik GmbH & Co.KG", "skip": "firm has no single trade: Elektro/Stromversorgung, HKLS, Heizung-Kälte, RLT"}
+{"pub": "00149615-2026", "firm": "LEONHARD WEISS GmbH & Co. KG", "skip": "firm has no single trade: Gleisbau, Rohbau, Spezialtiefbau, Brückenbau, Kabeltiefbau"}
+{"pub": "00161990-2026", "firm": "Adolf Lupp GmbH & Co. KG", "skip": "Rohbau/Abbruch eines Hochbaus vs. Firma mit Eisenbahnüberführungen und Durchlässen - Nähe unklar"}
+{"pub": "00296125-2026", "firm": "FarbOL GmbH", "skip": "unreadable candidate: alle Zuschlagstitel nur \"Los N Regionalbereich Nord Unterregion X\""}
+{"pub": "00240113-2026", "firm": "Schleith GmbH Baugesellschaft", "skip": "firm has no single trade: Erd-/Beton-/Maurerarbeiten, Tunnel-/Straßenbau, Bahn-Elektrifizierung"}
+{"pub": "00574340-2025", "firm": "LEONHARD WEISS GmbH & Co. KG", "skip": "firm has no single trade: Gleisbau, Rohbau, Spezialtiefbau, Brückenbau, Kabeltiefbau"}
+{"pub": "00244606-2026", "firm": "Köster GmbH", "skip": "firm has no single trade: Bodenplatte, Generalunternehmerleistungen, Infrastruktur (GU)"}
+{"pub": "00518381-2026", "firm": "K&K Bau GmbH", "skip": "GU lot, trade is sub-scope"}
+{"pub": "00138975-2026", "title_contains": "Bemerode - Wülferode", "firm": "Gebrüder Peters Gebäudetechnik SE", "skip": "firm has no single trade: Elektro, Sanitaer, Heizung, Lueftung, Stahlbau"}
+{"pub": "00448361-2026", "firm": "DB Bahnbau Gruppe GmbH", "skip": "firm has no single trade: DB-Tochter, Gleisbau, Weichen, Kabelverlegung, Bahnpakete"}
+{"pub": "00656140-2025", "firm": "Lindner Isoliertechnik & Industrieservice GmbH", "skip": "firm has no single trade: technische Daemmung/Brandschutz plus ein Estrich-Beschichtungslos"}
+{"pub": "00162269-2026", "firm": "Siemens AG", "skip": "GU lot (Turnkey Rauchgaswaermenutzungsanlage), MSR/Automation nur Teilgewerk"}
+{"pub": "00027121-2026", "firm": "Neumühler Bauhütte GmbH", "skip": "firm has no single trade: Dachabdichtung/Klempner, Holzbau, Anstrich, Restaurierung"}
+{"pub": "00347982-2026", "title_contains": "Los 2 - EÜ E-T-4", "firm": "Projektbau Matthias Regner GmbH", "skip": "unreadable: Los 2 - EÜ E-T-4 / DL E-T-4a (Beschreibung wiederholt nur den Titel)"}
+{"pub": "00437218-2026", "firm": "Anton Schick GmbH", "skip": "Bahnhofspaket mehrgewerklich (Bahnsteige, Aufzuege, Gleis-/Weichenerneuerung, EÜ); Rohbau nur Teilgewerk"}
+{"pub": "00165569-2026", "firm": "Gebrüder Peters Gebäudetechnik SE", "skip": "firm has no single trade: Elektro, Sanitaer, Heizung, Lueftung, Stahlbau"}
+{"pub": "00456276-2026", "firm": "Ullrich & Schön GmbH", "skip": "firm has no single trade: Trockenbau, Innenputz, Maler/Stuck, Tischler"}
+{"pub": "00501937-2025", "firm": "Hasselmann GmbH", "skip": "firm has no single trade: Gleisbau/Oberbau, Entwaesserung, Beleuchtung, Kabeltiefbau, Hochbau"}
+{"pub": "00426499-2025", "title_contains": "Rohrleitungsbau", "firm": "STRABAG GmbH", "skip": "firm has no single trade: Rohbau, Autobahn-Straßenbau, RRB/Ingenieurbau"}
+{"pub": "00070618-2026", "firm": "ISO-Basaran GmbH", "skip": "trade only in passing: Dämmung ist LV-Position im gebündelten TGA-Los (Sanitär/Heizung/Lüftung)"}
+{"pub": "00228897-2026", "firm": "Grötz Bauunternehmung GmbH", "skip": "firm has no single trade: Straßenbau (Innenstadtring) und Hochbau-Rohbau/Zimmerer"}
+{"pub": "00442308-2026", "firm": "LEONHARD WEISS GmbH & Co. KG", "skip": "firm has no single trade: Gleisbau, Kabeltiefbau, Spezialtiefbau, Brücken, Rohbau"}
+{"pub": "00577535-2025", "firm": "Sell GmbH", "skip": "firm has no single trade: Schlosser-/Metallbau (Geländer) und Lüftung/TGA"}
+{"pub": "00480083-2025", "firm": "Beck Schreinerei GmbH", "skip": "Brandschutzvorhang EW90 ist Spezialabschluss; Firma macht Stahl-/Metallbautüren — nicht entscheidbar"}
+{"pub": "00026326-2026", "title_contains": "Region Schleswig-Holstein", "firm": "Blackstone Industrie- & Gebäudetechnik GmbH", "skip": "unreadable: Lostitel ist eine Region, Beschreibung verweist nur auf Gebäudeliste"}
+{"pub": "00138453-2026", "firm": "RIWAtec-Elektro GmbH", "skip": "Gewinntitel der Firma nicht lesbar (\"Los 01_RV OG Offenburg\"), Gewerk nicht bestimmbar"}
+{"pub": "00378439-2025", "firm": "Fritz Meyer GmbH", "skip": "GU-artiges DB-Paket: Ingenieurbau + Gleisoberbau + Ausbau in einem Los, Gewerk ist Teilleistung"}
+{"pub": "00362543-2025", "firm": "Berger Bau SE", "skip": "firm has no single trade: Lärmschutzwände Bahn, Straßen-/Deckenbau, Hochbau-Rohbau"}
+{"pub": "00531422-2025", "firm": "Leonhard Weiss GmbH & Co. KG", "skip": "firm has no single trade: Rohbau, GaLaBau/Tiefbau, FTTX-Breitbandausbau"}
+{"pub": "00481876-2026", "firm": "PORR GmbH & Co. KGaA", "skip": "firm has no single trade: Baugrundbohrungen, Bahnbrücken/Ingenieurbau — Rohbau beidseitig vertretbar"}
+{"pub": "00420293-2025", "title_contains": "Los 2 - Errichtung Kaianlagen", "firm": "Fendesack Geotechnik GmbH & Co. KG", "skip": "Los bündelt Kaianlage, Spundwand, Baggerung, Asphalt; Bohrleistungen nur Teilleistung"}
+{"pub": "00345658-2026", "firm": "STRABAG AG", "skip": "firm has no single trade: Autobahn, Gleis/Fahrleitung, Gasleitungen, Kanal, Hochbau"}
+{"pub": "00060309-2026", "title_contains": "Los2", "firm": "STRABAG AG", "skip": "firm has no single trade: Strassenbau, Gleisbau, Gas-/Rohrleitungsbau, Bruecken, Hochbau"}
+{"pub": "00373718-2026", "firm": "Hubert Schmid Bauunternehmen GmbH", "skip": "firm has no single trade: Spezialtiefbau und Zimmerer-/Dach-/Fassadenarbeiten"}
+{"pub": "00198350-2026", "firm": "Sell GmbH", "skip": "firm has no single trade: Schlosser-/Metallbau (Gelaender) und Lueftungs-/TGA-Anlagen"}
+{"pub": "00510487-2026", "firm": "LEONHARD WEISS GmbH & Co. KG", "skip": "firm has no single trade: Gleisbau, Spezialtiefbau, Rohbau, Bruecken, Kabeltiefbau"}
+{"pub": "00456333-2026", "firm": "MB Lauterbach Metallbau GmbH", "skip": "Prallwand/Sporthallenwandbekleidung ist das Gewerk; Tueren und Tore nur Nebenposition der Metallbaufirma"}
+{"pub": "00528225-2026", "firm": "Laetus GmbH", "skip": "GU lot, trade is sub-scope: PPP-Planung, Errichtung und Bewirtschaftung eines Busbetriebshofes"}
+{"pub": "00376417-2025", "title_contains": "HDD Landfall Vierow", "firm": "Bickhardt Bau SE", "skip": "cannot decide: HDD-Kabelbohrung liegt plausibel im Spezialtiefbau der Firma, aber kein HDD-/Kabelgewinn"}
+{"pub": "00329229-2026", "firm": "LEONHARD WEISS GmbH & Co. KG", "skip": "firm has no single trade: Gleisbau, Rohbau, Spezialtiefbau, Bruecken, Kabeltiefbau"}
+{"pub": "00393834-2025", "firm": "LEONHARD WEISS GmbH & Co. KG", "skip": "firm has no single trade: Gleisbau, Rohbau, Spezialtiefbau, Bruecken, Kabeltiefbau"}
+{"pub": "00036612-2026", "firm": "Köster GmbH", "skip": "firm has no single trade: Bodenplatte, Generalunternehmerleistungen, Infrastruktur (GU)"}
+{"pub": "00373087-2026", "firm": "Röthig & Letzel GmbH", "skip": "multi-lot notice, Titel ist nur \"Baumassnahme\": kein title_contains, das das Geschwisterlos ausschliesst"}
+{"pub": "00509399-2025", "firm": "Industriebau Wernigerode GmbH", "skip": "Mehrgewerkelos im U-Bahnhof (Abbruch, Injektion, Stahlbeton, Fliesen/Belag), Rohbau nur Teilscope"}
+{"pub": "00531401-2025", "firm": "LEONHARD WEISS GmbH & Co. KG", "skip": "firm has no single trade: Gleisbau, Rohbau, Spezialtiefbau, Bruecken, Kabeltiefbau"}
+{"pub": "00346701-2026", "firm": "GP Verkehrswegebau GmbH", "skip": "firm has no single trade: Strassenbau, Autobahnbauwerke, ein gebuendeltes Gleis-/Fahrleitungs-/Kabellos"}
+{"pub": "00447642-2025", "firm": "Wakubau Mirow GmbH", "skip": "firm has no readable trade: nur DB-Personenbahnhof-Regionallose ohne Gewerkangabe"}
+{"pub": "00055150-2026", "firm": "Plus-Pohl GmbH", "skip": "firm has no single trade: DB-Regionallos, Stahlbetonarbeiten, Neubau Strassenmeisterei"}
+{"pub": "00145124-2026", "firm": "STRABAG AG", "skip": "firm has no single trade: Straßen-, Gleis-, Gas-, Wasser- und Hochbau (eigener Zuschlag, dennoch nicht labelbar)"}
+{"pub": "00541753-2025", "firm": "Gottlob Brodbeck GmbH & Co. KG", "skip": "firm has no single trade: Stadtbahn-Haltestelle, Erschließung, Straßenbrücke"}
+{"pub": "00240757-2026", "firm": "Adolf Lupp GmbH & Co. KG", "skip": "firm has no single trade: Eisenbahnüberführungen/Durchlässe und ein Hochbau-Bedienstandort"}
+{"pub": "00390595-2026", "title_contains": "PV-Anlage", "firm": "SP Bau GmbH", "skip": "firm has no single trade: Baustelleneinrichtung, Rohbau massiv, energetische Sanierung"}
+{"pub": "00436620-2025", "firm": "STRABAG GmbH", "skip": "firm has no single trade: Hochbau-Rohbau, Autobahn-Grunderneuerung, Asphalt, Regenrückhaltebecken"}
+{"pub": "00053140-2026", "firm": "Hubert Schmid Bauunternehmen GmbH", "skip": "firm has no single trade: Spezialtiefbau und Dach-/Zimmerer-/Fassadenbau"}
+{"pub": "00322773-2026", "title_contains": "Altona, LOS 6", "firm": "GRB Rostock GmbH", "skip": "unreadable: Region Altona, LOS 6 - Rahmenvertrag über 21 Standorte, Leistungsbereiche nur im LB"}
+{"pub": "00474061-2026", "firm": "STRABAG AG", "skip": "firm has no single trade: Straßen-, Gleis-, Gas-, Wasser- und Hochbau"}
+{"pub": "00075882-2026", "title_contains": "Gala-Bau", "firm": "SP Bau GmbH", "skip": "firm has no single trade: Baustelleneinrichtung, Rohbau massiv, energetische Sanierung"}
+{"pub": "00212641-2026", "firm": "Becker GmbH & Co. KG", "skip": "firm has no single trade: mobile Trennwände und Eisenbahn-/Straßenbrücken (wohl Namensdopplung)"}
+{"pub": "00426399-2026", "firm": "Sell GmbH", "skip": "firm has no single trade: Schlosser-/Geländerbau und Lüftung/Sanitär/Kältetechnik"}
+{"pub": "00594461-2025", "title_contains": "Weichenverbindung", "firm": "BUG Verkehrsbau SE", "skip": "firm has no single trade: Gleiserneuerung, Bahnsteigdächer-Hochbau, Lärmschutzwände"}
+{"pub": "00606626-2025", "firm": "H. Hüther GmbH", "skip": "mixed lot: 470 m2 Trockenbau + Kunststofffenster + Türen vs reiner Innentüren-Betrieb"}
+{"pub": "00501401-2026", "firm": "ML Gartenplus GmbH", "skip": "Spielgeräte Planung/Herstellung/Statik/TÜV: Herstellerleistung vs GaLaBau-Montage nicht entscheidbar"}
+{"pub": "00652329-2025", "firm": "LEONHARD WEISS GmbH & Co. KG", "skip": "firm has no single trade: Gleisbau, Hochbau-Rohbau, Spezialtiefbau, Brückenbau, Kabeltiefbau"}
+{"pub": "00047153-2026", "firm": "DB Bahnbau Gruppe GmbH", "skip": "firm has no single trade: DB-Konzerntochter, Gleis-/Weichenbau, Kabeltiefbau, Bahnhofsgewerke"}
+{"pub": "00630265-2025", "firm": "J. Friedrich Storz Verkehrswegebau GmbH & Co. KG", "skip": "firm has no single trade: Deponieabdichtung, Straßenbau, Betoninstandsetzung, Tunnelvorfeld"}
+{"pub": "00326364-2026", "title_contains": "RW-Pumpwerk", "firm": "Johann Bunte Bauunternehmung SE & Co. KG", "skip": "firm has no single trade: Autobahn-Fahrbahnerneuerung, Brückenneubau, Wasserbau, Erschließung"}
+{"pub": "00134265-2026", "firm": "KLEUSBERG GmbH & Co. KG", "skip": "GU lot, trade is sub-scope: Planung + Generalunternehmer alle Gewerke Wohnungsneubau"}
+{"pub": "00480414-2025", "firm": "Goldhofer Trockenbau GmbH", "skip": "GU lot, trade is sub-scope: Totalübernehmer Planung+Bau Betriebsgebäude, funktionale LB"}
+{"pub": "00384929-2026", "firm": "Gebrüder Peters Gebäudetechnik SE", "skip": "firm has no single trade: Elektro, RLT, Heizung, Sanitär, Anlagen-/Stahlbau in einem Haus"}
+{"pub": "00436149-2026", "firm": "Schleith GmbH Baugesellschaft", "skip": "firm has no single trade: Erd-/Beton-/Maurerarbeiten, Wasserbau, Tunnelvorfeld, Bahn-Kabelanlagen"}
+{"pub": "00229142-2026", "firm": "Sell GmbH", "skip": "firm has no single trade: Schlosser/Gelaender, Metallbau und Lueftung/Technikzentrale"}
+{"pub": "00533927-2025", "firm": "Siemens AG", "skip": "firm has no single trade: Siemens AG Konzern; Titel nur GA/MSR/BMA, Entitaet deckt alle Elektrogewerke"}
+{"pub": "00629117-2025", "firm": "Rud. Otto Meyer Technik GmbH & Co.KG", "skip": "firm has no single trade: Stromversorgung/Elektro und HKLS/RLT/Kaelte"}
+{"pub": "00413943-2026", "title_contains": "Schwachstrom", "firm": "Dobler GmbH & Co. KG Bauunternehmung", "skip": "firm has no single trade: ELT, Verkehrsanlagen und Abbruch/Baumeister/Zimmerer/Stahlbau"}
+{"pub": "00623870-2025", "firm": "Ullrich & Schön GmbH", "skip": "firm has no single trade: Trockenbau, Putz/Maler/Stuckateur und Tischlerarbeiten"}
+{"pub": "00627174-2025", "firm": "Prorsus GmbH", "skip": "unreadable: Akustikelemente - Beschreibung nur Gebaeudedaten, Gewerk Trockenbau oder Tischler offen"}
+{"pub": "00224007-2026", "firm": "Julius Gaiser GmbH", "skip": "Lueftungsbauer mit FW-Uebergabestation: Heizungsgewerk in beide Richtungen begruendbar"}
+{"pub": "00068570-2026", "firm": "Industriebau Wernigerode GmbH", "skip": "GU lot, trade is sub-scope"}
+{"pub": "00158998-2026", "firm": "Becker GmbH & Co. KG", "skip": "firm has no single trade: Brueckenbau und mobile Trennwaende (wohl zwei Firmen gleichen Namens)"}
+{"pub": "00311025-2026", "firm": "SP Bau GmbH", "skip": "firm has no single trade: Baustelleneinrichtung, Rohbau massiv und ein Elektro-Los"}
+{"pub": "00399359-2025", "firm": "Schandert GmbH", "skip": "firm has no single trade: Bodenbelag, Rollladen/Sonnenschutz und Tischler-Festeinbauten"}
+{"pub": "00361518-2026", "firm": "Hubert Schmid Bauunternehmen GmbH", "skip": "firm has no single trade: Spezialtiefbau und Dach/Zimmerer/Fassadenbau"}
+{"pub": "00054346-2026", "firm": "H&P Anlagentechnik GmbH", "skip": "unentscheidbar: Firma gewann 3x nur Sanitaer, Los ist Waermeversorgung - SHK-Betrieb koennte Heizung selbst bieten"}
+{"pub": "00296590-2026", "firm": "Lunca Innenausbau GmbH", "skip": "Los nicht eindeutig treffbar: Titel \"Ausgeschriebene Leistung\" tragen zwei Lose derselben Bekanntmachung"}
+{"pub": "00164217-2026", "firm": "Adolf Lupp GmbH & Co. KG", "skip": "unentscheidbar: Firma Bahn-Ingenieurbau (EUe, Durchlaesse), Los ist Hochbau-Rohbau inkl. Putz und Geruest"}
+{"pub": "00203753-2026", "title_contains": "ESTW Mühlacker - KTB - Los 1", "firm": "Grötz GmbH & Co. KG", "skip": "unreadable: ESTW Muehlacker - KTB - Los 1"}
+{"pub": "00203753-2026", "title_contains": "ESTW Mühlacker - KTB - Los 1", "firm": "Peter Gross Rail GmbH & Co. KG", "skip": "unreadable: ESTW Muehlacker - KTB - Los 1"}
+{"pub": "00470508-2026", "firm": "Neumühler Bauhütte GmbH", "skip": "firm has no single trade: Dachabdichtung/Klempner, Holzbau, Metall-Anstrich, Terrakotta-Rekonstruktion"}
+{"pub": "00535399-2026", "firm": "Frauenrath Recycling GmbH", "skip": "TU lot, trade is sub-scope: Totalunternehmer Baufeldfreimachung/Tiefbau/Medien; alle 5 Lose gleich betitelt"}
+{"pub": "00157454-2026", "firm": "Köster GmbH", "skip": "firm has no single trade: Bodenplatte, GU-Leistungen Feuerwache; Los \"Infrastruktur Teil 2\" nennt kein Gewerk"}
+{"pub": "00157454-2026", "firm": "JOHANN BUNTE Bauunternehmung SE & Co. KG", "skip": "unreadable: Infrastruktur Teil 2 (Neubau Technisches Rathaus) - kein Gewerk erkennbar"}
+{"pub": "00307857-2026", "firm": "Theodor Baum GmbH", "skip": "Blitzschutz nur beilaeufig: 1 Stk Blitzschutzanlage am Ende eines Elektroinstallations-LV"}
+{"pub": "00445281-2026", "firm": "Bindig Gerüstbau GmbH", "skip": "Geruestbau nur eine Teilleistung eines Abbruch-/Schadstoffsanierungslos"}
+{"pub": "00535088-2026", "title_contains": "Bau-Los 2", "firm": "Groth & Co. Bauunternehmung GmbH", "skip": "firm has no single trade: Straßen-/Tiefbau, Erschließung und Hochbau-Rohbau"}
+{"pub": "00304227-2026", "firm": "Kieback & Peter GmbH & Co. KG", "skip": "TGA-Sammellos (Sanitär, RLT, Kälte, Elektro); GA/MSR-Gewerk nur Teilscope"}
+{"pub": "00069157-2026", "firm": "Tischlerei Weigel GmbH", "skip": "Türenpaket mischt 111 Stahl-/Edelstahl- mit 56 Holztüren; Tischleranteil nur Teilscope"}
+{"pub": "00302430-2026", "firm": "MHW GmbH", "skip": "GU lot, trade is sub-scope"}
+{"pub": "00263927-2026", "firm": "Industriebau Wernigerode GmbH", "skip": "unreadable: Naturwissenschaftliche Fachräume BT C1- BA 1 (Beschreibung wiederholt nur den Titel)"}
+{"pub": "00089211-2026", "firm": "Linkamp GmbH", "skip": "Baulogistik/Baustelleneinrichtung: Demontage+Schutz passt zur Abbruchfirma, Rest nicht - nicht entscheidbar"}
+{"pub": "00142174-2026", "firm": "Probat Bau AG", "skip": "firm has no single trade: Baumeister/Rohbau, Trockenbau und Fenster"}
+{"pub": "00492670-2026", "firm": "H.O. Schlüter GmbH", "skip": "Metallbau nur Nebenposition (130 qm Stahl-PR-Fassade) in einem Klinker-Mauerarbeiten-Lot"}
+{"pub": "00350145-2026", "firm": "Köster GmbH", "skip": "firm has no single trade: Bodenplatte, Generalunternehmerleistungen, Infrastruktur"}
+{"pub": "00457613-2026", "firm": "Becker GmbH & Co. KG", "skip": "firm has no single trade: mobile Trennwaende und Bruecken-/Ingenieurbau"}
+{"pub": "00167932-2026", "firm": "Gebrüder Peters Gebäudetechnik SE", "skip": "firm has no single trade: Elektro, Lueftung, Heizung, Sanitaer, Stahlbau/Schlosser"}
+{"pub": "00544412-2025", "firm": "Nutz GmbH", "skip": "firm has no single trade: Stark-/Schwachstrom, Gebaeudeautomation und Metallbau-Fassade"}
+{"pub": "00092329-2026", "firm": "Gebrüder Peters Gebäudetechnik SE", "skip": "firm has no single trade: Elektro, Lueftung, Heizung, Sanitaer, Stahlbau/Schlosser"}
+{"pub": "00178694-2026", "firm": "Ullrich & Schön GmbH", "skip": "firm spans Trockenbau, Innenputz/Stuck, Maler, Tischler - WDVS-Aussenfassade undecidable"}
+{"pub": "00225883-2026", "firm": "Rud. Otto Meyer Technik GmbH & Co.KG", "skip": "GU lot, trade is sub-scope (Totalunternehmerleistung Neubau Unterkunftsgebäude)"}
+{"pub": "00331142-2026", "firm": "Hasselmann GmbH", "skip": "firm has no single trade: Gleis-/Entwässerungsbau, Bahnbeleuchtung, Hochbau/KIB"}
+{"pub": "00456011-2026", "firm": "Schandert GmbH", "skip": "firm has no single trade: Bodenbelag, Rollladen/Sonnenschutz, Tischler-Festeinbauten"}
+{"pub": "00604891-2025", "firm": "Rud. Otto Meyer Technik GmbH & Co.KG", "skip": "firm has no single trade: Starkstrom/Elektro und HKLS/Kälte/RLT (volles TGA-Haus)"}
+{"pub": "00210958-2026", "firm": "KAEFER Deutschland Pro Services GmbH", "skip": "Trockenbaufirma mit einem Innentüren-Zuschlag: in und out beide begründbar"}
+{"pub": "00427602-2026", "firm": "DB Bahnbau Gruppe GmbH", "skip": "firm has no single trade: DB-Tochter, Gleis/Kabel/Bahnsteig bis Hochbau"}
+{"pub": "00159227-2026", "firm": "Güva GmbH", "skip": "lot bundles Erd-/Gründung, ELT/HLS-Infrastruktur, Freianlagen, Pflaster — trade is sub-scope"}
+{"pub": "00623447-2025", "firm": "DB Bahnbau Gruppe GmbH", "skip": "firm has no single trade: DB-Tochter, Gleis/Kabel/Bahnsteig bis Hochbau; zudem GU-Los"}
+{"pub": "00230089-2026", "firm": "DB Bahnbau Gruppe GmbH", "skip": "firm has no single trade: DB-Tochter, Gleis/Kabel/Bahnsteig bis Hochbau"}
+{"pub": "00158315-2026", "firm": "Probat Bau AG", "skip": "firm has no single trade: Trockenbau, Baumeisterarbeiten (Rohbau) und Fenster"}
+{"pub": "00421377-2026", "firm": "Sell GmbH", "skip": "firm has no single trade: Schlosser-/Geländerbau und Lüftungs-/Sanitärinstallation (evtl. Namensdopplung)"}
+{"pub": "00146680-2026", "firm": "GRB Rostock GmbH", "skip": "Gewässerbau (2,2 km Bachumbau); Abbruch alter Brückenfundamente nur Nebenposition — Gewerk nur beiläufig"}
+{"pub": "00405345-2026", "firm": "Hubert Schmid Bauunternehmen GmbH", "skip": "firm has no single trade: Spezialtiefbau und Zimmerer-/Dach-/Fassadenbau"}
+{"pub": "00528938-2025", "firm": "STRABAG AG", "skip": "firm has no single trade: Autobahn, Gleisbau, Gasleitungen, Brücken, Bahnhof-Bauhauptleistungen"}
+{"pub": "00555546-2025", "title_contains": "Los 2.5", "firm": "DB Bahnbau Gruppe GmbH", "skip": "firm has no single trade: DB-Tochter — Oberbau, Weichen, Kabelverlegung, Bahnhofsgewerke"}
+{"pub": "00434605-2026", "firm": "Friedrich Duensing GmbH - Hoch-, Tief- und Eisenbahnbau", "skip": "unreadable: 'Los 1' (nur 'Regionalbereich Mitte Los 1'); zudem kein eindeutiger Titelteil unter 14 'Los N'"}
+{"pub": "00367256-2025", "firm": "Rud. Otto Meyer Technik GmbH & Co.KG", "skip": "firm has no single trade: Elektro/Stromversorgung und HKLS/RLT (TGA-Komplettanbieter)"}
+{"pub": "00319703-2026", "firm": "LEONHARD WEISS GmbH & Co. KG", "skip": "firm has no single trade: Gleisbau, Kabeltiefbau, Bruecken, Spezialtiefbau und Rohbau"}
+{"pub": "00637938-2025", "firm": "Groth & Co. Bauunternehmung GmbH", "skip": "firm has no single trade: Strassen-/Tiefbau, Freianlagen und Hochbau-Rohbau"}
+{"pub": "00125127-2026", "firm": "Straßen- und Tiefbau GmbH See", "skip": "cannot decide: Rohrleitungs-/Leitungstiefbau (PP-Schweissung, Fernwaerme) vs Strassen-/Erdbau-Gewinne"}
+{"pub": "00028978-2026", "firm": "BplusL Infra Log GmbH", "skip": "cannot decide: Erdbau/Pflaster fuer Containerflaeche vs Baustelleneinrichtung/Container-Interimsbau"}
+{"pub": "00346321-2026", "firm": "KAEFER Deutschland Pro Services GmbH", "skip": "cannot decide: Schadstoffsanierung vs Trockenbau-/Baulogistik-Gewinne; Beschreibung ist nur \"---\""}
+{"pub": "00523258-2025", "firm": "PORR GmbH & Co. KGaA", "skip": "firm has no single trade: Baugrundbohrungen, Eisenbahnbruecke, zwei unlesbare \"Los\"-Titel"}
+{"pub": "00510747-2026", "firm": "Apleona Wolfferts GmbH", "skip": "firm has no single trade: HLS/MSR, Kaelte, Lueftung und Elektro (TGA-Komplettanbieter)"}
+{"pub": "00167406-2026", "firm": "Hubert Schmid Bauunternehmen GmbH", "skip": "firm has no single trade: Spezialtiefbau und Zimmerer-/Dach-/Fassadenarbeiten"}
+{"pub": "00397435-2026", "firm": "Neumühler Bauhütte GmbH", "skip": "firm has no single trade: Dach/Klempner, Holzbau, Anstricharbeiten und Denkmalrestaurierung"}
+{"pub": "00171624-2026", "firm": "Köster GmbH", "skip": "firm has no single trade: Bodenplatte/Rohbau, GU-Leistungen Feuerwache, Infrastruktur Rathaus"}
+{"pub": "00536335-2026", "firm": "August Fichter GmbH", "skip": "Gewässerbau/Erdbau (5.400 m3 Aushub, 330 t Wasserbausteine) gegen reine GaLaBau-Pflanzreferenzen"}
+{"pub": "00428407-2026", "firm": "Atelier für Restaurierung Schloss Kaufungen GmbH", "skip": "Betonfertigteilsanierung am Denkmal: Restaurator für Putz/Stuck/Naturstein könnte Betoninstandsetzung abdecken"}
+{"pub": "00583140-2025", "firm": "Diaplan Innenausbau GesmbH", "skip": "unreadable: EMB-Arbeiten - Neubau zur Erweiterung des Warndtgymnasiums"}
+{"pub": "00204126-2026", "firm": "KLEUSBERG GmbH & Co. KG", "skip": "GU lot, trade is sub-scope (Generalübernehmerleistungen inkl. Planung und Haustechnik)"}
+{"pub": "00404816-2026", "firm": "Ringbeck GmbH", "skip": "Storedaten widersprüchlich: Titel/CPV = GaLaBau, Beschreibung = Sanitärinstallation"}
+{"pub": "00232116-2026", "firm": "Ed. Züblin AG", "skip": "firm has no single trade: Rohbau, Generalunternehmerleistungen, Baulogistik/Baustelleneinrichtung"}
+{"pub": "00154450-2026", "firm": "Probat Bau AG", "skip": "firm has no single trade: Baumeister/Rohbau, Trockenbau, Fenster", "note": "Lot: Akustikmaßnahmen (Wandabsorber, Deckensegel, Wellenvorhänge)"}
+{"pub": "00305636-2026", "firm": "Apleona Wolfferts GmbH", "skip": "firm has no single trade: HLS/MSR, Kälte, Lüftung, Elektroarbeiten", "note": "Lot: reine Gebäudeautomation (BACnet-Automationsstationen, DDC, Feldgeräte)"}
+{"pub": "00075299-2026", "firm": "STRABAG AG", "skip": "firm has no single trade: Straße, Gleis, Gasleitungen, Kanal, Bahnhof, Hochbau", "note": "Lot: Fahrbahnerneuerung L69 (Fräsen, Trag-/Deckschicht); eigener Zuschlag, aber Firma ohne Gewerk"}
+{"pub": "00075299-2026", "firm": "Josef Rädlinger Ingenieurbau GmbH", "skip": "firm has no single trade: Bahndamm, Bahnsteig, Korrosionsschutz, Lärmschutzwand, Tunnelzugang", "note": "Lot: Fahrbahnerneuerung L69 (Asphalt); Asphaltbau im Dossier nicht belegt"}
+{"pub": "00014310-2026", "title_contains": "Position", "firm": "ENGIE Deutschland GmbH", "skip": "lot text is one word (Elektroarbeiten) and firm is multi-technical: RLT, Lüftung, Gebäudeautomation", "note": "Bekanntmachung unbrauchbar betitelt: die zwei Lose heißen \"Position\" und \"Posotion\""}
+{"pub": "00512126-2026", "firm": "Rud. Otto Meyer Technik GmbH & Co.KG", "skip": "firm has no single trade: Stromversorgung/Elektro, HKLS, Kältetechnik, RLT", "note": "Lot: reine Gebäudeautomation nach ATV DIN 18386"}
+{"pub": "00513320-2026", "firm": "objekt + raum ausbausysteme GmbH", "skip": "Tischlergewerk beidseitig, aber Firma nur Innentüren, Lot nur Einbaumöbel — nicht entscheidbar", "note": "Lot: Einbauschränke Fachbibliothek, Teeküche, Archivregale"}
+{"pub": "00111328-2026", "firm": "Völker Bauunternehmen GmbH", "skip": "cannot read the firm trade: won titles are only DB-Rahmenlose (Los 27 Regionalbereich Mitte)", "note": "Lot: Straßen-, Gleis- und Tiefbau Königsbrücker Straße (Asphalt, Gleise, Kanal)"}

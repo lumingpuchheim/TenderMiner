@@ -919,21 +919,43 @@ def collide(data_dir, candidates):
     `gla` were refused) and which has never been a tool. Every root added
     by hand, or proposed by a reader, has to pass it: a root is only as
     good as the words it actually hits.
+
+    Two things are printed beside each word, both learned from writing the
+    43 roots of the blind-lot pass. `NEW` marks a word no committed root
+    reaches yet -- the part of the list the candidate is actually buying,
+    as against the part some other root already covers. `-excepted` marks a
+    word an existing "-" line already rejects, so an exception written for
+    one root is not mistaken for evidence about another.
+
+    The whole list is printed, never a head of it. The collisions that
+    refused `sportgeraet` (transportgeraete) and `toranlag`
+    (raffstoranlagen, monitoranlage) all sat in the one-lot tail: a
+    truncated listing reads as clean and is the failure this tool exists
+    to prevent.
     """
     tenders = pd.read_parquet(Path(data_dir) / 'store' / 'tenders.parquet')
     df = store_doc_freq(tenders, Path(data_dir) / 'evidence_df.json')
     counts, n = df['df'], df['n']
+    _roots, nots = trade_roots()
     for cand in candidates:
-        c = fold(str(cand).casefold())
+        c = fold(str(cand).casefold().lstrip('-'))
         hits = sorted(((k, w) for w, k in counts.items() if c in fold(w)),
                       reverse=True)
         tot = sum(k for k, _ in hits)
+        new = [(k, w) for k, w in hits
+               if not roots_in(w) and not any(x in fold(w) for x in nots)]
         print(f'\n[collide] {cand}: {len(hits)} distinct words, '
-              f'{tot} lot-occurrences ({tot / n:.1%} of the store)')
-        for k, w in hits[:25]:
-            print(f'   {k:6d}  {w}')
-        if len(hits) > 25:
-            print(f'   ... and {len(hits) - 25} more')
+              f'{tot} lot-occurrences ({tot / n:.1%} of the store); '
+              f'{len(new)} words / {sum(k for k, _ in new)} occurrences '
+              f'reach no current root')
+        for k, w in hits:
+            if any(x in fold(w) for x in nots):
+                mark = '  -excepted'
+            elif not roots_in(w):
+                mark = '  NEW'
+            else:
+                mark = ''
+            print(f'   {k:6d}  {w}{mark}')
 
 
 def roots_audit(data_dir, limit=40):
@@ -1343,7 +1365,7 @@ def receipt(data_dir, use_tier3):
 
 def run_benchmark(data_dir, use_tier3):
     tenders, awards, lots, texts, raw, docfreq = load_world(data_dir)
-    from calibrate import lot_codes
+    from calibrate import is_deep, lot_codes
     from embed import MODEL_TAG, read_cpv_labels
     labels = read_cpv_labels()
     trust = json.loads(Path(f'trusted_codes_{MODEL_TAG}.json').read_text(
@@ -1361,6 +1383,11 @@ def run_benchmark(data_dir, use_tier3):
     firms = {}
     firm_tc = {}
     fails = 0
+    # a case's (pub, title_contains) can select more than one lot, and each
+    # selected lot is judged and can fail on its own -- so the denominator
+    # is lots judged, not len(cases). Scoring per-lot failures against a
+    # per-case total understates the score and drifts as cases are added.
+    judged = 0
     for case in cases:
         firm = case['firm']
         if firm not in firms:
@@ -1383,9 +1410,12 @@ def run_benchmark(data_dir, use_tier3):
         sel = [k for k in texts if raw[k][3] == case['pub']
                and case.get('title_contains', '') in str(raw[k][0])]
         if not sel:
-            print(f"  ?? {case['pub']} not found");  fails += 1
+            print(f"  ?? {case['pub']} not found")
+            fails += 1
+            judged += 1
             continue
         for k in sel:
+            judged += 1
             ref_keys = firm_profile_texts(awards, texts, firm)
             is_ref = k in ref_keys
             # a reference judged against itself is trivially 'in'; judge
@@ -1407,7 +1437,8 @@ def run_benchmark(data_dir, use_tier3):
                   f"{('— ' + quote) if quote else ''}")
     if syn is not None:
         syn.save()
-    print(f'[benchmark] {len(cases) - fails}/{len(cases)} correct')
+    print(f'[benchmark] {judged - fails}/{judged} correct '
+          f'({len(cases)} cases)')
     return fails
 
 

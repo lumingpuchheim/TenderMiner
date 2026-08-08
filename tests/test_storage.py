@@ -365,6 +365,10 @@ class AppendOnly(TempHome):
         self.write_ledger_file('gate_configs', [{
             'fingerprint': 'abc1234567', 'first_seen': '2026-08-01T00:00:00+00:00',
             'mode': 'evidence'}])
+        self.write_ledger_file('simulations', [{
+            'ts': '2026-08-01T00:00:00+00:00', 'company': 'Acme GmbH',
+            'procedure_id': 'p-1', 'lot_id': 'LOT-0001', 'model': 'm-1',
+            'score': 0.8, 'cpv3': '452'}])
         db.migrate(self.home)
         self.con = db.connect(self.home)
 
