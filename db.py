@@ -422,6 +422,57 @@ def _derive_customers(con, sub_rows):
     return len(newest)
 
 
+# --------------------------------------------------- subscriptions (phase 2/2)
+
+def subscription_rows(con):
+    """Subscription versions as the dicts every caller already expects.
+
+    The market filter comes back from `raw` verbatim, so a caller cannot tell
+    the difference between a database row and the ledger line it was migrated
+    from. Identity — `name`, `award_names` — is overlaid from `customer`
+    instead, because that is the whole point of the split: the filter is a
+    frozen decision, the person's name is a correctable fact. Rename a customer
+    and every past version reports the new name; their historical market stays
+    exactly as it was.
+    """
+    cust = {r['customer_id']: r for r in con.execute('SELECT * FROM customer')}
+    out = []
+    for r in con.execute('SELECT sub_id, version, customer_id, raw '
+                         'FROM subscription_version ORDER BY rowid'):
+        d = json.loads(unpack(r['raw']))
+        c = cust.get(r['customer_id'] or r['sub_id'])
+        if c is not None:
+            if c['name'] is not None:
+                d['name'] = c['name']
+            if c['award_names']:
+                d['award_names'] = json.loads(c['award_names'])
+        out.append(d)
+    return out
+
+
+def put_subscriptions(data_dir, subs):
+    """Create/extend subscription storage from validated dicts.
+
+    Used by the sandbox path (`subscriptions.write_sandbox`), so a throwaway
+    customer set exercises the same storage the real one uses instead of a
+    second format that only sandboxes know about.
+    """
+    con = init(data_dir)
+    _derive_customers(con, subs)
+    for s in subs:
+        insert(con, 'subscription_version', s,
+               extra={'customer_id': s.get('sub_id')})
+    con.commit()
+    return len(subs)
+
+
+def subscription_versions_present(con):
+    """{(sub_id, version)} already stored — lets a caller detect a source file
+    that has drifted ahead of the database."""
+    return {(r['sub_id'], int(r['version'])) for r in
+            con.execute('SELECT sub_id, version FROM subscription_version')}
+
+
 def export_jsonl(data_dir, out_dir):
     """Regenerate the text ledgers from the database.
 

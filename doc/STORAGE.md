@@ -121,6 +121,46 @@ What the move already bought, measured on the same database:
 - `UPDATE`/`DELETE` on any ledger table: refused by trigger
 - `UPDATE`/`DELETE` on `customer`: allowed, as designed for erasure
 
+## 4c. Step 2 landed: subscriptions read from the database (2026-08-08)
+
+`subscriptions.py` now resolves a home directory to a database when one is
+there and to `subscriptions.jsonl` when it is not. **No caller changed** —
+that is what the phase-2 pre-work bought.
+
+There is deliberately **no flag day**. The live `data/` directory has no
+database yet, so nothing moved until an operator runs `python db.py
+--migrate`; both paths are supported and the switch is a decision, not a
+deployment.
+
+The market filter comes back from `raw` verbatim, so a caller cannot tell a
+database row from the ledger line it was migrated from. Identity — `name`,
+`award_names` — is overlaid from `customer` instead, which is the point of the
+split: rename a customer and every past version reports the new name, while
+their historical market stays exactly as it was.
+
+**The database wins when both exist**, because migration deliberately does not
+delete the originals. That preference is only safe with a cross-check, so
+`read_all` raises when the file holds a `(sub_id, version)` the database does
+not — an operator editing the file after migrating would otherwise have the
+edit silently ignored, which is the exact failure this module exists to
+prevent. The message names the fix (`python db.py --migrate`).
+
+Sandboxes (`tryout.py`, `replay.py`) now build a small database through
+`write_sandbox`, so they exercise the shipped read path instead of a second
+format only sandboxes understand.
+
+Receipts:
+
+- **File and database reads are identical dicts.** All 13 versions, at six
+  as-of dates spanning the subscription history (1, 2, 2, 8, 8, 8 active):
+  equal element by element, and `read_all` returns them in the same order.
+- **Rendered reports byte-identical** for `jebsen-blitzschutz`, `beck` and
+  `n3bau`, run back-to-back against the pre-change code — with the sandbox
+  now being a database rather than a file.
+- Drift guard, frozen-marker guard and the sandbox round trip each tested
+  directly; `explain.py`, `feedback.py --list` and the `subscriptions.py` CLI
+  all still work on the file path.
+
 ## 5. Open calls — these need an operator decision
 
 ### 5.1 `models/registry.jsonl` (21 rows) and `models/CURRENT`
