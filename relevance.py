@@ -617,7 +617,11 @@ def build_profile(gate, sub, config=None):
         wide = evd.wide_keywords(refs)
         # phase 8o: the roots that RECUR across the firm's wins — its trade
         # rather than its context. A core root in the TITLE convicts.
-        core = evd.core_keywords(refs, firm=sub.get('name'))
+        # ref_titles is aligned with refs (both are ref_rows then
+        # profile_texts), which is what lets a ONE-reference profile read
+        # its trade off the title instead of the whole document.
+        core = evd.core_keywords(refs, firm=sub.get('name'),
+                                 titles=ref_titles)
     return {
         'ref_matrix': np.vstack(expanded),
         'ref_titles': ref_titles,
