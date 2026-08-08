@@ -148,7 +148,8 @@ def firm_lexicons(data_dir, trade_roots):
             'wins': len(keys), 'codes': sorted(tc), 'src': src,
             'narrow': evd.firm_keywords(refs, docfreq, lbl, deep, dicts,
                                         why, firm=firm, sources=src),
-            'core': evd.core_keywords(refs, firm=firm),
+            'core': evd.core_keywords(refs, firm=firm,
+                                      titles=[raw[k][0] for k in keys]),
             'wide': evd.wide_keywords(refs),
             'root_share': evd.root_share(refs),
             'rootless': [raw[k][0] for k in keys
