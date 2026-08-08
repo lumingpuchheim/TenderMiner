@@ -140,7 +140,7 @@ def firm_lexicons(data_dir, trade_roots):
         lbl = [labels[c] for cs in codes for c in cs
                if c in trusted and c in labels]
         tc = {c for cs in codes for c in cs if c in trusted}
-        deep = {c for cs in codes for c in cs if is_deep(c)}
+        deep = evd.firm_codes(codes)   # phase 8w: the codes that RECUR
         refs = [(texts[k], raw[k][4]) for k in keys]
         why, src = {}, {}
         out[firm] = {

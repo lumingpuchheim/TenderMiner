@@ -104,7 +104,40 @@ DICT_MIN_LOTS = 20    # trades with fewer coded lots keep no dictionary
 # them. Measured cost, voting held on in both arms: OUT 45/52 -> 36/52.
 # Turn this on once a firm's trade is taken from the cpv_main of the lots
 # it actually won, not from every code listed on the procurement.
-DICT_TRUSTED_ONLY = os.environ.get('DICT_TRUSTED_ONLY', '1') != '0'
+DICT_TRUSTED_ONLY = os.environ.get('DICT_TRUSTED_ONLY', '0') != '0'
+# Phase 8w — A CODE MUST RECUR ACROSS THE FIRM'S WINS. The third and last
+# place the same principle was missing. A word must recur across the firm's
+# references (8q); a lot must agree with its code's majority (8u); but a
+# firm inherited a dictionary for EVERY code appearing on any lot it won a
+# part of. Those codes come from cpv_additional, which lists every trade in
+# the procurement -- so Heberger, three won tenders all in wastewater
+# plants, carried seven dictionaries spanning fire alarms, building
+# automation, lightning protection and structural concrete. Its 24 words
+# were every one of them CORRECT for their trades; the error was that six
+# of those trades are not Heberger's. No threshold on word quality can see
+# that, which is why tightening DICT_MIN_IN could not fix it.
+# Its wastewater code is on 3 of 3 wins; its fire-alarm code on 1. One
+# recurs, the other is context.
+# 0 disables (every code counts, the phase-8t behaviour).
+DICT_CODE_SHARE = float(os.environ.get('DICT_CODE_SHARE', '0.34'))
+
+
+def firm_codes(code_lists, share=None):
+    """Phase 8w: which of a firm's CPV codes are its trade rather than the
+    context of somebody else's procurement. `code_lists` is one list of
+    codes per won lot. A code survives if it appears on at least `share` of
+    them (always at least 2 lots, and a 1-win firm keeps everything it
+    has)."""
+    from calibrate import is_deep
+    share = DICT_CODE_SHARE if share is None else share
+    n = len(code_lists)
+    seen = Counter()
+    for cs in code_lists:
+        seen.update({c for c in cs if is_deep(c)})
+    if not share or n < 2:
+        return set(seen)
+    need = max(2, int(n * share + 0.999))
+    return {c for c, k in seen.items() if k >= need}
 # Phase 8u (operator idea 2026-08-07): THE POOL VOTES. A dictionary is only
 # as good as the lots filed under its code, and most of them are not filed
 # under it deliberately -- measured on 45261420 (Abdichtungsarbeiten gegen
@@ -127,7 +160,16 @@ DICT_TRUSTED_ONLY = os.environ.get('DICT_TRUSTED_ONLY', '1') != '0'
 DICT_VOTE = os.environ.get('DICT_VOTE', '1') != '0'
 DICT_VOTE_MARGIN = 0.5   # signature = roots polling >= this share of the top
 DICT_VOTE_MAX = 6        # ... at most this many, so a signature stays a signature
-DICT_MIN_IN = 0.10    # word must appear in >= 10% of the trade's lots
+# Phase 8v (operator decision 2026-08-07): a dictionary word must appear in
+# ALL of the trade's surviving lots, not 10% of them. The 10% bar was set
+# when the pool was up to 84% miscoded; phase 8u's vote now removes the lots
+# that disagree, and the operator's rule for what remains is stricter than
+# frequency: "what if someone sneaks a trade that is not relevant to the
+# code. he just makes a mistake. we respect the most of his work, but not
+# all" -- the vote keeps a lot whose trade agrees, intersection then drops
+# the off-trade words that lot happened to carry.
+# Env-overridable so the share can be swept without an edit.
+DICT_MIN_IN = float(os.environ.get('DICT_MIN_IN', '0.10'))
 DICT_MIN_RATIO = 8.0  # ... and >= 8x as often inside as outside
 # Phase 8f (2026-08-07) — ONE principle, applied in the two places it was
 # missing: **a trade word travels between buyers; an office's house style
@@ -210,7 +252,7 @@ BUYER_DIVERSITY = os.environ.get('BUYER_DIVERSITY', '1') != '0'
 # existed, which is exactly the value the new default carries, so a stale
 # trusted-only cache matched the key and was silently reused. Any change to
 # what the dictionaries contain must bump this version too.
-DICT_CACHE_V = 5
+DICT_CACHE_V = 6
 DICT_MAX_WORDS = 30   # per-trade cap, keeps lexicons readable
 SEED = 7              # mirrors calibrate.py sampling
 NEG_PER_FIRM = 50
@@ -542,7 +584,8 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
                 and bool(d.get('bd')) == bool(BUYER_DIVERSITY)
                 and bool(d.get('tr')) == bool(TRADE_ROOTS)
                 and bool(d.get('to')) == bool(DICT_TRUSTED_ONLY)
-                and bool(d.get('vo')) == bool(DICT_VOTE)):
+                and bool(d.get('vo')) == bool(DICT_VOTE)
+                and float(d.get('mi', -1)) == float(DICT_MIN_IN)):
             _TRADE_DICTS = d['dicts']
             return _TRADE_DICTS
     n, df = docfreq['n'], docfreq['df']
@@ -628,7 +671,8 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
                         'bd': bool(BUYER_DIVERSITY),
                         'tr': bool(TRADE_ROOTS),
                         'to': bool(DICT_TRUSTED_ONLY),
-                        'vo': bool(DICT_VOTE), 'dicts': dicts}),
+                        'vo': bool(DICT_VOTE),
+                        'mi': float(DICT_MIN_IN), 'dicts': dicts}),
             encoding='utf-8')
     _TRADE_DICTS = dicts
     return dicts
@@ -1085,8 +1129,7 @@ def receipt(data_dir, use_tier3):
                       if j != i]
             lbl = [labels[c] for j, cs in enumerate(codes) if j != i
                    for c in cs if c in trusted and c in labels]
-            tc_i = {c for j, cs in enumerate(codes) if j != i
-                    for c in cs if is_deep(c)}
+            tc_i = firm_codes([cs for j, cs in enumerate(codes) if j != i])
             kws = firm_keywords(others, docfreq, lbl, tc_i, dicts,
                                 firm=firm)
             kw_counts.append(len(kws))
@@ -1107,8 +1150,7 @@ def receipt(data_dir, use_tier3):
         # negatives (clean, off-class trusted) and volume — firm-level keywords
         kws = firm_keywords([(texts[k], raw[k][4]) for k in keys],
                             docfreq, label_texts,
-                            {c for cs in codes for c in cs if is_deep(c)},
-                            dicts, firm=firm)
+                            firm_codes(codes), dicts, firm=firm)
         neg_pool = [k for k in deep_trusted
                     if all_class[k] not in firm_classes and k not in keys]
         if neg_pool:
@@ -1644,9 +1686,8 @@ def main():
         tc = {c for _, r in aw.iterrows()
               for c in lot_codes(r['cpv_main'], r['cpv_additional'])
               if c in trusted}
-        deep = {c for _, r in aw.iterrows()
-                for c in lot_codes(r['cpv_main'], r['cpv_additional'])
-                if is_deep(c)}
+        deep = firm_codes([lot_codes(r['cpv_main'], r['cpv_additional'])
+                           for _, r in aw.iterrows()])
         lbl = [labels[c] for c in tc if c in labels]
         print(f'[evidence] {args.keywords}: {len(keys)} wins, '
               f'trusted trades {sorted(tc)}')

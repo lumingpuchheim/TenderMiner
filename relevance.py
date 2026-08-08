@@ -548,7 +548,10 @@ def build_profile(gate, sub, config=None):
             # phase 8t: dictionaries are looked up by the profile's DEEP
             # codes, not its trusted ones — trust gates the code-similarity
             # nomination above, never the vocabulary
-            {c for c in ref_codes if is_deep(c)}, dicts,
+            # phase 8w: only the codes that RECUR across the firm's wins —
+            # cpv_additional names every trade of a procurement, not this
+            # firm's part of it
+            evd.firm_codes([_codes_of(gate, i) for i in ref_rows]), dicts,
             firm=sub.get('name'))
         # phase 8n: the wide root lexicon — nomination only, never conviction
         wide = evd.wide_keywords(refs)

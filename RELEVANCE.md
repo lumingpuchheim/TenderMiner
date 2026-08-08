@@ -1998,3 +1998,66 @@ filter that killed each word.
 
 Rollbacks: `ROOT_LEXICON=0`, `NAME_KEYWORDS=0`, `DICT_VOTE=0`,
 `DICT_TRUSTED_ONLY=0` (opens the dormant work).
+
+## Phase 8w — a code must recur too; the dictionary gate opens (2026-08-07)
+
+Phase 8t was right and unshippable: opening the trade dictionaries to every
+code with enough lots took empty lexicons from 33 to 3 and cost **eleven**
+rejection cases. The diagnosis was Heberger Hoch-, Tief- und Ingenieurbau —
+three won tenders, all in wastewater plants, and seven dictionaries:
+
+```
+45252100  maschinentechnik belebungsbecken rohrleitung armatur
+45262310  perimeterdämmung ortbeton mauerarbeiten rohbau betonarbeiten ...
+45311000  brandmeldeanlage elektro
+45311100  unterverteiler steckdose beleuchtung verkabelung
+45314310  kabeltrasse
+45317000  gebäudeautomation
+45317300  starkstrom unterverteilung blitzschutz leuchte
+```
+
+**Every one of those 24 words is correct for its trade.** Nothing is wrong
+with them as words, which is why no threshold on word quality could remove
+them — a sweep of `DICT_MIN_IN` from 10% to 100% either changed nothing or
+emptied every dictionary in the store (at 50% and above, not one word
+survives in all of a code's lots; German lot texts are too short and varied,
+and many lots are a bare address or "Los 12"). The error is that six of
+those seven trades are not Heberger's. They arrive through `cpv_additional`,
+which names every trade in a procurement on each of its lots.
+
+**So the missing rule is the same one, at the third level.** A word must
+recur across the firm's references (8q); a lot must agree with its code's
+majority (8u); and now a **code** must recur across the firm's wins.
+Heberger's wastewater code is on 3 of 3; its fire-alarm code on 1 of 3. One
+is its trade, the other is the context of somebody else's procurement.
+`firm_codes()` keeps codes present on at least `DICT_CODE_SHARE` of a firm's
+won lots (always at least two).
+
+**The frontier**, trust gate open in every row:
+
+| dictionaries reach a firm when its code is on… | empty | <3 | IN | OUT |
+| --- | --- | --- | --- | --- |
+| any win (phase 8t as measured) | 3 | 11 | 54/74 | 36/52 |
+| **>= 1/3 of wins (shipped)** | **14** | **72** | **49/74** | **43/52** |
+| >= 3/4 of wins | 23 | 126 | 48/74 | 46/52 |
+| every win | 25 | 135 | 48/74 | 46/52 |
+| *master before this (gate closed)* | *33* | *133* | *50/74* | *45/52* |
+
+Empty lexicons 33 -> 14 and firms under three words 133 -> 72, for two
+rejection cases and one recall case. The 3/4 row is the precision-first
+alternative — better than master on OUT — and stays documented for the day
+leakage binds.
+
+**What this settles about two other proposals.** (1) The operator's
+intersection rule — a word must appear in ALL of a trade's surviving lots —
+is implementable and measured, and it empties every dictionary in the store:
+`45233280` (30 lots), `45112700` (558), `45262320` (408), `45311200` (796)
+all derive `[]`. Its apparent precision gain (OUT 47/52) is the gain of
+having no dictionaries at all. Rejected on the reading, not on the number.
+(2) Raising `DICT_MIN_IN` cannot address code inheritance, since the words
+were never the defect. The usable range of that knob is 0-25%; above it the
+dictionaries are empty.
+
+Rollbacks: `DICT_CODE_SHARE=0` (every code counts again),
+`DICT_TRUSTED_ONLY=1` (closes the gate, phase-8t rollback),
+`DICT_MIN_IN` env-overridable for the share sweep.
