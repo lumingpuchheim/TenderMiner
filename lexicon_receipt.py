@@ -149,6 +149,12 @@ def firm_lexicons(data_dir, trade_roots):
                                         why, firm=firm, sources=src),
             'core': evd.core_keywords(refs, firm=firm),
             'wide': evd.wide_keywords(refs),
+            'root_share': evd.root_share(refs),
+            'rootless': [raw[k][0] for k in keys
+                         if not any(evd.roots_in(w)
+                                    for w in set(evd.tokens(texts[k])))],
+            'root_cover': sum(1 for t, _ in refs
+                              if any(evd.roots_in(w) for w in set(evd.tokens(t)))),
             'why': why}
     return out
 
@@ -279,6 +285,10 @@ def main():
                     help='lexicon sizes over EVERY firm with >= 3 wins, '
                          'vocabulary on vs off â€” the measure for vocabulary '
                          'work, which the 122 cases cannot see')
+    ap.add_argument('--rootless', action='store_true',
+                    help='firms whose won tenders contain no trade word at '
+                         'all — is the text silent, or is the trade missing '
+                         'from cpv_trade_roots.txt? Only reading tells you.')
     ap.add_argument('--show', metavar='NAMES',
                     help='semicolon-separated firm-name fragments: print '
                          "each one's lexicon tagged by SOURCE. The operator's "
@@ -291,6 +301,33 @@ def main():
     ap.add_argument('--limit', type=int, default=None,
                     help='(--empty) show only the first N firms')
     args = ap.parse_args()
+
+    if args.rootless:
+        lex = firm_lexicons(args.data_dir, True)
+        rows = sorted(((v['root_cover'] / v['wins'], v['wins'], f, v)
+                       for f, v in lex.items()),
+                      key=lambda r: (r[0], -r[1]))
+        skip = ('regionalbereich', 'unterregion')
+        print('[rootless] firms whose won tenders name no trade, worst '
+              'first.')
+        print('[rootless] Deutsche Bahn framework lots are excluded: their '
+              'title is a lot')
+        print('[rootless] number and a place, and one framework counts as '
+              'many wins.')
+        shown = 0
+        for cover, wins, firm, v in rows:
+            titles = [t for t in (v['rootless'] or [])
+                      if not any(k in str(t).casefold() for k in skip)]
+            if not titles:
+                continue
+            print(f'\n- {firm} ({wins} wins, {v["root_cover"]} naming a '
+                  f'trade = {cover:.0%})')
+            for t in titles[:4]:
+                print(f'    {str(t)[:88]!r}')
+            shown += 1
+            if shown >= (args.limit or 20):
+                break
+        return
 
     if args.show:
         wanted = [w.strip().casefold() for w in args.show.split(';')
@@ -315,6 +352,24 @@ def main():
                           f'{" ".join(by[where])}')
                 print(f'    {"core (convicts)":20s} ({len(v["core"])}): '
                       f'{" ".join(v["core"]) or "-"}')
+                # what share of the firm's OWN wins each root covers, beside
+                # how common that root is store-wide. A share alone cannot
+                # say whether a root is the trade or the context: a large
+                # contractor spreads its wins over several trades, so no
+                # single root reaches half of them, while `beton` reaches a
+                # quarter of everyone's.
+                sh = v.get('root_share') or {}
+                for t in (v.get('rootless') or [])[:14]:
+                    print(f'      no trade word: {t[:78]!r}')
+                cov = v.get('root_cover')
+                if cov is not None:
+                    print(f'    {"wins naming a trade":20s} {cov}/{v["wins"]}'
+                          f' ({cov / v["wins"]:.0%}) — the rest carry no '
+                          f'trade word at all')
+                if sh:
+                    print(f'    {"root shares":20s} ' + '  '.join(
+                        f'{r}={k}/{v["wins"]}({k / v["wins"]:.0%})'
+                        for r, k in sorted(sh.items(), key=lambda x: -x[1])[:14]))
         return
 
     if args.empty:

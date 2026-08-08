@@ -773,6 +773,17 @@ def name_keywords(firm):
     return kept
 
 
+def root_share(refs):
+    """root -> how many of the firm's references carry it. The raw counts
+    behind core_keywords(), exposed so the CORE_SHARE rule can be argued
+    about with numbers instead of intuition."""
+    found = Counter()
+    for t, _b in refs:
+        for r in {r for w in set(tokens(t)) for r in roots_in(w)}:
+            found[r] += 1
+    return dict(found)
+
+
 def core_keywords(refs, firm=None):
     """Phase 8o — the roots that RECUR across the firm's wins: present in
     at least CORE_SHARE of its reference texts.
@@ -898,6 +909,29 @@ SYNONYM_PAIRS = [
     ('linoleum', 'bodenbelag'),
     ('dehnfuge', 'estrich'),
 ]
+
+
+def collide(data_dir, candidates):
+    """Which store words would each candidate root match? The check the
+    roots file describes ("the store was checked" — it is how `stei` and
+    `gla` were refused) and which has never been a tool. Every root added
+    by hand, or proposed by a reader, has to pass it: a root is only as
+    good as the words it actually hits.
+    """
+    tenders = pd.read_parquet(Path(data_dir) / 'store' / 'tenders.parquet')
+    df = store_doc_freq(tenders, Path(data_dir) / 'evidence_df.json')
+    counts, n = df['df'], df['n']
+    for cand in candidates:
+        c = fold(str(cand).casefold())
+        hits = sorted(((k, w) for w, k in counts.items() if c in fold(w)),
+                      reverse=True)
+        tot = sum(k for k, _ in hits)
+        print(f'\n[collide] {cand}: {len(hits)} distinct words, '
+              f'{tot} lot-occurrences ({tot / n:.1%} of the store)')
+        for k, w in hits[:25]:
+            print(f'   {k:6d}  {w}')
+        if len(hits) > 25:
+            print(f'   ... and {len(hits) - 25} more')
 
 
 def roots_audit(data_dir, limit=40):
@@ -1763,6 +1797,10 @@ def main():
                          'all bars + the evidence-nominates variant')
     ap.add_argument('--limit', type=int,
                     help='(--sweep smoke test only) cap the firm count')
+    ap.add_argument('--collide', nargs='+', metavar='ROOT',
+                    help='which store words would these candidate roots '
+                         'match? Run before adding any root by hand — it is '
+                         'how `stei` and `gla` were refused.')
     ap.add_argument('--roots', action='store_true',
                     help='rank every trade root by how CONCENTRATED its '
                          'store lots are in one trade — the ambiguous ones '
@@ -1781,6 +1819,9 @@ def main():
                     help='only the benchmark cases through the real judge(), '
                          'both gate modes — seconds, for benchmark growth')
     args = ap.parse_args()
+    if args.collide:
+        collide(args.data_dir, args.collide)
+        return
     if args.roots:
         roots_audit(args.data_dir, args.limit or 40)
         return
