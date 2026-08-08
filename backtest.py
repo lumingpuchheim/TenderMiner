@@ -39,6 +39,7 @@ import pandas as pd
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
+import loop
 import relevance as rel
 import single_bidder as sb
 import subscriptions
@@ -241,6 +242,65 @@ def cpv3_labels():
     return labels
 
 
+def flag_matrix(res, outcome):
+    """Precision AND recall for the binary alarm, across the whole replay.
+
+    The summary above this section reports precision only ("alarms right, N x
+    better than chance"). Precision alone cannot be wrong in an interesting
+    way: a model that raises one alarm a year and gets it right scores 100%.
+    Recall is the half that says what the alarm walked past, and the flag
+    view is where a customer's actual question lives — "if I act on every
+    alarm, what do I get, and what do I miss?"
+
+    Scored with loop.flag_stats, the same function the weekly report uses, so
+    the replayed number and the live number are comparable statistics rather
+    than two implementations that happen to agree. Population: every tender
+    examined while open whose award has since published. Alarms are deduped
+    per lot by the replay (first week's score), so this is one row per lot.
+    """
+    rows = [{'flag': lot in res['flagged'], 'label': int(n <= 1)}
+            for lot, n in ((lot, outcome[lot]) for lot in res['scored']
+                           if lot in outcome)]
+    f = loop.flag_stats(rows)
+    if not f:
+        return ['## The flag: precision and recall', '',
+                'No examined tender has a published result yet.', '']
+    lines = ['## The flag: precision and recall', '',
+             'The same statistic the weekly report prints, over the replay '
+             'instead of over live', 'grading — which is the only reason it '
+             'can be read today: a live award publishes a', 'median 84 days '
+             'after its tender, so the loop\'s own version of this table is '
+             'still', 'counting in single digits.', '',
+             f"Of {f['n']} examined tenders with a published result, the model "
+             f"raised {f['flagged']} alarms; {f['positives']} really ended with "
+             '0-1 bids.', '',
+             '| | alarm raised | no alarm | total |',
+             '|---|---|---|---|',
+             f"| **ended 0-1 bids** | {f['tp']} | {f['fn']} | {f['positives']} |",
+             f"| **ended 2+ bids** | {f['fp']} | {f['tn']} | {f['n'] - f['positives']} |",
+             f"| total | {f['flagged']} | {f['n'] - f['flagged']} | {f['n']} |", '']
+    prec = (f"{f['precision']:.0%}" if f['precision'] is not None else '—')
+    rec = (f"{f['recall']:.0%}" if f['recall'] is not None else '—')
+    ci_p, ci_r = f['precision_ci'], f['recall_ci']
+    lines += [f"- **precision** (alarms right): {prec}"
+              + (f" (95% CI {ci_p[0]:.0%}-{ci_p[1]:.0%})" if ci_p else ''),
+              f"- **recall** (0-1-bid tenders caught): {rec}"
+              + (f" (95% CI {ci_r[0]:.0%}-{ci_r[1]:.0%})" if ci_r else ''),
+              f"- **F1**: {f['f1']:.2f}" if f['f1'] is not None else '- **F1**: —',
+              '']
+    if f['positives']:
+        lines += ['Against raising an alarm on **every** tender: precision '
+                  f"{f['base']:.0%}, recall 100%"
+                  + (f", F1 {f['base_f1']:.2f}." if f['base_f1'] is not None else '.'),
+                  '']
+        if f['precision'] is not None and not f['beats_base']:
+            lines += ['**At this cut-off the alarm is not paying for itself** — its '
+                      f"precision ({f['precision']:.0%}) is at or below the "
+                      f"{f['base']:.0%} that alarming on everything gives, and it "
+                      'gives up recall to get there.', '']
+    return lines
+
+
 def trade_table(res, outcome):
     """Per-cpv3 slice of the global replay — the branch-ranking table.
 
@@ -401,6 +461,7 @@ def report(res, out_path):
              f'({hit:.0%}), {hit / base:.2f}x better than chance**'
              if graded_flags else '- no checked alarms yet',
              '']
+    lines += flag_matrix(res, outcome)
     lines += trade_table(res, outcome)
     if res.get('targets_csv'):
         lines += simulate_targets(res, res['targets_csv'],

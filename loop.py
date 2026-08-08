@@ -251,7 +251,7 @@ def _top_slice_stats(rows, share):
             'lift': (hit / base) if base > 0 else None}
 
 
-def _wilson(k, n, z=1.96):
+def wilson(k, n, z=1.96):
     """95% Wilson interval for k of n. Every flag-view rate is printed with
     one: a precision resting on four graded lots must not read like a
     precision resting on four hundred, and the width says so without anyone
@@ -265,10 +265,16 @@ def _wilson(k, n, z=1.96):
     return (max(0.0, centre - half), min(1.0, centre + half))
 
 
-def _flag_stats(rows):
+def flag_stats(rows):
     """The binary call — we said lonely / we said not — scored against the
     outcome, with the only baseline that can embarrass it: calling EVERY lot
     lonely, which scores precision = the base rate at recall 1.0.
+
+    Takes any rows carrying `flag` and `label`, so the backtest can score its
+    replayed lots with this exact function. That is the point of it being
+    public: until live awards accumulate, the replayed number is the one we
+    quote, and it must be the same statistic — not a second implementation
+    that agrees by coincidence.
 
     Vocabulary matches sb.metrics: precision is 'the flags right', recall is
     'coverage'. The rank-based headline cannot show a flag that is worse than
@@ -292,8 +298,8 @@ def _flag_stats(rows):
         'n': n, 'tp': tp, 'fp': fp, 'fn': fn, 'tn': tn,
         'flagged': flagged, 'positives': positives,
         'precision': precision, 'recall': recall, 'f1': f1,
-        'precision_ci': _wilson(tp, flagged),
-        'recall_ci': _wilson(tp, positives),
+        'precision_ci': wilson(tp, flagged),
+        'recall_ci': wilson(tp, positives),
         # "flag everything": precision is the base rate, recall is perfect
         'base': base,
         'base_f1': (2 * base / (base + 1)) if base else None,
@@ -336,7 +342,7 @@ def track_record(paths, args):
             continue
         s = _top_slice_stats(rows, args.top_slice)
         trades.append({'cpv3': cpv3, 'name': SECTOR.get(cpv3, ''),
-                       'flag': _flag_stats(rows), **s})
+                       'flag': flag_stats(rows), **s})
 
     tiers = []
     for tier in ('HIGH', 'MEDIUM', 'LOW'):
@@ -353,7 +359,7 @@ def track_record(paths, args):
         'top_share': args.top_slice,
         'trades': trades,
         'tiers': tiers,
-        'flag': _flag_stats(recent),
+        'flag': flag_stats(recent),
         'min_flag_grades': args.min_flag_grades,
         'flags': len(flagged),
         'flags_right': (sum(g['label'] for g in flagged) / len(flagged)) if flagged else None,
