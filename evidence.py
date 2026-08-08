@@ -1383,6 +1383,11 @@ def run_benchmark(data_dir, use_tier3):
     firms = {}
     firm_tc = {}
     fails = 0
+    # a case's (pub, title_contains) can select more than one lot, and each
+    # selected lot is judged and can fail on its own -- so the denominator
+    # is lots judged, not len(cases). Scoring per-lot failures against a
+    # per-case total understates the score and drifts as cases are added.
+    judged = 0
     for case in cases:
         firm = case['firm']
         if firm not in firms:
@@ -1405,9 +1410,12 @@ def run_benchmark(data_dir, use_tier3):
         sel = [k for k in texts if raw[k][3] == case['pub']
                and case.get('title_contains', '') in str(raw[k][0])]
         if not sel:
-            print(f"  ?? {case['pub']} not found");  fails += 1
+            print(f"  ?? {case['pub']} not found")
+            fails += 1
+            judged += 1
             continue
         for k in sel:
+            judged += 1
             ref_keys = firm_profile_texts(awards, texts, firm)
             is_ref = k in ref_keys
             # a reference judged against itself is trivially 'in'; judge
@@ -1429,7 +1437,8 @@ def run_benchmark(data_dir, use_tier3):
                   f"{('— ' + quote) if quote else ''}")
     if syn is not None:
         syn.save()
-    print(f'[benchmark] {len(cases) - fails}/{len(cases)} correct')
+    print(f'[benchmark] {judged - fails}/{judged} correct '
+          f'({len(cases)} cases)')
     return fails
 
 
