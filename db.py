@@ -58,13 +58,22 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
 DB_NAME = 'tendermining.db'
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2   # 2: explicit `seq` column instead of SQLite rowid
 
 # ---------------------------------------------------------------- the schema
 
 # Ledger tables are append-only, enforced below. `raw` is the verbatim JSON
 # line (see the module docstring). Column types are advisory in SQLite; they
 # document intent and drive the typed reads.
+#
+# Every ledger carries `seq`: the append position, explicit rather than implied.
+# SQLite would give it for free as `rowid`, and the first version of this file
+# used `ORDER BY rowid` to reproduce a ledger in the order it was written — but
+# `rowid` does not exist in Postgres, so that one shortcut would have had to be
+# unpicked from every read at the moment the engine changed. It is a column now
+# (doc/STORAGE.md 6.2), assigned as MAX(seq)+1 within the table, which is SQL
+# both engines accept. Correct under one writer, which is what this system is;
+# a Postgres deployment would hand the job to a real sequence.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
@@ -102,9 +111,11 @@ CREATE TABLE IF NOT EXISTS subscription_version (
     min_relevance     REAL,
     min_code_hard     REAL,
     min_code_soft     REAL,
+    seq               INTEGER NOT NULL,
     raw               BLOB NOT NULL,
     PRIMARY KEY (sub_id, version)
 );
+CREATE INDEX IF NOT EXISTS ix_subver_seq ON subscription_version (seq);
 CREATE INDEX IF NOT EXISTS ix_subver_asof
     ON subscription_version (sub_id, effective_from, version);
 
@@ -129,9 +140,11 @@ CREATE TABLE IF NOT EXISTS prediction (
     buyer_name         TEXT,
     est_value_lot      REAL,
     title              TEXT,
+    seq                INTEGER NOT NULL,
     raw                BLOB NOT NULL,
     UNIQUE (procedure_id, lot_id, notice_id, model)
 );
+CREATE INDEX IF NOT EXISTS ix_pred_seq  ON prediction (seq);
 CREATE INDEX IF NOT EXISTS ix_pred_lot   ON prediction (procedure_id, lot_id);
 CREATE INDEX IF NOT EXISTS ix_pred_model ON prediction (model);
 
@@ -150,9 +163,11 @@ CREATE TABLE IF NOT EXISTS grade (
     flag                      INTEGER,
     correct                   INTEGER,
     model                     TEXT,
+    seq                       INTEGER NOT NULL,
     raw                       BLOB NOT NULL,
     PRIMARY KEY (procedure_id, lot_id)
 );
+CREATE INDEX IF NOT EXISTS ix_grade_seq ON grade (seq);
 CREATE INDEX IF NOT EXISTS ix_grade_pub ON grade (award_pub);
 
 -- What each customer was actually shown, on which day, under which rules.
@@ -178,9 +193,11 @@ CREATE TABLE IF NOT EXISTS delivery (
     embed_model_tag    TEXT,
     gate_config        TEXT,
     gate_mode          TEXT,
+    seq                INTEGER NOT NULL,
     raw                BLOB NOT NULL,
     UNIQUE (sub_id, procedure_id, lot_id, ts, kind)
 );
+CREATE INDEX IF NOT EXISTS ix_deliv_seq ON delivery (seq);
 CREATE INDEX IF NOT EXISTS ix_deliv_sub ON delivery (sub_id, ts);
 CREATE INDEX IF NOT EXISTS ix_deliv_lot ON delivery (procedure_id, lot_id);
 
@@ -195,9 +212,11 @@ CREATE TABLE IF NOT EXISTS learned_ref (
     lot_id                   TEXT,
     award_publication_date   TEXT,
     note                     TEXT,
+    seq                      INTEGER NOT NULL,
     raw                      BLOB NOT NULL,
     PRIMARY KEY (sub_id, pub)
 );
+CREATE INDEX IF NOT EXISTS ix_learned_seq ON learned_ref (seq);
 CREATE INDEX IF NOT EXISTS ix_learned_asof ON learned_ref (sub_id, learned_at);
 
 -- Resolves the gate_config fingerprint stamped on delivery rows.
@@ -205,7 +224,8 @@ CREATE TABLE IF NOT EXISTS gate_config (
     fingerprint TEXT PRIMARY KEY,
     first_seen  TEXT NOT NULL,
     mode        TEXT,
-    raw         TEXT NOT NULL
+    seq         INTEGER NOT NULL,
+    raw         BLOB NOT NULL
 );
 """
 
@@ -215,6 +235,12 @@ CREATE TABLE IF NOT EXISTS gate_config (
 LEDGER_TABLES = ('subscription_version', 'prediction', 'grade', 'delivery',
                  'learned_ref', 'gate_config')
 
+# The one deliberate SQLite-specific construct left (doc/STORAGE.md 6.2). The
+# RULE — a ledger row is never updated or deleted — is portable; only this
+# spelling is not. Postgres expresses it with a trigger function raising an
+# exception, which is a rewrite of these six lines and nothing else, because no
+# other code depends on how the refusal is produced.
+#
 # NB SQLite has no implicit string concatenation: a RAISE message must be a
 # single literal.
 TRIGGERS = ''.join(f"""
@@ -261,17 +287,45 @@ def connect(data_dir, create=True):
     p.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(p)
     con.row_factory = sqlite3.Row
+    # SQLite-only tuning, deliberately confined to this function: WAL so a
+    # reader never blocks the cycle's writes. A different engine configures
+    # itself elsewhere and needs none of this.
     con.execute('PRAGMA journal_mode=WAL')
     con.execute('PRAGMA foreign_keys=ON')
     con.execute('PRAGMA synchronous=NORMAL')
+    _assert_schema_current(con, p)
     return con
+
+
+def _assert_schema_current(con, path):
+    """Refuse a database written by an older schema.
+
+    Silently reading one would be the worst outcome: schema 1 had no `seq`
+    column, so every export would come back in an undefined order and look
+    plausible. The remedy is cheap while the JSONL originals exist — delete and
+    re-migrate — so the message says exactly that.
+    """
+    try:
+        row = con.execute(
+            "SELECT value FROM meta WHERE key='schema_version'").fetchone()
+    except sqlite3.OperationalError:
+        return                      # brand new file; init() is about to fill it
+    if row is None:
+        return
+    found = int(row['value'])
+    if found < SCHEMA_VERSION:
+        raise RuntimeError(
+            f'{path} was written by schema {found}, this code expects '
+            f'{SCHEMA_VERSION}. Delete it and run `python db.py --migrate` '
+            f'again — the JSONL originals are still there, migration is '
+            f'idempotent, and --verify will prove the result.')
 
 
 def init(data_dir):
     con = connect(data_dir)
     con.executescript(SCHEMA)
     con.executescript(TRIGGERS)
-    con.execute('INSERT OR IGNORE INTO meta(key, value) VALUES (?, ?)',
+    con.execute(f'{IGNORE_PREFIX} meta(key, value) VALUES (?, ?)',
                 ('schema_version', str(SCHEMA_VERSION)))
     con.commit()
     return con
@@ -297,7 +351,11 @@ JSON_COLUMNS = {'cpv_prefixes', 'nuts_prefixes', 'profile_refs',
 
 
 def columns_of(con, table):
-    return [r['name'] for r in con.execute(f'PRAGMA table_info({table})')]
+    """The table's columns, via the DB-API cursor description rather than
+    `PRAGMA table_info` — the pragma is SQLite-only, while an empty SELECT and
+    `cursor.description` work on every DB-API driver."""
+    cur = con.execute(f'SELECT * FROM {table} LIMIT 0')
+    return [d[0] for d in cur.description]
 
 
 def _cell(value):
@@ -336,11 +394,26 @@ def row_values(con, table, row, raw_line=None, extra=None):
     return out
 
 
+# `INSERT OR IGNORE` is SQLite/MySQL; Postgres spells it `INSERT ... ON CONFLICT
+# DO NOTHING`. Both mean "a row that collides with the natural key is not an
+# error", which is what makes re-running a cycle idempotent. Kept in one place so
+# the difference is a constant rather than a search.
+IGNORE_PREFIX = 'INSERT OR IGNORE INTO'
+INSERT_PREFIX = 'INSERT INTO'
+
+
 def insert(con, table, row, raw_line=None, ignore=True, extra=None):
+    """Append one row, assigning its `seq`. Returns 1, or 0 when the natural key
+    already holds it."""
     vals = row_values(con, table, row, raw_line, extra)
+    vals.pop('seq', None)
     cols = list(vals)
-    sql = (f'INSERT {"OR IGNORE " if ignore else ""}INTO {table} '
-           f'({", ".join(cols)}) VALUES ({", ".join("?" * len(cols))})')
+    head = IGNORE_PREFIX if ignore else INSERT_PREFIX
+    # seq is computed inside the statement so it cannot race with itself between
+    # a SELECT and an INSERT
+    sql = (f'{head} {table} ({", ".join(cols)}, seq) '
+           f'VALUES ({", ".join("?" * len(cols))}, '
+           f'(SELECT COALESCE(MAX(seq), 0) + 1 FROM {table}))')
     return con.execute(sql, [vals[c] for c in cols]).rowcount
 
 
@@ -416,8 +489,8 @@ def _derive_customers(con, sub_rows):
     for sub_id, (_, d) in newest.items():
         award = d.get('award_names')
         con.execute(
-            'INSERT OR IGNORE INTO customer'
-            ' (customer_id, name, award_names, created_at) VALUES (?,?,?,?)',
+            f'{IGNORE_PREFIX} customer'
+            f' (customer_id, name, award_names, created_at) VALUES (?,?,?,?)',
             (sub_id, d.get('name'),
              json.dumps(award, ensure_ascii=False) if award else None,
              first_seen.get(sub_id, '')))
@@ -440,7 +513,7 @@ def subscription_rows(con):
     cust = {r['customer_id']: r for r in con.execute('SELECT * FROM customer')}
     out = []
     for r in con.execute('SELECT sub_id, version, customer_id, raw '
-                         'FROM subscription_version ORDER BY rowid'):
+                         'FROM subscription_version ORDER BY seq'):
         d = json.loads(unpack(r['raw']))
         c = cust.get(r['customer_id'] or r['sub_id'])
         if c is not None:
@@ -480,8 +553,8 @@ def export_jsonl(data_dir, out_dir):
 
     This is what keeps the promise that an auditor sees exactly what we see —
     and what makes `cat`, `grep` and `git diff` work again after the ledgers
-    become a binary file. Rows come out in insertion order (SQLite rowid),
-    which is the order they were appended in.
+    become a binary file. Rows come out in append order (the explicit `seq`
+    column, not SQLite's rowid — see the schema comment).
     """
     con = connect(data_dir, create=False)
     if con is None:
@@ -492,7 +565,7 @@ def export_jsonl(data_dir, out_dir):
         dest = out / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         lines = [unpack(r['raw']) for r in
-                 con.execute(f'SELECT raw FROM {table} ORDER BY rowid')]
+                 con.execute(f'SELECT raw FROM {table} ORDER BY seq')]
         dest.write_text(''.join(l + '\n' for l in lines), encoding='utf-8')
         written[name] = len(lines)
     return written

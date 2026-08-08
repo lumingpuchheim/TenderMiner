@@ -86,7 +86,7 @@ def read(home, name):
     table = _spec(name)[1]
     con = db.connect(home, create=False)
     rows = [json.loads(db.unpack(r['raw'])) for r in
-            con.execute(f'SELECT raw FROM {table} ORDER BY rowid')]
+            con.execute(f'SELECT raw FROM {table} ORDER BY seq')]
     _assert_not_stale(con, home, name, table, len(rows))
     return rows
 
