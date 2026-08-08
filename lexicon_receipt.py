@@ -123,7 +123,7 @@ def firm_lexicons(data_dir, trade_roots):
                             '.json').read_text(encoding='utf-8'))
     trusted = {c for c, v in trust['codes'].items() if v['trusted']}
     dicts = evd.trade_dictionaries(tenders, trusted, docfreq,
-                                   Path(data_dir) / 'trade_dicts.json')
+                                   Path(data_dir))
     wins = firm_win_rows(awards, tenders)
     wins = wins[[k in texts
                  for k in zip(wins['procedure_id'], wins['lot_id'])]]

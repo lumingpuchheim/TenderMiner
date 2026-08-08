@@ -540,7 +540,7 @@ def build_profile(gate, sub, config=None):
                  for t in (sub.get('profile_texts') or [])]
         dicts = evd.trade_dictionaries(
             gate._lots, gate.trusted, docfreq,
-            Path(gate.data_dir) / 'trade_dicts.json')
+            Path(gate.data_dir))
         # phase 8r: `name` is the customer's own company name, which states
         # the trade on its letterhead — see evidence.name_keywords()
         keywords = evd.firm_keywords(

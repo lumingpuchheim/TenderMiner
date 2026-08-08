@@ -560,6 +560,41 @@ def label_doc_freq():
 _TRADE_DICTS = None
 
 
+def dict_cache_path(data_dir, n_lots):
+    """Where this configuration's dictionaries live: the config IS the
+    filename.
+
+    The cache used to be one `trade_dicts.json` guarded by a hand-written
+    comparison of key fields. That failed three times on 2026-08-07, always
+    the same way: adding a switch means adding a field AND bumping the
+    version, and a field missing from an older file reads as False —
+    exactly what a new default carries — so a stale entry matched the key
+    and was silently reused. Wrong measurements, invisible.
+
+    Hashing every input into the name removes the class of error. A stale
+    cache cannot be *found* rather than being wrongly matched, adding a
+    switch needs no bookkeeping, and A/B arms stop evicting each other —
+    each configuration keeps its own file, so a sweep rebuilds once and
+    then reuses.
+
+    cpv_trade_roots.txt is hashed too, and was never in the old key at all
+    even though the dictionaries are derived through names_trade() and the
+    phase-8u vote signature. Editing a root silently left the dictionaries
+    stale.
+    """
+    import hashlib
+    cfg = repr([
+        n_lots, DICT_CACHE_V, bool(BUYER_DIVERSITY), bool(TRADE_ROOTS),
+        bool(DICT_TRUSTED_ONLY), bool(DICT_VOTE), float(DICT_MIN_IN),
+        float(DICT_VOTE_MARGIN), int(DICT_VOTE_MAX), int(DICT_MIN_LOTS),
+        float(DICT_MIN_RATIO), int(DICT_MIN_BUYERS),
+        float(DICT_MIN_BUYER_SHARE), int(DICT_MAX_WORDS), int(MIN_STEM_LEN),
+        ROOTS_FILE.read_bytes() if ROOTS_FILE.exists() else b'',
+    ])
+    h = hashlib.sha1(cfg.encode('utf-8')).hexdigest()[:12]
+    return Path(data_dir) / f'trade_dicts_{h}.json'
+
+
 def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
     """code -> [stems]: each trusted trade's vocabulary, derived from ALL
     store lots carrying the code (main or additional): frequent inside the
@@ -572,22 +607,15 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
         return _TRADE_DICTS
     from calibrate import is_deep, lot_codes
     lots = tenders.drop_duplicates(subset=KEY)
+    # phase 8y: the configuration is the FILENAME (see dict_cache_path), so
+    # finding the file is the whole check — there is no key left to forget
+    # a field from. `cache_path` may be a directory (preferred) or a file.
+    if cache_path is not None and Path(cache_path).is_dir():
+        cache_path = dict_cache_path(cache_path, int(len(lots)))
     if cache_path and Path(cache_path).exists():
         d = json.loads(Path(cache_path).read_text(encoding='utf-8'))
-        # the key must carry EVERY switch the dictionaries are derived
-        # under. 'tr' was missing until 2026-08-07, so a vocabulary A/B
-        # reused whichever arm's dictionaries happened to be on disk and
-        # both arms measured the same lexicons — the contamination is
-        # invisible in the totals and was found only because
-        # lexicon_receipt.py --coverage stopped reproducing.
-        if (d.get('n') == int(len(lots)) and d.get('v') == DICT_CACHE_V
-                and bool(d.get('bd')) == bool(BUYER_DIVERSITY)
-                and bool(d.get('tr')) == bool(TRADE_ROOTS)
-                and bool(d.get('to')) == bool(DICT_TRUSTED_ONLY)
-                and bool(d.get('vo')) == bool(DICT_VOTE)
-                and float(d.get('mi', -1)) == float(DICT_MIN_IN)):
-            _TRADE_DICTS = d['dicts']
-            return _TRADE_DICTS
+        _TRADE_DICTS = d['dicts']
+        return _TRADE_DICTS
     n, df = docfreq['n'], docfreq['df']
     by_code = {}
     toks, buyers = [], []
@@ -668,11 +696,7 @@ def trade_dictionaries(tenders, trusted, docfreq, cache_path=None):
     if cache_path:
         Path(cache_path).write_text(
             json.dumps({'n': int(len(lots)), 'v': DICT_CACHE_V,
-                        'bd': bool(BUYER_DIVERSITY),
-                        'tr': bool(TRADE_ROOTS),
-                        'to': bool(DICT_TRUSTED_ONLY),
-                        'vo': bool(DICT_VOTE),
-                        'mi': float(DICT_MIN_IN), 'dicts': dicts}),
+                        'dicts': dicts}),
             encoding='utf-8')
     _TRADE_DICTS = dicts
     return dicts
@@ -1002,7 +1026,7 @@ def dict_pool(data_dir, code):
         for r in rows[:12]:
             print(f'   {str(r.title)[:74]!r}')
     dicts = trade_dictionaries(tenders, set(), docfreq,
-                               Path(data_dir) / 'trade_dicts.json')
+                               Path(data_dir))
     print(f'\n[dict] derived words: {dicts.get(code, [])}')
 
 
@@ -1205,7 +1229,7 @@ def receipt(data_dir, use_tier3):
     syn = SynonymTier(Path(data_dir) / 'embeddings' / 'word_vecs.npz') \
         if use_tier3 else None
     dicts = trade_dictionaries(tenders, trusted, docfreq,
-                               Path(data_dir) / 'trade_dicts.json')
+                               Path(data_dir))
 
     n_pos = hits = 0
     tier_hits = Counter()
@@ -1296,7 +1320,7 @@ def run_benchmark(data_dir, use_tier3):
     syn = SynonymTier(Path(data_dir) / 'embeddings' / 'word_vecs.npz') \
         if use_tier3 else None
     dicts = trade_dictionaries(tenders, trusted, docfreq,
-                               Path(data_dir) / 'trade_dicts.json')
+                               Path(data_dir))
 
     firms = {}
     firm_tc = {}
@@ -1784,7 +1808,7 @@ def main():
             encoding='utf-8'))
         trusted = {c for c, v in trust['codes'].items() if v['trusted']}
         dicts = trade_dictionaries(tenders, trusted, docfreq,
-                                   Path(args.data_dir) / 'trade_dicts.json')
+                                   Path(args.data_dir))
         keys = firm_profile_texts(awards, texts, args.keywords)
         aw = awards[awards['winner_names'].apply(
             lambda x: x is not None and args.keywords in list(x))]

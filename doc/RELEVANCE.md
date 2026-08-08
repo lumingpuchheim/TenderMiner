@@ -2103,3 +2103,35 @@ one firm's lexicon and noticing a word that did not belong. `evidence.py
 --roots` ships as the store-wide version of that reading (every root with
 the words it actually matches, grouped by trade), explicitly **not** as a
 detector; its ordering is not a signal.
+
+## Phase 8y — the configuration is the cache filename (2026-08-07)
+
+`data/trade_dicts.json` was one file guarded by a hand-written comparison of
+key fields (`n`, `v`, `bd`, `tr`, `to`, `vo`, `mi`). That design failed three
+times in one day, always identically: adding a switch means adding a field
+**and** bumping the version, and a field missing from an older file reads as
+`False` — exactly what a new default carries — so a stale entry matched the
+key and was silently reused. The A/B arms of phases 8t and 8u both measured
+the wrong dictionaries before this was noticed, and it was noticed only
+because `--coverage` stopped reproducing a committed table.
+
+`evidence.dict_cache_path()` now hashes every input into the name:
+`trade_dicts_<12 hex>.json`. Three consequences:
+
+- a stale cache **cannot be found**, rather than being wrongly matched;
+- adding a switch needs no bookkeeping at all — it enters the hash;
+- A/B arms stop evicting each other, so a sweep rebuilds once per arm and
+  then reuses. Today's sweeps rebuilt on every switch flip.
+
+**`cpv_trade_roots.txt` is hashed too, and was never in the old key** even
+though the dictionaries are derived through `names_trade()` and the phase-8u
+vote signature. Editing a root left the dictionaries stale with nothing to
+say so — including the `schal` edit in phase 8x.
+
+Verified unchanged: IN 49/74, OUT 43/52, 14 empty lexicons, 72 under three
+words. The old `data/trade_dicts.json` is orphaned and safe to delete.
+
+This is complementary to `STORAGE.md`, which independently decided these
+caches stay files: they are pure functions of the store, rewritten
+wholesale, never read by key. The problem was never where they live — it was
+that their identity was hand-maintained.
