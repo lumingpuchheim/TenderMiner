@@ -2,8 +2,8 @@
 
 Status: implemented — phases 1 (slicing-key + publication-number stamping),
 3 (subscriptions, renderer, delivery ledger) and 4 (per-slice track record
-with the fallback ladder) in [`loop.py`](loop.py); phase 5 (slice matrix +
-drift panel) in [`render_dashboard.py`](render_dashboard.py). Phase 2 (wider
+with the fallback ladder) in [`loop.py`](../loop.py); phase 5 (slice matrix +
+drift panel) in [`render_dashboard.py`](../render_dashboard.py). Phase 2 (wider
 backfill) is an operational step, deferred with the beyond-construction
 scope. Grade rows have carried the slicing keys from before the first real
 grade was ever written, so the keyless-row fallback join is dead code

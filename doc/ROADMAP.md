@@ -1,6 +1,6 @@
 # Roadmap — low-hanging prediction problems
 
-Sibling problems to the single-bidder flag, found by auditing [`FIELDS.md`](FIELDS.md)
+Sibling problems to the single-bidder flag, found by auditing [`FIELDS.md`](../FIELDS.md)
 for labels that are already extracted (2026-08-02). Selection rule: the label must be
 a structured code or count in a notice the pipeline already parses — **no text
 embeddings, no external data purchase, no new cleaning**. Each model is one CatBoost

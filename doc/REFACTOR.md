@@ -16,9 +16,9 @@ promise the docs already made and the code failed to keep.
 ## What this is, in one paragraph
 
 TenderMining answers two questions per lot: **is it my business** (the
-relevance gate, [`relevance.py`](relevance.py) /
-[`evidence.py`](evidence.py)) and **is it uncontested** (the CatBoost model,
-[`single_bidder.py`](single_bidder.py)). As *estimators* those two are cleanly
+relevance gate, [`relevance.py`](../relevance.py) /
+[`evidence.py`](../evidence.py)) and **is it uncontested** (the CatBoost model,
+[`single_bidder.py`](../single_bidder.py)). As *estimators* those two are cleanly
 separated already — `judge()` never sees the score, the model never sees the
 profile. What is tangled is the **composer**: the code that slices a market,
 asks both questions, ranks, caps, renders and records lives in one 250-line
@@ -29,7 +29,7 @@ customer arrives.
 
 ## The tangle, precisely
 
-[`loop.deliver()`](loop.py) does four jobs in one function body:
+[`loop.deliver()`](../loop.py) does four jobs in one function body:
 
 1. resolve the subscription and filter this cycle's scored lots to its slice
 2. run the relevance gate over the slice
@@ -37,10 +37,10 @@ customer arrives.
 4. render two HTML documents and append delivery-ledger rows
 
 The proof that this is the defect and not a style preference:
-[`backtest.py`](backtest.py) contains the same algorithm written a second time
+[`backtest.py`](../backtest.py) contains the same algorithm written a second time
 — slice filter, `rel.judge`, sort by score, `flag`, `[:MAX_PICKS]` — and the
 two copies **already disagree** (see defect 1). The backtest therefore does
-not measure the selection logic that ships. [`replay.py`](replay.py) makes a
+not measure the selection logic that ships. [`replay.py`](../replay.py) makes a
 third, partial copy and monkeypatches `loop.now_utc` to borrow the rest.
 
 This problem was already solved once, one layer down: `evidence._sweep` and
@@ -87,7 +87,7 @@ Both are independent of every refactor above and were fixed first.
 characters, so `'453'.startswith('453123')` is `False` — for *every* lot.
 [`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md) promises full-CPV prefix matching ("a
 lot matches if its CPV starts with any listed prefix") and
-[`backtest.py`](backtest.py) implements it that way against `cpv_main`, which
+[`backtest.py`](../backtest.py) implements it that way against `cpv_main`, which
 is how the two copies drifted apart. `jebsen-blitzschutz` v1 shipped
 `cpv_prefixes: ["453123"]` (Blitzschutz) and addressed an empty market,
 silently: no error, no empty-slice warning, just a subscription that could
@@ -128,7 +128,7 @@ behaviour change.
 
 ## Phase 1 — `subscriptions.py`, still file-backed (done, 2026-08-07)
 
-[`subscriptions.py`](subscriptions.py) now owns the three questions that were
+[`subscriptions.py`](../subscriptions.py) now owns the three questions that were
 folklore. The as-of resolution rule turned out to be implemented **six** times
 (`loop.deliver`, `loop.learn_references`, `tryout`, `explain`, `replay`,
 `feedback`) and the market filter twice; all of them now call one

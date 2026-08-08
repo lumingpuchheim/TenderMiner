@@ -1,11 +1,11 @@
 # TRAINING — single-bidder classifier
 
-Status: implemented in [`single_bidder.py`](single_bidder.py) and trained every cycle by
-[`loop.py`](loop.py) (`learn()`). Complements [`MODELING.md`](MODELING.md)
+Status: implemented in [`single_bidder.py`](../single_bidder.py) and trained every cycle by
+[`loop.py`](../loop.py) (`learn()`). Complements [`MODELING.md`](MODELING.md)
 (older, broader price+bidders sketch — where it says "first 4–5 digits" of the CPV,
 the CPV depth section below supersedes it); this document is the concrete recipe for
-the first model. Field roles: [`FIELDS.md`](FIELDS.md). EDA:
-[`eda_single_bidder.ipynb`](eda_single_bidder.ipynb).
+the first model. Field roles: [`FIELDS.md`](../FIELDS.md). EDA:
+[`eda_single_bidder.ipynb`](../eda_single_bidder.ipynb).
 
 ## Label
 

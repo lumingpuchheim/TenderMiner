@@ -4,7 +4,7 @@ How to train a model that estimates a tender's **price** and **expected number o
 bidders** at call time, and verifies the estimate against the later award.
 
 This document assumes the data source is already in place — TED notices are fetchable via
-[`ted_download_sample.py`](ted_download_sample.py) (see [`README.md`](README.md) and
+[`ted_download_sample.py`](../ted_download_sample.py) (see [`README.md`](../README.md) and
 [`FINDINGS_ted.md`](FINDINGS_ted.md)). It describes the method, not the download.
 
 ## 1. Goal

@@ -1,7 +1,7 @@
 # RUNBOOK — how to operate TenderMining
 
 What to type, when, and what you get back. Component internals live in
-[`README.md`](README.md) (pipeline programs) and the design docs
+[`README.md`](../README.md) (pipeline programs) and the design docs
 ([`ONLINE_LEARNING.md`](ONLINE_LEARNING.md), [`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md),
 [`RELEVANCE.md`](RELEVANCE.md)); this file is only about running things.
 
@@ -120,7 +120,7 @@ answers your question; none of them touches the real ledgers or reports.
   picks reads as a regression when 74 of 126 cases are recall cases.
   `--lexicons` also prints every firm's word list, because the operator's
   test for a lexicon is reading it: each word should name a Gewerk or a
-  material. The vocabulary itself is [`cpv_trade_roots.txt`](cpv_trade_roots.txt),
+  material. The vocabulary itself is [`cpv_trade_roots.txt`](../cpv_trade_roots.txt),
   written by hand — CPV lacks the materials and the regional trade names
   (Schreiner, Spengler, Flaschner), and the embedder cannot supply them
   (measured: linoleum↔bodenbelag 0.108, at noise).

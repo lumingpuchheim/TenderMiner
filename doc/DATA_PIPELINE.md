@@ -22,8 +22,8 @@ Two components, each with its own specification document:
 
 | Component | Document | Input | Output |
 | --- | --- | --- | --- |
-| **Download job** | [`pipeline/download.md`](pipeline/download.md) | TED search API (discovery only, response never persisted); e-procurement platforms via the document links inside the fetched XMLs; `data/logs/checkpoint.json` from the previous run | `data/raw/xml/<publication-number>.xml` (one per notice); `data/raw/gaeb/<procedure-identifier>/…` (GAEB files only); `data/logs/manifest.jsonl` (GAEB↔tender/lot mapping); `data/logs/ingest_log.jsonl` (run stats: lot counts + GAEB outcomes); updated `checkpoint.json` |
-| **Extractor** | [`pipeline/extractor.md`](pipeline/extractor.md) | `data/raw/xml/`; `data/raw/gaeb/` via `manifest.jsonl` — **no network** | `data/features.jsonl` (one line per LOT — the only file the modeling stage reads); `data/embeddings/*.npy` |
+| **Download job** | [`pipeline/download.md`](../pipeline/download.md) | TED search API (discovery only, response never persisted); e-procurement platforms via the document links inside the fetched XMLs; `data/logs/checkpoint.json` from the previous run | `data/raw/xml/<publication-number>.xml` (one per notice); `data/raw/gaeb/<procedure-identifier>/…` (GAEB files only); `data/logs/manifest.jsonl` (GAEB↔tender/lot mapping); `data/logs/ingest_log.jsonl` (run stats: lot counts + GAEB outcomes); updated `checkpoint.json` |
+| **Extractor** | [`pipeline/extractor.md`](../pipeline/extractor.md) | `data/raw/xml/`; `data/raw/gaeb/` via `manifest.jsonl` — **no network** | `data/features.jsonl` (one line per LOT — the only file the modeling stage reads); `data/embeddings/*.npy` |
 
 The **Download job** is the one program that talks to the network: it fetches each
 notice's XML and immediately follows the document links inside it to grab the GAEB
@@ -73,8 +73,8 @@ data/
 
 | Component | Status |
 | --- | --- |
-| Download job | spec only ([`pipeline/download.md`](pipeline/download.md)) — `ted_download_sample.py` is the exploration sampler, not this job |
-| Extractor | spec only ([`pipeline/extractor.md`](pipeline/extractor.md)) |
+| Download job | spec only ([`pipeline/download.md`](../pipeline/download.md)) — `ted_download_sample.py` is the exploration sampler, not this job |
+| Extractor | spec only ([`pipeline/extractor.md`](../pipeline/extractor.md)) |
 
 ## Open questions (to resolve during implementation)
 

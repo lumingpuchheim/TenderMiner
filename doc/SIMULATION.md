@@ -1,6 +1,6 @@
 # SIMULATION — every winner is a simulated customer
 
-Status: implemented in [`simulation.py`](simulation.py) — a self-contained
+Status: implemented in [`simulation.py`](../simulation.py) — a self-contained
 sidecar module (same pattern as `embed.py`). The loop calls
 `simulation.simulate(...)` once per cycle; standalone use:
 

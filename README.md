@@ -6,11 +6,11 @@ price war. Data comes from **TED** (*Tenders Electronic Daily*, the EU-wide
 publication service); the German *Bekanntmachungsservice*
 (oeffentlichevergabe.de) was explored as an alternative source.
 
-Key documents: [`ONLINE_LEARNING.md`](ONLINE_LEARNING.md) (the running system),
-[`TRAINING.md`](TRAINING.md) (model recipe + leakage rules),
+Key documents: [`ONLINE_LEARNING.md`](doc/ONLINE_LEARNING.md) (the running system),
+[`TRAINING.md`](doc/TRAINING.md) (model recipe + leakage rules),
 [`FIELDS.md`](FIELDS.md) (every data field and its role),
-[`DATA_PIPELINE.md`](DATA_PIPELINE.md) (architecture),
-[`BUSINESS_CASE.md`](BUSINESS_CASE.md) (value case),
+[`DATA_PIPELINE.md`](doc/DATA_PIPELINE.md) (architecture),
+[`BUSINESS_CASE.md`](doc/BUSINESS_CASE.md) (value case),
 [`train_single_bidder.ipynb`](train_single_bidder.ipynb) (the original
 experiment, fully explained in plain language).
 
@@ -26,7 +26,7 @@ loop.py  (the weekly cycle — the ONE command you run)
 ### loop.py — the weekly cycle
 
 One command executes the whole predict → grade → retrain cycle described in
-[`ONLINE_LEARNING.md`](ONLINE_LEARNING.md):
+[`ONLINE_LEARNING.md`](doc/ONLINE_LEARNING.md):
 
 ```bash
 python loop.py run --last 7d
@@ -145,8 +145,8 @@ cd C:\Users\user\workspace\TenderMining
 
 ## Exploration scripts (one-off schema surveys, stdlib only)
 
-Findings are written up in [`FINDINGS_oeffentlichevergabe.md`](FINDINGS_oeffentlichevergabe.md)
-and [`FINDINGS_ted.md`](FINDINGS_ted.md).
+Findings are written up in [`FINDINGS_oeffentlichevergabe.md`](doc/FINDINGS_oeffentlichevergabe.md)
+and [`FINDINGS_ted.md`](doc/FINDINGS_ted.md).
 
 ---
 
