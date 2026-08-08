@@ -2170,3 +2170,60 @@ Nothing about a verdict changes; this only makes a silent failure loud. The
 entry point at the bottom of `relevance.py` moved below `class Gate` so it
 can load one — it previously sat mid-file, which was fine while it only
 printed constants.
+
+## Phase 9a — the reading checks become commands (2026-08-08)
+
+Three ambiguous roots were found this session — `pump`, `leitung`, `schal` —
+every one by a person reading a firm's lexicon and noticing a word that did
+not belong. The checks behind that existed only as habits.
+
+**`evidence.py --collide ROOT`** lists every store word a candidate root would
+match, with lot counts. The roots file always described this check ("the store
+was checked" — how `stei` and `gla` were refused); it was never a command. It
+immediately refused four of today's candidates:
+
+| candidate | why refused |
+| --- | --- |
+| `labor` | 180 words, 2.7% of the store. `labortische`/`laboreinrichtung` are the trade, but `laborgebäude`, `laborneubau`, `zentrallabor` are BUILDING TYPES and `kollaborationsflächen` is unrelated |
+| `leitsystem` | two trades in 19 words: `blindenleitsystem`/`wegeleitsystem` (guidance) vs `prozessleitsystem`/`gebäudeleitsystem` (automation) — the `pump` shape |
+| `ktb` | 24 true against `projektbeschreibung` 79, `objektbetreuung` 9 |
+| `lst` | 41 true against `edelstahl` 658, `vollständig` 364 — 18.1% of the store |
+
+`taktil` (6 words, all inflections) and `stellwerk` (13, all railway) pass.
+
+**`lexicon_receipt.py --rootless`** lists firms whose won tenders contain no
+trade word at all, with titles, so the two causes can be separated by reading.
+Both exist, and the second is commoner than assumed:
+
+- *named but unreadable* — `Labor-Ausstattung Chemie` (Laborbau Hemling),
+  `Turnhalle - Trennvorhang` (Metallbau Politz), `KiTa als Modulbau`
+  (KLEUSBERG), `6 Signalausleger` (KÖNIGBAU)
+- *railway acronyms* — `ESTW Mühlacker - KTB`, `LST ESTW MOF`, `BÜ km 62,181`
+  across Grötz, Duensing, Weidlich, Josef Hell, Willke. The work is named
+  precisely, in a dialect the vocabulary cannot read.
+- *genuinely silent* — `Los 01_RV OG Offenburg` (RIWAtec),
+  `Generalunternehmerleistungen` (Köster)
+
+This matters beyond the words: a count of "lots with no trade" cannot be used
+as a denominator, because most of it is our blindness rather than the
+document's silence.
+
+### Dead end: `CORE_SHARE` below 0.5
+
+Listed as promising since phase 8o, run 2026-08-08:
+
+| `CORE_SHARE` | IN | OUT |
+| --- | --- | --- |
+| **0.5 (shipped)** | 49/74 | **43/52** |
+| 0.34 | 49/74 | **43/52** |
+| 0.25 | 49/74 | 42/52 |
+| 0.2 | 49/74 | 42/52 |
+
+**Recall is identical across the whole range** and precision falls below 0.34.
+Loosening buys nothing and costs a case.
+
+Why recall is flat: `need = max(2, ceil(n × share))`, and the floor of 2 binds
+for every small firm — a 3-win firm needs 2 references at 0.5 and still 2 at
+0.2. The share only bites from about five wins upward, moving DB Bahnbau from
+32 references to 13 and Ed. Züblin from 8 to 4, which is where the lost
+rejection case comes from: a generalist adopting a context root as its trade.

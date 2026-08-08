@@ -19,6 +19,7 @@ import sys
 
 import numpy as np
 
+import config
 import loop
 import relevance as rel
 import subscriptions
@@ -113,7 +114,7 @@ def main():
                     help='TED publication numbers to explain '
                          '(default: the profile references)')
     ap.add_argument('--sub', required=True, help='subscription id')
-    ap.add_argument('--data-dir', default='data')
+    ap.add_argument('--data-dir', default=config.data_root())
     args = ap.parse_args()
 
     today = loop.now_utc().date().isoformat()

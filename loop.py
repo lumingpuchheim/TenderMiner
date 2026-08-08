@@ -31,6 +31,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+import config
+import ledger
 import single_bidder as sb
 import subscriptions
 
@@ -145,7 +147,10 @@ class Paths:
         self.store_awards = self.data / 'store' / 'awards.parquet'
         self.predictions = self.data / 'ledger' / 'predictions.jsonl'
         self.grades = self.data / 'ledger' / 'grades.jsonl'
-        self.deliveries = self.data / 'ledger' / 'deliveries.jsonl'
+        # the HOME whose storage holds the delivery record and the gate-config
+        # registry — a directory, not a file (ledger.py owns the format).
+        # tryout/replay point this at a sandbox.
+        self.deliveries_home = self.data
         # the DIRECTORY subscriptions live in, not the file: the storage
         # format belongs to subscriptions.py (tryout/replay point this at a
         # sandbox dir instead)
@@ -251,13 +256,77 @@ def _top_slice_stats(rows, share):
             'lift': (hit / base) if base > 0 else None}
 
 
+def wilson(k, n, z=1.96):
+    """95% Wilson interval for k of n. Every flag-view rate is printed with
+    one: a precision resting on four graded lots must not read like a
+    precision resting on four hundred, and the width says so without anyone
+    having to look up the denominator."""
+    if not n:
+        return None
+    p = k / n
+    d = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / d
+    half = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / d
+    return (max(0.0, centre - half), min(1.0, centre + half))
+
+
+def flag_stats(rows):
+    """The binary call — we said lonely / we said not — scored against the
+    outcome, with the only baseline that can embarrass it: calling EVERY lot
+    lonely, which scores precision = the base rate at recall 1.0.
+
+    Takes any rows carrying `flag` and `label`, so the backtest can score its
+    replayed lots with this exact function. That is the point of it being
+    public: until live awards accumulate, the replayed number is the one we
+    quote, and it must be the same statistic — not a second implementation
+    that agrees by coincidence.
+
+    Vocabulary matches sb.metrics: precision is 'the flags right', recall is
+    'coverage'. The rank-based headline cannot show a flag that is worse than
+    no flag at all; precision below base does exactly that."""
+    if not rows:
+        return None
+    tp = sum(1 for g in rows if g['flag'] and g['label'] == 1)
+    fp = sum(1 for g in rows if g['flag'] and g['label'] == 0)
+    fn = sum(1 for g in rows if not g['flag'] and g['label'] == 1)
+    tn = sum(1 for g in rows if not g['flag'] and g['label'] == 0)
+    n, positives, flagged = len(rows), tp + fn, tp + fp
+    precision = (tp / flagged) if flagged else None
+    recall = (tp / positives) if positives else None
+    base = positives / n
+    # F1 is undefined only when a *denominator* was empty; a precision or
+    # recall of exactly 0 gives F1 0, which is a measurement, not a gap
+    f1 = None
+    if precision is not None and recall is not None:
+        f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+    return {
+        'n': n, 'tp': tp, 'fp': fp, 'fn': fn, 'tn': tn,
+        'flagged': flagged, 'positives': positives,
+        'precision': precision, 'recall': recall, 'f1': f1,
+        'precision_ci': wilson(tp, flagged),
+        'recall_ci': wilson(tp, positives),
+        # "flag everything": precision is the base rate, recall is perfect
+        'base': base,
+        'base_f1': (2 * base / (base + 1)) if base else None,
+        'beats_base': precision is not None and precision > base,
+    }
+
+
 def track_record(paths, args):
     """Rolling verified performance over the track window (a parameter).
 
-    The headline is RANK-based — 'did the top of our ranking end lonely more
-    often than the rest?' — because the product action is picking the most
-    attractive tenders, not applying a score threshold. The flag-based numbers
-    are kept as a secondary view."""
+    Two views of the same graded rows, and they answer different questions.
+    The RANK view — 'did the top of our ranking end lonely more often than the
+    rest?' — matches the product action, which is picking the most attractive
+    tenders. The FLAG view scores the binary lonely/not-lonely call at the
+    cut-off, which is the claim precision and recall are about. A model can
+    rank well and flag badly, so neither subsumes the other and both are
+    computed here.
+
+    Derived, never stored: both views are a pure function of grades.jsonl plus
+    the window, so they are recomputed each cycle rather than written to the
+    database — a persisted copy is one more thing that can disagree with the
+    ledger it came from."""
     grades = read_jsonl(paths.grades)
     if not grades:
         return None
@@ -277,7 +346,8 @@ def track_record(paths, args):
         if len(rows) < args.min_trade_grades:
             continue
         s = _top_slice_stats(rows, args.top_slice)
-        trades.append({'cpv3': cpv3, 'name': SECTOR.get(cpv3, ''), **s})
+        trades.append({'cpv3': cpv3, 'name': SECTOR.get(cpv3, ''),
+                       'flag': flag_stats(rows), **s})
 
     tiers = []
     for tier in ('HIGH', 'MEDIUM', 'LOW'):
@@ -294,6 +364,8 @@ def track_record(paths, args):
         'top_share': args.top_slice,
         'trades': trades,
         'tiers': tiers,
+        'flag': flag_stats(recent),
+        'min_flag_grades': args.min_flag_grades,
         'flags': len(flagged),
         'flags_right': (sum(g['label'] for g in flagged) / len(flagged)) if flagged else None,
         'coverage': (sum(1 for g in positives if g['flag']) / len(positives)) if positives else None,
@@ -727,12 +799,14 @@ def record_gate_config(paths, config):
     replay.py redirect deliveries into a sandbox while still reading the real
     store, and a sandbox experiment must not append a configuration to the
     record of what customers were actually served under."""
-    path = paths.deliveries.parent / 'gate_configs.jsonl'
-    if any(r.get('fingerprint') == config.fingerprint for r in read_jsonl(path)):
+    home = paths.deliveries_home
+    if any(r.get('fingerprint') == config.fingerprint
+           for r in ledger.read(home, 'gate_configs')):
         return False
-    append_jsonl(path, [{'fingerprint': config.fingerprint,
-                         'first_seen': now_utc().isoformat(timespec='seconds'),
-                         **config.as_dict()}])
+    ledger.append(home, 'gate_configs',
+                  [{'fingerprint': config.fingerprint,
+                    'first_seen': now_utc().isoformat(timespec='seconds'),
+                    **config.as_dict()}])
     print(f'[deliver] new gate configuration recorded: {config.describe()}')
     return True
 
@@ -840,7 +914,7 @@ def deliver(paths, scored, args):
         key = (row['procedure_id'], row['lot_id'])
         if key not in latest or str(row['publication_date']) >= str(latest[key]['publication_date']):
             latest[key] = row
-    past = read_jsonl(paths.deliveries)
+    past = ledger.read(paths.deliveries_home, 'deliveries')
     already = {(d['sub_id'], d['procedure_id'], d['lot_id'], str(d['ts'])[:10])
                for d in past}
     by_sub = {}
@@ -1081,11 +1155,40 @@ def deliver(paths, scored, args):
             # still written as the operator's lookup
             print(f"[deliver] {sub['sub_id']}: nothing to report — "
                   f'no report written')
-        append_jsonl(paths.deliveries, deliveries)
+        ledger.append(paths.deliveries_home, 'deliveries', deliveries)
         n_rows += len(deliveries)
         print(f"[deliver] {sub['sub_id']}: {len(top)} lots delivered "
               f'({len(rows)} matched, {len(deliveries)} new delivery rows)')
     return n_rows
+
+
+# ------------------------------------------------------- housekeeping
+
+def prune_caches(paths, max_age_days=30):
+    """Delete discovery caches older than `max_age_days`.
+
+    The TED search resume cache is keyed by a hash of the query, and a query
+    names a date window — so a cache is unresumable the day after its window
+    passes. Nothing removed them and the directory reached 1.13 GB across 1,132
+    dead scopes, all written within a fortnight. It is not the weekly cycle that
+    creates them (bulk.py borrows only helpers from download.py, never
+    search_all), but the cycle is the only thing that runs regularly, so it is
+    where the sweeping belongs.
+
+    Safe by construction: these are derived files. The notices are in the raw
+    archive and the parquet store, and the worst case is re-querying a scope
+    that happens to be repeated. Never fails a cycle.
+    """
+    try:
+        import download
+        n, freed = download.prune_discovery(max_age_days)
+        if n:
+            print(f'[prune] {n} stale discovery cache file(s), '
+                  f'freed {freed / 1e6:.1f} MB')
+        return n
+    except Exception as e:
+        print(f'[prune] skipped ({e})')
+        return 0
 
 
 # ------------------------------------------------------------- drift monitors
@@ -1200,6 +1303,96 @@ def drift_monitors(tenders, aw, prior_predictions, scores_now, args):
 
 # --------------------------------------------------------------- step 5: report
 
+def _rate_ci(rate, ci):
+    """'25 in 100 (95% CI 5-70)' — the interval is not decoration; it is the
+    difference between a number you may quote and one you may not."""
+    if rate is None:
+        return '—'
+    s = f'{rate*100:.0f} in 100'
+    if ci:
+        s += f' (95% CI {ci[0]*100:.0f}-{ci[1]*100:.0f})'
+    return s
+
+
+def flag_view_lines(record, args):
+    """The precision/recall section: what the binary lonely/not-lonely call was
+    worth, next to the one baseline that can beat it for free.
+
+    Printed on every cycle that graded anything — including cycles where the
+    model flagged nothing, which is itself a result and used to vanish from
+    the report entirely."""
+    if not record:
+        return []
+    f = record.get('flag')
+    if not f:
+        return []
+    lines = ['## The flag: precision and recall '
+             f'(binary view at the {args.threshold:.2f} cut-off)', '']
+
+    thin = f['n'] < record.get('min_flag_grades', 0)
+    if thin:
+        lines += [f"**Too thin to read: {f['n']} graded lots against a floor of "
+                  f"{record['min_flag_grades']}.** The numbers below are printed so the "
+                  'series exists from day one, not because they mean anything yet — '
+                  'awards publish a median 84 days after the tender, so this section '
+                  'fills up roughly a quarter behind the predictions. Read the '
+                  'confidence intervals, not the point estimates.', '']
+
+    lines += [f"Over the trailing {record['window']}, {f['n']} graded lots: we called "
+              f"{f['flagged']} of them lonely, and {f['positives']} really ended with "
+              '0-1 bids.', '',
+              '| | we said lonely | we said not | total |',
+              '|---|---|---|---|',
+              f"| **ended 0-1 bids** | {f['tp']} | {f['fn']} | {f['positives']} |",
+              f"| **ended 2+ bids** | {f['fp']} | {f['tn']} | {f['n'] - f['positives']} |",
+              f"| total | {f['flagged']} | {f['n'] - f['flagged']} | {f['n']} |", '']
+
+    if f['flagged'] == 0:
+        lines += ['We flagged nothing in this window, so precision is undefined and '
+                  'recall is 0 — every single-bid lot was missed. A cut-off no lot '
+                  'clears is a broken cut-off, not a cautious one.', '']
+    else:
+        lines += [f"- **precision** (the flags right): {_rate_ci(f['precision'], f['precision_ci'])}",
+                  f"- **recall** (single-bid lots caught): {_rate_ci(f['recall'], f['recall_ci'])}",
+                  f"- **F1**: {f['f1']:.2f}" if f['f1'] is not None else '- **F1**: —',
+                  '']
+
+    if f['positives'] == 0:
+        # Degenerate window: with nothing to catch, precision is 0 for us AND
+        # for the baseline, and comparing the two says nothing about either.
+        lines += ['Not one graded lot in this window ended with 0-1 bids, so there was '
+                  'nothing to catch: precision is 0 by construction and no comparison '
+                  'against a baseline means anything here. Wait for a window that '
+                  'contains positives.', '']
+        return lines
+
+    lines += ['Against the only free baseline — **call every lot lonely**: '
+              f"precision {f['base']*100:.0f} in 100, recall 100 in 100"
+              + (f", F1 {f['base_f1']:.2f}." if f['base_f1'] is not None else '.'), '']
+    if f['precision'] is not None and not f['beats_base']:
+        lines += [f"**The flag is not paying for itself:** its precision "
+                  f"({f['precision']*100:.0f} in 100) is at or below the "
+                  f"{f['base']*100:.0f} in 100 you get by flagging everything, so at this "
+                  'cut-off the model is costing recall and buying nothing. '
+                  + ('On this sample that is noise, not a verdict.' if thin else
+                     'On this sample that is a real finding — move the cut-off or '
+                     'retrain before quoting the flag to anyone.'), '']
+
+    trades = [t for t in record.get('trades', []) if t.get('flag')]
+    if trades:
+        lines += [f"Per trade (trades with at least {args.min_trade_grades} graded lots):", '',
+                  '| trade | graded | flags | precision | recall | flag everything |',
+                  '|---|---|---|---|---|---|']
+        for t in trades:
+            tf = t['flag']
+            prec = f"{tf['precision']*100:.0f} in 100" if tf['precision'] is not None else '—'
+            rec = f"{tf['recall']*100:.0f} in 100" if tf['recall'] is not None else '—'
+            lines.append(f"| {t['cpv3']} {t['name']} | {tf['n']} | {tf['flagged']} | "
+                         f"{prec} | {rec} | {tf['base']*100:.0f} in 100 |")
+        lines.append('')
+    return lines
+
+
 def report(paths, tenders, args, record, gate, drift, model_id, n_graded, n_predicted):
     predictions = read_jsonl(paths.predictions)
     latest_model = {}
@@ -1233,14 +1426,11 @@ def report(paths, tenders, args, record, gate, drift, model_id, n_graded, n_pred
                 lines.append(f"- {t_['tier']}: {t_['hit']*100:.0f} in 100 ended with 0-1 bids "
                              f"({t_['n']} graded lots)")
             lines.append('')
-        if record['flags']:
-            fr = record['flags_right']
-            lines += [f"Secondary (flag view @ cut-off): of {record['flags']} flags, {fr*100:.0f} of 100 right; "
-                      f"caught {record['coverage']*100:.0f} of 100 single-bid lots." if fr is not None else '',
-                      '']
     else:
         lines += ['## Verified track record', '',
                   'No graded outcomes in the window yet — grading starts as awards arrive.', '']
+
+    lines += flag_view_lines(record, args)
 
     lines += [f'## This week\'s shortlist (top {args.report_top} of the ranking)', '',
               '| tier | score | deadline | est. value | title |', '|---|---|---|---|---|']
@@ -1280,6 +1470,10 @@ def report(paths, tenders, args, record, gate, drift, model_id, n_graded, n_pred
 
 def cmd_run(args):
     paths = Paths(args.data_dir, args.models_dir)
+    # which state this cycle is operating on, before it operates on it
+    # (doc/STORAGE.md 6.1) — a cycle that silently used the wrong root would
+    # look exactly like a cycle with nothing to do
+    print(f'[config] data root: {config.describe(paths.data)}')
     checkpoint = read_json(paths.checkpoint, {})
 
     if args.skip_download:
@@ -1322,6 +1516,8 @@ def cmd_run(args):
     except Exception as e:  # the dashboard is a convenience; never fail the cycle over it
         print(f'[dashboard] rendering failed: {e}')
 
+    prune_caches(paths)
+
     checkpoint['last_success_at'] = now_utc().isoformat(timespec='seconds')
     if date_to:
         checkpoint['last_success_to'] = date_to
@@ -1355,6 +1551,9 @@ def main():
                      help='share of the weekly ranking tiered MEDIUM, after HIGH (default 0.20)')
     run.add_argument('--min-trade-grades', type=int, default=25, dest='min_trade_grades',
                      help='minimum graded lots per trade before its track record is reported')
+    run.add_argument('--min-flag-grades', type=int, default=30, dest='min_flag_grades',
+                     help='graded lots below which the precision/recall section says so '
+                          'out loud before quoting itself (default 30)')
     run.add_argument('--min-slice-grades', type=int, default=25, dest='min_slice_grades',
                      help='minimum graded lots in a subscription slice before its own '
                           'track record is quoted (below: the fallback ladder speaks)')
@@ -1377,7 +1576,7 @@ def main():
     run.add_argument('--sim-min-deadline-days', type=int, default=14,
                      dest='sim_min_deadline_days',
                      help='deadline floor for simulated picks, like the product default')
-    run.add_argument('--data-dir', default='data', dest='data_dir')
+    run.add_argument('--data-dir', default=config.data_root(), dest='data_dir')
     run.add_argument('--models-dir', default='models', dest='models_dir')
     run.add_argument('--skip-download', action='store_true', dest='skip_download',
                      help='reuse the existing store (offline run)')

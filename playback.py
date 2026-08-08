@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 import calibrate as cal
+import config
 import relevance as rel
 import single_bidder as sb
 
@@ -39,7 +40,7 @@ ap.add_argument('--since', default='2026-01-01',
 ap.add_argument('--cpv', default='45', help='CPV prefix of the replayed slice')
 ap.add_argument('--nuts', default='DE6,DEF',
                 help='comma-separated NUTS prefixes of the replayed slice')
-ap.add_argument('--data-dir', default='data')
+ap.add_argument('--data-dir', default=config.data_root())
 args = ap.parse_args()
 NUTS = [p for p in args.nuts.split(',') if p]
 

@@ -1,9 +1,62 @@
 # STORAGE — what belongs in the database, what stays a file
 
-Status: decision document for [`REFACTOR.md`](REFACTOR.md) phase 2, written
-2026-08-08 because the split was not obvious. Nothing here is implemented yet.
-Section 5 is the part that needs an operator decision; sections 2 and 3 are
-recommendations with their reasoning, so they can be overruled item by item.
+Status: the specification for [`REFACTOR.md`](REFACTOR.md) phase 2, revised
+2026-08-08 after the operator stated the real goal (see 0). **If you read one
+section, read 6 — it is the only section that says what to do.** 0 is the goal,
+1-4 are the reasoning and the split, 4b-4e are receipts for work already done,
+5 records decisions with defaults so nothing blocks, 7 is the log.
+
+Supersedes: the earlier "build order" and "finish plan" sections, written before
+the cloud requirement and contradicting each other. Section 6 is now the only
+plan.
+
+## 0. The goal, and what it demands of the design
+
+The operator's requirement, stated 2026-08-08:
+
+> A system that is **robust and easy to maintain**, which will eventually run
+> **in the cloud** — on a platform not yet chosen, and deliberately not being
+> chosen yet.
+
+Three things follow, and they override anything written before them.
+
+**The vendor decision comes last, not first.** Choosing now means building for a
+platform that may not be chosen. What must be true instead is a short list of
+vendor-neutral properties, after which hosting is a shopping decision rather
+than a project. Those properties are section 6.
+
+**A filesystem path is the wrong handle for storage.** Everything here currently
+takes a data *directory*. In the cloud there is no meaningful directory — there
+is a connection string, a bucket, and credentials. Wherever this document says
+`data/...`, read it as "today's default location", not as part of the design.
+The location must come from configuration, and must not live inside the code
+checkout.
+
+**The engine is a way-station; the seam is the asset.** SQLite is right for
+today — one operator, one scheduled cycle, eight customers. It stops being right
+the moment a second writer exists (a signup form writing while the cycle runs)
+or a second container does. What makes that swap cheap is that only two modules
+touch storage — [`subscriptions.py`](../subscriptions.py) and
+[`ledger.py`](../ledger.py) — while 221 call sites across 19 files merely pass a
+location through. Protect that seam; the engine behind it is replaceable.
+
+### Not the cycle's host: Vercel
+
+Recorded because it was asked. Vercel cannot run this cycle: function execution
+is capped in minutes while the cycle spends minutes training CatBoost and
+embedding with a sentence-transformer; there is no persistent filesystem, so the
+database, parquet store, embeddings and model binaries would be fetched and
+pushed on every run; and the deployment bundle is size-limited, which `torch`
+alone exceeds. It is not a tuning problem but a category mismatch.
+
+It is the right tool for the half of the system that does not exist yet — a site
+where each customer reads their weekly report and track record from the
+database, instead of receiving HTML files. Batch elsewhere, front end there.
+
+Platforms that do fit the cycle, for when the decision is due: **Render** or
+**Railway** (a scheduled container as a first-class primitive, managed Postgres,
+one dashboard), or **Modal** (schedule and dependencies declared in Python).
+Object storage — R2, B2 — for the parquet store, embeddings, models and archive.
 
 ## 1. The principle
 
@@ -121,7 +174,133 @@ What the move already bought, measured on the same database:
 - `UPDATE`/`DELETE` on any ledger table: refused by trigger
 - `UPDATE`/`DELETE` on `customer`: allowed, as designed for erasure
 
-## 5. Open calls — these need an operator decision
+## 4c. Step 2 landed: subscriptions read from the database (2026-08-08)
+
+`subscriptions.py` now resolves a home directory to a database when one is
+there and to `subscriptions.jsonl` when it is not. **No caller changed** —
+that is what the phase-2 pre-work bought.
+
+There is deliberately **no flag day**. The live `data/` directory has no
+database yet, so nothing moved until an operator runs `python db.py
+--migrate`; both paths are supported and the switch is a decision, not a
+deployment.
+
+The market filter comes back from `raw` verbatim, so a caller cannot tell a
+database row from the ledger line it was migrated from. Identity — `name`,
+`award_names` — is overlaid from `customer` instead, which is the point of the
+split: rename a customer and every past version reports the new name, while
+their historical market stays exactly as it was.
+
+**The database wins when both exist**, because migration deliberately does not
+delete the originals. That preference is only safe with a cross-check, so
+`read_all` raises when the file holds a `(sub_id, version)` the database does
+not — an operator editing the file after migrating would otherwise have the
+edit silently ignored, which is the exact failure this module exists to
+prevent. The message names the fix (`python db.py --migrate`).
+
+Sandboxes (`tryout.py`, `replay.py`) now build a small database through
+`write_sandbox`, so they exercise the shipped read path instead of a second
+format only sandboxes understand.
+
+Receipts:
+
+- **File and database reads are identical dicts.** All 13 versions, at six
+  as-of dates spanning the subscription history (1, 2, 2, 8, 8, 8 active):
+  equal element by element, and `read_all` returns them in the same order.
+- **Rendered reports byte-identical** for `jebsen-blitzschutz`, `beck` and
+  `n3bau`, run back-to-back against the pre-change code — with the sandbox
+  now being a database rather than a file.
+- Drift guard, frozen-marker guard and the sandbox round trip each tested
+  directly; `explain.py`, `feedback.py --list` and the `subscriptions.py` CLI
+  all still work on the file path.
+
+## 4d. The migration was run on live data (2026-08-08)
+
+`python db.py --migrate` against the real `data/`, on operator instruction.
+
+| | |
+|---|---|
+| migrated | 13 subscription versions, 90,604 predictions, 55 deliveries, 7 grades, 5 learned refs |
+| derived | 8 customers, from the newest version of each subscription |
+| `gate_configs` | no source file yet — no cycle had run since the stamp shipped |
+| database size | 81 MB |
+| duration | 18 seconds |
+
+`--verify` passed: every table exported back out reproduces its source file
+line for line. The six source files' MD5 sums are **unchanged** — migration
+does not touch them. `subscriptions.py` then reported
+`data	endermining.db [db]` and `tryout.py` rendered `beck` and
+`jebsen-blitzschutz` identically to the pre-migration run.
+
+### The first cycle on the database
+
+`python loop.py run --last 7d --skip-download`, same day. Promoted
+`m2026-08-08-081530`, scored 3,873 open lots, all four drift monitors ok
+(single-bid rate 0.103 in a 0.019–0.229 band; score PSI 0.009 against a 0.25
+warning). Delivered 21 recommendations to six of eight customers;
+`jebsen-blitzschutz` (1 lot matched) and `polat-real-estate` (2) had nothing
+clear the bar, which is the product working rather than failing.
+
+Phase 3's stamp appeared on real rows for the first time: **16 of the 21 new
+delivery rows carry `gate_config=7d29fa0dce`, `gate_mode=evidence`**, and the
+registry recorded that configuration with a timestamp. The other 5 are
+`brueckenbau-demo`, the one ungated subscription — no gate judged those lots,
+so there is correctly nothing to stamp.
+
+### And immediately, the argument for step 3
+
+One cycle later the database's copies of the ledgers are already behind:
+
+| table | in database | in file | file ahead by |
+|---|---|---|---|
+| `prediction` | 90,604 | 94,477 | 3,873 |
+| `delivery` | 55 | 76 | 21 |
+
+Harmless, because nothing reads those tables — and exactly the point. Two
+copies of the same ledger with only one of them true is a state to leave
+quickly, not to live in.
+
+## 4e. Step 3 landed: the small ledgers (2026-08-08)
+
+[`ledger.py`](../ledger.py) is `subscriptions.py`'s shape one layer over: a
+caller names a **home directory** and a ledger by name, and the module decides
+whether that home's records are in the database or still in
+`<home>/ledger/<name>.jsonl`.
+
+    rows = ledger.read(paths.deliveries_home, 'deliveries')
+    ledger.append(paths.deliveries_home, 'deliveries', new_rows)
+
+Switched over: `delivery`, `learned_ref`, `gate_config`. `loop.Paths.deliveries`
+(a file) became `Paths.deliveries_home` (a directory); `feedback.read_learned`
+and `append_learned` go through it; `tryout.py` and `replay.py` build their
+sandbox with `ledger.start()`, so a scratch world is the shipped storage rather
+than a private format. It is generic over the ledger name, so step 4 is a
+call-site change with no new storage logic.
+
+**The staleness guard earned its keep immediately.** Pointed at the live `data/`
+it refused to read: the delivery file held 76 rows against the database's 55,
+because a cycle had run since the migration. Those 21 rows would have been
+invisible to a database-backed read — a customer's retrospective missing its
+most recent week. The guard compares row COUNTS rather than content: these are
+append-only logs, so "the file has more lines than the table has rows" is
+exactly the question, and it costs one `COUNT(*)` instead of diffing 90,000
+rows per read.
+
+The live database was then brought current — `db.py --migrate` took in the
+3,873 new predictions, 21 deliveries and 1 gate config, and `--verify` still
+reports byte-faithful.
+
+Receipts: file-backed and database-backed reads return identical rows for all
+three ledgers; appending the same row to both gives identical read-back;
+appending it twice to the database writes 0 the second time, so a re-run cannot
+duplicate a customer's record. `tryout.py` renders `beck` and `n3bau`
+byte-identically against the pre-change code, run back-to-back, with the
+sandbox now containing nothing but `tendermining.db`.
+
+## 5. Decisions — all have a default, none blocks section 6
+
+Each carries a recommendation that is now the **default**: work proceeds on it
+unless overruled. Nothing in section 6 waits on any of these.
 
 ### 5.1 `models/registry.jsonl` (21 rows) and `models/CURRENT`
 
@@ -158,10 +337,16 @@ piece of work with 5.1 and the ledger writes together.
 A cron cycle that fires mid-migration would append to a file about to be
 frozen, and those rows would be lost.
 
-**Recommendation:** migrate immediately after a cycle completes, and have the
-JSONL writers refuse to write once a `.migrated-*` marker exists — so the
-worst case is a loud failure, not silent data loss. If a cycle is scheduled
-during the window, disable the cron first.
+**Partly answered by how step 2 was built (2026-08-08).** Because storage is
+dual-read — database when present, file when not — there was no window to hit
+for subscriptions: the migration ran on live data mid-week with no cron
+coordination and no flag day, and deleting the database would have reverted
+it.
+
+That holds for every step where the file remains readable. It stops holding at
+two points: **step 4**, when predictions and grades become load-bearing, and
+**the freeze**, when the files stop being readable at all. For those two:
+migrate right after a cycle completes, and disable the cron for the window.
 
 ### 5.4 Does `simulation` belong at all?
 
@@ -172,20 +357,151 @@ during the window, disable the cron first.
 rows nobody has ever queried by key — it is read whole. If it turns out to be
 a pure analysis artifact, it could equally stay a file.
 
-## 6. Build order
+### 5.5 Erasure is incomplete — found by the tests (2026-08-08)
 
-Four steps, each verified against the pre-change code back-to-back before
-landing — the discipline that kept phase 1 and the phase-2 pre-work clean:
+**Open, and it contradicts a claim made repeatedly above.** Section 1 says
+splitting `customer` out of `subscription_version` makes an erasure request "one
+row rather than a contradiction". Writing the test for that found two reasons it
+is not true yet.
 
-1. `db.py` — schema, connection, migration, `--export-jsonl`, and a round-trip
-   integrity check (export the migrated database, diff against the frozen
-   original). Pure addition: nothing reads it yet, so it cannot break a cycle.
-2. `subscription_version` + `customer`, behind the `subscriptions.py` boundary
-   landed on 2026-08-08. **No caller changes** — that is what the boundary
-   bought.
-3. The small per-customer ledgers: `delivery`, `learned_ref`, `gate_config`.
-4. The bulk ledgers: `prediction`, `grade`, `simulation` — where the 51 MB
-   double parse disappears.
+First, `DELETE FROM customer` **failed outright**: `customer_id TEXT REFERENCES
+customer(customer_id)` made it a foreign-key violation. Fixed in schema 3 by
+making the reference soft — a plain pointer, no constraint. `ON DELETE SET NULL`
+cannot help, because setting it would be an `UPDATE` on an append-only table.
+Erasing a customer now leaves their market history with a `customer_id` that
+resolves to nothing, which is the right outcome: the person goes, the business
+record stays.
+
+Second, and still open: **the name is also inside `raw`.** Every
+`subscription_version` row keeps its verbatim original line, which contains
+`"name": "..."`, and that table is append-only. So deleting the customer row
+removes the identity the read path *overlays* but not the copy in storage.
+
+Two ways out, neither done:
+
+- **Strip identity from `raw` at write time** and re-inject it from `customer` on
+  export. PII would then exist in exactly one place, making the claim true by
+  construction. The cost is that export becomes a reconstruction rather than a
+  verbatim replay — and after an erasure it would legitimately differ from the
+  frozen original, which `--verify` must be taught to expect.
+- **Make erasure an explicit, audited exception** to append-only that rewrites
+  the affected `raw` blobs.
+
+The first is cleaner. Until one is done, the honest statement is: the *structure*
+for erasure exists and the customer row is deletable, but a determined reader can
+still recover the name from storage. `tests/test_storage.py` asserts that
+current reality rather than the intention, so the gap cannot be quietly
+forgotten.
+
+## 6. What to do next — the only plan
+
+Five items, in order. Each is useful on its own, none is wasted whichever host
+is eventually chosen, and **none needs a decision from the operator.** Items 1,
+2 and 5 exist because of section 0; items 3 and 4 finish phase 2.
+
+### 6.1 Move the data root out of the checkout (small)
+
+One environment variable names it, defaulting outside the repository. Today
+`--data-dir` defaults to `data/`, a folder inside the code checkout, so code and
+state are one directory.
+
+*Why it serves the goal:* it is what the operator asked for directly, and
+nothing can be containerised until it is true — an image ships code, and state
+must outlive any container. It also lets backups treat the two differently.
+
+### 6.2 Fix the three SQLite-only things in `db.py` (small)
+
+`ORDER BY rowid` for append order (Postgres has no `rowid`; needs an explicit
+sequence column), `PRAGMA table_info` for column discovery, and the
+`RAISE(ABORT)` append-only triggers.
+
+*Why now:* the first two are nearly free today and expensive after 6.4, when
+90,000 rows go through this code every cycle. This is what keeps Postgres
+available without committing to it.
+
+### 6.3 Write the tests — DONE 2026-08-08
+
+`tests/test_storage.py`, 41 tests, stdlib `unittest` (pytest is not installed
+here, and a suite that needs installing is a suite that does not get run):
+
+    python -m unittest discover -t . -s tests
+
+No real data: every test builds its own temporary directory, so nothing reads
+`data/`, nothing needs the 81 MB database, nothing touches the network, and a
+failure can never be "your store is in an odd state". They assert *behaviours* —
+identical rows from either storage, an idempotent append, a loud refusal — so the
+engine can be replaced underneath them, which is what makes section 0's Postgres
+swap checkable rather than hopeful.
+
+Covered: the validator's rejections and its deliberate tolerance of retired
+fields; as-of resolution including deactivation-by-new-version; the market filter
+including the deep-CPV-prefix bug and pandas NaN; file-versus-database reads
+returning identical dicts; identity overlaid from `customer` while the filter
+stays frozen; idempotent migration and append; dense `seq`; every guard (file
+ahead of database, storage-file path passed in, frozen marker, schema
+downgrade); the append-only triggers; export fidelity including heterogeneous
+rows; the sandbox round trip; and configuration resolution order.
+
+**Three real defects, found before the suite was even committed:**
+
+1. `DELETE FROM customer` failed on a foreign key, making the erasure the
+   customer table exists for impossible (see 5.5, fixed in schema 3).
+2. The erasure gap in 5.5 itself — the name survives in `raw`.
+3. `db.stale_tables` was referenced by the plan but did not exist; it had been
+   written and then correctly reverted with the abandoned export work, and
+   nothing noticed the hole.
+
+Two of the ten initial failures were the *test's* fault, and worth recording:
+`UPDATE`/`DELETE` against an **empty** table fires no row trigger and so raises
+nothing, which looked exactly like the append-only guard being absent. Every
+ledger table is seeded now, and a second test asserts the seeding so the first
+cannot go vacuous.
+
+### 6.4 Finish the migration: `prediction` and `grade` (medium)
+
+The cycle reads the 51 MB prediction file three times per run — to skip
+already-scored tenders, to find each lot's last score before its award, and to
+look up a title for a report. Each becomes an indexed query.
+
+*Honest sizing:* the speed saving is seconds, not minutes; an earlier section
+oversold it. The real reason is that there is presently **one set of records in
+two storage systems**, with the database's copies of these two tables going
+stale every cycle. That is the state to leave.
+
+*What changes in risk:* until now the files stayed complete and deleting the
+database reverted everything. After this the database is the only current copy,
+so this item includes **proving** the rollback — export, revert, run a cycle
+from files — rather than describing it.
+
+### 6.5 A Dockerfile that runs one cycle (small-medium)
+
+`docker run` produces a week's reports with nothing from the operator's laptop.
+
+*Why it is last and why it matters:* it converts hosting from a project into a
+purchase. It is also the honest test of 6.1 and 6.2 — if state is truly
+configured and nothing reaches into the checkout, this is short; if it is long,
+they were not finished.
+
+### Deliberately not in this plan
+
+**Wiring the ledger export into the cycle.** Specified, started, stopped: it
+wrote to `data/export/` inside the checkout, which 6.1 is about to move, and
+exporting on top of the live files would today overwrite the authoritative
+`predictions.jsonl` with the database's stale copy — data loss dressed as a
+backup. It returns after 6.1 and 6.4, writing to the configured location.
+`python db.py --export-jsonl DIR` already does it on demand.
+
+**Deleting the raw notice archive.** 1.25 GB over 43,671 files, and
+`features.py` rebuilds the parquet store from the **entire** archive every cycle
+([`loop.py`](../loop.py), `download()`). Delete it and the next cycle rebuilds
+the store from one week: 28,148 tender rows become a few hundred, the 90,000
+predictions no longer join to any lot, and every `profile_refs` stops resolving.
+The store is also a lossy projection — any field not yet extracted exists only
+in the XML. Keep it.
+
+*If space is wanted:* `data/logs` is 1.13 GB in 1,151 files, nearly the size of
+the archive and mostly append-only logging nobody reads. That is the place to
+look.
 
 ## 7. Decision log
 
@@ -196,6 +512,14 @@ conversation.
 |---|---|---|
 | 2026-08-07 | SQLite replaces the JSONL ledgers completely, not just subscriptions | operator |
 | 2026-08-08 | callers name a subscription *home directory*, never a storage file; `write_sandbox` replaces hand-written sandbox files | implemented, see REFACTOR.md phase 2 pre-work |
+| 2026-08-08 | step 1: `db.py` — schema, migration, byte-faithful export, `--verify` | implemented |
+| 2026-08-08 | step 2: subscriptions read from the database, dual-read, no flag day | implemented |
+| 2026-08-08 | **migration run on live `data/`**, verified, first cycle green | operator instruction |
+| 2026-08-08 | step 3: `ledger.py` — deliveries, learned refs, gate configs read/append through storage | implemented |
+| 2026-08-08 | **goal stated**: robust, easy to maintain, eventually cloud-hosted, vendor deliberately undecided | operator |
+| 2026-08-08 | Vercel ruled out for the cycle (execution cap, no persistent filesystem, bundle size); kept in mind for a customer front end | operator question, answered |
+| 2026-08-08 | raw notice archive is NOT deleted — the store is rebuilt from the whole archive every cycle | operator question, answered |
+| 2026-08-08 | document restructured: section 6 is the only plan; the old build order and finish plan removed as contradictory | revision |
 | | 5.1 registry / CURRENT: | |
 | | 5.2 loop_checkpoint: | |
 | | 5.3 migration window: | |

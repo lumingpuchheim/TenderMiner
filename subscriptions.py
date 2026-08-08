@@ -15,10 +15,12 @@ folklore, re-derived wherever they were needed:
   * **Is this field even real?** Nothing asked. `top_n` and `avoid_n` sat in
     live subscription lines, read by no code at all, silently ignored.
 
-This module owns all three. It does NOT own storage: subscriptions are still
-lines in `data/subscriptions.jsonl` exactly as SUBSCRIPTIONS.md describes
-them. Moving them into SQLite is phase 2, and the point of doing phase 1
-first is that phase 2 then changes this file's internals and nothing else.
+This module owns all three, **and it owns storage** — which is the point.
+Phase 2 moved subscriptions from `data/subscriptions.jsonl` into the SQLite
+database (`db.py`) by changing this file's internals and nothing else: not one
+call site moved, because callers name a home DIRECTORY and let `storage()`
+resolve it. A home with a database is served from it; a home with only the
+file is served from the file, so there was no flag day. See doc/STORAGE.md.
 
 ## Validation is deliberately asymmetric
 
@@ -36,6 +38,8 @@ useful.
 import json
 import sys
 from pathlib import Path
+
+import config
 
 # Every field a subscription line may carry. The comment is the field's
 # meaning; SUBSCRIPTIONS.md is the specification.
@@ -194,11 +198,20 @@ def storage(home):
     """Resolve a subscription HOME DIRECTORY to its storage.
 
     **Callers pass the directory, never the file.** That is the whole
-    contract: the storage format is this module's business, so it can change
-    (phase 2 moves it into SQLite) without touching a single call site. Any
+    contract: the storage format is this module's business, so it changed
+    (phase 2 moved it into SQLite) without touching a single call site. Any
     code that constructs `<dir>/subscriptions.jsonl` itself has reached past
-    the interface and will break on the swap — so passing a path that looks
-    like storage raises here instead of half-working.
+    the interface — so passing a path that looks like storage raises here
+    instead of half-working.
+
+    -> ('db', path) | ('jsonl', path) | None
+
+    **The database wins when both exist**, which is the state during and after
+    migration, because `db.py --migrate` deliberately does not delete the
+    originals. That preference is only safe because `read_all` cross-checks
+    the two (see below); without the check, an operator editing the file after
+    migrating would have their edit silently ignored — the exact failure this
+    module is built to prevent.
     """
     p = Path(home)
     if p.suffix in ('.jsonl', '.db', '.sqlite'):
@@ -215,27 +228,81 @@ def storage(home):
             f'{p}: found both {live.name} and {leftovers[-1].name}. The '
             f'migrated marker says storage moved, the live file says it did '
             f'not — refusing to guess which one describes your customers.')
-    return live if live.exists() else None
+    import db
+    if db.path_for(p).exists():
+        return ('db', db.path_for(p))
+    return ('jsonl', live) if live.exists() else None
 
 
-def read_all(home):
-    """Every version, validated, in storage order. A home with no storage is
-    not an error — a deployment simply has no customers yet."""
-    p = storage(home)
-    if p is None:
-        return []
+# Retired-field notices are announced ONCE per process per field. A cycle
+# calls load() twice and each call reads both the database and (for the
+# staleness cross-check) the file, so an announce-every-read notice printed
+# eight identical lines into the cycle log. The operator needs to know once.
+_WARNED = set()
+
+
+def _announce_retired(where, retired, unit):
+    for field, n in sorted(retired.items()):
+        if field in _WARNED:
+            continue
+        _WARNED.add(field)
+        print(f'[subscriptions] {where}: ignoring retired field {field!r} on '
+              f'{n} {unit}(s) — superseded by {RETIRED[field]}')
+
+
+def _read_jsonl(path, quiet=False):
     rows, retired = [], {}
-    for i, line in enumerate(p.read_text(encoding='utf-8').splitlines(), 1):
+    for i, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
         if not line.strip():
             continue
         try:
             row = json.loads(line)
         except json.JSONDecodeError as e:
-            raise SubscriptionError(f'{p}:{i}: not valid JSON ({e})') from e
-        rows.append(validate(row, source=p, lineno=i, retired_out=retired))
-    for field, n in sorted(retired.items()):
-        print(f'[subscriptions] {p.name}: ignoring retired field {field!r} on '
-              f'{n} line(s) — superseded by {RETIRED[field]}')
+            raise SubscriptionError(f'{path}:{i}: not valid JSON ({e})') from e
+        rows.append(validate(row, source=path, lineno=i, retired_out=retired))
+    if not quiet:
+        _announce_retired(path.name, retired, 'line')
+    return rows
+
+
+def read_all(home):
+    """Every version, validated, in storage order. A home with no storage is
+    not an error — a deployment simply has no customers yet.
+
+    When a database and a source file both exist, the database answers, but
+    only after proving it is not behind: any `(sub_id, version)` present in the
+    file and missing from the database raises. Two sources with one silently
+    preferred is how a customer ends up served from a stale market filter,
+    so the drift is a loud failure with the fix in the message.
+    """
+    where = storage(home)
+    if where is None:
+        return []
+    kind, path = where
+    if kind == 'jsonl':
+        return _read_jsonl(path)
+
+    import db
+    con = db.connect(home, create=False)
+    # `raw` is the verbatim original line, so migrated rows still carry any
+    # retired field they were written with — aggregate the notice as the file
+    # path does, or a load prints one line per version
+    retired = {}
+    rows = [validate(r, source=path, retired_out=retired)
+            for r in db.subscription_rows(con)]
+    _announce_retired(path.name, retired, 'version')
+    legacy = Path(home) / FILE_NAME
+    if legacy.exists():
+        stored = db.subscription_versions_present(con)
+        missing = [(r.get('sub_id'), int(r.get('version') or 1))
+                   for r in _read_jsonl(legacy, quiet=True)
+                   if (r.get('sub_id'), int(r.get('version') or 1)) not in stored]
+        if missing:
+            raise SubscriptionError(
+                f'{legacy} has {len(missing)} subscription version(s) the '
+                f'database does not: {missing[:5]}. The database is what gets '
+                f'served, so this edit would be ignored. Run '
+                f'`python db.py --migrate` to take it in.')
     return rows
 
 
@@ -287,9 +354,11 @@ def write_sandbox(home, subs):
     home = Path(home)
     home.mkdir(parents=True, exist_ok=True)
     rows = [validate(s, source=f'write_sandbox({home.name})') for s in subs]
-    (home / FILE_NAME).write_text(
-        ''.join(json.dumps(r, ensure_ascii=False, default=str) + '\n'
-                for r in rows), encoding='utf-8')
+    # a sandbox uses the SAME storage the real customers use, so tryout.py and
+    # replay.py exercise the shipped read path rather than a second format
+    # only sandboxes know about
+    import db
+    db.put_subscriptions(home, rows)
     return home
 
 
@@ -407,13 +476,14 @@ def main():
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
     ap = argparse.ArgumentParser(description=main.__doc__)
-    ap.add_argument('--data-dir', default='data')
+    ap.add_argument('--data-dir', default=config.data_root())
     ap.add_argument('--as-of', default=date.today().isoformat())
     args = ap.parse_args()
     rows = read_all(args.data_dir)
     live = resolve(rows, args.as_of)
-    where = storage(args.data_dir) or f'{args.data_dir} (no storage yet)'
-    print(f'[subscriptions] {where}: {len(rows)} version(s) valid, '
+    where = storage(args.data_dir)
+    src = f'{where[1]} [{where[0]}]' if where else f'{args.data_dir} (no storage yet)'
+    print(f'[subscriptions] {src}: {len(rows)} version(s) valid, '
           f'{len(live)} active on {args.as_of}')
     for s in sorted(live, key=lambda s: s['sub_id']):
         gate = ('gated' if s.get('min_relevance') is not None

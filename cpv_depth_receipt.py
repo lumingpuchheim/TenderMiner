@@ -35,6 +35,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+import config
 import single_bidder as sb
 from calibrate import is_deep
 
@@ -257,7 +258,7 @@ def section_tripwires(data, tenders, roles):
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--data-dir', default='data')
+    ap.add_argument('--data-dir', default=config.data_root())
     ap.add_argument('--quick', action='store_true',
                     help='one split and 40 permutations instead of the full sweep')
     ap.add_argument('--out', default=None, metavar='PATH',
