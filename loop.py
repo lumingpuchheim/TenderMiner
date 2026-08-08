@@ -31,6 +31,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+import config
+import ledger
 import single_bidder as sb
 import subscriptions
 
@@ -145,7 +147,10 @@ class Paths:
         self.store_awards = self.data / 'store' / 'awards.parquet'
         self.predictions = self.data / 'ledger' / 'predictions.jsonl'
         self.grades = self.data / 'ledger' / 'grades.jsonl'
-        self.deliveries = self.data / 'ledger' / 'deliveries.jsonl'
+        # the HOME whose storage holds the delivery record and the gate-config
+        # registry — a directory, not a file (ledger.py owns the format).
+        # tryout/replay point this at a sandbox.
+        self.deliveries_home = self.data
         # the DIRECTORY subscriptions live in, not the file: the storage
         # format belongs to subscriptions.py (tryout/replay point this at a
         # sandbox dir instead)
@@ -794,12 +799,14 @@ def record_gate_config(paths, config):
     replay.py redirect deliveries into a sandbox while still reading the real
     store, and a sandbox experiment must not append a configuration to the
     record of what customers were actually served under."""
-    path = paths.deliveries.parent / 'gate_configs.jsonl'
-    if any(r.get('fingerprint') == config.fingerprint for r in read_jsonl(path)):
+    home = paths.deliveries_home
+    if any(r.get('fingerprint') == config.fingerprint
+           for r in ledger.read(home, 'gate_configs')):
         return False
-    append_jsonl(path, [{'fingerprint': config.fingerprint,
-                         'first_seen': now_utc().isoformat(timespec='seconds'),
-                         **config.as_dict()}])
+    ledger.append(home, 'gate_configs',
+                  [{'fingerprint': config.fingerprint,
+                    'first_seen': now_utc().isoformat(timespec='seconds'),
+                    **config.as_dict()}])
     print(f'[deliver] new gate configuration recorded: {config.describe()}')
     return True
 
@@ -907,7 +914,7 @@ def deliver(paths, scored, args):
         key = (row['procedure_id'], row['lot_id'])
         if key not in latest or str(row['publication_date']) >= str(latest[key]['publication_date']):
             latest[key] = row
-    past = read_jsonl(paths.deliveries)
+    past = ledger.read(paths.deliveries_home, 'deliveries')
     already = {(d['sub_id'], d['procedure_id'], d['lot_id'], str(d['ts'])[:10])
                for d in past}
     by_sub = {}
@@ -1148,11 +1155,40 @@ def deliver(paths, scored, args):
             # still written as the operator's lookup
             print(f"[deliver] {sub['sub_id']}: nothing to report — "
                   f'no report written')
-        append_jsonl(paths.deliveries, deliveries)
+        ledger.append(paths.deliveries_home, 'deliveries', deliveries)
         n_rows += len(deliveries)
         print(f"[deliver] {sub['sub_id']}: {len(top)} lots delivered "
               f'({len(rows)} matched, {len(deliveries)} new delivery rows)')
     return n_rows
+
+
+# ------------------------------------------------------- housekeeping
+
+def prune_caches(paths, max_age_days=30):
+    """Delete discovery caches older than `max_age_days`.
+
+    The TED search resume cache is keyed by a hash of the query, and a query
+    names a date window — so a cache is unresumable the day after its window
+    passes. Nothing removed them and the directory reached 1.13 GB across 1,132
+    dead scopes, all written within a fortnight. It is not the weekly cycle that
+    creates them (bulk.py borrows only helpers from download.py, never
+    search_all), but the cycle is the only thing that runs regularly, so it is
+    where the sweeping belongs.
+
+    Safe by construction: these are derived files. The notices are in the raw
+    archive and the parquet store, and the worst case is re-querying a scope
+    that happens to be repeated. Never fails a cycle.
+    """
+    try:
+        import download
+        n, freed = download.prune_discovery(max_age_days)
+        if n:
+            print(f'[prune] {n} stale discovery cache file(s), '
+                  f'freed {freed / 1e6:.1f} MB')
+        return n
+    except Exception as e:
+        print(f'[prune] skipped ({e})')
+        return 0
 
 
 # ------------------------------------------------------------- drift monitors
@@ -1434,6 +1470,10 @@ def report(paths, tenders, args, record, gate, drift, model_id, n_graded, n_pred
 
 def cmd_run(args):
     paths = Paths(args.data_dir, args.models_dir)
+    # which state this cycle is operating on, before it operates on it
+    # (doc/STORAGE.md 6.1) — a cycle that silently used the wrong root would
+    # look exactly like a cycle with nothing to do
+    print(f'[config] data root: {config.describe(paths.data)}')
     checkpoint = read_json(paths.checkpoint, {})
 
     if args.skip_download:
@@ -1475,6 +1515,8 @@ def cmd_run(args):
         render_dashboard.main(data_dir=paths.data, models_dir=paths.models)
     except Exception as e:  # the dashboard is a convenience; never fail the cycle over it
         print(f'[dashboard] rendering failed: {e}')
+
+    prune_caches(paths)
 
     checkpoint['last_success_at'] = now_utc().isoformat(timespec='seconds')
     if date_to:
@@ -1534,7 +1576,7 @@ def main():
     run.add_argument('--sim-min-deadline-days', type=int, default=14,
                      dest='sim_min_deadline_days',
                      help='deadline floor for simulated picks, like the product default')
-    run.add_argument('--data-dir', default='data', dest='data_dir')
+    run.add_argument('--data-dir', default=config.data_root(), dest='data_dir')
     run.add_argument('--models-dir', default='models', dest='models_dir')
     run.add_argument('--skip-download', action='store_true', dest='skip_download',
                      help='reuse the existing store (offline run)')

@@ -38,6 +38,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+import config
 from embed import KEY, MODEL_TAG, load_label_sidecar, load_sidecar
 
 if hasattr(sys.stdout, 'reconfigure'):
@@ -750,7 +751,7 @@ def write_receipt(path, r):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--data-dir', default='data')
+    ap.add_argument('--data-dir', default=config.data_root())
     ap.add_argument('--fingerprint', metavar='FIRM', nargs='?', const='',
                     help='print a trade-fingerprint demo (optionally for FIRM) and exit')
     args = ap.parse_args()

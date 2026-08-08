@@ -23,6 +23,7 @@ from pathlib import Path
 
 import pandas as pd
 
+import config
 import single_bidder as sb
 
 if hasattr(sys.stdout, 'reconfigure'):
@@ -197,12 +198,12 @@ def main():
     sub = ap.add_subparsers(dest='cmd', required=True)
     chk = sub.add_parser('check', help='join simulations vs grades, print hit rates')
     chk.add_argument('--min-company-picks', type=int, default=3, dest='min_company_picks')
-    chk.add_argument('--data-dir', default='data', dest='data_dir')
+    chk.add_argument('--data-dir', default=config.data_root(), dest='data_dir')
     chk.set_defaults(func=lambda a: check(a.data_dir, a.min_company_picks))
     run = sub.add_parser('run', help='standalone simulation pass from the champion ledger rows')
     run.add_argument('--max-picks', type=int, default=5, dest='max_picks')
     run.add_argument('--min-deadline-days', type=int, default=14, dest='min_deadline_days')
-    run.add_argument('--data-dir', default='data', dest='data_dir')
+    run.add_argument('--data-dir', default=config.data_root(), dest='data_dir')
     run.add_argument('--models-dir', default='models', dest='models_dir')
     run.set_defaults(func=cmd_run)
     args = ap.parse_args()

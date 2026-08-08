@@ -39,6 +39,8 @@ from pathlib import Path
 import pandas as pd
 from ftfy import fix_text
 
+import config
+
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
@@ -120,7 +122,7 @@ def distinctive(description):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--data-dir', default='data')
+    ap.add_argument('--data-dir', default=config.data_root())
     ap.add_argument('--stats', action='store_true')
     ap.add_argument('--rebuild', action='store_true',
                     help='rebuild the frozen ledger from the current store')

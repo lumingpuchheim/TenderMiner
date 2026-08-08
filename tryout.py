@@ -22,6 +22,8 @@ from pathlib import Path
 
 import pandas as pd
 
+import config
+import ledger
 import loop
 import subscriptions
 from loop import Paths, read_jsonl
@@ -34,7 +36,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--sub', required=True, help='subscription id to render')
-    ap.add_argument('--data-dir', default='data')
+    ap.add_argument('--data-dir', default=config.data_root())
     ap.add_argument('--models-dir', default='models')
     ap.add_argument('--set', action='append', default=[], metavar='FIELD=VALUE',
                     dest='overrides',
@@ -80,7 +82,7 @@ def main():
     # redirect ONLY what deliver writes into the sandbox; reads (store,
     # embeddings via paths.data, predictions, grades) stay on the real dir
     paths.subs_home = sandbox
-    paths.deliveries = sandbox / 'deliveries.jsonl'
+    paths.deliveries_home = ledger.start(sandbox)
     paths.reports = sandbox / 'reports'
 
     champ = loop.current_champion(paths)
@@ -109,7 +111,7 @@ def main():
     loop.deliver(paths, scored, render_args)
 
     by_key = {(r['procedure_id'], r['lot_id']): r for r in scored}
-    rows = read_jsonl(paths.deliveries)
+    rows = ledger.read(paths.deliveries_home, 'deliveries')
     for kind, label in (('pick', 'PICKS'), ('avoid', 'WARNINGS')):
         sel = [r for r in rows if r.get('kind') == kind]
         if not sel:

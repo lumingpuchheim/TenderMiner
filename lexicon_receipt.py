@@ -38,6 +38,7 @@ from pathlib import Path
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
+import config
 import evidence as evd
 
 CONFIGS = [('base', False, False), ('dicts', True, False),
@@ -274,7 +275,7 @@ def main():
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--data-dir', default='data')
+    ap.add_argument('--data-dir', default=config.data_root())
     ap.add_argument('--config', choices=[c[0] for c in CONFIGS], default=None,
                     help='run one configuration instead of all three')
     ap.add_argument('--lexicons', action='store_true',

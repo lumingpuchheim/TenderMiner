@@ -42,6 +42,8 @@ import zipfile
 from collections import Counter
 from pathlib import Path
 
+import config
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
@@ -54,15 +56,27 @@ BROWSER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                  "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 
 ROOT = Path(__file__).parent
-XML_DIR = ROOT / "data" / "raw" / "xml"
-GAEB_DIR = ROOT / "data" / "raw" / "gaeb"
-LOG_DIR = ROOT / "data" / "logs"
+# State is NOT resolved from ROOT: the code directory's own path is the one thing
+# a deployment's data must not depend on (doc/STORAGE.md 6.1). $TM_DATA_DIR
+# overrides; the default is ./data, which is what these paths meant before.
+DATA_DIR = config.data_root()
+XML_DIR = DATA_DIR / "raw" / "xml"
+GAEB_DIR = DATA_DIR / "raw" / "gaeb"
+LOG_DIR = DATA_DIR / "logs"
 CHECKPOINT = LOG_DIR / "checkpoint.json"
 MANIFEST = LOG_DIR / "manifest.jsonl"
 GAEB_OUTCOMES = LOG_DIR / "gaeb_outcomes.jsonl"
 INGEST_LOG = LOG_DIR / "ingest_log.jsonl"
 HTTP_ERRORS = LOG_DIR / "http_errors.jsonl"
-DISCOVERY_DIR = LOG_DIR / "discovery"
+# A CACHE, not a log: `search_all(resume=True)` appends every discovered
+# notice here and saves the pagination token beside it, so a dropped connection
+# costs one page instead of a 227-request rescan. It lives under data/cache/ and
+# not data/logs/ because that is what it is — derived, disposable, and safe to
+# delete for the price of re-querying. Under data/logs it accumulated 1.13 GB
+# across 1,132 completed query scopes that nothing would ever resume.
+CACHE_DIR = DATA_DIR / "cache"
+DISCOVERY_DIR = CACHE_DIR / "discovery"
+LEGACY_DISCOVERY_DIR = LOG_DIR / "discovery"    # pre-2026-08-08 location
 COMPLETED_PIDS = LOG_DIR / "completed_procedures.json"
 
 GAEB_EXT = re.compile(r"\.(x8[1-6]|d8[1-6]|p8[1-6])$", re.I)
@@ -263,6 +277,51 @@ def search(body: dict) -> dict:
     raise last_err
 
 
+DISCOVERY_MAX_AGE_DAYS = 30
+
+
+def prune_discovery(max_age_days: int = DISCOVERY_MAX_AGE_DAYS,
+                    dry_run: bool = False) -> tuple[int, int]:
+    """Delete discovery caches older than `max_age_days`. -> (files, bytes).
+
+    A cache is keyed by a hash of the query, and a query names a date window,
+    so the moment the window moves on its cache can never be resumed again — it
+    is dead the day after it is written. Nothing removed them, so the directory
+    grew without bound: 1,132 scopes and 1.13 GB, every file 7-13 days old, from
+    runs that had all finished.
+
+    Deleting is safe by construction. These are derived files: the notices
+    themselves are in data/raw and the parquet store, and the worst case is
+    re-querying a scope that happens to be repeated. Both the old and the new
+    location are swept, so the relocation does not leave the old pile behind.
+    """
+    import time
+    cutoff = time.time() - max_age_days * 86400
+    n = freed = 0
+    for d in (DISCOVERY_DIR, LEGACY_DISCOVERY_DIR):
+        if not d.exists():
+            continue
+        for f in sorted(d.iterdir()):
+            if not f.is_file():
+                continue
+            try:
+                st = f.stat()
+                if st.st_mtime >= cutoff:
+                    continue
+                freed += st.st_size
+                n += 1
+                if not dry_run:
+                    f.unlink()
+            except OSError:
+                pass
+        if not dry_run and d.exists() and not any(d.iterdir()):
+            try:
+                d.rmdir()
+            except OSError:
+                pass
+    return n, freed
+
+
 def discovery_paths(query: str) -> tuple[Path, Path]:
     """Per-query state files. Keyed by a hash of the query so different scopes do not
     overwrite each other's progress."""
@@ -293,6 +352,12 @@ def search_all(query: str, limit_cap: int | None = None, resume: bool = False,
         resume = False
 
     hits_path, state_path = discovery_paths(query)
+    if resume and not state_path.exists():
+        # a scope checkpointed before the cache moved out of data/logs
+        legacy = LEGACY_DISCOVERY_DIR / state_path.name
+        if legacy.exists():
+            hits_path = LEGACY_DISCOVERY_DIR / hits_path.name
+            state_path = legacy
     if resume and state_path.exists():
         try:
             state = json.loads(state_path.read_text(encoding="utf-8"))
@@ -1292,6 +1357,12 @@ def parse_args() -> argparse.Namespace:
                         "(comma-separated). Special values: 'handled' = every platform "
                         "with a handler, 'selective' = handlers that fetch single files "
                         "(fast, no bulk archives). Use --list-platforms to see names.")
+    p.add_argument("--prune-discovery", nargs="?", type=int, const=DISCOVERY_MAX_AGE_DAYS,
+                   default=None, metavar="DAYS",
+                   help=f"delete discovery caches older than DAYS "
+                        f"(default {DISCOVERY_MAX_AGE_DAYS}) and exit")
+    p.add_argument("--dry-run", action="store_true",
+                   help="with --prune-discovery: report, delete nothing")
     p.add_argument("--list-platforms", action="store_true",
                    help="print the known platform names and exit")
     p.add_argument("--xml-only", action="store_true",
@@ -1303,6 +1374,12 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.prune_discovery is not None:
+        n, freed = prune_discovery(args.prune_discovery, dry_run=args.dry_run)
+        verb = "would free" if args.dry_run else "freed"
+        print(f"[prune] {n} discovery cache file(s) older than "
+              f"{args.prune_discovery}d, {verb} {freed / 1e6:.1f} MB")
+        return
     if args.list_platforms:
         print("platform            handler   mode")
         for name in sorted(set(HANDLERS) | {n for n, _ in PLATFORM_HOSTS}):

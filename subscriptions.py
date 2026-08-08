@@ -39,6 +39,8 @@ import json
 import sys
 from pathlib import Path
 
+import config
+
 # Every field a subscription line may carry. The comment is the field's
 # meaning; SUBSCRIPTIONS.md is the specification.
 KNOWN = {
@@ -474,7 +476,7 @@ def main():
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
     ap = argparse.ArgumentParser(description=main.__doc__)
-    ap.add_argument('--data-dir', default='data')
+    ap.add_argument('--data-dir', default=config.data_root())
     ap.add_argument('--as-of', default=date.today().isoformat())
     args = ap.parse_args()
     rows = read_all(args.data_dir)
