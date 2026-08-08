@@ -246,6 +246,11 @@ NAME_KEYWORDS = os.environ.get('NAME_KEYWORDS', '1') != '0'
 ROOT_LEXICON = os.environ.get('ROOT_LEXICON', '1') != '0'
 CORE_TITLE_CONVICTS = os.environ.get('CORE_TITLE_CONVICTS', '1') != '0'
 CORE_SHARE = float(os.environ.get('CORE_SHARE', '0.5'))
+# A firm with ONE reference has no recurrence to test, so CORE_SHARE cannot
+# separate its trade from its project and every root in the document became
+# its trade. Its TITLE can: a German lot title names one Gewerk.
+# See core_keywords(). Rollback: CORE_SINGLE_TITLE=0.
+CORE_SINGLE_TITLE = os.environ.get('CORE_SINGLE_TITLE', '1') != '0'
 # rollback switch for phase 8f (A) and (B); env var overrides per run so the
 # A/B needs no edit (BUYER_DIVERSITY=0 reproduces the phase-8e lexicons)
 BUYER_DIVERSITY = os.environ.get('BUYER_DIVERSITY', '1') != '0'
@@ -786,9 +791,32 @@ def root_share(refs):
     return dict(found)
 
 
-def core_keywords(refs, firm=None):
+def core_keywords(refs, firm=None, titles=None):
     """Phase 8o — the roots that RECUR across the firm's wins: present in
     at least CORE_SHARE of its reference texts.
+
+    ONE reference is the case recurrence cannot decide, and it is 3972 of
+    the store's 5268 winners — three quarters of them. `need` falls to 1
+    there, so every root in the document clears the bar and the firm
+    receives the union of one tender. A tender is a description of the
+    BUILDING, so what it receives is the building: a demolition contractor
+    whose single win was "Abbrucharbeiten" held 33 roots — moebel, fliese,
+    elektro, armatur, leuchte — because a demolition LV is an inventory of
+    what is being torn out. Measured over all 3972: median 5 core roots of
+    which the title named 1, the body added a median of 3, and 640 firms
+    could be convicted on more than a tenth of the entire store.
+
+    So when there is one reference, the TITLE decides (CORE_SINGLE_TITLE).
+    A German lot title names one Gewerk — that is what lot-splitting is
+    for — and it is the same field title_witness() already trusts to
+    convict. Median core roots then, over those 3972: 1.
+
+    Body roots are kept when the title names no trade at all (682 firms):
+    the alternative empties their lexicon, and a bloated core still beats
+    none. This is why the rule is title-FIRST rather than title-only.
+
+    `titles` is aligned with `refs`. Without it the old behaviour stands,
+    so a caller that has no titles loses nothing.
 
     Phase 8r: a root from the firm's own NAME joins them unconditionally.
     Recurrence is a way of asking "is this the trade or the context"; a
@@ -814,6 +842,15 @@ def core_keywords(refs, firm=None):
             found[r] += 1
     need = max(2, int(len(refs) * CORE_SHARE + 0.999)) if len(refs) > 1 else 1
     core = [r for r, n in found.items() if n >= need]
+    # one reference: recurrence has nothing to compare, so read the title
+    # instead of the whole document. Title roots are a subset of the text's,
+    # so `found` still scores them below.
+    if CORE_SINGLE_TITLE and titles and len(refs) == 1:
+        by_title = {r for w in set(tokens(fix_text(str(titles[0] or ''))
+                                          .casefold()))
+                    for r in roots_in(w)}
+        if by_title:
+            core = list(by_title)
     # the name is on every reference the firm has, so it recurs by
     # definition — scored above any word that merely recurs often
     for r in name_keywords(firm):
