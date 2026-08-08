@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 
 from calibrate import is_deep, pseudo_refs
+import config
 from embed import KEY, MODEL_TAG, load_label_sidecar, load_sidecar
 
 # Defaults from calibration_<MODEL_TAG>.md (configuration H under
@@ -948,7 +949,7 @@ if __name__ == '__main__':
     _p.add_argument('--check-profiles', action='store_true',
                     help='build the profile of every live subscription and '
                          'name the ones that can never recommend anything')
-    _p.add_argument('--data-dir', default='data')
+    _p.add_argument('--data-dir', default=config.data_root())
     _p.add_argument('--as-of', default=_date.today().isoformat())
     _a = _p.parse_args()
     if _a.check_profiles:

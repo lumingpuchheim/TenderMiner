@@ -52,6 +52,8 @@ import sys
 import zlib
 from pathlib import Path
 
+import config
+
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
@@ -546,7 +548,7 @@ def status(data_dir):
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--data-dir', default='data')
+    ap.add_argument('--data-dir', default=config.data_root())
     ap.add_argument('--init', action='store_true', help='create an empty database')
     ap.add_argument('--migrate', action='store_true', help='JSONL -> database')
     ap.add_argument('--dry-run', action='store_true',

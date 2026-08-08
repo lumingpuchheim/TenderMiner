@@ -31,6 +31,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+import config
 import ledger
 import single_bidder as sb
 import subscriptions
@@ -1286,6 +1287,10 @@ def report(paths, tenders, args, record, gate, drift, model_id, n_graded, n_pred
 
 def cmd_run(args):
     paths = Paths(args.data_dir, args.models_dir)
+    # which state this cycle is operating on, before it operates on it
+    # (doc/STORAGE.md 6.1) — a cycle that silently used the wrong root would
+    # look exactly like a cycle with nothing to do
+    print(f'[config] data root: {config.describe(paths.data)}')
     checkpoint = read_json(paths.checkpoint, {})
 
     if args.skip_download:
@@ -1383,7 +1388,7 @@ def main():
     run.add_argument('--sim-min-deadline-days', type=int, default=14,
                      dest='sim_min_deadline_days',
                      help='deadline floor for simulated picks, like the product default')
-    run.add_argument('--data-dir', default='data', dest='data_dir')
+    run.add_argument('--data-dir', default=config.data_root(), dest='data_dir')
     run.add_argument('--models-dir', default='models', dest='models_dir')
     run.add_argument('--skip-download', action='store_true', dest='skip_download',
                      help='reuse the existing store (offline run)')

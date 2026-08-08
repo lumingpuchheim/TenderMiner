@@ -35,6 +35,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+import config
 from embed import load_label_sidecar, load_sidecar
 from features import _lfind, _ltext
 
@@ -290,7 +291,7 @@ def main():
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--data-dir', default='data')
+    ap.add_argument('--data-dir', default=config.data_root())
     ap.add_argument('--min-wins', type=int, default=2,
                     help='minimum won lot results (default 2: repeat winners)')
     ap.add_argument('--sizes', nargs='+',

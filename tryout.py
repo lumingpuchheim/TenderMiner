@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pandas as pd
 
+import config
 import ledger
 import loop
 import subscriptions
@@ -35,7 +36,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--sub', required=True, help='subscription id to render')
-    ap.add_argument('--data-dir', default='data')
+    ap.add_argument('--data-dir', default=config.data_root())
     ap.add_argument('--models-dir', default='models')
     ap.add_argument('--set', action='append', default=[], metavar='FIELD=VALUE',
                     dest='overrides',

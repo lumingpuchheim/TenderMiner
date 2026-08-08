@@ -16,6 +16,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import config
+
 REPO = Path(__file__).resolve().parent
 
 INK = '#111827'; INK2 = '#6b7280'; GRID = '#e5e7eb'; ACCENT = '#2563eb'; FILL = '#60a5fa'
@@ -173,7 +175,10 @@ def drift_panel(drift):
 # ------------------------------------------------------------------- assemble
 
 def main(data_dir=None, models_dir=None):
-    data = Path(data_dir) if data_dir else REPO / 'data'
+    # config.data_root, not REPO / 'data': the state's location is a
+    # deployment's choice, not a fact about where the code happens to sit
+    # (doc/STORAGE.md 6.1). loop.py always passes it explicitly.
+    data = Path(data_dir) if data_dir else config.data_root()
     models = Path(models_dir) if models_dir else REPO / 'models'
     out = data / 'reports' / 'dashboard.html'
     registry = read_jsonl(models / 'registry.jsonl')

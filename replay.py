@@ -43,6 +43,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 import calibrate as cal
+import config
 import ledger
 import loop
 import relevance as rel
@@ -75,7 +76,7 @@ def main():
                     help='the past cycle date D — picks are made as of here')
     ap.add_argument('--check-date', default=None, metavar='YYYY-MM-DD',
                     help='date of the check report (default: today)')
-    ap.add_argument('--data-dir', default='data')
+    ap.add_argument('--data-dir', default=config.data_root())
     args = ap.parse_args()
     if not args.scan and not (bool(args.sub) ^ bool(args.firm)):
         sys.exit('[replay] give exactly one of --sub / --firm (or --scan)')

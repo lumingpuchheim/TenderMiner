@@ -39,6 +39,7 @@ import pandas as pd
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
+import config
 import relevance as rel
 import single_bidder as sb
 import subscriptions
@@ -452,7 +453,7 @@ def report(res, out_path):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--data-dir', default='data')
+    ap.add_argument('--data-dir', default=config.data_root())
     ap.add_argument('--step', type=int, default=7, help='days between cutoffs')
     ap.add_argument('--sub', action='append', default=None,
                     help='subscription id(s) to replay (default: all gated)')
