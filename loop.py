@@ -1095,6 +1095,35 @@ def deliver(paths, scored, args):
     return n_rows
 
 
+# ------------------------------------------------------- housekeeping
+
+def prune_caches(paths, max_age_days=30):
+    """Delete discovery caches older than `max_age_days`.
+
+    The TED search resume cache is keyed by a hash of the query, and a query
+    names a date window — so a cache is unresumable the day after its window
+    passes. Nothing removed them and the directory reached 1.13 GB across 1,132
+    dead scopes, all written within a fortnight. It is not the weekly cycle that
+    creates them (bulk.py borrows only helpers from download.py, never
+    search_all), but the cycle is the only thing that runs regularly, so it is
+    where the sweeping belongs.
+
+    Safe by construction: these are derived files. The notices are in the raw
+    archive and the parquet store, and the worst case is re-querying a scope
+    that happens to be repeated. Never fails a cycle.
+    """
+    try:
+        import download
+        n, freed = download.prune_discovery(max_age_days)
+        if n:
+            print(f'[prune] {n} stale discovery cache file(s), '
+                  f'freed {freed / 1e6:.1f} MB')
+        return n
+    except Exception as e:
+        print(f'[prune] skipped ({e})')
+        return 0
+
+
 # ------------------------------------------------------------- drift monitors
 
 
@@ -1332,6 +1361,8 @@ def cmd_run(args):
         render_dashboard.main(data_dir=paths.data, models_dir=paths.models)
     except Exception as e:  # the dashboard is a convenience; never fail the cycle over it
         print(f'[dashboard] rendering failed: {e}')
+
+    prune_caches(paths)
 
     checkpoint['last_success_at'] = now_utc().isoformat(timespec='seconds')
     if date_to:
