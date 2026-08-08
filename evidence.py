@@ -919,21 +919,43 @@ def collide(data_dir, candidates):
     `gla` were refused) and which has never been a tool. Every root added
     by hand, or proposed by a reader, has to pass it: a root is only as
     good as the words it actually hits.
+
+    Two things are printed beside each word, both learned from writing the
+    43 roots of the blind-lot pass. `NEW` marks a word no committed root
+    reaches yet -- the part of the list the candidate is actually buying,
+    as against the part some other root already covers. `-excepted` marks a
+    word an existing "-" line already rejects, so an exception written for
+    one root is not mistaken for evidence about another.
+
+    The whole list is printed, never a head of it. The collisions that
+    refused `sportgeraet` (transportgeraete) and `toranlag`
+    (raffstoranlagen, monitoranlage) all sat in the one-lot tail: a
+    truncated listing reads as clean and is the failure this tool exists
+    to prevent.
     """
     tenders = pd.read_parquet(Path(data_dir) / 'store' / 'tenders.parquet')
     df = store_doc_freq(tenders, Path(data_dir) / 'evidence_df.json')
     counts, n = df['df'], df['n']
+    _roots, nots = trade_roots()
     for cand in candidates:
-        c = fold(str(cand).casefold())
+        c = fold(str(cand).casefold().lstrip('-'))
         hits = sorted(((k, w) for w, k in counts.items() if c in fold(w)),
                       reverse=True)
         tot = sum(k for k, _ in hits)
+        new = [(k, w) for k, w in hits
+               if not roots_in(w) and not any(x in fold(w) for x in nots)]
         print(f'\n[collide] {cand}: {len(hits)} distinct words, '
-              f'{tot} lot-occurrences ({tot / n:.1%} of the store)')
-        for k, w in hits[:25]:
-            print(f'   {k:6d}  {w}')
-        if len(hits) > 25:
-            print(f'   ... and {len(hits) - 25} more')
+              f'{tot} lot-occurrences ({tot / n:.1%} of the store); '
+              f'{len(new)} words / {sum(k for k, _ in new)} occurrences '
+              f'reach no current root')
+        for k, w in hits:
+            if any(x in fold(w) for x in nots):
+                mark = '  -excepted'
+            elif not roots_in(w):
+                mark = '  NEW'
+            else:
+                mark = ''
+            print(f'   {k:6d}  {w}{mark}')
 
 
 def roots_audit(data_dir, limit=40):
