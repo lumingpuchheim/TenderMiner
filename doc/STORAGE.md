@@ -82,6 +82,45 @@ Mitigation, and it is not optional:
   silently out-of-date customers and no error. The loader already refuses a
   home holding both a live file and a migrated marker (landed 2026-08-08).
 
+## 4b. Measured: what it actually costs (step 1, 2026-08-08)
+
+Migrating the real ledgers (90,604 predictions, 55 deliveries, 13 subscription
+versions, 7 grades, 5 learned refs, 1 gate config):
+
+| | size |
+|---|---|
+| source JSONL replaced | **51 MB** |
+| database, first attempt | 107 MB |
+| database, `raw` zlib-compressed | **82 MB** |
+| of which the compressed `raw` column | 34 MB (53.2 MB plain, 1.57x) |
+| of which typed columns + 6 indexes | ~48 MB |
+
+So the database is **1.6x the text it replaces**. That is the price of the
+`raw`/typed redundancy, and it is the right price *for this step*, whose whole
+job is a provable migration — `--verify` exports and compares against the
+originals line by line, which is only possible because `raw` is verbatim.
+
+Compression is modest (1.57x) because rows are ~590 bytes each; zlib has
+little context to work with per row. It still recovered 25 MB and is paid only
+by `--export`/`--verify`, never by a query.
+
+**The optimisation, deliberately deferred:** drop `raw` from `prediction`
+only, give `why_lonely`/`why_crowded` real columns so typed coverage is
+complete, and reconstruct export from columns instead of verbatim text. That
+lands the database at ~48 MB — *below* the source text — keeping verbatim
+fidelity for the customer-facing ledgers (all of which together are under
+100 KB) and accepting reconstructed-not-verbatim export for the bulk scoring
+log. It can be done later without a second migration, because the frozen
+originals are kept. It is not done now because it would trade away the one
+property step 1 exists to deliver.
+
+What the move already bought, measured on the same database:
+
+- champion-model row lookup: **2 ms** via index (was: parse 51 MB)
+- single-lot receipt lookup: **0.1 ms** (was: parse 51 MB, in `deliver`)
+- `UPDATE`/`DELETE` on any ledger table: refused by trigger
+- `UPDATE`/`DELETE` on `customer`: allowed, as designed for erasure
+
 ## 5. Open calls — these need an operator decision
 
 ### 5.1 `models/registry.jsonl` (21 rows) and `models/CURRENT`
