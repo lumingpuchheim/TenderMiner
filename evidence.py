@@ -919,21 +919,43 @@ def collide(data_dir, candidates):
     `gla` were refused) and which has never been a tool. Every root added
     by hand, or proposed by a reader, has to pass it: a root is only as
     good as the words it actually hits.
+
+    Two things are printed beside each word, both learned from writing the
+    43 roots of the blind-lot pass. `NEW` marks a word no committed root
+    reaches yet -- the part of the list the candidate is actually buying,
+    as against the part some other root already covers. `-excepted` marks a
+    word an existing "-" line already rejects, so an exception written for
+    one root is not mistaken for evidence about another.
+
+    The whole list is printed, never a head of it. The collisions that
+    refused `sportgeraet` (transportgeraete) and `toranlag`
+    (raffstoranlagen, monitoranlage) all sat in the one-lot tail: a
+    truncated listing reads as clean and is the failure this tool exists
+    to prevent.
     """
     tenders = pd.read_parquet(Path(data_dir) / 'store' / 'tenders.parquet')
     df = store_doc_freq(tenders, Path(data_dir) / 'evidence_df.json')
     counts, n = df['df'], df['n']
+    _roots, nots = trade_roots()
     for cand in candidates:
-        c = fold(str(cand).casefold())
+        c = fold(str(cand).casefold().lstrip('-'))
         hits = sorted(((k, w) for w, k in counts.items() if c in fold(w)),
                       reverse=True)
         tot = sum(k for k, _ in hits)
+        new = [(k, w) for k, w in hits
+               if not roots_in(w) and not any(x in fold(w) for x in nots)]
         print(f'\n[collide] {cand}: {len(hits)} distinct words, '
-              f'{tot} lot-occurrences ({tot / n:.1%} of the store)')
-        for k, w in hits[:25]:
-            print(f'   {k:6d}  {w}')
-        if len(hits) > 25:
-            print(f'   ... and {len(hits) - 25} more')
+              f'{tot} lot-occurrences ({tot / n:.1%} of the store); '
+              f'{len(new)} words / {sum(k for k, _ in new)} occurrences '
+              f'reach no current root')
+        for k, w in hits:
+            if any(x in fold(w) for x in nots):
+                mark = '  -excepted'
+            elif not roots_in(w):
+                mark = '  NEW'
+            else:
+                mark = ''
+            print(f'   {k:6d}  {w}{mark}')
 
 
 def roots_audit(data_dir, limit=40):
@@ -1033,49 +1055,6 @@ def roots_audit(data_dir, limit=40):
             lab = next((labels[c] for c in labels if c.startswith(pre)), '?')
             print(f'{"":16s}{pre}xxxx {lab[:30]:32s} <- {top}')
     return rows
-
-
-def collide(data_dir, spec):
-    """Every word in the store a CANDIDATE root would match, with lot counts.
-
-    The check that must run before a root is written. A root is a substring,
-    so it is written against the trade a person has in mind and matched
-    against a vocabulary of 100k compounds nobody has read. Four that passed
-    in someone's head and failed here: `schal` (Schalung, but also
-    Schaltschrank, Schalter, Schallschutz), `leitung` (Rohrleitung, but also
-    Bau- and Projektleitung), `lst` (edelstahl 658, vollstaendig 364) and
-    `ktb` (projektbeschreibung 79 against 24 real hits). The failure is
-    always the same shape: unrelated trades in the matched-word list.
-
-    Prints the words, not a verdict -- whether Trafostation and
-    Trafowaerterhaus are one trade is a reading, and the machine does not
-    make it. `NEW` marks a word no committed root reaches yet, which is the
-    part of the list the candidate is actually buying; `-excepted` marks a
-    word an existing exception line already rejects.
-    """
-    tenders = pd.read_parquet(Path(data_dir) / 'store' / 'tenders.parquet')
-    docfreq = store_doc_freq(tenders, Path(data_dir) / 'evidence_df.json')
-    df = docfreq['df']
-    _roots, nots = trade_roots()
-    for cand in [s.strip().casefold() for s in spec.split(',') if s.strip()]:
-        neg = cand.startswith('-')
-        root = fold(cand.lstrip('-'))
-        hits = sorted(((c, w) for w, c in df.items() if root in fold(w)),
-                      key=lambda x: (-x[0], x[1]))
-        lots = sum(c for c, _ in hits)
-        new = [(c, w) for c, w in hits
-               if not roots_in(w) and not any(x in fold(w) for x in nots)]
-        print(f'\n[collide] {"-" if neg else ""}{root}: {len(hits)} words, '
-              f'{lots} word-lot hits, of which {len(new)} words / '
-              f'{sum(c for c, _ in new)} hits reach no current root'
-              f'  ({docfreq["n"]} store lots)')
-        for c, w in hits:
-            mark = ''
-            if any(x in fold(w) for x in nots):
-                mark = '  -excepted'
-            elif not roots_in(w):
-                mark = '  NEW'
-            print(f'   {c:5d}  {w}{mark}')
 
 
 def dict_pool(data_dir, code):
@@ -1850,11 +1829,6 @@ def main():
                     help='rank every trade root by how CONCENTRATED its '
                          'store lots are in one trade — the ambiguous ones '
                          '(pump, leitung, schal) sort to the top for reading')
-    ap.add_argument('--collide', metavar='ROOT',
-                    help='BEFORE writing a root: every store word it would '
-                         'match, with lot counts. Unrelated trades in that '
-                         'list mean the root is wrong — write the longer '
-                         'form. Comma-separate to check several.')
     ap.add_argument('--dict', metavar='CODE',
                     help='READ the pool a trade dictionary is built from: '
                          'how many lots reach it via cpv_main vs '
@@ -1874,9 +1848,6 @@ def main():
         return
     if args.roots:
         roots_audit(args.data_dir, args.limit or 40)
-        return
-    if args.collide:
-        collide(args.data_dir, args.collide)
         return
     if args.dict:
         dict_pool(args.data_dir, args.dict)
