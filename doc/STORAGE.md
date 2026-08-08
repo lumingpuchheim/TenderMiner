@@ -1,9 +1,62 @@
 # STORAGE — what belongs in the database, what stays a file
 
-Status: decision document for [`REFACTOR.md`](REFACTOR.md) phase 2, written
-2026-08-08 because the split was not obvious. Nothing here is implemented yet.
-Section 5 is the part that needs an operator decision; sections 2 and 3 are
-recommendations with their reasoning, so they can be overruled item by item.
+Status: the specification for [`REFACTOR.md`](REFACTOR.md) phase 2, revised
+2026-08-08 after the operator stated the real goal (see 0). **If you read one
+section, read 6 — it is the only section that says what to do.** 0 is the goal,
+1-4 are the reasoning and the split, 4b-4e are receipts for work already done,
+5 records decisions with defaults so nothing blocks, 7 is the log.
+
+Supersedes: the earlier "build order" and "finish plan" sections, written before
+the cloud requirement and contradicting each other. Section 6 is now the only
+plan.
+
+## 0. The goal, and what it demands of the design
+
+The operator's requirement, stated 2026-08-08:
+
+> A system that is **robust and easy to maintain**, which will eventually run
+> **in the cloud** — on a platform not yet chosen, and deliberately not being
+> chosen yet.
+
+Three things follow, and they override anything written before them.
+
+**The vendor decision comes last, not first.** Choosing now means building for a
+platform that may not be chosen. What must be true instead is a short list of
+vendor-neutral properties, after which hosting is a shopping decision rather
+than a project. Those properties are section 6.
+
+**A filesystem path is the wrong handle for storage.** Everything here currently
+takes a data *directory*. In the cloud there is no meaningful directory — there
+is a connection string, a bucket, and credentials. Wherever this document says
+`data/...`, read it as "today's default location", not as part of the design.
+The location must come from configuration, and must not live inside the code
+checkout.
+
+**The engine is a way-station; the seam is the asset.** SQLite is right for
+today — one operator, one scheduled cycle, eight customers. It stops being right
+the moment a second writer exists (a signup form writing while the cycle runs)
+or a second container does. What makes that swap cheap is that only two modules
+touch storage — [`subscriptions.py`](../subscriptions.py) and
+[`ledger.py`](../ledger.py) — while 221 call sites across 19 files merely pass a
+location through. Protect that seam; the engine behind it is replaceable.
+
+### Not the cycle's host: Vercel
+
+Recorded because it was asked. Vercel cannot run this cycle: function execution
+is capped in minutes while the cycle spends minutes training CatBoost and
+embedding with a sentence-transformer; there is no persistent filesystem, so the
+database, parquet store, embeddings and model binaries would be fetched and
+pushed on every run; and the deployment bundle is size-limited, which `torch`
+alone exceeds. It is not a tuning problem but a category mismatch.
+
+It is the right tool for the half of the system that does not exist yet — a site
+where each customer reads their weekly report and track record from the
+database, instead of receiving HTML files. Batch elsewhere, front end there.
+
+Platforms that do fit the cycle, for when the decision is due: **Render** or
+**Railway** (a scheduled container as a first-class primitive, managed Postgres,
+one dashboard), or **Modal** (schedule and dependencies declared in Python).
+Object storage — R2, B2 — for the parquet store, embeddings, models and archive.
 
 ## 1. The principle
 
@@ -244,7 +297,10 @@ duplicate a customer's record. `tryout.py` renders `beck` and `n3bau`
 byte-identically against the pre-change code, run back-to-back, with the
 sandbox now containing nothing but `tendermining.db`.
 
-## 5. Open calls — these need an operator decision
+## 5. Decisions — all have a default, none blocks section 6
+
+Each carries a recommendation that is now the **default**: work proceeds on it
+unless overruled. Nothing in section 6 waits on any of these.
 
 ### 5.1 `models/registry.jsonl` (21 rows) and `models/CURRENT`
 
@@ -301,20 +357,91 @@ migrate right after a cycle completes, and disable the cron for the window.
 rows nobody has ever queried by key — it is read whole. If it turns out to be
 a pure analysis artifact, it could equally stay a file.
 
-## 6. Build order
+## 6. What to do next — the only plan
 
-Four steps, each verified against the pre-change code back-to-back before
-landing — the discipline that kept phase 1 and the phase-2 pre-work clean:
+Five items, in order. Each is useful on its own, none is wasted whichever host
+is eventually chosen, and **none needs a decision from the operator.** Items 1,
+2 and 5 exist because of section 0; items 3 and 4 finish phase 2.
 
-1. `db.py` — schema, connection, migration, `--export-jsonl`, and a round-trip
-   integrity check (export the migrated database, diff against the frozen
-   original). Pure addition: nothing reads it yet, so it cannot break a cycle.
-2. `subscription_version` + `customer`, behind the `subscriptions.py` boundary
-   landed on 2026-08-08. **No caller changes** — that is what the boundary
-   bought.
-3. The small per-customer ledgers: `delivery`, `learned_ref`, `gate_config`.
-4. The bulk ledgers: `prediction`, `grade`, `simulation` — where the 51 MB
-   double parse disappears.
+### 6.1 Move the data root out of the checkout (small)
+
+One environment variable names it, defaulting outside the repository. Today
+`--data-dir` defaults to `data/`, a folder inside the code checkout, so code and
+state are one directory.
+
+*Why it serves the goal:* it is what the operator asked for directly, and
+nothing can be containerised until it is true — an image ships code, and state
+must outlive any container. It also lets backups treat the two differently.
+
+### 6.2 Fix the three SQLite-only things in `db.py` (small)
+
+`ORDER BY rowid` for append order (Postgres has no `rowid`; needs an explicit
+sequence column), `PRAGMA table_info` for column discovery, and the
+`RAISE(ABORT)` append-only triggers.
+
+*Why now:* the first two are nearly free today and expensive after 6.4, when
+90,000 rows go through this code every cycle. This is what keeps Postgres
+available without committing to it.
+
+### 6.3 Write the tests (medium — the largest item, and the point)
+
+This repository has **no tests**: no `tests/` directory, no `test_*.py`, six
+assertions in `single_bidder.py` in total. Every correctness check behind phases
+1-3 was a script written, run once and thrown away; the proofs are real but live
+in commit messages and re-run never.
+
+Encode them: reads identical across both storages, appends idempotent, export
+round-trips, as-of resolution, the market filter, the validator's rejections,
+the append-only triggers.
+
+*Why here and not later:* this is the "easy to maintain" requirement itself —
+everything else is plumbing. And tests written **before** 6.4 protect 6.4.
+
+### 6.4 Finish the migration: `prediction` and `grade` (medium)
+
+The cycle reads the 51 MB prediction file three times per run — to skip
+already-scored tenders, to find each lot's last score before its award, and to
+look up a title for a report. Each becomes an indexed query.
+
+*Honest sizing:* the speed saving is seconds, not minutes; an earlier section
+oversold it. The real reason is that there is presently **one set of records in
+two storage systems**, with the database's copies of these two tables going
+stale every cycle. That is the state to leave.
+
+*What changes in risk:* until now the files stayed complete and deleting the
+database reverted everything. After this the database is the only current copy,
+so this item includes **proving** the rollback — export, revert, run a cycle
+from files — rather than describing it.
+
+### 6.5 A Dockerfile that runs one cycle (small-medium)
+
+`docker run` produces a week's reports with nothing from the operator's laptop.
+
+*Why it is last and why it matters:* it converts hosting from a project into a
+purchase. It is also the honest test of 6.1 and 6.2 — if state is truly
+configured and nothing reaches into the checkout, this is short; if it is long,
+they were not finished.
+
+### Deliberately not in this plan
+
+**Wiring the ledger export into the cycle.** Specified, started, stopped: it
+wrote to `data/export/` inside the checkout, which 6.1 is about to move, and
+exporting on top of the live files would today overwrite the authoritative
+`predictions.jsonl` with the database's stale copy — data loss dressed as a
+backup. It returns after 6.1 and 6.4, writing to the configured location.
+`python db.py --export-jsonl DIR` already does it on demand.
+
+**Deleting the raw notice archive.** 1.25 GB over 43,671 files, and
+`features.py` rebuilds the parquet store from the **entire** archive every cycle
+([`loop.py`](../loop.py), `download()`). Delete it and the next cycle rebuilds
+the store from one week: 28,148 tender rows become a few hundred, the 90,000
+predictions no longer join to any lot, and every `profile_refs` stops resolving.
+The store is also a lossy projection — any field not yet extracted exists only
+in the XML. Keep it.
+
+*If space is wanted:* `data/logs` is 1.13 GB in 1,151 files, nearly the size of
+the archive and mostly append-only logging nobody reads. That is the place to
+look.
 
 ## 7. Decision log
 
@@ -329,6 +456,10 @@ conversation.
 | 2026-08-08 | step 2: subscriptions read from the database, dual-read, no flag day | implemented |
 | 2026-08-08 | **migration run on live `data/`**, verified, first cycle green | operator instruction |
 | 2026-08-08 | step 3: `ledger.py` — deliveries, learned refs, gate configs read/append through storage | implemented |
+| 2026-08-08 | **goal stated**: robust, easy to maintain, eventually cloud-hosted, vendor deliberately undecided | operator |
+| 2026-08-08 | Vercel ruled out for the cycle (execution cap, no persistent filesystem, bundle size); kept in mind for a customer front end | operator question, answered |
+| 2026-08-08 | raw notice archive is NOT deleted — the store is rebuilt from the whole archive every cycle | operator question, answered |
+| 2026-08-08 | document restructured: section 6 is the only plan; the old build order and finish plan removed as contradictory | revision |
 | | 5.1 registry / CURRENT: | |
 | | 5.2 loop_checkpoint: | |
 | | 5.3 migration window: | |
