@@ -516,7 +516,34 @@ ledgers (`predictions.jsonl` back to 98,350 rows), delete the database
 entirely, and run the *previous* code: it reads all 98,350 rows and completes a
 normal cycle. So the database being load-bearing costs one command to undo.
 
+### 6.4b Housekeeping: `data/backtest_world` is swept — DONE 2026-08-08
+
+203.8 MB, the second largest thing under `data/` after the notice archive, and
+entirely reconstructible: `backtest.py` rewrites it per cutoff (a copy of the
+parquet store plus a full copy of the embeddings) and rebuilds it from the real
+store on every run. Nothing reads it in between.
+
+Swept by the cycle on the same 30-day rule as the discovery cache. **Age is the
+safety catch, not a policy** — a backtest can run for hours, so fresh files are
+never touched.
+
+Receipts: `tests/test_housekeeping.py`, seven tests covering both sweeps — a
+fresh world left alone, an aged one removed, an absent one not an error,
+`prune_caches` never raising, and for the discovery cache: fresh survives, both
+the old and new locations are cleared (or the relocation leaves 1.13 GB behind),
+and `--dry-run` deletes nothing. Kept in its own file because importing `loop`
+pulls in pandas, numpy and CatBoost, and the storage suite is worth keeping free
+of the ML stack.
+
 ### 6.5 A Dockerfile that runs one cycle (small-medium)
+
+**Blocked on the operator's machine, not on the work.** Docker is not on PATH
+here, so a Dockerfile written now could not be built or run — and an unverified
+Dockerfile is precisely the artifact that looks finished and is not. Every other
+item in this document carries a receipt; this one would carry a claim. It waits
+for a machine that can execute `docker build`.
+
+
 
 `docker run` produces a week's reports with nothing from the operator's laptop.
 

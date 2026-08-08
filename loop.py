@@ -22,7 +22,9 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import subprocess
+import time
 import sys
 from html import escape
 from datetime import datetime, timedelta, timezone
@@ -1164,6 +1166,35 @@ def deliver(paths, scored, args):
 
 # ------------------------------------------------------- housekeeping
 
+def _prune_scratch_world(paths, max_age_days):
+    """Delete `data/backtest_world` once nothing in it has been touched for
+    `max_age_days`. -> (files, bytes).
+
+    backtest.py rewrites this directory per cutoff — a copy of the parquet store
+    plus a full copy of the embeddings — and rebuilds it from the real store on
+    every run. Nothing reads it between runs. At 203.8 MB it was the second
+    largest thing under `data/` after the notice archive, for something entirely
+    reconstructible.
+
+    Age is the safety catch, not a policy: a backtest in progress has fresh
+    files, so a sweep cannot pull the floor out from under a run that may take
+    hours.
+    """
+    world = paths.data / 'backtest_world'
+    if not world.exists():
+        return 0, 0
+    files = [f for f in world.rglob('*') if f.is_file()]
+    if not files:
+        return 0, 0
+    newest = max(f.stat().st_mtime for f in files)
+    if newest >= time.time() - max_age_days * 86400:
+        return 0, 0
+    freed = sum(f.stat().st_size for f in files)
+    n = len(files)
+    shutil.rmtree(world, ignore_errors=True)
+    return n, freed
+
+
 def prune_caches(paths, max_age_days=30):
     """Delete discovery caches older than `max_age_days`.
 
@@ -1185,7 +1216,11 @@ def prune_caches(paths, max_age_days=30):
         if n:
             print(f'[prune] {n} stale discovery cache file(s), '
                   f'freed {freed / 1e6:.1f} MB')
-        return n
+        wn, wfreed = _prune_scratch_world(paths, max_age_days)
+        if wn:
+            print(f'[prune] backtest_world untouched for {max_age_days}d, '
+                  f'freed {wfreed / 1e6:.1f} MB ({wn} files)')
+        return n + wn
     except Exception as e:
         print(f'[prune] skipped ({e})')
         return 0
