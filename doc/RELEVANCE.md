@@ -2227,3 +2227,91 @@ for every small firm — a 3-win firm needs 2 references at 0.5 and still 2 at
 0.2. The share only bites from about five wins upward, moving DB Bahnbau from
 32 references to 13 and Ed. Züblin from 8 to 4, which is where the lost
 rejection case comes from: a generalist adopting a context root as its trade.
+
+
+## Phase 9b — `--benchmark` was dead, and what it says now (2026-08-08)
+
+`evidence.py --benchmark` had been raising `NameError: is_deep` since before
+`bc77f7d`: `run_benchmark` builds `firm_tc` with `is_deep(c)` but imported only
+`lot_codes` from `calibrate`. Every neighbouring function imports it locally;
+this one did not, so the whole path failed before doing any work. Nobody
+noticed because the gate-level harnesses (`--judge-benchmark`, `--sweep`) were
+the ones being read.
+
+Its score line was also wrong. `fails` counts **once per selected lot**, but
+the line printed `len(cases) - fails` over `len(cases)`. A case's
+`(pub, title_contains)` can select more than one lot, so the numerator
+subtracted a per-lot count from a per-case total. It printed 88/122 where the
+run had judged 126 lots and got 34 wrong. Now 92/126 — which is what the
+`IN`/`OUT` tables in this document have always counted (49/74 + 43/52 = 92).
+
+**Read `--benchmark` as a lexicon harness, not as product accuracy.** Its
+verdict is `'in' if ev else 'out'` — any evidence at all. The shipped gate does
+not do that; it uses `evidence.convicts`, the title-or-two rule of phase 8c(3)
+above. Scoring the same 126 lots through `convicts` gives 94/126. The divergence
+is by design (this harness isolates the keyword layer, `--judge-benchmark`
+exercises the real `judge()`), but the two numbers are not comparable and
+`--benchmark`'s must not be quoted as the system's accuracy.
+
+### The 126 lots, split by failure
+
+| | count | |
+| --- | --- | --- |
+| correct | 92 | |
+| false positive (`out` -> `in`) | 22 | a trade word appears in a package that is not that trade |
+| false negative (`in` -> `out`) | 12 | **no keyword matched at all** |
+
+The twelve misses are exactly the twelve lots that produce *zero* evidence —
+under an any-evidence rule those coincide by construction. That sets a ceiling:
+any rule that decides **from** the evidence must call a zero-evidence lot `out`,
+so **114/126 is the best any filtering change can reach.** The whole remaining
+gap is false positives.
+
+Seven of the twelve are the railway dialect phase 9a already named — `TK
+Immenstadt - Oberstdorf`, `Möttingen, Baut. Anp. BÜ km 62,181`, `Bf Sünching -
+Bahnsteiganpassung`, `GE, WE, RbLs in Bf. Rheinkamp`, `Erneuerung EÜ Strothe`,
+`Umbau Vst Leuna Werke Süd`, `Errichtung Bedienstandort Bremen`. Not short
+text: only 8 of the 42 no-evidence lots are under 200 characters, and the
+`in`-labelled ones run a median of 435. The documents say what the work is; the
+vocabulary cannot read it.
+
+### Dead end: lot trade-span and the coverage ratio
+
+The 22 false positives share one shape — `estrich` matching a waterworks,
+`beton` matching `Weidenstieg 29 - Elektro`. Matching asks whether a word is
+*present*, which cannot separate "this lot **is** screed work" from "this lot
+**mentions** screed among fifty trades". The proposed denominator: run every
+trade dictionary over the lot text, count the trades that fire, and require
+coverage `|firm ∩ lot| / |lot|` above a cutoff.
+
+The signal is real — 239 dictionaries, a trade counted present at >= 2 of its
+words:
+
+| lots labelled | median span | max |
+| --- | --- | --- |
+| `in` | 1 | 29 |
+| `out` | 6 | 50 |
+
+It does not survive being tuned. Best cutoff over an 18-point grid reaches
+100/126, but split by **firm** (splitting by lot leaks the lexicon across
+halves) and tuned on one half, scored on the other:
+
+| | scored | vs `convicts` |
+| --- | --- | --- |
+| tune A, score B | 36/54 | −1 |
+| tune B, score A | 60/72 | +3 |
+
+Net +2, one half negative. The grid says the same thing if read rather than
+maximised: `span>3, cov<0.10` scores 100 while both its neighbours score 97 —
+isolated spikes, not a plateau. 126 lots clustered into ~40 firms cannot tune
+two parameters.
+
+And it is absent where the category is clearest: the three
+`GU-Leistung - De- und Remontagen KG300 und 400` lots — a general-contractor
+scope named as such in the title — score span=4. The package is short; the text
+never mentions the fifty trades it contains. A signal read off the prose misses
+the lots whose breadth is *declared* rather than described.
+
+**Not shipped.** The span count may still be worth surfacing as a readable
+property of a lot ("this lot spans 14 trades"), but no threshold rule on it is
+justified by this evidence.
