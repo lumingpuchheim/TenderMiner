@@ -126,6 +126,33 @@ complete by construction and needs no discovery step.
 python extractor.py stats data/raw/xml     # per-lot bidder counts, summary
 ```
 
+### market.py — the business-developer view
+
+Answers the three questions behind [`doc/GO_TO_MARKET.md`](doc/GO_TO_MARKET.md):
+what is a trade worth, who wins it, and which trade to sell into next. Prints
+to stdout and writes nothing.
+
+```bash
+python market.py trade Blitzschutz      # lots/month, value, 0/1-bidder share,
+                                        # buyers, regions, how it is bought
+python market.py firms Blitzschutz      # who wins it — the prospect list
+python market.py rank                   # which trade next, all trades ranked
+python market.py suggest Blitzschutz    # words this trade may be missing
+python market.py trades                 # what the trade list claims
+```
+
+A trade is **defined by words, not by CPV**: of the store lots whose title says
+Blitzschutz, only 64% carry `45312310` as their main code, so a code filter
+misses a third of the market and admits refurbishments filed under the same
+code. The word lists live in [`trades.txt`](trades.txt) — hand-written and
+hand-owned, like [`cpv_trade_roots.txt`](cpv_trade_roots.txt); `suggest`
+proposes vocabulary but never adds it. Rates only count publication months the
+store actually covers, and the 0/1-bidder share is quoted over months mature
+enough to have awards (median award lag ~83 days).
+
+Options: `--scope core|mentioned|both` (title names the trade / only the body
+does), `--region DE2`, `--since 2026-01`, `--sort`, `--min-lots`, `--top`.
+
 ## Requirements
 
 - **Python 3** (tested on 3.13).

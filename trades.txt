@@ -1,0 +1,552 @@
+# Trades — the named Gewerke the market view reports and ranks.
+#
+# WHY THIS FILE EXISTS
+# The store has no trade column. cpv3 gives five buckets (450 general, 451
+# site preparation, 452 civil, 453 installation, 454 finishing) — too coarse
+# to name a Gewerk, and CPV is a filing decision made by the buyer's clerk,
+# not a description of the work: of the store lots whose TITLE says
+# Blitzschutz, only 64% carry 45312310 as their main code. So a trade is
+# defined here, by the words the buyer wrote, and matched as substrings
+# against the folded notice text (evidence.fold — Fussboden and Fußboden are
+# one word, so each spelling needs one entry, not two).
+#
+# WHO OWNS IT
+# A person. market.py can propose words (`python market.py suggest <trade>`
+# ranks vocabulary by how much more often it appears inside the trade than
+# outside it) but it never adds one. A ranking of trades is a decision about
+# where to spend a sales week; it may not rest on a word list nobody read.
+#
+# FORMAT
+#   = Trade name          starts a trade; everything until the next "=" is its
+#   wort                  match word — substring, so plurals and compounds
+#                         need no entry (blitzschutz catches
+#                         Blitzschutzanlage, Blitzschutzarbeiten)
+#   -wort                 exclusion — a lot containing this is NOT this trade,
+#                         even if another word matched
+#   # ...                 comment
+#
+# RULES A WORD MUST FOLLOW
+# * At least 5 characters. Shorter substrings hit inside unrelated compounds.
+# * It names the WORK or its MATERIAL, never the building: "schulgebaeude" is
+#   not a trade, "estrich" is.
+# * Prefer the specific over the generic. "glas" matches Glasfassade and
+#   Douglasie; "isolierglas" matches glazing. "zimmer" is a room in
+#   Klassenzimmer; "zimmermann" is the carpenter.
+# * Every word here should also appear in cpv_trade_roots.txt, which is the
+#   reviewed vocabulary. That is a convention, not a constraint the code
+#   enforces: the roots file is construction because today's store is, and a
+#   trade outside construction must be writable here the day the store widens.
+#
+# OVERLAP IS REAL, NOT AN ERROR
+# "Elektro, Blitzschutz, Datennetz, SiBe" is one lot in three trades. It is
+# counted in all three and market.py reports how much of a trade overlaps
+# with its neighbours. Do not chase exclusivity by deleting words — you would
+# lose the lot from the trade that actually wants it.
+
+
+= Abbruch und Rückbau
+abbruch
+abriss
+rueckbau
+entkern
+enttruemmer
+schadstoffsanier
+asbest
+kampfmittel
+
+= Erdarbeiten und Baugrund
+aushub
+erdarbeit
+erdbewegung
+bodenabtrag
+grabenaushub
+verfuell
+fluessigboden
+spundwand
+verbau
+baugrund
+homogenbereich
+wasserhaltung
+rammung
+rammarbeit
+schlitzwand
+terrassier
+
+= Garten- und Landschaftsbau
+landschaftsgaertner
+begruenung
+pflanzarbeit
+gehoelz
+baumpflege
+kunstrasen
+spielplatzgeraet
+fallschutz
+gestruepp
+
+= Beton- und Stahlbetonarbeiten
+betonarbeit
+betonbau
+ortbeton
+sichtbeton
+stahlbeton
+betonstahl
+bewehr
+schalung
+betonschal
+ausschal
+einschal
+spritzbeton
+betoninstandsetz
+rissverpress
+fertigteil
+baustahlgewebe
+
+= Maurerarbeiten
+maurer
+rohbau
+mauerwerk
+verblend
+kalksandstein
+porenbeton
+klinker
+naturwerkstein
+steinmetz
+
+= Stahl- und Metallbau
+stahlbau
+metallbau
+metallkonstruktion
+schlosser
+gitterrost
+gelaender
+handlauf
+
+= Estricharbeiten
+estrich
+fliessestrich
+heizestrich
+sichtestrich
+gussasphalt
+calciumsulfat
+tackerplatte
+randdaemmstreif
+
+= Dachdeckung und Dachabdichtung
+dachdeck
+dachstuhl
+flachdach
+gruendach
+kompaktdach
+umkehrdach
+schweissbahn
+dampfsperre
+dampfbrems
+lichtkuppel
+lichtband
+dachrinne
+dachluke
+notueberlauf
+ortgang
+traufe
+attika
+
+= Klempner, Spengler, Flaschner
+klempner
+spengler
+flaschner
+trapezblech
+dachleitungshalter
+
+= Gerüstbau
+geruest
+fanggeruest
+seitenschutz
+absturzsicher
+
+= Wärmedämmung und Fassade
+waermedaemm
+fassade
+vorhangfassad
+elementfassad
+hartschaum
+mineralwoll
+steinwoll
+polystyrol
+holzfaserdaemm
+trittschall
+hydrophobier
+
+= Abdichtung
+abdicht
+verbundabdicht
+isolier
+kunststoffbahn
+dehnfug
+trennschicht
+bautrocknung
+schimmelsanier
+-isolierglas
+
+= Brandschutz (baulich)
+brandschutz
+brandabschott
+brandschott
+feuerschutzabschluss
+rauchschutz
+entrauchung
+rauchabzug
+brandschutzklappe
+
+= Blitzschutz und Erdung
+blitzschutz
+blitzableiter
+fangspitz
+fanganlage
+fangleitung
+fangstang
+erdungsfestpunkt
+anschlussfahn
+ringerder
+fundamenterder
+-blitzleuchte
+
+= Putz- und Stuckarbeiten
+# NOT the bare root "putz": Aufputz and Unterputz are how electricians and
+# plumbers describe mounting, and would hand this trade their lots.
+putzarbeit
+verputz
+innenputz
+aussenputz
+sanierputz
+kalkputz
+gipsputz
+edelputz
+akustikputz
+stuckateur
+stuckarbeit
+
+= Trockenbau
+trockenbau
+gipskarton
+gipsfaser
+staenderwerk
+staenderwand
+vorsatzschal
+installationsvorwand
+zementbauplatte
+abgehaengt
+akustikdeck
+unterdeck
+rasterdeck
+kassettendeck
+paneeldeck
+revisionsklappe
+schachtwand
+trennwand
+trennwaend
+
+= Fliesen- und Plattenarbeiten
+fliese
+plattenleger
+sockelfliese
+glasiert
+steingut
+
+= Bodenbelagsarbeiten
+bodenbelag
+bodenleger
+bodenverleg
+oberbelag
+parkett
+industrieparkett
+linoleum
+kautschuk
+kugelgarn
+nadelvlies
+laminat
+schwingboden
+sportbod
+sockelleist
+sockelstreif
+teppich
+
+= Maler- und Lackierarbeiten
+anstrich
+anstreicher
+lackier
+tapezier
+dispersion
+acrylat
+betonlasur
+glasvlies
+altbeschicht
+korrosionsschutz
+spachtel
+wandverkleid
+
+= Industrieboden und Beschichtung
+industrieboden
+bodenbeschicht
+epoxidharz
+
+= Tischler- und Schreinerarbeiten
+tischler
+schreiner
+einbaumoebel
+tuerblatt
+tuerzarge
+innentuer
+holztuer
+
+= Zimmerer- und Holzbau
+zimmermann
+zimmerarbeit
+holzbau
+brettsperr
+konstruktionsvollholz
+pfetten
+sparren
+holzrahmenbau
+
+= Fenster, Türen und Tore
+fenster
+haustuer
+tuerelement
+rolltor
+sektionaltor
+torantrieb
+rollladen
+jalousie
+raffstore
+markise
+sonnenschutz
+verdunkel
+insektenschutz
+verglas
+isolierglas
+pfosten-riegel
+
+= Schließanlagen und Beschläge
+schliessanlage
+schliesszylind
+panikschloss
+tuerautomatik
+drehfluegelantrieb
+beschlag
+
+= Elektroinstallation
+elektroinstallation
+elektroarbeit
+elektrotechn
+starkstrom
+schwachstrom
+niederspannung
+mittelspannung
+hochspannung
+schaltanlage
+schaltschrank
+verteilerschrank
+unterverteil
+hauptverteil
+zaehlerschrank
+stromschiene
+stromversorg
+kabeltrasse
+kabelrinne
+installationsrohr
+schalterprogramm
+steckdose
+potentialausgleich
+transformator
+
+= Beleuchtung
+beleucht
+notbeleucht
+sicherheitsbeleucht
+leuchte
+
+= Photovoltaik und Ladeinfrastruktur
+photovoltaik
+solarzelle
+ladeinfrastruktur
+wallbox
+notstrom
+netzersatzanlage
+
+= Gebäudeautomation und Datennetz
+gebaeudeautomation
+gebaeudeleittechn
+regelungstechn
+messtechn
+datennetz
+netzwerktechn
+lichtwellenleiter
+
+= Sicherheits- und Meldeanlagen
+brandmelde
+brandmeldezentrale
+handfeuermelder
+druckknopfmelder
+multisensormelder
+rauchansaug
+einbruchmelde
+alarmanlage
+zutrittskontroll
+videoueberwach
+sprachalarm
+elektroakust
+vereinzelungsanlage
+blitzleuchte
+
+= Feuerlöschanlagen
+sprinkler
+feuerloesch
+feuerloeschleitung
+
+= Sanitärinstallation
+sanitaer
+sanitaerkeramik
+installateur
+mischbatterie
+waschtisch
+duschrinne
+urinal
+hebeanlage
+fettabscheid
+oelabscheid
+rueckstausicher
+trinkwasserrohr
+abflussrohr
+fallrohr
+hygienespuel
+spuelstation
+durchlauferhitzer
+werkraumbecken
+pressfitting
+eckventil
+
+= Heizungstechnik
+heizung
+zentralheizung
+heizkoerper
+brennwertkessel
+waermepump
+pufferspeicher
+warmwasserspeicher
+fernwaerme
+uebergabestation
+heizkreis
+thermostatventil
+strangregulier
+fussbodenheiz
+ruecklaufverteiler
+druckhaltestation
+nachspeisung
+
+= Lüftung, Klima und Kälte
+lueftung
+lufttechn
+raumlufttechn
+zuluft
+abluft
+fortluft
+volumenstrom
+wickelfalzrohr
+lueftungskanal
+lueftungsgitter
+dachventilator
+kulissenschalldaempf
+schalldaemmlueft
+kreuzstromwaermetausch
+waermerueckgewinn
+teilklima
+klimaanlage
+kaeltetechn
+kuehldeck
+
+= Aufzüge und Fördertechnik
+aufzug
+aufzueg
+fahrsteig
+rolltreppe
+krananlage
+hebebuehne
+foerdertechn
+tragmittel
+
+= Straßenbau
+strassenbau
+asphalt
+pflaster
+fahrbahn
+oberbau
+spielfeldmarkier
+fahrbahnrand
+mittelstreif
+
+= Kanalbau und Rohrsanierung
+kanalbau
+kanalisation
+schachtunterteil
+rohrsanier
+schlauchliner
+inliner
+kanalfernsehen
+muffenlos
+leitungszone
+
+= Gleisbau und Fahrleitung
+gleisbau
+gleisbett
+weichen
+fahrleitung
+oberleitung
+stadtbahn
+strassenbahn
+
+= Verkehrssicherung und Schutzeinrichtungen
+leitplank
+schutzplank
+fahrzeugrueckhalt
+anpralldaempf
+leiteinrichtung
+verkehrssicher
+verkehrsleit
+absperrschrank
+verkehrsschild
+lichtsignal
+signalgeber
+laermschutz
+
+= Zaunbau und Einfriedung
+zaunanlage
+zaunbau
+zaunarbeit
+metallzaun
+einfried
+doppelstabmatten
+
+= Wasser- und Abwassertechnik
+pumpwerk
+pumpstation
+abwasserpump
+schmutzwasserpump
+tauchpump
+umwaelzpump
+faulbehaelter
+belebungsbecken
+nachklaerbecken
+schlammentwaess
+schlammbehandl
+ruehrwerk
+filtrier
+rueckspuelfilter
+
+= Küchen-, Labor- und Bühnentechnik
+grosskueche
+kuechentechn
+einbaukueche
+laboreinricht
+buehnentechn
+empfangstheke
+sitzstufen
