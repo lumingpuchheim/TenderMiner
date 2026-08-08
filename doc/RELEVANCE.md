@@ -2135,3 +2135,38 @@ This is complementary to `STORAGE.md`, which independently decided these
 caches stay files: they are pure functions of the store, rewritten
 wholesale, never read by key. The problem was never where they live — it was
 that their identity was hand-maintained.
+
+## Phase 8z — the mute profile is now audible (2026-08-08)
+
+Under the evidence gate a lot passes on one of two things: a word from the
+profile's lexicon found in the tender, or a core trade root found in its
+title. **A profile holding neither cannot pass any lot in the market** — not
+a low score, an impossibility. The customer receives an empty report every
+week and nothing anywhere says why; the operator sees silence and reasonably
+concludes the market was quiet.
+
+43 of the 512 firms with >= 3 wins were in that state when it was counted on
+2026-08-07 (fewer since the dictionaries opened, but the failure mode is
+structural, not historical). The gate has always known at build time — it
+just never said so. Same principle as the borderline band: a gate that goes
+wrong silently is the one thing the design does not allow.
+
+`relevance.mute_reason(profile)` returns `None` when a profile can convict,
+otherwise the reason. It is consulted in two places:
+
+```
+python relevance.py --check-profiles      # on demand, per live subscription
+python loop.py run                        # every cycle, at delivery
+```
+
+The check prints each subscription's lexicon and core roots, and a
+`** MUTE **` line for any that cannot recommend anything; the cycle prints
+`[deliver] <sub_id>: ** MUTE PROFILE ** ...` at the moment the profile is
+built, before any lot is judged. Reading `--check-profiles` is also the
+cheapest way to see what the eight live customers' lexicons actually contain
+— the operator's test for a lexicon has always been reading it.
+
+Nothing about a verdict changes; this only makes a silent failure loud. The
+entry point at the bottom of `relevance.py` moved below `class Gate` so it
+can load one — it previously sat mid-file, which was fine while it only
+printed constants.

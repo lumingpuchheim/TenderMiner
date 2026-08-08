@@ -878,6 +878,13 @@ def deliver(paths, scored, args):
         if gate is not None and rel.wants_gate(sub):
             try:
                 profile = rel.build_profile(gate, sub)
+                # a profile with no lexicon and no core root cannot pass ANY
+                # lot — the customer gets an empty report every cycle and
+                # nothing says why. Say why.
+                mute = rel.mute_reason(profile, gate.config)
+                if mute:
+                    print(f"[deliver] {sub['sub_id']}: ** MUTE PROFILE ** "
+                          f'{mute}')
             except Exception as e:
                 print(f"[deliver] {sub['sub_id']}: profile error ({e}) — "
                       f'delivering ungated')

@@ -314,6 +314,69 @@ class GateConfig:
 DEFAULT_CONFIG = GateConfig()
 
 
+def mute_reason(profile, config=None):
+    """Can this profile EVER convict a lot? -> None if yes, else why not.
+
+    Under the evidence gate a lot passes on one of two things: a word from
+    the profile's lexicon found in the tender, or a core trade root found in
+    its title. A profile holding neither cannot pass ANY lot in the market —
+    not a low score, an impossibility. The customer then receives an empty
+    report every week and nothing anywhere says why; the operator sees
+    silence and reasonably concludes the market was quiet.
+
+    Measured 2026-08-07: 43 of the 512 firms with >= 3 wins were in this
+    state (fewer since the dictionaries opened, but not zero). The gate has
+    always known it at build time — it just never said so.
+    """
+    cfg = config or DEFAULT_CONFIG
+    if cfg.mode != 'evidence':
+        return None          # the embedding ladder does not read the lexicon
+    if profile.get('keywords') or profile.get('keywords_core'):
+        return None
+    n_refs = len(profile.get('ref_titles') or ())
+    return (f'no lexicon and no core trade root from {n_refs} reference(s) — '
+            f'this profile cannot pass any lot')
+
+
+def _check_profiles(data_dir, as_of):
+    """`python relevance.py --check-profiles` — every live subscription's
+    lexicon, and a loud line for the ones that can never recommend
+    anything."""
+    import subscriptions as subs_mod
+    # CLAUDE.md: read through the sanctioned API, never the storage — it is
+    # moving into SQLite and `load` takes the directory for exactly that
+    # reason
+    live = subs_mod.load(data_dir, as_of)
+    gate = Gate(data_dir, as_of=as_of)
+    print(f'[check] {len(live)} subscription(s) active on {as_of}, '
+          f'gate {gate.config.describe()}')
+    n_mute = 0
+    for sub in sorted(live, key=lambda s: s['sub_id']):
+        sid = sub['sub_id']
+        if not wants_gate(sub):
+            print(f'  {sid:24s} ungated — every matching lot is delivered')
+            continue
+        try:
+            profile = build_profile(gate, sub)
+        except Exception as e:
+            print(f'  {sid:24s} PROFILE ERROR: {e}')
+            n_mute += 1
+            continue
+        kw = profile.get('keywords') or []
+        core = profile.get('keywords_core') or []
+        why = mute_reason(profile, gate.config)
+        if why:
+            n_mute += 1
+            print(f'  {sid:24s} ** MUTE ** {why}')
+        else:
+            print(f'  {sid:24s} {len(kw)} keyword(s), {len(core)} core root(s)')
+            print(f'  {"":24s}   lexicon: {" ".join(kw[:12]) or "-"}')
+            print(f'  {"":24s}   core:    {" ".join(core[:12]) or "-"}')
+    print(f'[check] {n_mute} subscription(s) cannot recommend anything'
+          + (' — these deliver an empty report every cycle' if n_mute else ''))
+    return n_mute
+
+
 def _print_config():
     """`python relevance.py` — the rules this checkout would judge under,
     with the fingerprint that appears on every delivery row. The answer to
@@ -334,10 +397,6 @@ def _print_config():
         elif k == 'conviction_nominates' and 'CONVICTION_NOMINATES' in os.environ:
             env = '   <- from $CONVICTION_NOMINATES'
         print(f'  {k:24s} {v}{env}')
-
-
-if __name__ == '__main__':
-    _print_config()
 
 
 class Gate:
@@ -882,3 +941,17 @@ def judge(gate, profile, scored_row, config=None):
     return passed, borderline, text, c_score, why, c_hard
 
 
+if __name__ == '__main__':
+    import argparse as _ap
+    from datetime import date as _date
+    _p = _ap.ArgumentParser(description=_print_config.__doc__)
+    _p.add_argument('--check-profiles', action='store_true',
+                    help='build the profile of every live subscription and '
+                         'name the ones that can never recommend anything')
+    _p.add_argument('--data-dir', default='data')
+    _p.add_argument('--as-of', default=_date.today().isoformat())
+    _a = _p.parse_args()
+    if _a.check_profiles:
+        _check_profiles(_a.data_dir, _a.as_of)
+    else:
+        _print_config()
