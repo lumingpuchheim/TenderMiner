@@ -2315,3 +2315,51 @@ the lots whose breadth is *declared* rather than described.
 **Not shipped.** The span count may still be worth surfacing as a readable
 property of a lot ("this lot spans 14 trades"), but no threshold rule on it is
 justified by this evidence.
+
+
+## Open, not scheduled
+
+The two standing accuracy problems, as of phase 9b. Both are measured against
+the 126 lots the `--benchmark` cases select; neither is a regression, and
+neither blocks anything shipped.
+
+- **A trade word in a package that is not that trade** (22 of the 34 errors,
+  the whole false-positive pile). `estrich` matches a waterworks, `beton`
+  matches `Weidenstieg 29 - Elektro`, and the three
+  `GU-Leistung - De- und Remontagen KG300 und 400` lots pull in every flooring
+  firm. Matching asks whether a word is *present*, which cannot separate a lot
+  that **is** screed work from one that **mentions** screed among fifty trades.
+
+  Route already tried and refused: trade-span over the lot text plus a coverage
+  ratio (phase 9b above). The separation is real but no cutoff on it survives a
+  firm-wise split.
+
+  The untested idea, and the reason the tried one failed: read breadth off the
+  **CPV codes the lot declares**, not off its prose. The `GU-Leistung` lots are
+  general-contractor scopes named as such and still scored span=4, because a
+  short description never lists what the package contains. `lot_codes` and
+  `is_deep` are already loaded on every lot, so the denominator is free. Nobody
+  has measured whether a whole-building package's declared code set actually
+  looks different from a single-trade lot's. Measure that before believing it.
+
+- **The railway dialect is unreadable** (7 of the 12 misses; phase 9a found the
+  same thing from the lexicon side). `Bf Sünching - Bahnsteiganpassung`,
+  `Möttingen, Baut. Anp. BÜ km 62,181`, `Erneuerung EÜ Strothe`,
+  `TK Immenstadt - Oberstdorf`, `GE, WE, RbLs in Bf. Rheinkamp`,
+  `Umbau Vst Leuna Werke Süd`, `Errichtung Bedienstandort Bremen`. These
+  produce **zero** keyword evidence, so no filtering change can reach them —
+  see the 114/126 ceiling in phase 9b.
+
+  Not a short-text problem: only 8 of the 42 no-evidence lots are under 200
+  characters. The work is named precisely, in abbreviations the vocabulary does
+  not contain — `Bf`, `BÜ`, `EÜ`, `ESTW`, `LST`, `TK`, `Vst`, `RbLs`.
+
+  This is a finite list a person who knows the domain writes down and checks by
+  reading, with nothing to tune and nothing to overfit — unlike the
+  false-positive pile, which needs a signal that survives validation and does
+  not yet have one. Smaller number, more certain gain.
+
+**Which matters more is a business question, not a measurement.** A false
+positive puts a tender in a report that the customer reads and discards. A
+false negative means they never learn it existed. The pile sizes point one way
+and that asymmetry points the other; the operator decides.
