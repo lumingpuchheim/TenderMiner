@@ -157,7 +157,10 @@ naturwerkstein
 naturstein
 quaderstein
 rohbau
-schal
+schalung
+betonschal
+ausschal
+einschal
 verschal
 einpress
 ummantel
@@ -395,6 +398,7 @@ mittelspannung
 niederspannung
 transformator
 schaltanlage
+schaltschrank
 stromversorg
 verteilerschrank
 unterverteil

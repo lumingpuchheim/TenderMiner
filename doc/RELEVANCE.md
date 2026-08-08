@@ -2061,3 +2061,45 @@ dictionaries are empty.
 Rollbacks: `DICT_CODE_SHARE=0` (every code counts again),
 `DICT_TRUSTED_ONLY=1` (closes the gate, phase-8t rollback),
 `DICT_MIN_IN` env-overridable for the share sweep.
+
+## Phase 8x — `schal`, and why ambiguous roots cannot be found by machine (2026-08-07)
+
+`schal` entered the vocabulary for *Schalung* (formwork) and, matching being
+substring, also sat inside **Schalt**schrank, **Schalt**er and
+**Schall**schutz. Yunex — an electrical firm — carried it, taken from
+*Schaltanlage*: it would have convicted on any tender naming a Schaltschrank
+and the receipt would have read `schal`, meaning formwork. Third instance of
+the defect behind `pump` and `leitung`, and the same hand fix: replace the
+bare root with compounds that name one thing (`schalung`, `betonschal`,
+`ausschal`, `einschal`; `schaltschrank` added on the electrical side).
+
+**It moves no number.** IN 49/74, OUT 43/52, 14 empty, 72 under three words
+— identical to master. The benchmark holds no lot where `schal` decided
+anything, and coverage counts list sizes, so Yunex dropping one word of six
+is invisible. The harm sits in production across the ~3,000 open lots scored
+per cycle, which is where the benchmark is blind — the argument phase 8i
+shipped on, and stronger here because this costs nothing.
+
+### Dead end: detecting ambiguous roots from CPV codes
+
+Two scores were built and measured. Neither works.
+
+1. **Concentration of a root's lots in one code.** Surfaces `daemm`, `holz`,
+   `dach`, `stein` — sound roots whose matched words are one family
+   (`dämmung wärmedämmung perimeterdämmung`). It measures *ubiquity*: a real
+   trade word appears in many kinds of project.
+2. **Whether a root's own words agree on a trade.** Surfaces `stein`,
+   `putz`, `verkleid`, `pfahl`, `schweiss` — splits that are real but are
+   *project* differences, not meaning differences. Plaster is plaster
+   whether the lot is filed under painting, structural or insulation.
+
+Both ask the CPV code what a word means, and phase 8u established that the
+code often does not know: 84% of one dictionary's pool arrived through
+`cpv_additional`, and a tender titled *Estricharbeiten* sits under "Bau von
+Polizeirevieren". A noisy label cannot be ground truth for meaning.
+
+All three ambiguous roots so far were found the same way — a person reading
+one firm's lexicon and noticing a word that did not belong. `evidence.py
+--roots` ships as the store-wide version of that reading (every root with
+the words it actually matches, grouped by trade), explicitly **not** as a
+detector; its ordering is not a signal.

@@ -876,6 +876,105 @@ SYNONYM_PAIRS = [
 ]
 
 
+def roots_audit(data_dir, limit=40):
+    """Which roots in cpv_trade_roots.txt are AMBIGUOUS? Three were found by
+    accident this session -- `pump` (Waermepumpe / Abwasserpumpwerk),
+    `leitung` (Rohrleitung / Bauleitung) and `schal` (Schalung /
+    Schaltschrank / Schallschutz) -- each one a string short enough to sit
+    inside words from unrelated trades. Finding them by tripping over them
+    is not a search.
+
+    THE RANKING DOES NOT WORK -- read this as an INVENTORY, not a detector.
+    Two scores were built and measured, both against the CPV code:
+
+      (1) how concentrated a root's lots are in one code. Surfaces daemm,
+          holz, dach, stein -- sound roots whose words are one family. It
+          measures UBIQUITY: insulation appears in roofing, facade and HVAC
+          lots and means insulation in all of them.
+      (2) whether a root's own WORDS agree on a trade. Surfaces stein, putz,
+          verkleid, pfahl -- splits that are real but are project
+          differences, not meaning differences. Plaster is plaster whether
+          the lot is filed under painting, structural or insulation.
+
+    Both ask the CPV code what a word MEANS, and phase 8u established that
+    the code frequently does not know (84% of one pool arrived via
+    cpv_additional; a tender titled Estricharbeiten sits under "Bau von
+    Polizeirevieren"). A noisy label cannot be ground truth for meaning.
+
+    What survives is the listing itself: every root with the words it
+    actually matches in the store, grouped by the trades those words fall
+    in. That is worth READING -- all three ambiguous roots found so far
+    (pump, leitung, schal) were caught by a person noticing a word that did
+    not belong in one firm's lexicon, and this shows the same thing store-
+    wide. The ordering is not a signal; do not treat the top of it as a
+    list of suspects.
+    """
+    from calibrate import is_deep
+    from embed import read_cpv_labels
+    tenders = pd.read_parquet(Path(data_dir) / 'store' / 'tenders.parquet')
+    lots = tenders.drop_duplicates(subset=KEY)
+    labels = read_cpv_labels()
+    roots, _nots = trade_roots()
+    print(f'[roots] {len(roots)} roots over {len(lots)} store lots', flush=True)
+
+    memo = {}
+    def rts(w):
+        r = memo.get(w)
+        if r is None:
+            r = memo[w] = tuple(roots_in(w))
+        return r
+
+    per_root_codes = {}
+    per_root_words = {}
+    per_word_codes = {}
+    for r in lots.itertuples(index=False):
+        code = str(r.cpv_main or '')
+        if not is_deep(code):
+            continue
+        text = fix_text(str(r.title or '') + ' ' + str(r.description or ''))
+        hits = {}
+        for w in set(tokens(text)):
+            for root in rts(w):
+                hits.setdefault(root, set()).add(w)
+        for root, words in hits.items():
+            per_root_codes.setdefault(root, Counter())[code] += 1
+            wc = per_root_words.setdefault(root, Counter())
+            for w in words:
+                wc[w] += 1
+                per_word_codes.setdefault(w, Counter())[code] += 1
+
+    # A root's lots spreading over many codes is UBIQUITY, not ambiguity:
+    # `daemm` reaches roofing, facade and HVAC lots and means insulation in
+    # every one of them. Ambiguity lives in the WORDS -- `schal` matched
+    # schalung, schaltschrank and schallschutz, which are unrelated to each
+    # other. So ask whether the root's own words agree: give each matched
+    # word the trade its lots concentrate in, then score the root by how
+    # much of its weight sits in the majority trade.
+    rows = []
+    for root, wc in per_root_words.items():
+        fam = {}
+        for w, k in wc.items():
+            codes = per_word_codes.get(w)
+            if not codes:
+                continue
+            fam.setdefault(codes.most_common(1)[0][0][:4], []).append((w, k))
+        if len(fam) < 2:
+            continue
+        total = sum(k for ws in fam.values() for _, k in ws)
+        groups = sorted(fam.items(), key=lambda kv: -sum(k for _, k in kv[1]))
+        agree = sum(k for _, k in groups[0][1]) / total
+        rows.append((agree, total, len(fam), root, groups))
+    rows.sort()
+    print(f'{"agree":>6s} {"words":>6s} {"trades":>7s}  root')
+    for agree, total, nfam, root, groups in rows[:limit]:
+        print(f'{agree:6.2f} {total:6d} {nfam:7d}  {root}')
+        for pre, ws in groups[:3]:
+            top = ' '.join(w for w, _ in sorted(ws, key=lambda x: -x[1])[:4])
+            lab = next((labels[c] for c in labels if c.startswith(pre)), '?')
+            print(f'{"":16s}{pre}xxxx {lab[:30]:32s} <- {top}')
+    return rows
+
+
 def dict_pool(data_dir, code):
     """Read the lots a trade dictionary is built from, split by HOW the code
     reached them. cpv_main is the buyer's statement of what this lot is;
@@ -1640,6 +1739,10 @@ def main():
                          'all bars + the evidence-nominates variant')
     ap.add_argument('--limit', type=int,
                     help='(--sweep smoke test only) cap the firm count')
+    ap.add_argument('--roots', action='store_true',
+                    help='rank every trade root by how CONCENTRATED its '
+                         'store lots are in one trade — the ambiguous ones '
+                         '(pump, leitung, schal) sort to the top for reading')
     ap.add_argument('--dict', metavar='CODE',
                     help='READ the pool a trade dictionary is built from: '
                          'how many lots reach it via cpv_main vs '
@@ -1654,6 +1757,9 @@ def main():
                     help='only the benchmark cases through the real judge(), '
                          'both gate modes — seconds, for benchmark growth')
     args = ap.parse_args()
+    if args.roots:
+        roots_audit(args.data_dir, args.limit or 40)
+        return
     if args.dict:
         dict_pool(args.data_dir, args.dict)
         return
