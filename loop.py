@@ -146,7 +146,10 @@ class Paths:
         self.predictions = self.data / 'ledger' / 'predictions.jsonl'
         self.grades = self.data / 'ledger' / 'grades.jsonl'
         self.deliveries = self.data / 'ledger' / 'deliveries.jsonl'
-        self.subscriptions = self.data / 'subscriptions.jsonl'
+        # the DIRECTORY subscriptions live in, not the file: the storage
+        # format belongs to subscriptions.py (tryout/replay point this at a
+        # sandbox dir instead)
+        self.subs_home = self.data
         self.checkpoint = self.data / 'logs' / 'loop_checkpoint.json'
         self.drift = self.data / 'logs' / 'drift_latest.json'
         self.reports = self.data / 'reports'
@@ -806,7 +809,7 @@ def learn_references(paths, tenders, awards, args):
     try:
         import feedback
         today = now_utc().date().isoformat()
-        subs = subscriptions.load(paths.subscriptions, today)
+        subs = subscriptions.load(paths.subs_home, today)
         if not subs:
             return []
 
@@ -827,7 +830,7 @@ def deliver(paths, scored, args):
     customer's report, append delivery-ledger rows (the frozen record of what
     this customer actually saw). Never a model call, never a store join."""
     today = now_utc().date()
-    subs = subscriptions.load(paths.subscriptions, today.isoformat())
+    subs = subscriptions.load(paths.subs_home, today.isoformat())
     if not subs:
         print('[deliver] no active subscriptions — skipped')
         return 0

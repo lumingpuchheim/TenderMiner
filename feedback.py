@@ -276,7 +276,7 @@ def main():
     tenders = pd.read_parquet(data_dir / 'store' / 'tenders.parquet')
     awards = pd.read_parquet(data_dir / 'store' / 'awards.parquet')
     today = date.today().isoformat()
-    subs = subscriptions.load(data_dir / 'subscriptions.jsonl', today)
+    subs = subscriptions.load(data_dir, today)
     print(f'[learn] {len(subs)} active subscription(s)')
 
     if args.rebuild:

@@ -88,11 +88,10 @@ def main():
 
     sub = None
     if args.sub:
-        subs_path = FULL / 'subscriptions.jsonl'
-        sub = subscriptions.one(subs_path, str(D.date()), args.sub)
+        sub = subscriptions.one(FULL, str(D.date()), args.sub)
         if sub is None:  # subscription may postdate the cutoff — take today's line
-            sub = subscriptions.one(subs_path,
-                                    str(pd.Timestamp.today().date()), args.sub)
+            sub = subscriptions.one(FULL, str(pd.Timestamp.today().date()),
+                                    args.sub)
         if sub is None:
             sys.exit(f'[replay] no active subscription {args.sub!r}')
 
@@ -277,15 +276,13 @@ def main():
     if OUT.exists():
         shutil.rmtree(OUT)
     (OUT / 'ledger').mkdir(parents=True)
-    (OUT / 'subscriptions.jsonl').write_text(
-        json.dumps(replay_sub, ensure_ascii=False, default=str) + '\n',
-        encoding='utf-8')
+    subscriptions.write_sandbox(OUT, [replay_sub])
     with open(OUT / 'ledger' / 'predictions.jsonl', 'w', encoding='utf-8') as f:
         for row in scored:
             f.write(json.dumps(row, ensure_ascii=False) + '\n')
     (OUT / 'ledger' / 'grades.jsonl').write_text('', encoding='utf-8')
     paths = loop.Paths(str(ASOF), 'models')
-    paths.subscriptions = OUT / 'subscriptions.jsonl'
+    paths.subs_home = OUT
     paths.predictions = OUT / 'ledger' / 'predictions.jsonl'
     paths.grades = OUT / 'ledger' / 'grades.jsonl'
     paths.deliveries = OUT / 'ledger' / 'deliveries.jsonl'

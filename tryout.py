@@ -47,10 +47,10 @@ def main():
 
     today = loop.now_utc().date()
     paths = Paths(args.data_dir, args.models_dir)
-    base = subscriptions.one(paths.subscriptions, today.isoformat(), args.sub)
+    base = subscriptions.one(paths.subs_home, today.isoformat(), args.sub)
     if base is None:
         sys.exit(f'[tryout] no active subscription {args.sub!r} in '
-                 f'{paths.subscriptions}')
+                 f'{paths.subs_home}')
 
     fields = {}
     for kv in args.overrides:
@@ -75,13 +75,11 @@ def main():
     sandbox = paths.data / 'tryout' / args.sub
     if sandbox.exists():
         shutil.rmtree(sandbox)
-    sandbox.mkdir(parents=True)
-    (sandbox / 'subscriptions.jsonl').write_text(
-        json.dumps(sub, ensure_ascii=False) + '\n', encoding='utf-8')
+    subscriptions.write_sandbox(sandbox, [sub])
 
     # redirect ONLY what deliver writes into the sandbox; reads (store,
     # embeddings via paths.data, predictions, grades) stay on the real dir
-    paths.subscriptions = sandbox / 'subscriptions.jsonl'
+    paths.subs_home = sandbox
     paths.deliveries = sandbox / 'deliveries.jsonl'
     paths.reports = sandbox / 'reports'
 

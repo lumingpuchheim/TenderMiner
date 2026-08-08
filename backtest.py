@@ -121,8 +121,7 @@ def replay(data_dir, step_days, sub_ids):
     # filters are the thing under test. Resolving per cutoff would be a
     # different experiment -- deliberately not this one.
     subs = {s0['sub_id']: s0 for s0
-            in subscriptions.load(Path(data_dir) / 'subscriptions.jsonl',
-                                  date.today().isoformat())
+            in subscriptions.load(data_dir, date.today().isoformat())
             if s0['sub_id'] in sub_ids}
 
     pub_a = pd.to_datetime(awards_full['publication_date'])
@@ -464,9 +463,8 @@ def main():
     sub_ids = args.sub
     if sub_ids is None:
         sub_ids = [s0['sub_id'] for s0
-                   in subscriptions.load(
-                       Path(args.data_dir) / 'subscriptions.jsonl',
-                       date.today().isoformat())
+                   in subscriptions.load(args.data_dir,
+                                         date.today().isoformat())
                    if s0.get('profile_refs')]
     res = replay(args.data_dir, args.step, set(sub_ids))
     if args.targets:

@@ -177,6 +177,41 @@ Receipts — a pure refactor has to prove it changed nothing:
 It also removed a circular import: `feedback.py` no longer imports `loop`
 just to borrow its subscription loader.
 
+## Phase 2 pre-work — the storage boundary (done, 2026-08-08)
+
+Landed before the SQLite swap so that concurrent work on the gate is not
+disturbed by it, and so phase 2 changes exactly one file.
+
+- **Callers name a home directory, never a file.** `load(data_dir, as_of)`,
+  `one(data_dir, as_of, sub_id)`, `read_all(data_dir)`. `storage()` resolves
+  the directory to whatever the format currently is, and *raises* if handed
+  something that looks like a storage file — reaching past the interface fails
+  loudly instead of half-working. `loop.Paths.subscriptions` (a file) became
+  `Paths.subs_home` (a directory).
+- **`write_sandbox(dir, [sub])`** replaces the two places that wrote
+  `subscriptions.jsonl` by hand (`tryout.py`, `replay.py`). Rows are validated
+  on the way in: a sandbox that cannot be read back is worse than useless,
+  because its report still looks real.
+- **A migrated file must not stay readable.** The migration will rename
+  storage to `subscriptions.jsonl.migrated-<date>`; a home containing both the
+  marker and a live file raises rather than guessing. Silent stale customers
+  are the failure mode being designed out.
+- **The contract is in `CLAUDE.md`**, which is now *tracked*. It was untracked,
+  which meant no worktree contained it — so an agent following its own
+  worktree rule could never read the rules. Committing it is what makes the
+  contract reach the other agents at all.
+
+The second `CLAUDE.md` rule is the sharper one and is live independently of
+storage: **a new subscription field must be added to `KNOWN` in the same commit
+that starts using it**, because validation rejects unknown fields and the
+rejection is not scoped to the line carrying it — an unknown field stops
+delivery for every customer.
+
+Receipts: `tryout.py` renders for `jebsen-blitzschutz`, `beck` and `n3bau` —
+report and annex HTML byte-identical, run back-to-back against the pre-change
+code. The legacy-file guard, the file-path rejection and `write_sandbox`
+validation each tested directly.
+
 ## Phase 2 — subscriptions move to SQLite
 
 Everything the current design earned is kept: versioned and never edited,

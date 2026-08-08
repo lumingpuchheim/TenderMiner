@@ -117,8 +117,7 @@ def main():
     args = ap.parse_args()
 
     today = loop.now_utc().date().isoformat()
-    sub = subscriptions.one(f'{args.data_dir}/subscriptions.jsonl',
-                            today, args.sub)
+    sub = subscriptions.one(args.data_dir, today, args.sub)
     if sub is None:
         sys.exit(f'[explain] no active subscription {args.sub!r}')
     if not rel.wants_gate(sub):

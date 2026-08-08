@@ -181,11 +181,48 @@ def _iso_date(s):
             and s[:4].isdigit() and s[5:7].isdigit() and s[8:].isdigit())
 
 
-def read_all(path):
-    """Every version in the file, validated, in file order. Missing file is
-    not an error — a deployment simply has no customers yet."""
-    p = Path(path)
+FILE_NAME = 'subscriptions.jsonl'
+# Left behind by the phase-2 migration. A legacy file that still PARSES is the
+# dangerous failure mode: a caller would get plausible, silently out-of-date
+# customers and no error at all. So the migration renames the file to
+# `<FILE_NAME>.migrated-<date>` and storage() refuses to read a home that has
+# both the marker and the old file.
+MIGRATED_GLOB = FILE_NAME + '.migrated-*'
+
+
+def storage(home):
+    """Resolve a subscription HOME DIRECTORY to its storage.
+
+    **Callers pass the directory, never the file.** That is the whole
+    contract: the storage format is this module's business, so it can change
+    (phase 2 moves it into SQLite) without touching a single call site. Any
+    code that constructs `<dir>/subscriptions.jsonl` itself has reached past
+    the interface and will break on the swap — so passing a path that looks
+    like storage raises here instead of half-working.
+    """
+    p = Path(home)
+    if p.suffix in ('.jsonl', '.db', '.sqlite'):
+        raise SubscriptionError(
+            f'pass the subscription HOME DIRECTORY, not a storage file '
+            f'({p.name}). The storage format belongs to subscriptions.py; '
+            f'call subscriptions.load(data_dir, as_of) and let it resolve.')
     if not p.exists():
+        return None
+    leftovers = sorted(p.glob(MIGRATED_GLOB))
+    live = p / FILE_NAME
+    if leftovers and live.exists():
+        raise SubscriptionError(
+            f'{p}: found both {live.name} and {leftovers[-1].name}. The '
+            f'migrated marker says storage moved, the live file says it did '
+            f'not — refusing to guess which one describes your customers.')
+    return live if live.exists() else None
+
+
+def read_all(home):
+    """Every version, validated, in storage order. A home with no storage is
+    not an error — a deployment simply has no customers yet."""
+    p = storage(home)
+    if p is None:
         return []
     rows, retired = [], {}
     for i, line in enumerate(p.read_text(encoding='utf-8').splitlines(), 1):
@@ -223,14 +260,37 @@ def resolve(rows, as_of):
     return [row for _, row in in_force.values() if row.get('active', True)]
 
 
-def load(path, as_of):
-    """The active subscriptions in force on `as_of`. The one entry point."""
-    return resolve(read_all(path), as_of)
+def load(home, as_of):
+    """The active subscriptions in force on `as_of`. The one entry point.
+
+    `home` is the directory subscriptions live in — `data/` in production, a
+    sandbox directory under tryout.py/replay.py. Never a file path; see
+    storage()."""
+    return resolve(read_all(home), as_of)
 
 
-def one(path, as_of, sub_id):
+def one(home, as_of, sub_id):
     """The single subscription `sub_id` in force on `as_of`, or None."""
-    return next((s for s in load(path, as_of) if s['sub_id'] == sub_id), None)
+    return next((s for s in load(home, as_of) if s['sub_id'] == sub_id), None)
+
+
+def write_sandbox(home, subs):
+    """Create throwaway subscription storage in `home` — the only supported
+    way to build a disposable customer set.
+
+    tryout.py and replay.py used to write `subscriptions.jsonl` themselves,
+    which made two more places that knew the storage format. They ask for a
+    sandbox now, and phase 2 changes what that means in exactly one file.
+    Every row is validated first: a sandbox that cannot be read back is worse
+    than useless, because its report looks real.
+    """
+    home = Path(home)
+    home.mkdir(parents=True, exist_ok=True)
+    rows = [validate(s, source=f'write_sandbox({home.name})') for s in subs]
+    (home / FILE_NAME).write_text(
+        ''.join(json.dumps(r, ensure_ascii=False, default=str) + '\n'
+                for r in rows), encoding='utf-8')
+    return home
 
 
 def override(sub, **fields):
@@ -340,7 +400,7 @@ def describe_market(sub):
 
 def main():
     """`python subscriptions.py [--data-dir data] [--as-of YYYY-MM-DD]` —
-    validate the file and print what is in force. The cheapest possible
+    validate the storage and print what is in force. The cheapest possible
     check after editing a subscription."""
     import argparse
     from datetime import date
@@ -350,10 +410,10 @@ def main():
     ap.add_argument('--data-dir', default='data')
     ap.add_argument('--as-of', default=date.today().isoformat())
     args = ap.parse_args()
-    path = Path(args.data_dir) / 'subscriptions.jsonl'
-    rows = read_all(path)
+    rows = read_all(args.data_dir)
     live = resolve(rows, args.as_of)
-    print(f'[subscriptions] {path}: {len(rows)} version(s) valid, '
+    where = storage(args.data_dir) or f'{args.data_dir} (no storage yet)'
+    print(f'[subscriptions] {where}: {len(rows)} version(s) valid, '
           f'{len(live)} active on {args.as_of}')
     for s in sorted(live, key=lambda s: s['sub_id']):
         gate = ('gated' if s.get('min_relevance') is not None
