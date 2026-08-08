@@ -88,7 +88,7 @@ def main():
     champ = loop.current_champion(paths)
     if champ is None:
         sys.exit('[tryout] no champion model — run a loop cycle first')
-    scored = [r for r in read_jsonl(Path(args.data_dir) / 'ledger' / 'predictions.jsonl')
+    scored = [r for r in ledger.read(args.data_dir, 'predictions')
               if r['model'] == champ['model_id']]
     if not scored:
         sys.exit(f"[tryout] no ledger rows for champion {champ['model_id']}")

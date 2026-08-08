@@ -24,6 +24,7 @@ from pathlib import Path
 import pandas as pd
 
 import config
+import ledger
 import single_bidder as sb
 
 if hasattr(sys.stdout, 'reconfigure'):
@@ -137,7 +138,7 @@ def check(data_dir, min_company_picks=3):
     """Join simulations against grades and print the market-scale answer."""
     data = Path(data_dir)
     sims = read_jsonl(data / 'ledger' / 'simulations.jsonl')
-    all_grades = read_jsonl(data / 'ledger' / 'grades.jsonl')
+    all_grades = ledger.read(data, 'grades')
     grades = {(g['procedure_id'], g['lot_id']): g for g in all_grades}
     if not sims:
         print('no simulation rows yet — run a cycle (or: python simulation.py run)')
@@ -185,7 +186,7 @@ def cmd_run(args):
     if not current.exists():
         raise SystemExit('no champion model — run the loop first')
     champ = current.read_text(encoding='utf-8').strip()
-    scored = [r for r in read_jsonl(Path(args.data_dir) / 'ledger' / 'predictions.jsonl')
+    scored = [r for r in ledger.read(args.data_dir, 'predictions')
               if r['model'] == champ]
     print(f'champion {champ}, {len(scored)} scored ledger rows')
     simulate(args.data_dir, scored, tenders, aw,

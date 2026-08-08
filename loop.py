@@ -145,8 +145,10 @@ class Paths:
         self.xml = self.data / 'raw' / 'xml'
         self.store_tenders = self.data / 'store' / 'tenders.parquet'
         self.store_awards = self.data / 'store' / 'awards.parquet'
-        self.predictions = self.data / 'ledger' / 'predictions.jsonl'
-        self.grades = self.data / 'ledger' / 'grades.jsonl'
+        # the HOME whose storage holds the cycle's own record — predictions
+        # and grades. A directory, not two files (ledger.py owns the format);
+        # replay.py points it at its as-of sandbox.
+        self.ledger_home = self.data
         # the HOME whose storage holds the delivery record and the gate-config
         # registry — a directory, not a file (ledger.py owns the format).
         # tryout/replay point this at a sandbox.
@@ -201,11 +203,8 @@ def grade(paths, tenders, aw, args):
     place_nuts3) and the award notice's TED publication number, at write time
     (SUBSCRIPTIONS.md: the ledger is the frozen record — a stamped row cannot
     drift, a join against a rebuilt store can)."""
-    predictions = read_jsonl(paths.predictions)
-    already = {(g['procedure_id'], g['lot_id']) for g in read_jsonl(paths.grades)}
-    by_lot = {}
-    for row in predictions:
-        by_lot.setdefault((row['procedure_id'], row['lot_id']), []).append(row)
+    already = {(g['procedure_id'], g['lot_id'])
+               for g in ledger.read(paths.ledger_home, 'grades')}
 
     lot_meta = {}
     for r in tenders[sb.KEY + ['cpv_main', 'place_nuts3']].itertuples():
@@ -219,6 +218,10 @@ def grade(paths, tenders, aw, args):
                 stamp(getattr(r, 'publication_number', None)),
                 int(r.n_tenders))
                for r in aw.itertuples()}
+    # only lots whose award has published can be graded, so only their
+     # predictions are needed — a handful of the ledger, asked for by key
+    by_lot = ledger.predictions_by_lot(
+        paths.ledger_home, lots={k for k in labeled if k not in already})
     new_grades = []
     for lot, rows in by_lot.items():
         if lot in already or lot not in labeled:
@@ -238,9 +241,9 @@ def grade(paths, tenders, aw, args):
             'score': last['score'], 'tier': last.get('tier'), 'flag': flag,
             'correct': flag == bool(label), 'model': last['model'],
         })
-    append_jsonl(paths.grades, new_grades)
+    ledger.append(paths.ledger_home, 'grades', new_grades)
     print(f'[grade] {len(new_grades)} newly graded lots '
-          f'({len(predictions)} ledger rows, {len(already)} previously graded)')
+          f'({len(by_lot)} lots consulted, {len(already)} previously graded)')
     return new_grades
 
 
@@ -327,7 +330,7 @@ def track_record(paths, args):
     the window, so they are recomputed each cycle rather than written to the
     database — a persisted copy is one more thing that can disagree with the
     ledger it came from."""
-    grades = read_jsonl(paths.grades)
+    grades = ledger.read(paths.ledger_home, 'grades')
     if not grades:
         return None
     cutoff = (now_utc() - parse_window(args.track_window)).date().isoformat()
@@ -714,8 +717,7 @@ def predict_open(paths, tenders, roles, aw, args):
     n_med = max(1, round(n * args.tier_medium))
     tiers = np.where(ranks < n_high, 'HIGH', np.where(ranks < n_high + n_med, 'MEDIUM', 'LOW'))
 
-    seen = {(r['procedure_id'], r['lot_id'], r.get('notice_id'), r['model'])
-            for r in read_jsonl(paths.predictions)}
+    seen = ledger.prediction_keys(paths.ledger_home)
     ts = now_utc().isoformat(timespec='seconds')
     scored, rows = [], []
     for (idx, t), score, tier, w_l, w_c in zip(open_t.iterrows(), scores, tiers,
@@ -744,7 +746,7 @@ def predict_open(paths, tenders, roles, aw, args):
         key = (t['procedure_id'], t['lot_id'], t.get('notice_id'), champ['model_id'])
         if key not in seen:  # idempotent re-runs: same notice + same model scored once
             rows.append(row)
-    append_jsonl(paths.predictions, rows)
+    ledger.append(paths.ledger_home, 'predictions', rows)
     print(f'[predict] {len(rows)} new ledger rows ({len(open_t)} open rows scored, '
           f'model {champ["model_id"]})')
     return rows, scores, scored
@@ -921,12 +923,10 @@ def deliver(paths, scored, args):
     for d in past:
         by_sub.setdefault(d['sub_id'], []).append(d)
     cutoff = (now_utc() - parse_window(args.track_window)).date().isoformat()
-    grades_recent = [g for g in read_jsonl(paths.grades)
+    grades_recent = [g for g in ledger.read(paths.ledger_home, 'grades')
                      if str(g['award_pub'])[:10] >= cutoff]
-    pred_info = {}  # receipt fallback for pre-stamp delivery rows (append-only file, safe to join)
-    for p in read_jsonl(paths.predictions):
-        if p.get('title') or p.get('buyer_name'):
-            pred_info[(p['procedure_id'], p['lot_id'])] = p
+    # receipt fallback for delivery rows written before title/buyer were stamped
+    pred_info = ledger.prediction_titles(paths.ledger_home)
     ts = now_utc().isoformat(timespec='seconds')
     # relevance gate (RELEVANCE.md phase 3): loaded once per cycle, only when a
     # subscription asks for it; unavailable sidecars degrade to ungated delivery
@@ -1207,7 +1207,7 @@ def _psi(hist, now, bins=10):
     return float(np.sum((q - p) * np.log(q / p)))
 
 
-def drift_monitors(tenders, aw, prior_predictions, scores_now, args):
+def drift_monitors(paths, tenders, aw, scores_now, args):
     """The four every-cycle drift monitors from ONLINE_LEARNING.md — pure
     reads that WARN in the report footer, never block promotion. They are what
     says "the market moved" before the track record sours.
@@ -1283,7 +1283,15 @@ def drift_monitors(tenders, aw, prior_predictions, scores_now, args):
     # ledger scores (before this run) — a shifted histogram means the open-lot
     # population or the champion's view of it moved
     ledger_cut = (now_utc() - timedelta(days=35)).isoformat(timespec='seconds')
-    hist_scores = np.array([r['score'] for r in prior_predictions if str(r['ts']) >= ledger_cut])
+    # the trailing window is a WHERE clause, not a filter over the whole ledger.
+    # This runs AFTER predict_open has appended, so the window now includes this
+    # cycle's own rows -- which it did not when the caller snapshotted the file
+    # beforehand. Excluded explicitly, so the comparison stays "this cycle
+    # against the month before it".
+    hist_scores = np.array([
+        s for s in ledger.prediction_scores_since(paths.ledger_home, ledger_cut)])
+    if len(scores_now) and len(hist_scores) > len(scores_now):
+        hist_scores = hist_scores[:-len(scores_now)]
     if len(scores_now) < args.drift_min_lots or len(hist_scores) < args.drift_min_lots:
         result('score_distribution', 'skipped',
                f'{len(scores_now)} scores this cycle / {len(hist_scores)} in trailing month — too few')
@@ -1394,10 +1402,7 @@ def flag_view_lines(record, args):
 
 
 def report(paths, tenders, args, record, gate, drift, model_id, n_graded, n_predicted):
-    predictions = read_jsonl(paths.predictions)
-    latest_model = {}
-    for r in predictions:
-        latest_model[(r['procedure_id'], r['lot_id'])] = r  # last write wins (sorted by append order)
+    latest_model = ledger.prediction_latest_per_lot(paths.ledger_home)
     open_rows = sorted(latest_model.values(), key=lambda r: -r['score'])
 
     info = {}
@@ -1497,9 +1502,8 @@ def cmd_run(args):
     new_grades = grade(paths, tenders, aw, args)
     record = track_record(paths, args)
     model_id, gate = learn(paths, tenders, roles, data, aw, args, checkpoint)
-    prior_predictions = read_jsonl(paths.predictions)  # snapshot before this cycle appends
     rows, scores_now, scored = predict_open(paths, tenders, roles, aw, args)
-    drift = drift_monitors(tenders, aw, prior_predictions, scores_now, args)
+    drift = drift_monitors(paths, tenders, aw, scores_now, args)
     # persisted so the dashboard can show the monitors (SUBSCRIPTIONS.md phase 5)
     write_json(paths.drift, {'at': now_utc().isoformat(timespec='seconds'), **drift})
     report(paths, tenders, args, record, gate, drift, model_id, len(new_grades), len(rows))

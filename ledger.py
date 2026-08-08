@@ -127,6 +127,110 @@ def append(home, name, rows):
     return n
 
 
+# ------------------------------------------- the prediction ledger, by query
+#
+# `read(home, 'predictions')` would hand back 94,000 rows, and the cycle asked
+# four different questions of them — each answered by parsing 51 MB and building
+# a dict in memory. These are those four questions, so the database can answer
+# them with an index and the file path can keep doing what it always did.
+#
+# Each has a file branch that is the ORIGINAL code, deliberately: while the
+# ledger can still live in a file, "the two paths agree" has to stay checkable,
+# and the file branch is the reference the tests compare against.
+
+def prediction_keys(home):
+    """The (procedure_id, lot_id, notice_id, model) already scored — the dedup
+    rule that makes re-running a cycle idempotent."""
+    import db
+    kind, path = storage(home, 'predictions')
+    if kind == 'jsonl':
+        return {(r['procedure_id'], r['lot_id'], r.get('notice_id'), r['model'])
+                for r in _read_file(path)}
+    con = db.connect(home, create=False)
+    return {(r['procedure_id'], r['lot_id'], r['notice_id'], r['model'])
+            for r in con.execute('SELECT procedure_id, lot_id, notice_id, model '
+                                 'FROM prediction')}
+
+
+def predictions_by_lot(home, lots=None):
+    """{(procedure_id, lot_id): [rows in append order]}, for `lots` only when
+    given. Grading needs the last prediction made before each award appeared,
+    and only for lots whose award just published — a handful out of 94,000."""
+    import db
+    kind, path = storage(home, 'predictions')
+    out = {}
+    if kind == 'jsonl':
+        for r in _read_file(path):
+            key = (r['procedure_id'], r['lot_id'])
+            if lots is None or key in lots:
+                out.setdefault(key, []).append(r)
+        return out
+    con = db.connect(home, create=False)
+    if lots is None:
+        rows = con.execute('SELECT raw FROM prediction ORDER BY seq')
+        for r in rows:
+            d = json.loads(db.unpack(r['raw']))
+            out.setdefault((d['procedure_id'], d['lot_id']), []).append(d)
+        return out
+    for pid, lid in lots:
+        for r in con.execute('SELECT raw FROM prediction WHERE procedure_id = ? '
+                             'AND lot_id = ? ORDER BY seq', (pid, lid)):
+            out.setdefault((pid, lid), []).append(json.loads(db.unpack(r['raw'])))
+    return out
+
+
+def prediction_titles(home):
+    """{(procedure_id, lot_id): row} for lots whose prediction carries a title or
+    buyer — the receipt fallback for delivery rows written before those columns
+    were stamped."""
+    import db
+    kind, path = storage(home, 'predictions')
+    out = {}
+    if kind == 'jsonl':
+        for r in _read_file(path):
+            if r.get('title') or r.get('buyer_name'):
+                out[(r['procedure_id'], r['lot_id'])] = r
+        return out
+    con = db.connect(home, create=False)
+    for r in con.execute(
+            'SELECT raw FROM prediction WHERE title IS NOT NULL '
+            'OR buyer_name IS NOT NULL ORDER BY seq'):
+        d = json.loads(db.unpack(r['raw']))
+        out[(d['procedure_id'], d['lot_id'])] = d
+    return out
+
+
+def prediction_latest_per_lot(home):
+    """{(procedure_id, lot_id): last row appended} — the cycle report's view of
+    the open market."""
+    import db
+    kind, path = storage(home, 'predictions')
+    out = {}
+    if kind == 'jsonl':
+        for r in _read_file(path):
+            out[(r['procedure_id'], r['lot_id'])] = r   # last write wins
+        return out
+    con = db.connect(home, create=False)
+    for r in con.execute('SELECT raw FROM prediction ORDER BY seq'):
+        d = json.loads(db.unpack(r['raw']))
+        out[(d['procedure_id'], d['lot_id'])] = d
+    return out
+
+
+def prediction_scores_since(home, cutoff_ts):
+    """Scores appended on or after `cutoff_ts` (an ISO timestamp), for the
+    score-distribution drift monitor. The monitor wants a trailing window, and
+    a window is a WHERE clause rather than a filter over everything."""
+    import db
+    kind, path = storage(home, 'predictions')
+    if kind == 'jsonl':
+        return [r['score'] for r in _read_file(path)
+                if str(r.get('ts', '')) >= cutoff_ts]
+    con = db.connect(home, create=False)
+    return [r['score'] for r in
+            con.execute('SELECT score FROM prediction WHERE ts >= ?', (cutoff_ts,))]
+
+
 def start(home):
     """Create empty storage for a sandbox home, matching whatever the real
     ledgers use. tryout.py and replay.py call this so their scratch world is

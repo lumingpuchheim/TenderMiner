@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import config
+import ledger
 
 REPO = Path(__file__).resolve().parent
 
@@ -182,8 +183,10 @@ def main(data_dir=None, models_dir=None):
     models = Path(models_dir) if models_dir else REPO / 'models'
     out = data / 'reports' / 'dashboard.html'
     registry = read_jsonl(models / 'registry.jsonl')
-    predictions = read_jsonl(data / 'ledger' / 'predictions.jsonl')
-    grades = read_jsonl(data / 'ledger' / 'grades.jsonl')
+    # through ledger.py, or the dashboard would keep reading a file the cycle
+    # has stopped writing and show a market weeks out of date (STORAGE.md 6.4)
+    predictions = ledger.read(data, 'predictions')
+    grades = ledger.read(data, 'grades')
     checkpoint = json.loads((data / 'logs' / 'loop_checkpoint.json').read_text(encoding='utf-8')) \
         if (data / 'logs' / 'loop_checkpoint.json').exists() else {}
     drift = json.loads((data / 'logs' / 'drift_latest.json').read_text(encoding='utf-8')) \
