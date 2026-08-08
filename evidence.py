@@ -1365,7 +1365,7 @@ def receipt(data_dir, use_tier3):
 
 def run_benchmark(data_dir, use_tier3):
     tenders, awards, lots, texts, raw, docfreq = load_world(data_dir)
-    from calibrate import lot_codes
+    from calibrate import is_deep, lot_codes
     from embed import MODEL_TAG, read_cpv_labels
     labels = read_cpv_labels()
     trust = json.loads(Path(f'trusted_codes_{MODEL_TAG}.json').read_text(
