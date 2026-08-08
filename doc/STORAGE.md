@@ -348,14 +348,27 @@ two points: **step 4**, when predictions and grades become load-bearing, and
 **the freeze**, when the files stop being readable at all. For those two:
 migrate right after a cycle completes, and disable the cron for the window.
 
-### 5.4 Does `simulation` belong at all?
+### 5.4 `simulation` — DECIDED and DONE 2026-08-08
 
-15,822 rows of market-scale simulated picks, used by `simulation.py check` and
-`outreach.py`. It is a record of decisions, so section 1 says database.
+15,835 rows of market-scale simulated picks, read by `simulation.py check` and
+`outreach.py`. The operator settled it: *"I want to see the numbers."* Simulated
+picks joined against outcomes **are** numbers, and leaving the one ledger outside
+the system so it could not be joined to the others was the wrong side of the
+line.
 
-**Recommendation: move it**, but last, and note that it is the one table whose
-rows nobody has ever queried by key — it is read whole. If it turns out to be
-a pure analysis artifact, it could equally stay a file.
+Now the `simulation` table, unique on `(company, procedure_id, lot_id)` — which
+is the dedup rule `simulation.py` was keeping in a Python set. `outreach.py`
+counted the file's lines to get each company's product volume; through
+`ledger.py` now, or it would have undercounted by every cycle since the table
+landed.
+
+Receipts: 15,835 rows migrated, `--verify` byte-faithful, `ledger.read` returns
+rows identical to the frozen file, `outreach.simulated_picks` agrees across all
+3,451 companies, and `simulation.py check` still reports "15,835 simulated picks
+· 3,451 companies".
+
+**All eight ledgers are now in the database.** `models/registry.jsonl`,
+`models/CURRENT` and `loop_checkpoint.json` remain files by decision (5.1, 5.2).
 
 ### 5.5 Erasure is incomplete — found by the tests (2026-08-08)
 

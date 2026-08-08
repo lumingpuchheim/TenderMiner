@@ -3,9 +3,10 @@
 Every winner company in the awards store is a simulated customer: market
 derived from what they won (cpv3 trades x NUTS-1 regions), product-faithful
 picks (flag floor, deadline floor, top N), appended to
-data/ledger/simulations.jsonl — one JSON line per (company, pick), deduped
+Recorded in the `simulation` table (doc/STORAGE.md 5.4), one row per
+(company, pick), deduped
 per company/lot forever. No rendering, no HTML. Checked against
-data/ledger/grades.jsonl as awards publish.
+the grade ledger as awards publish.
 
 Usage:
     python simulation.py check            # join simulations vs grades, print hit rates
@@ -55,7 +56,7 @@ def append_jsonl(path, rows):
 
 def simulate(data_dir, scored, tenders, aw, max_picks=5, min_deadline_days=14):
     """One simulation pass over the given scored open lots. Returns new rows."""
-    ledger = Path(data_dir) / 'ledger' / 'simulations.jsonl'
+    home = Path(data_dir)
     today = now_utc().date()
     lot_meta = {}
     for r in tenders[sb.KEY + ['cpv_main', 'place_nuts3']].itertuples():
@@ -97,7 +98,8 @@ def simulate(data_dir, scored, tenders, aw, max_picks=5, min_deadline_days=14):
     for rows_ in buckets.values():
         rows_.sort(key=lambda r: -r['score'])
 
-    seen = {(s['company'], s['procedure_id'], s['lot_id']) for s in read_jsonl(ledger)}
+    seen = {(s['company'], s['procedure_id'], s['lot_id'])
+            for s in ledger.read(home, 'simulations')}
     ts = now_utc().isoformat(timespec='seconds')
     new_rows, n_companies = [], 0
     for company, p in profiles.items():
@@ -127,7 +129,7 @@ def simulate(data_dir, scored, tenders, aw, max_picks=5, min_deadline_days=14):
             picked += 1
         if picked:
             n_companies += 1
-    append_jsonl(ledger, new_rows)
+    ledger.append(home, 'simulations', new_rows)
     print(f'[simulate] {len(new_rows)} new simulated picks for {n_companies} '
           f'winner companies ({len(profiles)} profiles, '
           f'{sum(len(b) for b in buckets.values())} eligible lots)')
@@ -137,7 +139,7 @@ def simulate(data_dir, scored, tenders, aw, max_picks=5, min_deadline_days=14):
 def check(data_dir, min_company_picks=3):
     """Join simulations against grades and print the market-scale answer."""
     data = Path(data_dir)
-    sims = read_jsonl(data / 'ledger' / 'simulations.jsonl')
+    sims = ledger.read(data, 'simulations')
     all_grades = ledger.read(data, 'grades')
     grades = {(g['procedure_id'], g['lot_id']): g for g in all_grades}
     if not sims:

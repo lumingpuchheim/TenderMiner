@@ -211,15 +211,16 @@ def trade_read(df, hist, sidecar, data_dir, top_k=3):
     return df
 
 
-def simulated_picks(ledger_path):
-    """company -> number of simulated picks (their market's product volume)."""
+def simulated_picks(data_dir):
+    """company -> number of simulated picks (their market's product volume).
+
+    Through ledger.py: the simulations file stopped being the record when the
+    table landed, and counting its lines would undercount by every cycle since.
+    """
+    import ledger
     picks = collections.Counter()
-    p = Path(ledger_path)
-    if not p.exists():
-        return picks
-    for line in p.read_text(encoding='utf-8').splitlines():
-        if line.strip():
-            picks[json.loads(line)['company'].strip()] += 1
+    for r in ledger.read(data_dir, 'simulations'):
+        picks[str(r['company']).strip()] += 1
     return picks
 
 
@@ -263,7 +264,7 @@ def build(args):
     for f in CONTACT_FIELDS:
         df[f] = df['company'].map(lambda n: (contacts.get(n) or {}).get(f))
 
-    picks = simulated_picks(Path(args.data_dir) / 'ledger' / 'simulations.jsonl')
+    picks = simulated_picks(args.data_dir)
     df['sim_picks'] = df['company'].map(picks).fillna(0).astype(int)
 
     n_all = len(df)
