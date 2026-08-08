@@ -357,6 +357,42 @@ migrate right after a cycle completes, and disable the cron for the window.
 rows nobody has ever queried by key — it is read whole. If it turns out to be
 a pure analysis artifact, it could equally stay a file.
 
+### 5.5 Erasure is incomplete — found by the tests (2026-08-08)
+
+**Open, and it contradicts a claim made repeatedly above.** Section 1 says
+splitting `customer` out of `subscription_version` makes an erasure request "one
+row rather than a contradiction". Writing the test for that found two reasons it
+is not true yet.
+
+First, `DELETE FROM customer` **failed outright**: `customer_id TEXT REFERENCES
+customer(customer_id)` made it a foreign-key violation. Fixed in schema 3 by
+making the reference soft — a plain pointer, no constraint. `ON DELETE SET NULL`
+cannot help, because setting it would be an `UPDATE` on an append-only table.
+Erasing a customer now leaves their market history with a `customer_id` that
+resolves to nothing, which is the right outcome: the person goes, the business
+record stays.
+
+Second, and still open: **the name is also inside `raw`.** Every
+`subscription_version` row keeps its verbatim original line, which contains
+`"name": "..."`, and that table is append-only. So deleting the customer row
+removes the identity the read path *overlays* but not the copy in storage.
+
+Two ways out, neither done:
+
+- **Strip identity from `raw` at write time** and re-inject it from `customer` on
+  export. PII would then exist in exactly one place, making the claim true by
+  construction. The cost is that export becomes a reconstruction rather than a
+  verbatim replay — and after an erasure it would legitimately differ from the
+  frozen original, which `--verify` must be taught to expect.
+- **Make erasure an explicit, audited exception** to append-only that rewrites
+  the affected `raw` blobs.
+
+The first is cleaner. Until one is done, the honest statement is: the *structure*
+for erasure exists and the customer row is deletable, but a determined reader can
+still recover the name from storage. `tests/test_storage.py` asserts that
+current reality rather than the intention, so the gap cannot be quietly
+forgotten.
+
 ## 6. What to do next — the only plan
 
 Five items, in order. Each is useful on its own, none is wasted whichever host
@@ -383,19 +419,43 @@ sequence column), `PRAGMA table_info` for column discovery, and the
 90,000 rows go through this code every cycle. This is what keeps Postgres
 available without committing to it.
 
-### 6.3 Write the tests (medium — the largest item, and the point)
+### 6.3 Write the tests — DONE 2026-08-08
 
-This repository has **no tests**: no `tests/` directory, no `test_*.py`, six
-assertions in `single_bidder.py` in total. Every correctness check behind phases
-1-3 was a script written, run once and thrown away; the proofs are real but live
-in commit messages and re-run never.
+`tests/test_storage.py`, 41 tests, stdlib `unittest` (pytest is not installed
+here, and a suite that needs installing is a suite that does not get run):
 
-Encode them: reads identical across both storages, appends idempotent, export
-round-trips, as-of resolution, the market filter, the validator's rejections,
-the append-only triggers.
+    python -m unittest discover -t . -s tests
 
-*Why here and not later:* this is the "easy to maintain" requirement itself —
-everything else is plumbing. And tests written **before** 6.4 protect 6.4.
+No real data: every test builds its own temporary directory, so nothing reads
+`data/`, nothing needs the 81 MB database, nothing touches the network, and a
+failure can never be "your store is in an odd state". They assert *behaviours* —
+identical rows from either storage, an idempotent append, a loud refusal — so the
+engine can be replaced underneath them, which is what makes section 0's Postgres
+swap checkable rather than hopeful.
+
+Covered: the validator's rejections and its deliberate tolerance of retired
+fields; as-of resolution including deactivation-by-new-version; the market filter
+including the deep-CPV-prefix bug and pandas NaN; file-versus-database reads
+returning identical dicts; identity overlaid from `customer` while the filter
+stays frozen; idempotent migration and append; dense `seq`; every guard (file
+ahead of database, storage-file path passed in, frozen marker, schema
+downgrade); the append-only triggers; export fidelity including heterogeneous
+rows; the sandbox round trip; and configuration resolution order.
+
+**Three real defects, found before the suite was even committed:**
+
+1. `DELETE FROM customer` failed on a foreign key, making the erasure the
+   customer table exists for impossible (see 5.5, fixed in schema 3).
+2. The erasure gap in 5.5 itself — the name survives in `raw`.
+3. `db.stale_tables` was referenced by the plan but did not exist; it had been
+   written and then correctly reverted with the abandoned export work, and
+   nothing noticed the hole.
+
+Two of the ten initial failures were the *test's* fault, and worth recording:
+`UPDATE`/`DELETE` against an **empty** table fires no row trigger and so raises
+nothing, which looked exactly like the append-only guard being absent. Every
+ledger table is seeded now, and a second test asserts the seeding so the first
+cannot go vacuous.
 
 ### 6.4 Finish the migration: `prediction` and `grade` (medium)
 

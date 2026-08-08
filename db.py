@@ -58,7 +58,7 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
 DB_NAME = 'tendermining.db'
-SCHEMA_VERSION = 2   # 2: explicit `seq` column instead of SQLite rowid
+SCHEMA_VERSION = 3   # 2: explicit `seq`; 3: customer_id is a soft reference
 
 # ---------------------------------------------------------------- the schema
 
@@ -99,7 +99,15 @@ CREATE TABLE IF NOT EXISTS customer (
 CREATE TABLE IF NOT EXISTS subscription_version (
     sub_id            TEXT NOT NULL,
     version           INTEGER NOT NULL,
-    customer_id       TEXT REFERENCES customer(customer_id),
+    -- A SOFT reference, deliberately not a FOREIGN KEY (schema 3). With the
+    -- constraint on, `DELETE FROM customer` failed outright, which made the
+    -- erasure this table's whole design was for impossible; and ON DELETE SET
+    -- NULL cannot help, because setting it would be an UPDATE on an
+    -- append-only table. So the column is a plain pointer: erasing a customer
+    -- leaves their market history intact with a customer_id that resolves to
+    -- nothing, which is the correct outcome -- the person is gone, the
+    -- business record remains. A test asserts the DELETE succeeds.
+    customer_id       TEXT,
     effective_from    TEXT,
     active            INTEGER NOT NULL DEFAULT 1,
     cpv_prefixes      TEXT,        -- JSON array
@@ -569,6 +577,31 @@ def export_jsonl(data_dir, out_dir):
         dest.write_text(''.join(l + '\n' for l in lines), encoding='utf-8')
         written[name] = len(lines)
     return written
+
+
+def stale_tables(data_dir):
+    """[(ledger, rows_in_db, rows_in_file)] for tables whose SOURCE FILE is
+    ahead — records the database has not taken in.
+
+    Not an error by itself: a ledger nobody reads from the database yet is
+    allowed to lag. It matters when something reports on the database's contents,
+    because a report on a table that is behind must say so rather than look
+    current.
+    """
+    con = connect(data_dir, create=False)
+    if con is None:
+        return []
+    out = []
+    for name, (rel, table) in LEDGERS.items():
+        f = Path(data_dir) / rel
+        if not f.exists():
+            continue
+        n_file = sum(1 for line in f.read_text(encoding='utf-8').splitlines()
+                     if line.strip())
+        n_db = con.execute(f'SELECT COUNT(*) AS n FROM {table}').fetchone()['n']
+        if n_file > n_db:
+            out.append((name, n_db, n_file))
+    return out
 
 
 def verify(data_dir):
