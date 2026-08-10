@@ -105,6 +105,28 @@ gate is buying precision at market scale, measured on outcomes — not on
 labels. A failure in the verdict pass must never break the cycle: the
 simulation is instrumentation, and the loop wraps it accordingly.
 
+**The join is also stamped, not only rendered.** `verdict_outcomes()`
+recomputes from scratch on every read, so the dashboard panel shows today's
+answer and yesterday's is gone the moment a grade lands. Each cycle therefore
+appends the answer to `gate_outcomes` — one row per (cycle `ts`, verdict),
+a single shared `ts` per snapshot so a cycle is one addressable point:
+`ts, verdict, graded, lonely_rate, own_wins, own_rate, picks_total,
+verdicts_total`. The last two are the cycle-wide denominators, repeated on
+every row of the snapshot, so `graded` stays readable a year later. The
+natural key `(ts, verdict)` makes a re-run a no-op — a cycle can never
+double a point in the series, or rewrite what was known that day. Rows are
+written **even while every count is zero**: simulated picks start being
+graded around October 2026, and a series that begins once the numbers are
+interesting cannot show that they were zero before. The same shared
+aggregation feeds both readers, so the panel and the table can never drift
+apart.
+
+The full history is also written to `data/reports/gate_outcomes.csv` each
+cycle — one stable path, rebuilt from the ledger rather than appended to,
+exactly the table's eight columns — for a consumer that has no sqlite. The
+snapshot runs inside the same guard as the verdict pass: instrumentation
+never costs a delivery cycle.
+
 ## What this is not
 
 - Not model training input — winner identities never feed features
