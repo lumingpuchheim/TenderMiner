@@ -13,7 +13,9 @@ Decisions settled here, to be read against the open-decisions table in
 `ONBOARDING.md` §7:
 
 - **Free period: four weeks** (decision #3, the doc's own recommendation).
-- **Trade market page: public** (decision #7).
+- **Trade market page: public when it comes — deferred until the inbound
+  channel opens** (decision #7, refined). With QR-only acquisition there is
+  no stranger to show it to; it returns as the SEO play (§4).
 - **Signup is QR-personalised; no login, no manual input, no confirmation
   step.** Every reachable customer is already known (decision #8's default,
   sharpened: we do not ask a customer to confirm what we already verified).
@@ -41,7 +43,7 @@ rather than asks (careful copy per decision #8: their trade, their market's
 numbers; never anything that reads as surveillance):
 
 - their firm name and trade;
-- their trade's market figures (the §4 page content, inline or linked);
+- their trade's market figures (rendered from `market.py`, inline);
 - **one input: the e-mail address** the weekly report should go to.
   Submitting it is the consent record (`consent_at`, ONBOARDING.md §5.2). The
   consent text names what will come: the weekly reports, and — after the
@@ -55,8 +57,8 @@ against the firm's own history without asking anyone. If our data is ever
 wrong, the first weekly report — read by the actual businessperson — is a
 better error detector than a yes-button clicked by whoever opened the mail.
 
-A visitor without a valid token sees the public trade pages and a contact
-address, not a form.
+A visitor without a valid token sees the root page: one sentence about the
+product, a contact address, Impressum and Datenschutzerklärung — not a form.
 
 **[BUILD]** the page, plus Impressum and Datenschutzerklärung (legally
 required; the Datenschutzerklärung also carries the long-form Art. 14
@@ -200,21 +202,46 @@ discipline, the mailer's own guard, so a future bug cannot mail a
 be selectable in one query, because it *is* a marketing audience and will be
 mailed as one.
 
-## 4. The trade market pages
+## 4. Hosting, and the public/personal rule
 
-One public page per trade: lots per month, median award, €/year in scope, the
-0/1-bid share, the closed-without-award share — `market.py trade` output,
-re-rendered weekly by the cycle. No personal data, so **not blocked** by the
-legal sign-off. It is simultaneously the QR landing target for visitors
-without tokens, the only content of its kind on the German market
-(`MARKET_AND_COMPETITORS.md` §6), and the proof the product is real.
+**One live surface: the app**, running in Docker next to the database, on its
+own subdomain (`app.…`). It serves everything that exists in the current
+scope — the QR pages, the e-mail submit, feedback confirms, the stop page,
+the recall box, and the minimal root page (product sentence, contact,
+Impressum, Datenschutzerklärung). It reads the database per request, so a new
+customer, a changed prediction or a fresh profile needs **no deployment
+anywhere** — the next request simply sees the new row. Code deploys happen
+only when code changes. Consequence: **the Docker box must be reachable from
+the internet around the clock** — a small VPS, or a tunnel to wherever the
+box lives. **[CLARIFY]** which; it is the one real hosting decision, and it
+must be settled before the first QR code is printed, because the app's
+domain is baked into every letter.
 
-**[BUILD]**: static pages from `market.py`, one per trade in
-[`trades.txt`](../trades.txt). Static keeps hosting at zero.
+What is public vs. personal is decided by a rule, not case by case:
 
-Re-affirmed: **no page listing firms and their wins** — it would rank and
-flatter, and it is republishing personal data for a new purpose (the hard
-version of the unanswered lawyer question).
+- **Public = aggregates only** — content with no customer and no person in
+  it. This product has exactly one such asset: the per-trade market
+  statistics (lots/month, median award, 0/1-bid share, closed-without-award
+  share) from `market.py`. Nobody else in Germany publishes them; they are
+  the future advertising. **Deferred with the inbound channel**: with
+  QR-only acquisition there is no stranger to show them to. When that
+  channel opens, they go out as **static HTML** (Google-readable by design —
+  the SEO argument for HTML over JavaScript), rendered by the cycle,
+  uploaded by the cycle to a static host in front of the app. No git-triggered
+  builds ever: the host receives finished files, because the data they are
+  rendered from lives in the database, not the repo.
+- **Personal = everything with a firm in it**, and it is not merely
+  non-public but **actively unfindable**: tokened URLs, `noindex`, tokens
+  long enough that guessing is hopeless. A customer page reachable through
+  Google would be decision #8's surveillance nightmare realised.
+- **There is no third category.** Anything with names in it — "top winning
+  firms", "recent awards near you" — is out; re-affirmed, that page ranks,
+  flatters, and republishes personal data for a new purpose (the hard
+  version of the unanswered lawyer question).
+
+The administrator has no web surface at all: the console `report` subcommand
+and the review queue are the whole back office, on the machine the data
+lives on.
 
 ## 5. Seeing conversion
 
@@ -243,12 +270,13 @@ conversion against the €60–€99 entrant band vs. €179 anchor
 
 | # | build | unblocks | blocked by |
 | --- | --- | --- | --- |
-| 1 | signup page + Impressum/Datenschutz | everything customer-facing | — |
+| 1 | the app: QR pages, e-mail submit, root page (Impressum/Datenschutz) | everything customer-facing | — |
+| 1a | app hosting: VPS or tunnel, domain | letters can be printed (domain is on them) | the [CLARIFY] in §4 |
 | 2 | pre-flight check + automatic activation | safe signups | — |
 | 3 | `contact_state` + stop page + guarded mailer | lawful sending at all | — |
 | 4 | pick grading + results notes | the post-trial conversion channel | award publications (data, not code) |
 | 4a | feedback links + confirm pages + recall box + ledger events | the learning loop at trial time | — |
-| 5 | trade market pages (public, static) | QR landing target, later inbound | — |
+| 5 | ~~trade market pages~~ deferred with the inbound channel (§4) | later inbound | opening that channel |
 | 6 | outreach ledger events + console report | conversion by channel, ask-to-yes gap | — |
 | 7 | Stripe page | first paid conversion | price decision, due before first trial ends |
 
