@@ -1,10 +1,13 @@
 """TenderMining market view — the business-developer's three questions.
 
+    python market.py next                      THE decision: which market first,
+                                               who is contactable there, and
+                                               what to charge them
+    python market.py pitch "Jebsen"            one firm's letter numbers
     python market.py trade  "Blitzschutz"      what is this market worth, and
                                                how contested is it?
     python market.py firms  "Blitzschutz"      who wins it — who do I write to?
-    python market.py rank                      which trade should I sell into
-                                               next?
+    python market.py rank                      browse all trades, one sort key
     python market.py suggest "Blitzschutz"     what words is this trade missing?
     python market.py trades                    what the trade list claims
 
@@ -80,6 +83,23 @@ TOP_N = 12
 VALUE_BANDS = [(0, 100_000), (100_000, 250_000),
                (250_000, 1_000_000), (1_000_000, float('inf'))]
 SMALL_SIZES = ('small', 'micro')
+
+# --- the economics behind `next` and `pitch` ---------------------------
+# Everything below the line is DERIVED from the store. The three constants
+# above it are GUESSES, printed as such in every output that uses them, and
+# they stay guesses until a customer answers the three questions in
+# GO_TO_MARKET.md (hours spent reading portals, cost of one bid, hit rate).
+# Change them here, in one place, when an answer arrives.
+WIN_UPLIFT = 0.05        # GUESS: flagged uncontested lots a firm converts
+MARGIN = 0.08            # GUESS: contractor margin on contract value
+PRICE_SHARE = 0.20       # GUESS: the share of created value we charge
+FLAT_FLOOR = 75.0        # EUR/month — the GO_TO_MARKET.md price, the minimum
+PCT_DEAL_MIN = 500_000   # median award above this: pitch a % of the deal,
+                         # because a flat fee looks absurd next to one win
+MIN_RECS_YEAR = 12       # a contactable firm must be owed >= one pick a
+                         # month from their own region — the "we will
+                         # definitely recommend you tenders" guarantee
+MIN_PROSPECT_WINS = 2    # ... and have proven twice that they win tenders
 
 TENDER_COLS = ['procedure_id', 'lot_id', 'notice_version', 'publication_date',
                'title', 'description', 'est_value_lot', 'est_value_procedure',
@@ -543,25 +563,27 @@ def modal_size(sizes):
     return top + ('*' if len(sizes) > 1 else '')
 
 
+def _alias_key(name):
+    """The first two significant words of a firm name, folded — "NDB
+    ELEKTROTECHNIK GmbH & Co. KG, NL Berlin" and "NDB Elektrotechnik GmbH &
+    Co. KG" reduce to the same key. Too-short keys fall back to the exact
+    name so "BAU GmbH" never swallows "Baumann GmbH"."""
+    n = re.sub(r'\b(gmbh|co|kg|ag|mbh|se|ohg|e\.?k|und|&|\+)\b', ' ',
+               name.casefold())
+    key = ' '.join(re.sub(r'[^a-zäöüß ]', ' ', n).split()[:2])
+    return key if len(key) >= 6 else name.casefold()
+
+
 def alias_groups(rows):
-    """Rows whose names reduce to the same first two significant words —
-    "NDB ELEKTROTECHNIK GmbH & Co. KG, NL Berlin" and "NDB Elektrotechnik
-    GmbH & Co. KG" — are probably one firm typed twice.
+    """Rows that share an alias key are probably one firm typed twice.
 
     They are flagged and listed, never merged: identity is the exact string
     (SIMULATION.md), and the split matters because it understates a real
     prospect's win count. The footer prints the combined total so a person can
     see what the firm is actually worth before deciding to merge."""
-    def core(name):
-        n = re.sub(r'\b(gmbh|co|kg|ag|mbh|se|ohg|e\.?k|und|&|\+)\b', ' ',
-                   name.casefold())
-        return re.sub(r'[^a-zäöüß ]', ' ', n).split()
     seen = {}
     for r in rows:
-        key = ' '.join(core(r['firm'])[:2])
-        if len(key) < 6:
-            continue
-        seen.setdefault(key, []).append(r)
+        seen.setdefault(_alias_key(r['firm']), []).append(r)
     groups = [g for g in seen.values() if len(g) > 1]
     for group in groups:
         for r in group:
@@ -633,6 +655,234 @@ def customer_names(data_dir):
         if s.get('name'):
             names.append(s['name'])
     return names
+
+
+# ----------------------------------------------------- next / pitch
+
+def firm_value(uncontested_year, median_award):
+    """-> (value EUR/year, price EUR/month, model) for one firm.
+
+    value = uncontested lots a year in their reach x the trade's median award
+    x WIN_UPLIFT x MARGIN — what the subscription plausibly adds to their
+    bottom line. The price is PRICE_SHARE of that, floored at the
+    GO_TO_MARKET.md flat fee; where one median award clears PCT_DEAL_MIN the
+    model flips to a percentage of the deal, because next to a 2 M EUR win a
+    flat fee prices the product as noise."""
+    value = uncontested_year * median_award * WIN_UPLIFT * MARGIN
+    price = max(FLAT_FLOOR, PRICE_SHARE * value / 12)
+    model = '% of deal' if median_award >= PCT_DEAL_MIN else 'flat'
+    return value, price, model
+
+
+def trade_economics(lots, sel, covered, mature):
+    """The per-trade quantities the pricing needs: lots per year by region
+    (covered months only), the mature-month 0/1 rate with its denominator,
+    and the median award."""
+    sub = lots[sel]
+    months = max(len(covered), 1)
+    cov = sub[sub.month.isin(covered)]
+    region_year = (cov.groupby('nuts2').size() * 12.0 / months).to_dict()
+    mat = sub[sub.month.isin(mature) & sub.resolved]
+    rate = float((mat.n_tenders <= 1).mean()) if len(mat) else None
+    val = sub.award_value.dropna()
+    med_award = float(val.median()) if len(val) else None
+    return region_year, rate, len(mat), med_award
+
+
+def prospect_rows(lots, sel, region_year, rate, med_award):
+    """One row per prospect FIRM (alias-merged), with the letter numbers.
+
+    This is the one place spellings ARE merged — by alias key, for the maths
+    only, because a prospect's win count and price must not depend on how a
+    clerk typed the name. Every spelling is kept in `names` so the letter can
+    still quote the exact strings TED published.
+
+    recs_year is what we would actually deliver: the trade's yearly lot count
+    in the regions THE FIRM wins in. contactable means the GO_TO_MARKET.md
+    segment (small/micro, proven winner) AND recs_year clears MIN_RECS_YEAR —
+    the guarantee that we never contact a firm we cannot deliver to."""
+    sub = lots[sel]
+    awarded = sub[sub.winner_names.notna()]
+    per = {}
+    for _, r in awarded.iterrows():
+        names = r.winner_names if not isinstance(r.winner_names, str) \
+            else [r.winner_names]
+        for raw in names:
+            if not raw:
+                continue
+            name = str(raw).strip()
+            f = per.setdefault(_alias_key(name), {
+                'names': set(), 'wins': 0, 'low': 0, 'regions': set(),
+                'sizes': Counter(), 'values': []})
+            f['names'].add(name)
+            f['wins'] += 1
+            if not pd.isna(r.n_tenders) and r.n_tenders <= 1:
+                f['low'] += 1
+            f['regions'].add(r.nuts2)
+            if isinstance(r.winner_size, str) and r.winner_size:
+                f['sizes'][r.winner_size] += 1
+            if not pd.isna(r.award_value):
+                f['values'].append(r.award_value)
+
+    rows = []
+    for f in per.values():
+        recs_year = sum(region_year.get(rg, 0.0) for rg in f['regions'])
+        uncontested_year = recs_year * (rate or 0.0)
+        value, price, model = firm_value(uncontested_year, med_award or 0.0)
+        size = modal_size(f['sizes'])
+        why_not = []
+        if size.rstrip('*') not in SMALL_SIZES:
+            why_not.append(f'size {size}')
+        if f['wins'] < MIN_PROSPECT_WINS:
+            why_not.append(f'{f["wins"]} win')
+        if recs_year < MIN_RECS_YEAR:
+            why_not.append(f'{recs_year:.0f} picks/yr < {MIN_RECS_YEAR}')
+        rows.append({
+            'firm': sorted(f['names'], key=len)[0], 'names': sorted(f['names']),
+            'size': size, 'wins': f['wins'], 'low': f['low'],
+            'regions': sorted(f['regions']), 'recs_year': recs_year,
+            'uncontested_year': uncontested_year, 'value': value,
+            'price': price, 'model': model,
+            'contactable': not why_not, 'why_not': ', '.join(why_not)})
+    rows.sort(key=lambda r: -r['price'])
+    return rows
+
+
+def print_assumptions():
+    print(f'  assumptions (GUESSES until a customer answers — one place to '
+          f'change them, market.py):')
+    print(f'    WIN_UPLIFT {WIN_UPLIFT:.0%} of flagged uncontested lots '
+          f'become wins · MARGIN {MARGIN:.0%} of contract value '
+          f'· PRICE_SHARE {PRICE_SHARE:.0%} of created value '
+          f'· floor {FLAT_FLOOR:.0f} EUR/month')
+
+
+def cmd_next(lots, trades, args):
+    covered, mature, _ = coverage(lots)
+    base = lots[lots.month.isin(mature) & lots.resolved]
+    baseline = float((base.n_tenders <= 1).mean()) if len(base) else 0.0
+
+    rows, rejected = [], []
+    for name, trade in trades.items():
+        sel = match(lots, trade, args.scope)
+        region_year, rate, awarded, med_award = \
+            trade_economics(lots, sel, covered, mature)
+        if rate is None:
+            rejected.append((name, 'no awarded lot in a mature month — '
+                                   'nothing to rate yet'))
+            continue
+        if med_award is None:
+            rejected.append((name, 'no published award sum — '
+                                   'nothing to price'))
+            continue
+        pros = prospect_rows(lots, sel, region_year, rate, med_award)
+        contact = [p for p in pros if p['contactable']]
+        if not contact:
+            rejected.append(
+                (name, f'{len(pros)} winning firms, none contactable '
+                       f'(small/micro, >={MIN_PROSPECT_WINS} wins, '
+                       f'>={MIN_RECS_YEAR} picks/yr)'))
+            continue
+        def med(key):
+            vals = sorted(p[key] for p in contact)
+            return vals[len(vals) // 2]
+        prices = [p['price'] for p in contact]
+        rows.append({
+            'trade': name[:34],
+            'firms': len(contact),
+            'recs': f'{med("recs_year"):.0f}',
+            'low': f'{rate:.0%}' + ('' if awarded >= SMALL_SAMPLE else ' ?'),
+            'uncon': f'{med("uncontested_year"):.1f}',
+            'value': money(med('value')),
+            'price': f'{med("price"):.0f}',
+            'model': '% of deal' if med_award >= PCT_DEAL_MIN else 'flat',
+            'revenue': sum(prices),
+            'rev': f'{sum(prices):.0f}'})
+    rows.sort(key=lambda r: -r['revenue'])
+
+    print('# Which market first — contactable firms x what to charge them')
+    print(f'store: {store_profile(lots)}')
+    print(f'coverage: {len(covered)} covered months, {len(mature)} mature; '
+          f'store-wide 0/1 baseline {baseline:.0%}')
+    print_assumptions()
+    print(f'  a firm is contactable when it is small/micro, has won '
+          f'>={MIN_PROSPECT_WINS} lots in the trade, and its own regions '
+          f'yield >={MIN_RECS_YEAR} picks a year — the "we will definitely '
+          f'recommend tenders" guarantee.')
+    print(f'  per-firm columns are the median contactable firm; '
+          f'rev/mo is the sum over all of them — the sort key, because the '
+          f'question is where a sales week earns most.')
+    print()
+    print(table(rows, {'trade': 'trade', 'firms': 'firms', 'recs': 'picks/yr',
+                       'low': '0/1 bids', 'uncon': 'uncon/yr',
+                       'value': 'value/yr', 'price': 'EUR/mo',
+                       'model': 'model', 'rev': 'rev/mo'}))
+    print('## Rejected, and why (the reasoning, not just the survivors)')
+    for name, why in rejected:
+        print(f'  {name}: {why}')
+    print()
+    print(f'next step: python market.py pitch "<firm>" for any firm in a '
+          f'winning trade — the letter numbers, checked per firm.')
+
+
+def cmd_pitch(lots, trades, args):
+    want = args.firm.casefold()
+    covered, mature, _ = coverage(lots)
+    hits = []
+    for name, trade in trades.items():
+        sel = match(lots, trade, args.scope)
+        region_year, rate, awarded, med_award = \
+            trade_economics(lots, sel, covered, mature)
+        if rate is None or med_award is None:
+            continue
+        for p in prospect_rows(lots, sel, region_year, rate, med_award):
+            if any(want in s.casefold() for s in p['names']):
+                hits.append((name, sel, rate, awarded, med_award, p))
+    if not hits:
+        print(f'no winning firm matches "{args.firm}" in any trade — '
+              f'`market.py firms <trade>` lists who does win.')
+        return
+    hits.sort(key=lambda h: -h[5]['wins'])
+    name, sel, rate, awarded, med_award, p = hits[0]
+
+    print(f'# {p["firm"]} — the letter numbers')
+    if len(p['names']) > 1:
+        print(f'  published under {len(p["names"])} spellings: '
+              + '  |  '.join(p['names']))
+    if len(hits) > 1:
+        print(f'  also wins in: '
+              + ', '.join(f'{h[0]} ({h[5]["wins"]})' for h in hits[1:4]))
+    print(f'  trade: {name} · size {p["size"]} · '
+          f'regions {", ".join(p["regions"])}')
+    print()
+    print(f'## What the letter can say')
+    print(f'  - you won {p["wins"]} tenders in this trade that TED published'
+          + (f', {p["low"]} of them against 0 or 1 competitors' if p['low']
+             else ''))
+    print(f'  - your regions see ~{p["recs_year"]:.0f} {name} lots a year — '
+          f'that is what we would send you')
+    print(f'  - ~{p["uncontested_year"]:.1f} of those a year will end with 0 '
+          f'or 1 bidders (trade rate {rate:.0%} on {awarded} awarded lots'
+          + ('' if awarded >= SMALL_SAMPLE else ', small sample') + ')')
+    print(f'  - median award in the trade: {money(med_award)} EUR')
+    print()
+    print(f'## What to charge')
+    print(f'  value basis ~{money(p["value"])} EUR/year -> '
+          f'{p["price"]:.0f} EUR/month, model: {p["model"]}')
+    print_assumptions()
+    print()
+    print(f'## Their wins on record (the proof)')
+    sub = lots[sel]
+    mask = sub.winner_names.map(
+        lambda ns: not isinstance(ns, (type(None), float))   # None/NaN
+        and any(str(n).strip() in p['names'] for n in ns))
+    for _, r in sub[mask].sort_values('award_date').iterrows():
+        bids = '—' if pd.isna(r.n_tenders) else f'{int(r.n_tenders)} bids'
+        print(f'  {r.award_date}  {str(r.title)[:64]:64s}  '
+              f'{money(r.award_value):>8}  {bids}  {r.publication_number}')
+    if not p['contactable']:
+        print(f'\n  NOT in the contactable pool: {p["why_not"]} — '
+              f'write anyway only if you know something the data does not.')
 
 
 # --------------------------------------------------------------- rank
@@ -860,6 +1110,12 @@ def main():
     sub = p.add_subparsers(dest='cmd', required=True, parser_class=(
         lambda **kw: argparse.ArgumentParser(parents=[common], **kw)))
 
+    sub.add_parser('next', help='THE decision: which market first, who is '
+                                'contactable there, what to charge')
+
+    pi = sub.add_parser('pitch', help='one firm\'s letter numbers')
+    pi.add_argument('firm', help='firm name or a piece of it, e.g. Jebsen')
+
     t = sub.add_parser('trade', help='the market page for one trade')
     t.add_argument('trade')
     t.add_argument('--region', help='NUTS prefixes, comma separated (DE2,DE1)')
@@ -895,8 +1151,9 @@ def main():
 
     trades = load_trades()
     lots = add_text(load_lots(config.data_root(args.data_dir)))
-    {'trade': cmd_trade, 'firms': cmd_firms, 'rank': cmd_rank,
-     'suggest': cmd_suggest, 'trades': cmd_trades}[args.cmd](lots, trades, args)
+    {'next': cmd_next, 'pitch': cmd_pitch, 'trade': cmd_trade,
+     'firms': cmd_firms, 'rank': cmd_rank, 'suggest': cmd_suggest,
+     'trades': cmd_trades}[args.cmd](lots, trades, args)
 
 
 if __name__ == '__main__':
