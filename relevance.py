@@ -812,6 +812,16 @@ def _judge_evidence(gate, profile, scored_row, i, config=None):
                 and evidence_witnesses(ev) < evd.CONVICT_BODY_MIN
                 and not c_hard >= profile['min_code_hard']):
             convicting = False
+        # phase 9i: a body conviction under a title that names a trade the
+        # profile does not know is an inventory lot mentioning the firm's
+        # words. A lexicon keyword in the title or the hard code channel
+        # lifts the veto (adjacency — Rohbau firms really win Abbruch lots).
+        if (evd.TITLE_CONTRADICTS_BODY and convicting and not core_title
+                and not evd.title_witness(gate.all_title[i], ev)
+                and not c_hard >= profile['min_code_hard']
+                and any(evd.roots_in(w)
+                        for w in set(evd.tokens(title_f)))):
+            convicting = False
         passed, borderline = _evidence_verdict(
             profile, text, c_hard, same_buyer, bool(ev) or core_title,
             witnesses=evidence_witnesses(ev),
