@@ -305,6 +305,15 @@ the aggregates are **orientation** ("lohnt sich das?"), the sample and the
 and the national report is **PR for backlinks** — the last two are not
 customer-start data and must not crowd the first two on the page.
 
+This inventory is **closed against plausibility arguments** (2026-08-10,
+after two candidate sections — buyer pages, timing stats — died on
+inspection): a new public section needs either *query evidence* (real
+impressions in Search Console once these pages are live) or *demonstrated
+customer utility*, not a story about what contractors probably google. A
+quarterly competition map may ride along with the single-bidder report as
+its visual (same numbers, rendered); a data-backed beginner guide is
+parked until the site exists and someone will own its text.
+
 - **An index page** linking the trades, and the same Impressum /
   Datenschutzerklärung the app carries.
 - **A sitemap.xml**, rendered with the pages — the pages update weekly,
