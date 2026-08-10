@@ -89,7 +89,12 @@ print(f'[playback] as-of store: {len(tenders)} tender rows, {len(awards)} award 
       f'({len(tenders_full) - len(tenders)} / {len(awards_full) - len(awards)} future rows excluded)')
 
 # ---- step 3: as-of calibration (trust list + thresholds) --------------------
-r = cal.calibrate(str(ASOF / 'data'))
+try:
+    r = cal.calibrate(str(ASOF / 'data'))
+except cal.WorldTooThin as e:
+    raise SystemExit(f'[playback] {e}\n'
+                     f'[playback] too little of the store predates {D.date()} '
+                     'to calibrate against. Pick a later cutoff.')
 F = r['configs']['F hard/soft codes + floor/consensus']
 trust_json = ASOF / 'trusted_codes_asof.json'
 trust_json.write_text(json.dumps(

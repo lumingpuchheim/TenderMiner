@@ -51,9 +51,17 @@ VOL_PER_FIRM = 200      # random lots sampled per firm for the volume estimate
 TRUST_MIN_LOTS = 10     # below this, cohesion is too noisy to certify a code
 TRUST_MARGIN = 0.15     # trusted = cohesion >= random baseline + this
 COHESION_SAMPLE = 60    # lots sampled per code for the cohesion estimate
+BASELINE_SAMPLE = 800   # random lots behind the random-pair cohesion baseline
 PSEUDO_REF_CAP = 200    # pseudo-references kept per trusted code (closest first)
 FP_K = 8                # trade-fingerprint size (top label matches)
-CODE_GRID = np.arange(0.70, 1.0, 0.025)  # code-channel thresholds tried
+# code-channel thresholds tried: 0.700 … 0.975 in 0.025 steps. Spelled with
+# linspace and NOT `np.arange(0.70, 1.0, 0.025)`, which accumulates binary
+# error and emits a 13th point at 1.0000000000000002 — past arange's own
+# half-open stop, above every cosine it is ever compared against (so choosing
+# it silently kills the hard channel), and outside the [0, 1] window that
+# `subscriptions.validate` enforces, which turned it into a crash the moment a
+# thin as-of world made it the least-leakage point.
+CODE_GRID = np.round(np.linspace(0.70, 0.975, 12), 3)
 # configuration F: the fingerprint splits by origin. HARD codes are facts
 # (trusted codes on the customer's actual won lots); SOFT labels are our own
 # guesses (dictionary labels near the reference texts) and must earn
@@ -62,9 +70,9 @@ CODE_GRID = np.arange(0.70, 1.0, 0.025)  # code-channel thresholds tried
 # 2.0 in the grid = soft channel off).
 SOFT_FLOORS = (0.45, 0.50, 0.55, 0.60)
 SOFT_CONSENSUS = (1, 2)
-# starts at CODE_GRID's floor so the search space nests configuration E
+# the same grid as the hard channel so the search space nests configuration E
 # (single threshold for both origins); 2.0 = soft channel off
-SOFT_GRID = np.concatenate([np.arange(0.70, 1.0, 0.025), [2.0]])
+SOFT_GRID = np.concatenate([CODE_GRID, [2.0]])
 # configuration H (RELEVANCE.md phase 5): trade-read corroboration of
 # soft-only passes. H1 = absolute floor on sim(candidate text, best hard
 # label); H2 = contrast — the hard label must come within delta of the
@@ -86,6 +94,16 @@ K_MAX_RECALL_COST = 0.005  # largest catch whose recall price stays under this
 TEXT_GRID = np.arange(0.44, 0.71, 0.01)
 VOL_FLOOR = 0.05
 SEED = 7
+
+
+class WorldTooThin(RuntimeError):
+    """This store has too few embedded lots to calibrate against.
+
+    Raised rather than quietly sampling whatever is there: the baseline is a
+    mean over random pairs, and a handful of lots gives a number precise
+    enough to look trustworthy and wrong enough to move `cut`. As-of harnesses
+    catch this and skip the cutoff.
+    """
 
 
 def is_deep(cpv):
@@ -118,10 +136,15 @@ def best_code_score(codes, fp_rows, lmat, lpos):
     return max(scores) if scores else 0.0
 
 
-def code_trust(mat, cpv, rng):
+def code_trust(mat, cpv, rng, world):
     """Random-pair baseline and per-deep-code cohesion; a code is trusted when its
-    lots read alike (cohesion >= baseline + TRUST_MARGIN). No code is assumed."""
-    base = mat[rng.choice(len(mat), 800, replace=False)]
+    lots read alike (cohesion >= baseline + TRUST_MARGIN). No code is assumed.
+
+    `world` are the sidecar rows this store has published (see `calibrate`).
+    The baseline must be drawn from them and not from the whole sidecar: it
+    sets `cut`, so a baseline that has seen later notices decides which codes
+    are trusted in a replayed week."""
+    base = mat[rng.choice(world, BASELINE_SAMPLE, replace=False)]
     baseline = float((base @ base.T).mean())
     cohesion = {}
     counts = pd.Series([c for c in cpv if is_deep(c)]).value_counts()
@@ -209,8 +232,22 @@ def calibrate(data_dir):
     deep_mask = np.array([is_deep(c) for c in all_cpv])
     all_class = np.array([c[:4] if isinstance(c, str) else '' for c in all_cpv])
 
+    # The sidecar rows THIS store has published. The sidecar is a per-notice
+    # cache shared across as-of worlds — backtest.py/replay.py copy it whole,
+    # once, because embedding is expensive — so in a replayed week it holds
+    # lots that week has not reached yet. Every population sampled below must
+    # be drawn from `world`; the pools built from `all_cpv` already are, since
+    # a lot outside this store looks up as None, but two draws used to index
+    # `mat` by raw row number and so read past the cutoff.
+    world = np.array([i for i, r in enumerate(rows)
+                      if (r['procedure_id'], r['lot_id']) in key_cpv], dtype=int)
+    if len(world) < BASELINE_SAMPLE:
+        raise WorldTooThin(
+            f'{len(world)} embedded lots in {data_dir}, but the cohesion '
+            f'baseline needs {BASELINE_SAMPLE}')
+
     rng = np.random.default_rng(SEED)
-    baseline, cut, cohesion, trusted = code_trust(mat, all_cpv, rng)
+    baseline, cut, cohesion, trusted = code_trust(mat, all_cpv, rng, world)
     print(f'[calibrate] cohesion baseline {baseline:.3f}, trust cut {cut:.3f}: '
           f'{len(trusted)}/{len(cohesion)} deep codes trusted')
     pools = pseudo_refs(mat, all_cpv, trusted, cohesion, baseline)
@@ -357,7 +394,7 @@ def calibrate(data_dir):
                 for key in fk:
                     neg_soft[key].append(best_ll(cand, soft_full[key]))
 
-        vol = rng.choice(len(mat), VOL_PER_FIRM, replace=False)
+        vol = rng.choice(world, VOL_PER_FIRM, replace=False)
         vol_plain.append((mat[vol] @ mat[idx].T).max(axis=1))
         vol_text.append((mat[vol] @ mat[full_ref].T).max(axis=1))
         vol_code.extend(best_code_score(all_codes[p], full_fp, lmat, lpos)

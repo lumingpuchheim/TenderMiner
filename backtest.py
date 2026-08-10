@@ -17,10 +17,24 @@ named winner on the latest award revision.
 Time isolation is by construction: one working directory whose store
 parquets are rewritten per cutoff (pyarrow filter — preserves the role
 metadata), and every component (calibration, trust list, profile, model)
-reads only from it. Disclosed residuals: embedding vectors are per-notice
-lookups from the full sidecar; the system's design postdates the replayed
+reads only from it.
+
+The embedding sidecar is the exception, and it is a deliberate one: it is
+copied whole, once, because embedding every cutoff over again would dominate
+the run. It is therefore a per-notice cache that outruns the world it sits
+in, and anything reading it must intersect with the store first —
+`calibrate.calibrate` does that with its `world` row set. Two draws there
+once indexed the sidecar by raw row number and so estimated the cohesion
+baseline (hence which CPV codes are trusted) and the admitted-volume pool
+partly from notices published after the cutoff; fixed 2026-08-10. What
+crossed was aggregate text distribution, never an outcome — no bid count,
+winner or award row has ever reached the as-of side.
+
+Remaining disclosed residuals: a notice's embedding vector is looked up from
+that shared sidecar (a per-notice function of its own text, so no other
+notice's existence changes it); the system's design postdates the replayed
 period; trust/thresholds are recalibrated every RECAL_EVERY cutoffs, not
-weekly (cost).
+weekly (cost) — which uses staler thresholds, never later ones.
 
 Usage:
     python backtest.py                        # weekly, whole feasible range
@@ -44,6 +58,7 @@ import loop
 import relevance as rel
 import single_bidder as sb
 import subscriptions
+from calibrate import WorldTooThin
 from calibrate import calibrate as run_calibration
 from embed import MODEL_TAG
 
@@ -84,10 +99,27 @@ def write_world(full_store, work_store, D):
         pq.write_table(tab.filter(mask), work_store / f'{name}.parquet')
 
 
-def as_of_profile(gate, sub, awards_asof, cal_f):
+CALIBRATED_BARS = ('min_relevance', 'min_code_hard', 'min_code_soft')
+
+
+def as_of_profile(gate, sub, awards_asof):
     """The subscription's profile as it would have stood: wins awarded (i.e.
-    award notice published) before the cutoff, thresholds from the as-of
-    calibration. None when the customer had no resolvable win yet."""
+    award notice published) before the cutoff. None when the customer had no
+    resolvable win yet.
+
+    The customer's OWN three bars are dropped, not overridden, so the gate
+    falls through to the as-of calibration carried on the config (see
+    `replay`). Two reasons, and only the first is about leakage:
+
+    * a bar a customer carries today was chosen with the whole history in
+      view, so a replayed week must not judge with it;
+    * a search that switches a channel off says so out of range — text off is
+      `inf` (configuration F, when the code channel already meets the recall
+      target) and soft off is 2.0 (SOFT_GRID's sentinel). Neither can sit on a
+      subscription line, because `subscriptions.validate` confines a
+      customer's bars to [0, 1] — rightly: out there such a value is a typo.
+      A config field is not customer input and takes them as written.
+    """
     firm = sub.get('name')
     aw = awards_asof[awards_asof['winner_names'].apply(
         lambda x: x is not None and firm in list(x))]
@@ -97,10 +129,8 @@ def as_of_profile(gate, sub, awards_asof, cal_f):
     if not refs:
         return None
     spec = subscriptions.override(
-        sub, profile_refs=refs,
-        min_relevance=cal_f['threshold'],
-        min_code_hard=cal_f['code_threshold'],
-        min_code_soft=cal_f['soft_threshold'])
+        {k: v for k, v in sub.items() if k not in CALIBRATED_BARS},
+        profile_refs=refs)
     return rel.build_profile(gate, spec)
 
 
@@ -146,7 +176,14 @@ def replay(data_dir, step_days, sub_ids):
         if n_lots < MIN_TRAIN_LOTS:
             continue
         if cal_f is None or n_run % RECAL_EVERY == 0:
-            r = run_calibration(str(work))
+            try:
+                r = run_calibration(str(work))
+            except WorldTooThin as e:
+                # Early cutoffs only: the world grows monotonically, so this
+                # never strands a later week. Printed, not swallowed — a
+                # skipped cutoff must not read as a cutoff with no picks.
+                print(f'[backtest] {D.date()}: skipped — {e}', flush=True)
+                continue
             cal_f = r['configs']['F hard/soft codes + floor/consensus']
             trust = work / 'trusted_codes_asof.json'
             trust.write_text(json.dumps(
@@ -156,10 +193,15 @@ def replay(data_dir, step_days, sub_ids):
                            for k, v in r['cohesion'].items()}}), encoding='utf-8')
             # the as-of configuration, as a value rather than by assigning
             # to relevance's module globals (REFACTOR.md phase 3)
+            # All three bars ride on the config, and as_of_profile drops the
+            # customer's own — see its docstring for why.
             cfg = rel.DEFAULT_CONFIG.replace(
                 trusted_codes=trust,
                 soft_floor=cal_f['soft_floor'],
-                soft_consensus=cal_f['soft_consensus'])
+                soft_consensus=cal_f['soft_consensus'],
+                min_relevance=float(cal_f['threshold']),
+                min_code_hard=float(cal_f['code_threshold']),
+                min_code_soft=float(cal_f['soft_threshold']))
         n_run += 1
 
         X, cat_cols, _, _ = sb.build_features(data, roles, list_frame=tenders_r)
@@ -175,7 +217,7 @@ def replay(data_dir, step_days, sub_ids):
         scores = sb.predict(model, Xo)
 
         gate = rel.Gate(str(work), config=cfg)
-        profiles = {s: as_of_profile(gate, subs[s], awards_r, cal_f)
+        profiles = {s: as_of_profile(gate, subs[s], awards_r)
                     for s in subs}
         dl_ok = (deadline.loc[open_t.index]
                  >= D + pd.Timedelta(days=MIN_DEADLINE_DAYS))

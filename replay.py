@@ -110,7 +110,15 @@ def main():
     print(f'[replay] as-of world at {D.date()} built in {time.time() - t0:.0f}s')
 
     # ---- as-of calibration (configuration H) + gate constants ---------------
-    r = cal.calibrate(str(ASOF))
+    try:
+        r = cal.calibrate(str(ASOF))
+    except cal.WorldTooThin as e:
+        raise SystemExit(
+            f'[replay] {e}\n'
+            f'[replay] the store barely reaches back to {D.date()}; a gate '
+            'calibrated on that little would not be the gate this replay '
+            'claims to show. Pick a later cutoff — --scan lists the ones '
+            'with graded picks.')
     H = r['configs']['H single bar + trade-read corroboration']
     trust_json = ASOF / 'trusted_codes_asof.json'
     trust_json.write_text(json.dumps(
