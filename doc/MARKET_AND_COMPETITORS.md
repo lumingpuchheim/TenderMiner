@@ -14,7 +14,9 @@ sources are of three unequal kinds:
 - **literature** — cited in `BUSINESS_CASE.md` / `METHODS.md`.
 - **vendor** — a competitor's own marketing copy. It says what they *sell*, not
   what their product *does*, and a feature absent from a landing page may still
-  exist. Nothing in §2 and §3 has been verified by using the products.
+  exist. Nothing in §2 and §3 has been verified by using the products — with one
+  exception: the signup table in §2.3 was read off the live forms in a browser
+  on 2026-08-10, so its field lists are observed rather than claimed.
 
 ---
 
@@ -106,7 +108,9 @@ through a sales conversation.
 - **DTAD** — "over 1 million Auftragsdaten" a year, 450,000+ public tenders,
   100+ portals, CPV search *and* Volltextsuche, saved Suchprofile with daily
   mail, verified contact data. Positions as volume **plus** "KI-Technologie und
-  manueller Datenveredlung".
+  manueller Datenveredlung". Claims **"mehr als 5.500 Unternehmen"** as
+  customers — the only competitor customer count found, and a useful scale
+  marker for the whole German market.
 - **Vergabe24**, **Deutsches Ausschreibungsblatt**, **evergabe.de** — the same
   category at lower price or with e-submission attached; DAB now ships a KI chat
   over the Vergabeunterlagen.
@@ -143,7 +147,29 @@ bidder-count prediction.
 Treat this as "not advertised", not as "does not exist". The cheap check is a
 free tier (Vergabepilot has one) and a demo.
 
-### 2.3 Where each of our differentiators actually stands
+### 2.3 How you become their customer
+
+Read off the live signup forms on 2026-08-10, not off the marketing copy.
+
+| vendor | how a new customer starts | gate |
+| --- | --- | --- |
+| Deutsches Ausschreibungsblatt | search free, **no registration at all**; full texts are the paid Komfort tier | none |
+| Vergabepilot.ai | self-serve: e-mail, password, confirm, first name, last name, company — 6 fields, **no credit card, cancel anytime**. A 45-minute demo (Mo–Mi 11:30–12:15) exists as an *option* | account |
+| Vergabe24 | free trial, minimum contract term | account + term |
+| Patterno | self-serve monthly/annual per its own comparison page (pricing page 404s — unverified) | unclear |
+| DTAD | "Unverbindlicher Testzugang" is a form — **Firmenname, Rechtsform, Firmen-Website, Vorname, Nachname, geschäftliche E-Mail, geschäftliche Telefonnummer**, all mandatory, plus two marketing-consent checkboxes — and the trial comes "inklusive persönlichem Onboarding" | **a salesperson calls** |
+| ibau | no self-serve and no published price: "Infos anfordern", "Kostenlose Präsentation anfordern", 0800 number | **appointment or nothing** |
+
+The split runs along the same line as the price bands in §3: the incumbents we
+anchored €179 against will not let a Handwerksbetrieb see the product without a
+phone number and a sales conversation; the cheaper AI-native entrants removed
+that gate years ago.
+
+**What none of them removed is the portal.** Even the zero-friction end of that
+table gives the customer an account, a password, a search profile to configure
+and a login to remember. That is the gap §4.4 aims at.
+
+### 2.4 Where each of our differentiators actually stands
 
 | claim | status |
 | --- | --- |
@@ -153,6 +179,7 @@ free tier (Vergabepilot has one) and a demo.
 | "your profile is built from contracts you won" | **ours.** Competitors start from something the customer expresses; we start from award history joined to the firm. Not seen elsewhere. |
 | "the relevance number is published and auditable" | **ours, narrowly.** 1.5% wrong-trade leakage at 60.0% recall on hand-labelled lots, versus a testimonial with no denominator. Only matters to a buyer who asks how it was measured. |
 | "we tell you how contested a lot will be" | **ours** (see §2.2). |
+| "no account, no password, no login" | **ours** (see §2.3, §4.4). One competitor lets you search without registering; none delivers a personalised weekly market without an account. |
 
 ---
 
@@ -254,6 +281,37 @@ number so the profile learns; and the deadline-sorted ordering. Around it:
 ("would we have recommended your actual win, knowing only the past"),
 `outreach.py` for the contact list.
 
+### 4.4 How a customer starts with us — the no-login product
+
+Against §2.3, our onboarding is the smallest one available, because there is no
+portal to onboard into:
+
+> **Firm name, e-mail, and the TED number of one tender you won.** No account,
+> no password, no seat, no login. The report is an e-mail.
+
+The third field is the whole trick: it is the `profile_refs` input (§4.1), it is
+**public** data rather than personal data, and it replaces the twenty minutes
+every competitor spends making the customer describe their own trade. "Paste one
+contract you won" is a smaller ask than "book 45 minutes", and it produces a
+better profile than anything the customer could type.
+
+What that does **not** remove, and the landing page must not pretend otherwise:
+
+- **GDPR applies to us.** We store a firm name, a contact e-mail and their won-
+  tender references, and we send them mail. Impressum and Datenschutzerklärung
+  are required (`GO_TO_MARKET.md` phase 5 lists both).
+- **Consent for the e-mail is not optional** — §7 Abs. 2 UWG, the same rule that
+  makes postal letters the default outreach channel. The intake form *is* the
+  consent record and has to say so in its own text.
+- **A cookie banner is needed only if we set non-essential cookies.** The
+  decision to have no analytics tool ("this ledger *is* the funnel
+  instrumentation", `GO_TO_MARKET.md` phase 4) is what makes a banner-free page
+  possible. It stops being true the day anyone bolts on Google Analytics. The
+  Stripe payment link is a separate page and does not drag consent onto ours.
+- **Onboarding is still manual on our side.** Appending the subscription version
+  by hand is correct under 50 customers, but it means the honest promise is
+  "your first report on Monday", not instant access. Say that.
+
 ---
 
 ## 5. Where we honestly stand
@@ -300,6 +358,9 @@ Ordered by how well each is backed:
    tenders ends uncontested; among the ones we flag, 1 in 4 does", said as a
    replay result against outcomes already published, not as a live track record.
 4. **A published relevance number**, if the buyer asks how it was measured.
+5. **No account, no login, one form field of setup** (§4.4) — true against every
+   competitor checked, and the easiest of these to verify in the reader's own
+   browser.
 
 Not claimable: that competitors only search by title or CPV; that we surface work
 others cannot (ibau's LV-Suche); that "fewer, more relevant" is unique
