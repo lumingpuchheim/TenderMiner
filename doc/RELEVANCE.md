@@ -2465,6 +2465,39 @@ does not; most are single-benchmark-appearance firms whose cores the next
 labeling round should revisit. Rollback: LONE_TITLE_NEEDS_CODE=0.
 
 
+## Phase 9h — the body channel cannot be cleaned by witness quality (refused 2026-08-10)
+
+After 9g the weakest conviction channel is the body pair: two distinct
+keywords anywhere in the Leistung text, 79 in / 44 out on the hand-read
+cases (65% precision) — the inventory problem, a GU package or demolition
+LV naming every trade it contains. Three demotions were pre-stated and
+simulated script-side (scratchpad `census_body.py`), each forgiven by the
+hard code channel like 9g:
+
+| rule | idea | share of in / out having it | benchmark |
+| --- | --- | --- | --- |
+| R1 core-witness | >=1 witness carries a core root | 73% / 82% (BACKWARDS) | 1343 (-9) |
+| R2 family-pair | 2 witnesses share a family | 67% / 61% | 1347 (-5) |
+| R3 code-breadth | few declared deep codes | identical distributions | 1352 (±0) |
+
+None cleared the pre-committed gate (beat today's 1352-equivalent); none
+shipped. The reason is structural, and it closes the question phase 9b
+left open from the prose side: **the wrongly admitted body lots contain
+the firm's OWN core words** ('GU-Leistung De-/Remontagen' mentions estrich
+and fussbod — for a flooring firm those are its trade words; the lot
+merely MENTIONS its trade among fifty), and the packages do not declare
+their breadth either — the GU lots in the sample carry ONE deep CPV code,
+same as single-trade lots. Presence-based evidence cannot separate "is
+screed work" from "mentions screed"; 65% is that channel's ceiling, not a
+rule bug.
+
+Candidates that see something other than presence, unmeasured: the
+title-contradiction veto (title names a trade foreign to the profile —
+collides with labeled adjacencies like Rohbau winning Abbruch), and
+`trade_read` (phase 5) as the body-channel corroborator — embedding
+meaning instead of substring presence.
+
+
 ## Open, not scheduled
 
 The two standing accuracy problems, as of phase 9b. Both are measured against
