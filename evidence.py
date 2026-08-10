@@ -251,6 +251,18 @@ CORE_SHARE = float(os.environ.get('CORE_SHARE', '0.5'))
 # its trade. Its TITLE can: a German lot title names one Gewerk.
 # See core_keywords(). Rollback: CORE_SINGLE_TITLE=0.
 CORE_SINGLE_TITLE = os.environ.get('CORE_SINGLE_TITLE', '1') != '0'
+# Phase 9d: a reference that carries NO trade root cannot vote for any root,
+# so it must not raise the bar either. DB Bahnbau: 64 wins of which 40 are
+# blind "Regionalbereich" framework slices, need 32, `gleis` recurring in 14
+# — track construction refused its trade by lots that say nothing.
+# Rollback: CORE_NEED_BEARING=0.
+CORE_NEED_BEARING = os.environ.get('CORE_NEED_BEARING', '1') != '0'
+# Phase 9d: when no single root recurs, the FAMILY may — the thematic
+# sections of cpv_trade_roots.txt. Becker GmbH: `trennwand` 3x and
+# `trennwaend` 3x in 8 wins, need 4 — one partition-wall trade split by
+# spelling across two roots, each just under a bar both together clear.
+# Rollback: CORE_FAMILY=0.
+CORE_FAMILY = os.environ.get('CORE_FAMILY', '1') != '0'
 # rollback switch for phase 8f (A) and (B); env var overrides per run so the
 # A/B needs no edit (BUYER_DIVERSITY=0 reproduces the phase-8e lexicons)
 BUYER_DIVERSITY = os.environ.get('BUYER_DIVERSITY', '1') != '0'
@@ -356,6 +368,31 @@ def trade_roots():
             (nots if ln.startswith('-') else roots).add(fold(ln.lstrip('-')))
         _ROOTS = (tuple(sorted(roots, key=len)), tuple(sorted(nots, key=len)))
     return _ROOTS
+
+
+_FAMS = None
+
+
+def root_families():
+    """root -> the thematic section of cpv_trade_roots.txt it sits under
+    (phase 9d). The sections were written as a reading aid — screed near
+    flooring, track near signalling — which makes them the only grouping of
+    roots that a person has already reviewed. They are coarse (the TGA
+    section spans electrical through elevators) and that is priced in:
+    family recurrence only ever fills an EMPTY core, never touches a full
+    one, so the coarseness can add a wide trade where there was none and
+    cannot blur a narrow one that exists."""
+    global _FAMS
+    if _FAMS is None:
+        fams, fam = {}, ''
+        for ln in ROOTS_FILE.read_text(encoding='utf-8').splitlines():
+            s = ln.strip().casefold()
+            if s.startswith('# ==='):
+                fam = fold(s.lstrip('# =').strip())
+            elif s and not s.startswith('#') and not s.startswith('-'):
+                fams[fold(s)] = fam
+        _FAMS = fams
+    return _FAMS
 
 
 def roots_in(w):
@@ -818,6 +855,24 @@ def core_keywords(refs, firm=None, titles=None):
     `titles` is aligned with `refs`. Without it the old behaviour stands,
     so a caller that has no titles loses nothing.
 
+    Phase 9d — the mirror failure, at the other end of the win count.
+    Firms with 8+ wins had the WORST empty-core rate in the store (13 of
+    56, 23%): the bar `ceil(n * CORE_SHARE)` rises with every win, so a
+    firm could LOSE its trade by winning more work. A census of all 13
+    (2026-08-10) found three causes and one fix each:
+
+      DILUTION (3)  — blind framework slices raise the bar and cannot
+                      vote. Fix: the bar counts root-bearing refs only.
+      FRAGMENT (9)  — one trade split across sibling roots (`trennwand` /
+                      `trennwaend`), each under a bar both clear together.
+                      Fix: family recurrence, empty cores only.
+      DIVERSE  (1)  — every win blind (Possehl, 13/13 framework slices).
+                      Correctly empty; both fixes leave it so.
+
+    Both fixes are monotone by construction — the bar can only fall and
+    the family pass only fills an empty core — so every root that cleared
+    before still clears, and the change can add but never remove.
+
     Phase 8r: a root from the firm's own NAME joins them unconditionally.
     Recurrence is a way of asking "is this the trade or the context"; a
     name answers that question directly, and a name recurs by definition —
@@ -836,21 +891,45 @@ def core_keywords(refs, firm=None, titles=None):
     """
     if not (TRADE_ROOTS and CORE_TITLE_CONVICTS):
         return []
+    per_ref = [{r for w in set(tokens(t)) for r in roots_in(w)}
+               for t, _b in refs]
     found = Counter()
-    for t, _b in refs:
-        for r in {r for w in set(tokens(t)) for r in roots_in(w)}:
+    for s in per_ref:
+        for r in s:
             found[r] += 1
-    need = max(2, int(len(refs) * CORE_SHARE + 0.999)) if len(refs) > 1 else 1
-    core = [r for r, n in found.items() if n >= need]
-    # one reference: recurrence has nothing to compare, so read the title
-    # instead of the whole document. Title roots are a subset of the text's,
-    # so `found` still scores them below.
-    if CORE_SINGLE_TITLE and titles and len(refs) == 1:
-        by_title = {r for w in set(tokens(fix_text(str(titles[0] or ''))
-                                          .casefold()))
+    # phase 9d: the bar is set by the references that CARRY vocabulary. A
+    # blind reference (a framework slice titled "Los 12 Regionalbereich
+    # Südost") cannot vote for any root, so it does not raise the bar
+    # either. need can only fall, so an existing core can only grow.
+    bearing = [i for i, s in enumerate(per_ref) if s]
+    n = len(bearing) if CORE_NEED_BEARING else len(refs)
+    need = max(2, int(n * CORE_SHARE + 0.999)) if n > 1 else 1
+    core = [r for r, c in found.items() if c >= need]
+    # one root-bearing reference (phase 9c): recurrence has nothing to
+    # compare, so THAT reference's title decides. Title roots are a subset
+    # of the text's, so `found` still scores them below.
+    if CORE_SINGLE_TITLE and titles and len(bearing) == 1:
+        by_title = {r for w in set(tokens(fix_text(
+                        str(titles[bearing[0]] or '')).casefold()))
                     for r in roots_in(w)}
         if by_title:
             core = list(by_title)
+    # phase 9d: no single root recurs, but the FAMILY may — `trennwand` 3x
+    # and `trennwaend` 3x in 8 wins is one partition-wall trade twice under
+    # a bar of 4. Fires only on an EMPTY core, so it can never displace a
+    # root-level answer, and admits only the best family's roots that
+    # appeared at least twice — recurrence at a coarser grain, not a union.
+    if CORE_FAMILY and not core and len(bearing) >= 2:
+        fams = root_families()
+        fc = Counter()
+        for s in per_ref:
+            for g in {fams.get(r, '') for r in s} - {''}:
+                fc[g] += 1
+        if fc:
+            top, c = fc.most_common(1)[0]
+            if c >= need:
+                core = [r for r, k in found.items()
+                        if k >= 2 and fams.get(r) == top]
     # the name is on every reference the firm has, so it recurs by
     # definition — scored above any word that merely recurs often
     for r in name_keywords(firm):

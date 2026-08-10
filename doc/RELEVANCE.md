@@ -2317,6 +2317,65 @@ property of a lot ("this lot spans 14 trades"), but no threshold rule on it is
 justified by this evidence.
 
 
+## Phase 9c — one reference reads its trade off the title (shipped 2026-08-10)
+
+`core_keywords()` had a blind spot at n=1 that was the opposite of a bar: with
+one reference, `need` fell to 1 and **every root in the document** became the
+firm's core. A tender describes the building, so the firm was credited with
+the building — a demolition contractor whose single win was "Abbrucharbeiten"
+held 33 core roots (moebel, fliese, elektro, armatur ...), because a
+demolition LV is an inventory of what is torn out. 3972 of the store's 5268
+winners have exactly one win; 640 of them could be convicted on more than a
+tenth of the entire store.
+
+The fix: with one reference the TITLE decides — the same field
+`title_witness()` already trusts, and the field lot-splitting exists to make
+specific. Title-first, not title-only: 682 single-win firms have no trade in
+their title and keep their body-derived core, so recall does not move.
+
+Receipt (store-wide, all 3972): median core 5 -> 2 roots; median
+title-convictable lots 1155 (4.9% of store) -> 665 (2.8%); firms claiming
+>10% of the store 640 -> 72; empty cores 162 -> 159. Multi-win firms
+1296/1296 byte-identical. THE BENCHMARK CANNOT SEE THIS CHANGE — all 62 of
+its firms have >= 3 wins, so 89/122 unchanged is evidence of no collateral
+damage only. Rollback: `CORE_SINGLE_TITLE=0`.
+
+## Phase 9d — blind refs and split roots stop hiding a recurring trade (2026-08-10)
+
+The mirror failure, found by asking the store the opposite question: firms
+with **8+ wins** had the WORST empty-core rate — 13 of 56, 23%, worse than
+single-win firms (4%). `need = ceil(n * CORE_SHARE)` rises with every win,
+so a firm could lose its trade by winning more work. A census of all 13
+(scratchpad `census8.py`, receipts read per firm) found exactly three causes:
+
+- **DILUTION (3)** — blind framework slices raise the bar and cannot vote.
+  DB Bahnbau: 64 wins, 40 of them "Regionalbereich" slices with no trade
+  vocabulary at all, need 32, `gleis` recurring in 14 — track construction,
+  refused by lots that say nothing. Fix: **the bar counts root-bearing
+  references only** (`CORE_NEED_BEARING`). A reference that names no trade
+  cannot vote for a root, so it no longer raises the bar against one.
+- **FRAGMENT (9)** — one trade split across sibling roots. Becker GmbH:
+  `trennwand` 3x and `trennwaend` 3x in 8 wins, need 4 — one partition-wall
+  trade, split by spelling across two lines of the roots file, each just
+  under a bar both together clear. Fix: **family recurrence**
+  (`CORE_FAMILY`) — the thematic sections of `cpv_trade_roots.txt`, the only
+  grouping of roots a person has already reviewed. Fires only on an empty
+  core; admits only the best family's roots seen at least twice.
+- **DIVERSE (1)** — Possehl, 13 wins, all blind. Correctly empty, and both
+  fixes leave it empty.
+
+Both fixes are **monotone by construction**: the bar can only fall, the
+family pass only fills an empty core, so no firm loses a root — verified
+store-wide, 0 violations. Blast radius: 60 of 5476 firms change (46 filled,
+14 grew by median 2 roots). Empty-core rate at 8+ wins: 23% -> 2% (the 2% is
+Possehl); at 4-7 wins: 9% -> 4%. Receipts for every changed 8+ firm were
+written for operator ruling; the two flagged as questionable are Boels
+Rental (equipment hire credited with site-services roots) and Ed. Züblin (a
+GU credited with the site-prep family). Unlike 9c, THE BENCHMARK SEES THIS
+CHANGE — 7 of its firms have 8+ wins. Rollback: `CORE_NEED_BEARING=0
+CORE_FAMILY=0`.
+
+
 ## Open, not scheduled
 
 The two standing accuracy problems, as of phase 9b. Both are measured against
