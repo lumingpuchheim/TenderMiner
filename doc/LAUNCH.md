@@ -252,6 +252,24 @@ client-assembled JavaScript**, and these pages exist to rank.
   `market.py trade` numbers, plus the month they were computed. Nothing
   else: no firm names, no lot lists, no login, no JavaScript required to
   read the content.
+- **Trade × Bundesland pages** (`/gewerke/strassenbau/bayern`) — the actual
+  SEO play, decided 2026-08-10: contractors search locally ("Ausschreibungen
+  Elektro Bayern"), head terms belong to the incumbents, and the long tail
+  is where a new domain with unique data ranks. Same aggregates, one more
+  `group by`. **Thin-page guardrail**: a (trade, Land) page is rendered only
+  when the cell has real volume (≥10 lots/month proposed); below that the
+  Land folds into the national trade page — a few hundred doorway-thin
+  pages would get the whole domain demoted.
+- **The single-bidder report** — one national flagship page, refreshed
+  quarterly: the share of lots closing with 0–1 bids, per trade. The
+  citable, newsworthy number only this data produces; it exists to earn
+  the backlinks that make everything else rank. It is also the public
+  version of the letter's opening argument.
+- **A freshness line on every trade page**: this week's new-lot count, next
+  deadline, two or three example titles (buyers are public organs, not
+  persons — still no firm names, no lot pages). Signals liveness to Google
+  and reality to the visitor without giving the product away: the product
+  is the filtered pick plus forecast, not a scrollable list.
 - **An index page** linking the trades, and the same Impressum /
   Datenschutzerklärung the app carries.
 - **A sitemap.xml**, rendered with the pages — the pages update weekly,
