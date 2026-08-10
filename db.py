@@ -283,6 +283,23 @@ CREATE TABLE IF NOT EXISTS gate_config (
     seq         INTEGER NOT NULL,
     raw         BLOB NOT NULL
 );
+
+-- Capability tokens (doc/APP.md 3). Owned by tokens.py; no other module reads
+-- or writes it. Deliberately NOT in LEDGER_TABLES: a token is mutable state,
+-- not a frozen record — revocation and first use are stamped in place, and
+-- revocation that could not take effect immediately would not be revocation.
+CREATE TABLE IF NOT EXISTS token (
+    token        TEXT PRIMARY KEY,
+    purpose      TEXT NOT NULL,      -- t signup | f feedback | s stop | c recall
+    sub_id       TEXT NOT NULL,      -- the subject; for `t`, the target-list firm
+    procedure_id TEXT,               -- `f` only: the lot the verdict is about
+    lot_id       TEXT,               -- `f` only
+    verdict      TEXT,               -- `f` only: never in the URL, always here
+    created_at   TEXT NOT NULL,
+    revoked_at   TEXT,
+    used_at      TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_token_subject ON token (sub_id, purpose);
 """
 
 # Append-only enforcement. Ledgers are frozen records; `customer` is
