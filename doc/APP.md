@@ -148,7 +148,13 @@ logged as a defect. Every send is a ledger event.
   mapping to **hard** stop;
 - the `/c/<token>` recall link in the report footer;
 - the standing subscribe link, post-trial (`LAUNCH.md` §3);
-- plain-HTML body readable without images or JS; `f` links per lot.
+- plain-HTML body readable without images or JS; `f` links per lot;
+- **a criterion line on every pick** — „100 % Preis" or „Preis 70 /
+  Qualität 30", from `price_weight_pct` / `award_criterion_kind` in the
+  tender store. Transparency behind the public price-vs-quality claim
+  (`LAUNCH.md` §4.1 facts block): a pick may be recommended *despite*
+  „100 % Preis" — because expected competition is low — and the customer
+  should see that stated, not discover it in the documents.
 
 ## 9. Deployment and ops
 
