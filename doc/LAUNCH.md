@@ -279,7 +279,7 @@ The whole interface is two things, and deliberately nothing more:
    | `app.<domain>/t/<token>` | QR / signup page | app |
    | `app.<domain>/f/<token>` | feedback confirm (lot + verdict in token) | app |
    | `app.<domain>/s/<token>` | stop page, two buttons | app |
-   | `app.<domain>/check` | recall box | app |
+   | `app.<domain>/c/<token>` | recall box | app |
 
    Tokens are single-use-purpose, unguessable, and carry their meaning —
    the URL never exposes ids, e-mails or lot numbers in the clear. Either
@@ -299,6 +299,33 @@ The whole interface is two things, and deliberately nothing more:
 What the interface is **not**: the app never proxies the static site, the
 static site never embeds app content, and no secret is shared between them
 — the static host holds nothing worth stealing.
+
+### 4.3 Authentication: capability tokens, and nothing else
+
+There is no login, no password, no session, no cookie. **The token is the
+authentication** — the capability-URL model every magic link, unsubscribe
+link and password-reset mail uses. Its properties, which are the actual
+security spec (details in [`APP.md`](APP.md)):
+
+- **Purpose-bound**: a feedback token records one verdict on one lot; a
+  stop token can only stop; the QR token only shows the signup page. A
+  leaked token leaks one small power, never "the account".
+- **Unguessable and revocable**: long random values, rows in the database,
+  deletable one by one.
+- **GET never mutates.** Every state change is a POST from a page with a
+  button — one rule that simultaneously defeats mail-scanner clicks and
+  link-prefetching everywhere, instead of per-page defenses.
+- **Proportionate by data, not by negligence**: everything any token can
+  reveal derives from public procurement data; the confidentiality ceiling
+  is inherently low (Art. 32 GDPR asks for measures appropriate to the
+  risk — this is that, argued, not assumed). Worst realistic incidents are
+  integrity nuisances — fake feedback clicks, a stranger starting a firm's
+  trial — all visible in the ledger, all reversible in the review queue.
+  Hard authentication exists exactly where money moves: on Stripe's side.
+
+The day a single URL would unlock something whose leak genuinely hurts — a
+full pick-history dashboard, payment data — is the day a verified-login
+upgrade is designed. Not before.
 
 ## 5. Seeing conversion
 
