@@ -109,6 +109,29 @@ signup ── 4 free weekly reports ── the ask (once) ──┬── yes �
   can subscribe months later; activation is just a new subscription version
   with its own `effective_from`. Nothing to rebuild, nothing to re-ask.
 
+### Feedback in every report
+
+Every lot in the weekly report carries two tokened links: **"ist unser
+Geschäft"** and **"nicht unser Geschäft"**; every entry in the near-miss list
+carries **"das hätten wir sehen wollen"**. No login, no free text, one click
+each — the customer improves their own picks without writing a word:
+
+- *nicht unser Geschäft* on a pick → a rejection event; it also measures the
+  wrong-trade leakage claim live, per customer.
+- *ist unser Geschäft* → a confirmation event; the profile's anchors gain
+  weight.
+- *das hätten wir sehen wollen* on a near-miss → exactly what the reply loop
+  produces today: a `learned_ref` and a new subscription version — one click
+  instead of a typed TED number. The typed reply stays available for lots we
+  never showed at all.
+
+Feedback clicks get the same scanner protection as the stop link (§ below): a
+click lands on a page with the lot's title and one button, otherwise a mail
+scanner "reads" the report and poisons the profile with fake rejections.
+Feedback events go to the ledger; how they reweight the profile is the
+relevance layer's decision, but the events must be recorded from day one —
+the trial weeks are precisely when the profile has the most to learn.
+
 ### Stopping: one link, one page, two buttons
 
 Every e-mail carries one "Abbestellen" link → one page (button, not
@@ -202,6 +225,7 @@ conversion against the €60–€99 entrant band vs. €179 anchor
 | 2 | pre-flight check + automatic activation | safe signups | — |
 | 3 | `contact_state` + stop page + guarded mailer | lawful sending at all | — |
 | 4 | pick grading + results notes | the post-trial conversion channel | award publications (data, not code) |
+| 4a | feedback links + confirm pages + ledger events | the learning loop at trial time | — |
 | 5 | trade market pages (public, static) | QR landing target, later inbound | — |
 | 6 | outreach ledger events + console report | conversion by channel, ask-to-yes gap | — |
 | 7 | Stripe page | first paid conversion | price decision, due before first trial ends |
