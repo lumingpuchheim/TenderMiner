@@ -1,0 +1,12 @@
+# core.autocrlf is true on the operator's machine, so a fresh clone would hand
+# these files to Linux tooling with CRLF endings. For the Dockerfile that is not
+# cosmetic: its RUN commands use `\` continuations, and a trailing CR after the
+# backslash reaches the shell inside the container as part of the next argument.
+# The build then fails on a machine that only differs from this one by having
+# checked the file out again.
+
+Dockerfile        text eol=lf
+*.dockerignore    text eol=lf
+.dockerignore     text eol=lf
+docker-compose.yml text eol=lf
+requirements.txt  text eol=lf
