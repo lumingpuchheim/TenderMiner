@@ -495,7 +495,9 @@ def firm_rows(lots, sel, customers=()):
                 continue
             f = acc.setdefault(str(raw).strip(), {
                 'wins': 0, 'low': 0, 'value': [], 'regions': set(),
-                'buyers': set(), 'early': 0, 'late': 0, 'size': r.winner_size})
+                'buyers': set(), 'early': 0, 'late': 0, 'sizes': Counter()})
+            if isinstance(r.winner_size, str) and r.winner_size:
+                f['sizes'][r.winner_size] += 1
             f['wins'] += 1
             f['low'] += int(r.n_tenders is not None
                             and not pd.isna(r.n_tenders) and r.n_tenders <= 1)
@@ -510,7 +512,7 @@ def firm_rows(lots, sel, customers=()):
     for firm, f in acc.items():
         rows.append({
             'firm': firm,
-            'size': f['size'] if isinstance(f['size'], str) else '?',
+            'size': modal_size(f['sizes']),
             'wins': f['wins'],
             'low': f['low'],
             'lowpct': pct(f['low'], f['wins']),
@@ -523,6 +525,22 @@ def firm_rows(lots, sel, customers=()):
             'flag': 'customer' if firm.casefold() in cust else '',
         })
     return rows, split
+
+
+def modal_size(sizes):
+    """The size a firm declares most often, marked "*" when it does not
+    declare the same one twice running.
+
+    `winner_size` is filled in per award notice by whoever typed it, and the
+    identical string "Kieback&Peter GmbH & Co. KG" arrives as large, medium
+    AND small on different notices. Taking whichever row happened to be read
+    last put a 1,400-person company in a prospect pool defined as small firms.
+    The mode is not truth either — it is a vote — so the disagreement is
+    printed rather than hidden."""
+    if not sizes:
+        return '?'
+    top, _ = sizes.most_common(1)[0]
+    return top + ('*' if len(sizes) > 1 else '')
 
 
 def alias_groups(rows):
@@ -560,7 +578,7 @@ def cmd_firms(lots, trades, args):
         return
     rows, groups = alias_groups(rows)
     if args.size:
-        rows = [r for r in rows if r['size'] in args.size]
+        rows = [r for r in rows if r['size'].rstrip('*') in args.size]
     if args.min_wins:
         rows = [r for r in rows if r['wins'] >= args.min_wins]
 
@@ -586,7 +604,8 @@ def cmd_firms(lots, trades, args):
                 {'firm': 'firm', 'size': 'size', 'wins': 'wins',
                  'lowpct': '0/1', 'value': 'median award', 'regions': 'regions',
                  'buyers': 'buyers', 'trend': 'trend', 'flag': ''}))
-    small = [r for r in rows if r['size'] in SMALL_SIZES and r['wins'] >= 2]
+    small = [r for r in rows if r['size'].rstrip('*') in SMALL_SIZES
+             and r['wins'] >= 2]
     print(f'  prospect pool per GO_TO_MARKET.md (small/micro, >=2 wins): '
           f'{len(small)} firms')
     if groups:
@@ -633,7 +652,8 @@ def cmd_rank(lots, trades, args):
         mat = sub[sub.month.isin(mature) & sub.resolved]
         val = sub.award_value.dropna()
         firms, _ = firm_rows(lots, sel)
-        pool = [f for f in firms if f['size'] in SMALL_SIZES and f['wins'] >= 2]
+        pool = [f for f in firms if f['size'].rstrip('*') in SMALL_SIZES
+                and f['wins'] >= 2]
         top3 = sum(sorted((f['wins'] for f in firms), reverse=True)[:3])
         wins = sum(f['wins'] for f in firms) or 1
         rows.append({
