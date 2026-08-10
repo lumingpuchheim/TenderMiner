@@ -11,6 +11,8 @@ Key documents: [`ONLINE_LEARNING.md`](doc/ONLINE_LEARNING.md) (the running syste
 [`FIELDS.md`](FIELDS.md) (every data field and its role),
 [`DATA_PIPELINE.md`](doc/DATA_PIPELINE.md) (architecture),
 [`BUSINESS_CASE.md`](doc/BUSINESS_CASE.md) (value case),
+[`MARKET_AND_COMPETITORS.md`](doc/MARKET_AND_COMPETITORS.md) (the market by
+trade, what competitors sell and charge, what we may claim),
 [`train_single_bidder.ipynb`](train_single_bidder.ipynb) (the original
 experiment, fully explained in plain language).
 
