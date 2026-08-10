@@ -276,6 +276,29 @@ CREATE TABLE IF NOT EXISTS simulation_gate (
 CREATE INDEX IF NOT EXISTS ix_simg_seq     ON simulation_gate (seq);
 CREATE INDEX IF NOT EXISTS ix_simg_company ON simulation_gate (company);
 
+-- SIMULATION.md "the gate rides along" (2026-08-10): the verdict x outcome
+-- join, snapshotted once per cycle. The join itself is a computation over
+-- `simulation`, `simulation_gate` and `grade` — this table is its TIME SERIES,
+-- so "did the gate's admissions pull ahead of its rejections, and when" is a
+-- query rather than a diff of two rendered dashboards. One row per
+-- (cycle ts, verdict); a cycle that finds nothing gradeable still writes its
+-- zero row, because "nothing was gradeable on that day" is the record.
+CREATE TABLE IF NOT EXISTS gate_outcome (
+    ts             TEXT NOT NULL,
+    verdict        TEXT NOT NULL,
+    graded         INTEGER,
+    lonely_rate    REAL,
+    own_wins       INTEGER,
+    own_rate       REAL,
+    picks_total    INTEGER,
+    verdicts_total INTEGER,
+    seq            INTEGER NOT NULL,
+    raw            BLOB NOT NULL,
+    UNIQUE (ts, verdict)
+);
+CREATE INDEX IF NOT EXISTS ix_gout_seq     ON gate_outcome (seq);
+CREATE INDEX IF NOT EXISTS ix_gout_verdict ON gate_outcome (verdict, ts);
+
 CREATE TABLE IF NOT EXISTS gate_config (
     fingerprint TEXT PRIMARY KEY,
     first_seen  TEXT NOT NULL,
@@ -425,6 +448,7 @@ LEDGERS = {
     'gate_configs': ('ledger/gate_configs.jsonl', 'gate_config'),
     'simulations': ('ledger/simulations.jsonl', 'simulation'),
     'simulations_gate': ('ledger/simulations_gate.jsonl', 'simulation_gate'),
+    'gate_outcomes': ('ledger/gate_outcomes.jsonl', 'gate_outcome'),
 }
 
 # Fields that are JSON arrays in the ledger and stay JSON text in a column.

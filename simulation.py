@@ -16,6 +16,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import csv
 import heapq
 import json
 import sys
@@ -136,10 +137,14 @@ def simulate(data_dir, scored, tenders, aw, max_picks=5, min_deadline_days=14):
     # SIMULATION.md "the gate rides along": every pick gets a relevance
     # verdict, backlog included. Instrumentation, never delivery — a broken
     # verdict pass must not cost a cycle.
+    # The snapshot rides inside the SAME guard, deliberately: it is a second
+    # piece of instrumentation, and a broken aggregation must not be able to
+    # cost a delivery cycle either.
     try:
         gate_verdicts(data_dir, aw)
+        snapshot_verdict_outcomes(data_dir)
     except Exception as e:                                # noqa: BLE001
-        print(f'[simulate] gate verdicts FAILED, cycle continues: {e!r}')
+        print(f'[simulate] gate verdicts/snapshot FAILED, cycle continues: {e!r}')
     return new_rows
 
 
@@ -264,6 +269,77 @@ def verdict_outcomes(data_dir):
                     'lonely_rate': sum(l for l, _ in ls) / len(ls),
                     'own_wins': sum(1 for _, w in ls if w),
                     'own_rate': sum(1 for _, w in ls if w) / len(ls)})
+    return out
+
+
+# The snapshot's columns, in table order (db.py `gate_outcome`). `seq` and
+# `raw` are storage bookkeeping, not part of the record a consumer reads, so
+# the CSV carries exactly these eight.
+OUTCOME_COLUMNS = ('ts', 'verdict', 'graded', 'lonely_rate', 'own_wins',
+                   'own_rate', 'picks_total', 'verdicts_total')
+
+OUTCOME_CSV = 'gate_outcomes.csv'
+
+
+def snapshot_verdict_outcomes(data_dir, ts=None):
+    """Record this cycle's verdict x outcome join, machine-readable.
+
+    `verdict_outcomes()` recomputes the join from scratch on every read, which
+    is right for a dashboard and useless for a data engine: yesterday's numbers
+    are gone the moment a grade lands. So the cycle stamps the answer — one row
+    per (ts, verdict), a single shared `ts` across the whole snapshot so a
+    cycle is one addressable point in the series.
+
+    Every verdict on record gets a row, INCLUDING the ones with nothing graded
+    yet. Simulated picks start being graded around October 2026 (the ~90-day
+    award lag), and a series that only starts once the numbers are interesting
+    cannot show that they were zero before — a zero row is the record that
+    nothing was gradeable that day, not a missing measurement.
+
+    `picks_total` and `verdicts_total` are the cycle-wide denominators, the
+    same on every row of a snapshot: they say how much of the simulation the
+    graded slice was drawn from, which is what makes `graded` readable a year
+    later.
+    """
+    home = Path(data_dir)
+    outcomes = {r['verdict']: r for r in verdict_outcomes(home)}
+    gate_rows = ledger.read(home, 'simulations_gate')
+    picks_total = len(ledger.read(home, 'simulations'))
+    ts = ts or now_utc().isoformat(timespec='seconds')
+    rows = []
+    for verdict in sorted(set(outcomes) | {g['verdict'] for g in gate_rows}):
+        o = outcomes.get(verdict, {})
+        rows.append({'ts': ts, 'verdict': verdict,
+                     'graded': int(o.get('graded', 0)),
+                     'lonely_rate': float(o.get('lonely_rate', 0.0)),
+                     'own_wins': int(o.get('own_wins', 0)),
+                     'own_rate': float(o.get('own_rate', 0.0)),
+                     'picks_total': picks_total,
+                     'verdicts_total': len(gate_rows)})
+    n = ledger.append(home, 'gate_outcomes', rows)
+    csv_path = write_outcomes_csv(home)
+    print(f'[gate-outcomes] {n} snapshot row(s) at {ts} '
+          f'({picks_total} picks, {len(gate_rows)} verdicts, '
+          f'{sum(r["graded"] for r in rows)} graded) -> {csv_path}')
+    return rows
+
+
+def write_outcomes_csv(data_dir):
+    """The FULL snapshot history as `reports/gate_outcomes.csv`.
+
+    One stable path, rewritten from the ledger every cycle rather than
+    appended to: the database is the record, and a file that is rebuilt cannot
+    drift away from it or double a row when a cycle is re-run. For consumers
+    without sqlite — which is the whole reason this exists beside the table.
+    """
+    out = Path(data_dir) / 'reports' / OUTCOME_CSV
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open('w', encoding='utf-8', newline='') as f:
+        w = csv.DictWriter(f, fieldnames=list(OUTCOME_COLUMNS),
+                           extrasaction='ignore')
+        w.writeheader()
+        for r in ledger.read(data_dir, 'gate_outcomes'):
+            w.writerow({c: r.get(c) for c in OUTCOME_COLUMNS})
     return out
 
 
