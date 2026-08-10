@@ -257,6 +257,26 @@ class Firms(Store):
         self.assertEqual(rows['Acme GmbH']['regions'], '2/2')
         self.assertEqual(rows['Bosch KG']['regions'], '1/2')
 
+    def test_a_firm_declaring_two_sizes_gets_the_one_it_declares_most(self):
+        """winner_size is typed in per notice: the identical string
+        "Kieback&Peter GmbH & Co. KG" arrives large, medium and small. Taking
+        the last row read put a national company in a small-firm pool."""
+        lots = self.write(
+            [lot(procedure=p, title='Blitzschutz') for p in 'abc'],
+            [award(procedure='a', size='large', winner='Big AG'),
+             award(procedure='b', size='small', winner='Big AG'),
+             award(procedure='c', size='large', winner='Big AG')])
+        sel = market.match(lots, {'terms': ['blitzschutz'], 'exclude': []},
+                           'core')
+        row = market.firm_rows(lots, sel)[0][0]
+        self.assertEqual(row['size'], 'large*',
+                         'the mode, marked as contested')
+
+    def test_a_consistent_size_carries_no_mark(self):
+        self.assertEqual(market.modal_size(market.Counter({'small': 3})),
+                         'small')
+        self.assertEqual(market.modal_size(market.Counter()), '?')
+
     def test_two_spellings_are_flagged_and_not_merged(self):
         rows = [{'firm': 'NDB Elektrotechnik GmbH & Co. KG', 'wins': 1,
                  'flag': ''},
