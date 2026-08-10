@@ -257,6 +257,26 @@ class Firms(Store):
         self.assertEqual(rows['Acme GmbH']['regions'], '2/2')
         self.assertEqual(rows['Bosch KG']['regions'], '1/2')
 
+    def test_a_firm_declaring_two_sizes_gets_the_one_it_declares_most(self):
+        """winner_size is typed in per notice: the identical string
+        "Kieback&Peter GmbH & Co. KG" arrives large, medium and small. Taking
+        the last row read put a national company in a small-firm pool."""
+        lots = self.write(
+            [lot(procedure=p, title='Blitzschutz') for p in 'abc'],
+            [award(procedure='a', size='large', winner='Big AG'),
+             award(procedure='b', size='small', winner='Big AG'),
+             award(procedure='c', size='large', winner='Big AG')])
+        sel = market.match(lots, {'terms': ['blitzschutz'], 'exclude': []},
+                           'core')
+        row = market.firm_rows(lots, sel)[0][0]
+        self.assertEqual(row['size'], 'large*',
+                         'the mode, marked as contested')
+
+    def test_a_consistent_size_carries_no_mark(self):
+        self.assertEqual(market.modal_size(market.Counter({'small': 3})),
+                         'small')
+        self.assertEqual(market.modal_size(market.Counter()), '?')
+
     def test_two_spellings_are_flagged_and_not_merged(self):
         rows = [{'firm': 'NDB Elektrotechnik GmbH & Co. KG', 'wins': 1,
                  'flag': ''},
@@ -269,6 +289,79 @@ class Firms(Store):
         self.assertEqual([r['wins'] for r in rows], [1, 2, 5],
                          'the rows themselves must stay unmerged')
         self.assertEqual(rows[2]['flag'], '')
+
+
+class Pricing(unittest.TestCase):
+
+    def test_a_thin_value_falls_to_the_flat_floor(self):
+        value, price, model = market.firm_value(1.0, 34_000)
+        self.assertEqual(price, market.FLAT_FLOOR)
+        self.assertEqual(model, 'flat')
+
+    def test_a_big_median_award_flips_to_a_percentage_pitch(self):
+        _, _, model = market.firm_value(5.0, market.PCT_DEAL_MIN)
+        self.assertEqual(model, '% of deal')
+
+    def test_price_scales_with_uncontested_volume_above_the_floor(self):
+        _, thin, _ = market.firm_value(5.0, 400_000)
+        _, thick, _ = market.firm_value(50.0, 400_000)
+        self.assertGreater(thin, market.FLAT_FLOOR)
+        self.assertAlmostEqual(thick, thin * 10)
+
+    def test_the_formula_is_the_documented_one(self):
+        value, price, _ = market.firm_value(10.0, 500_000)
+        self.assertAlmostEqual(
+            value, 10 * 500_000 * market.WIN_UPLIFT * market.MARGIN)
+        self.assertAlmostEqual(value * market.PRICE_SHARE / 12, price)
+
+
+class Prospects(Store):
+    """prospect_rows is the one place spellings merge — for the maths."""
+
+    TRADE = {'terms': ['blitzschutz'], 'exclude': []}
+
+    def build(self, awards):
+        lots = self.write(
+            [lot(procedure=f'p{i}', title='Blitzschutz',
+                 place_nuts3='DE211' if i % 2 else 'DEA12')
+             for i in range(24)], awards)
+        sel = market.match(lots, self.TRADE, 'core')
+        covered, mature, _ = market.coverage(lots)
+        region_year, rate, awarded, med = market.trade_economics(
+            lots, sel, covered, mature)
+        return market.prospect_rows(lots, sel, region_year, rate, med)
+
+    def base_awards(self):
+        return [award(procedure=f'p{i}', n_tenders=1 if i < 3 else 5,
+                      winner='Acme Blitz GmbH' if i % 2
+                      else 'ACME BLITZ GmbH & Co. KG')
+                for i in range(10)]
+
+    def test_two_spellings_are_one_prospect_with_the_combined_wins(self):
+        rows = self.build(self.base_awards())
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['wins'], 10)
+        self.assertEqual(len(rows[0]['names']), 2)
+
+    def test_recommendations_come_from_the_firms_own_regions(self):
+        """The firm wins in both regions, so it is owed the whole trade:
+        24 lots in one covered month = 288 a year."""
+        rows = self.build(self.base_awards())
+        self.assertAlmostEqual(rows[0]['recs_year'], 288.0)
+
+    def test_a_firm_below_the_delivery_floor_is_not_contactable(self):
+        """One win in one region of a thin trade: the guarantee 'we will
+        definitely recommend tenders' cannot be given, and the row says
+        which gate failed."""
+        rows = self.build([award(procedure='p1', winner='Acme Blitz GmbH')])
+        self.assertFalse(rows[0]['contactable'])
+        self.assertIn('1 win', rows[0]['why_not'])
+
+    def test_a_large_firm_is_not_contactable_whatever_it_wins(self):
+        rows = self.build([award(procedure=f'p{i}', winner='Acme Blitz GmbH',
+                                 size='large') for i in range(10)])
+        self.assertFalse(rows[0]['contactable'])
+        self.assertIn('size large', rows[0]['why_not'])
 
 
 class Rates(unittest.TestCase):

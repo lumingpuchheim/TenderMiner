@@ -251,6 +251,40 @@ CORE_SHARE = float(os.environ.get('CORE_SHARE', '0.5'))
 # its trade. Its TITLE can: a German lot title names one Gewerk.
 # See core_keywords(). Rollback: CORE_SINGLE_TITLE=0.
 CORE_SINGLE_TITLE = os.environ.get('CORE_SINGLE_TITLE', '1') != '0'
+# Phase 9d: a reference that carries NO trade root cannot vote for any root,
+# so it must not raise the bar either. DB Bahnbau: 64 wins of which 40 are
+# blind "Regionalbereich" framework slices, need 32, `gleis` recurring in 14
+# — track construction refused its trade by lots that say nothing.
+# Rollback: CORE_NEED_BEARING=0.
+CORE_NEED_BEARING = os.environ.get('CORE_NEED_BEARING', '1') != '0'
+# Phase 9d: when no single root recurs, the FAMILY may — the thematic
+# sections of cpv_trade_roots.txt. Becker GmbH: `trennwand` 3x and
+# `trennwaend` 3x in 8 wins, need 4 — one partition-wall trade split by
+# spelling across two roots, each just under a bar both together clear.
+# Rollback: CORE_FAMILY=0.
+CORE_FAMILY = os.environ.get('CORE_FAMILY', '1') != '0'
+# Phase 9e: the last resort for an empty core — the union of the TITLES.
+# Two wins in two trades is a firm that does both (AAS Rafuna won
+# Trockenbauarbeiten and Malerarbeiten of the same refurbishment; need=2
+# said it does neither). Titles only, never bodies: each title names the
+# one Gewerk that lot procured. Rollback: CORE_TITLE_FALLBACK=0.
+CORE_TITLE_FALLBACK = os.environ.get('CORE_TITLE_FALLBACK', '1') != '0'
+# Phase 9f (operator's design): once a firm HAS a core, a new root must
+# clear the bar by one extra win to join it. Measured need: 40% of
+# multi-win firms lost roots as wins accumulated, and what churned was the
+# CONTEXT (an estrich firm oscillating estrich <-> estrich+daemm+abdicht+
+# schall), not the trade. Friction on ENTRY suppresses the churn at its
+# source; stickiness on KEEP would have locked it in instead. An incumbent
+# exits when its share of root-bearing refs falls under CORE_SHARE/2.
+#
+# BUILT AND MEASURED, NOT SHIPPED (2026-08-10). Flapping fell 546 -> 51
+# firms and the narrowings read correctly, but the operator's 1,595
+# hand-read cases price it at 1342/1595 against 1344 without — and the
+# family-aware refinement (foreign trades face friction, own-family
+# breadth does not) still 1343. The stability is real; the labels do not
+# pay for it yet. Re-measure at the next benchmark growth. CORE_HYSTERESIS=1
+# to enable.
+CORE_HYSTERESIS = os.environ.get('CORE_HYSTERESIS', '0') != '0'
 # rollback switch for phase 8f (A) and (B); env var overrides per run so the
 # A/B needs no edit (BUYER_DIVERSITY=0 reproduces the phase-8e lexicons)
 BUYER_DIVERSITY = os.environ.get('BUYER_DIVERSITY', '1') != '0'
@@ -356,6 +390,31 @@ def trade_roots():
             (nots if ln.startswith('-') else roots).add(fold(ln.lstrip('-')))
         _ROOTS = (tuple(sorted(roots, key=len)), tuple(sorted(nots, key=len)))
     return _ROOTS
+
+
+_FAMS = None
+
+
+def root_families():
+    """root -> the thematic section of cpv_trade_roots.txt it sits under
+    (phase 9d). The sections were written as a reading aid — screed near
+    flooring, track near signalling — which makes them the only grouping of
+    roots that a person has already reviewed. They are coarse (the TGA
+    section spans electrical through elevators) and that is priced in:
+    family recurrence only ever fills an EMPTY core, never touches a full
+    one, so the coarseness can add a wide trade where there was none and
+    cannot blur a narrow one that exists."""
+    global _FAMS
+    if _FAMS is None:
+        fams, fam = {}, ''
+        for ln in ROOTS_FILE.read_text(encoding='utf-8').splitlines():
+            s = ln.strip().casefold()
+            if s.startswith('# ==='):
+                fam = fold(s.lstrip('# =').strip())
+            elif s and not s.startswith('#') and not s.startswith('-'):
+                fams[fold(s)] = fam
+        _FAMS = fams
+    return _FAMS
 
 
 def roots_in(w):
@@ -791,7 +850,7 @@ def root_share(refs):
     return dict(found)
 
 
-def core_keywords(refs, firm=None, titles=None):
+def core_keywords(refs, firm=None, titles=None, dates=None):
     """Phase 8o — the roots that RECUR across the firm's wins: present in
     at least CORE_SHARE of its reference texts.
 
@@ -818,6 +877,24 @@ def core_keywords(refs, firm=None, titles=None):
     `titles` is aligned with `refs`. Without it the old behaviour stands,
     so a caller that has no titles loses nothing.
 
+    Phase 9d — the mirror failure, at the other end of the win count.
+    Firms with 8+ wins had the WORST empty-core rate in the store (13 of
+    56, 23%): the bar `ceil(n * CORE_SHARE)` rises with every win, so a
+    firm could LOSE its trade by winning more work. A census of all 13
+    (2026-08-10) found three causes and one fix each:
+
+      DILUTION (3)  — blind framework slices raise the bar and cannot
+                      vote. Fix: the bar counts root-bearing refs only.
+      FRAGMENT (9)  — one trade split across sibling roots (`trennwand` /
+                      `trennwaend`), each under a bar both clear together.
+                      Fix: family recurrence, empty cores only.
+      DIVERSE  (1)  — every win blind (Possehl, 13/13 framework slices).
+                      Correctly empty; both fixes leave it so.
+
+    Both fixes are monotone by construction — the bar can only fall and
+    the family pass only fills an empty core — so every root that cleared
+    before still clears, and the change can add but never remove.
+
     Phase 8r: a root from the firm's own NAME joins them unconditionally.
     Recurrence is a way of asking "is this the trade or the context"; a
     name answers that question directly, and a name recurs by definition —
@@ -836,21 +913,50 @@ def core_keywords(refs, firm=None, titles=None):
     """
     if not (TRADE_ROOTS and CORE_TITLE_CONVICTS):
         return []
+    per_ref = [{r for w in set(tokens(t)) for r in roots_in(w)}
+               for t, _b in refs]
     found = Counter()
-    for t, _b in refs:
-        for r in {r for w in set(tokens(t)) for r in roots_in(w)}:
+    for s in per_ref:
+        for r in s:
             found[r] += 1
-    need = max(2, int(len(refs) * CORE_SHARE + 0.999)) if len(refs) > 1 else 1
-    core = [r for r, n in found.items() if n >= need]
-    # one reference: recurrence has nothing to compare, so read the title
-    # instead of the whole document. Title roots are a subset of the text's,
-    # so `found` still scores them below.
-    if CORE_SINGLE_TITLE and titles and len(refs) == 1:
-        by_title = {r for w in set(tokens(fix_text(str(titles[0] or ''))
-                                          .casefold()))
-                    for r in roots_in(w)}
-        if by_title:
-            core = list(by_title)
+    if CORE_HYSTERESIS and dates is not None and len(refs) > 1:
+        # phase 9f: replay the references in publication order. The first
+        # nonempty core (with every fallback) establishes; after that a
+        # challenger needs ONE MORE win than the bar, and an incumbent
+        # stays until its share of root-bearing refs falls under
+        # CORE_SHARE/2. Deterministic in the dated win set — nothing is
+        # stored, replay at any as_of gives the same answer.
+        order = sorted(range(len(refs)), key=lambda i: str(dates[i] or ''))
+        core = []
+        for k in range(1, len(order) + 1):
+            idxs = order[:k]
+            if not core:
+                core, _f, _n, _b = _core_once(per_ref, titles, idxs)
+                continue
+            cand, f_k, need_k, bear_k = _core_once(
+                per_ref, titles, idxs, fallbacks=False)
+            nb = max(len(bear_k), 1)
+            core = [r for r in core
+                    if f_k.get(r, 0) / nb >= CORE_SHARE / 2]
+            if not core:      # every incumbent decayed: establish afresh
+                core, _f, _n, _b = _core_once(per_ref, titles, idxs)
+            else:
+                # friction is for FOREIGN trades. A challenger from the
+                # same family as an incumbent is the firm's own breadth
+                # showing (Caverion: lueftung established, sanitaer and
+                # heizung are the same TGA business) and enters at the
+                # ordinary bar; a cross-family newcomer needs one extra
+                # win. The 16-case flip list of the first cut was 13 lost
+                # building-services lots — breadth, not churn.
+                fams = root_families()
+                inc = {fams.get(r, '') for r in core} - {''}
+                core += [r for r in cand if r not in core
+                         and f_k.get(r, 0) >= (
+                             need_k if fams.get(r, '') in inc
+                             else need_k + 1)]
+    else:
+        core, found2, _n, _b = _core_once(
+            per_ref, titles, list(range(len(refs))))
     # the name is on every reference the firm has, so it recurs by
     # definition — scored above any word that merely recurs often
     for r in name_keywords(firm):
@@ -861,6 +967,50 @@ def core_keywords(refs, firm=None, titles=None):
         if not any(k in r for k in kept):
             kept.append(r)
     return sorted(kept, key=lambda r: -found[r])
+
+
+def _core_once(per_ref, titles, idxs, fallbacks=True):
+    """One pass of the core rule over the references at positions `idxs`:
+    recurrence over root-bearing refs (9d), then — when `fallbacks` — the
+    single-ref title rule (9c), the family pass (9d) and the title union
+    (9e). Factored out so phase 9f can replay it per chronological prefix;
+    the comments on each stage live in the phase sections of RELEVANCE.md.
+    -> (core, found, need, bearing)."""
+    found = Counter()
+    for i in idxs:
+        for r in per_ref[i]:
+            found[r] += 1
+    bearing = [i for i in idxs if per_ref[i]]
+    n = len(bearing) if CORE_NEED_BEARING else len(idxs)
+    need = max(2, int(n * CORE_SHARE + 0.999)) if n > 1 else 1
+    core = [r for r, c in found.items() if c >= need]
+    if not fallbacks:
+        return core, found, need, bearing
+    if CORE_SINGLE_TITLE and titles and len(bearing) == 1:
+        by_title = {r for w in set(tokens(fix_text(
+                        str(titles[bearing[0]] or '')).casefold()))
+                    for r in roots_in(w)}
+        if by_title:
+            core = list(by_title)
+    if CORE_FAMILY and not core and len(bearing) >= 2:
+        fams = root_families()
+        fc = Counter()
+        for i in idxs:
+            for g in {fams.get(r, '') for r in per_ref[i]} - {''}:
+                fc[g] += 1
+        if fc:
+            top, c = fc.most_common(1)[0]
+            if c >= need:
+                core = [r for r, k in found.items()
+                        if k >= 2 and fams.get(r) == top]
+    if CORE_TITLE_FALLBACK and titles and not core:
+        by_title = {r for i in bearing
+                    for w in set(tokens(fix_text(
+                        str(titles[i] or '')).casefold()))
+                    for r in roots_in(w)}
+        if by_title:
+            core = list(by_title)
+    return core, found, need, bearing
 
 
 def firm_keywords(refs, docfreq, label_texts, trusted_codes, dicts,

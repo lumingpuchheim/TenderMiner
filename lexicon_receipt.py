@@ -129,6 +129,10 @@ def firm_lexicons(data_dir, trade_roots):
     wins = wins[[k in texts
                  for k in zip(wins['procedure_id'], wins['lot_id'])]]
     wins = wins.drop_duplicates(subset=['winner_names'] + evd.KEY)
+    # publication dates for the phase-9f replay, keyed like `texts`
+    key_date = dict(zip(
+        zip(tenders['procedure_id'], tenders['lot_id']),
+        tenders['publication_date']))
     out = {}
     for firm, g in wins.groupby('winner_names'):
         if len(g) < evd.MIN_WINS:
@@ -149,7 +153,8 @@ def firm_lexicons(data_dir, trade_roots):
             'narrow': evd.firm_keywords(refs, docfreq, lbl, deep, dicts,
                                         why, firm=firm, sources=src),
             'core': evd.core_keywords(refs, firm=firm,
-                                      titles=[raw[k][0] for k in keys]),
+                                      titles=[raw[k][0] for k in keys],
+                                      dates=[key_date.get(k) for k in keys]),
             'wide': evd.wide_keywords(refs),
             'root_share': evd.root_share(refs),
             'rootless': [raw[k][0] for k in keys
