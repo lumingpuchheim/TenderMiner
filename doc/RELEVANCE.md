@@ -2497,6 +2497,31 @@ collides with labeled adjacencies like Rohbau winning Abbruch), and
 `trade_read` (phase 5) as the body-channel corroborator — embedding
 meaning instead of substring presence.
 
+## Phase 9i — the title-contradiction veto on body convictions (shipped 2026-08-10)
+
+The first of 9h's two candidates, censused with both variants pre-stated.
+The separation 9h could not find in the witnesses is in the TITLE: 89% of
+the wrong body admissions sat under a title naming a trade the profile
+does not know ('Abbrucharbeiten' + estrich witnesses — a demolition lot
+that mentions flooring), against 67% of the right ones. B1 — veto the
+body conviction when the title names a trade root, no lexicon keyword
+sits in the title, and the code channel does not corroborate — scored
+1362/1595 simulated (29 fixed / 19 broken). B2 (veto regardless of a
+lexicon keyword in the title) scored 1345: too blunt, refused.
+
+Receipts through the real judge, store-wide:
+  benchmark 1351 -> 1361 (the day's largest single gain)
+  leakage 3.8% -> 2.2% (~449 wrong admissions removed)
+  recall 67.8% -> 64.9% (~79 true lots lost — adjacency wins under
+  foreign titles; 19 of the labeled in-cases are of this kind)
+  implied store-wide precision ~64% -> ~74%
+  101 tests pass
+
+Exchange ~5.7 wrong removed per true lost. Shipped by operator decision
+2026-08-10 with the recall cost stated; the lost adjacency lots are
+recoverable through the CORE channel (which the veto never touches) as
+per-firm cores improve. Rollback: TITLE_CONTRADICTS_BODY=0.
+
 
 ## Open, not scheduled
 
