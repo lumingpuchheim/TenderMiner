@@ -271,10 +271,25 @@ client-assembled JavaScript**, and these pages exist to rank.
   award value, bid count; **the winner stays unnamed** (the rule). Decided
   2026-08-10 over a plain new-lot count, which googles but is useless to
   the visitor: this shows money that went uncontested in their own trade —
-  the letter's argument, made public. Backward-looking on purpose: award
-  facts are published record, so nothing forecast-shaped is claimed and
-  the forward-looking product is not given away. Real titles and cities
-  double as the pages' indexable long-tail text.
+  the letter's argument, made public. Backward-looking: award facts are
+  published record. Real titles and cities double as the pages' indexable
+  long-tail text.
+- **„Kandidaten für wenig Wettbewerb — unsere Wochenauswahl"** (decided
+  2026-08-10): a deliberate, small public slice of the *forward-looking*
+  forecast — one or two live tenders per week tagged **„voraussichtlich
+  wettbewerbsarm"** (title, buyer, deadline). The wording carries the
+  honesty: „Kandidat" is by nature unconfirmed, and the tag claims an
+  elevated chance, never a likelihood — the 452 backtest is 24% against a
+  10% base, so three of four candidates will publicly turn out contested,
+  and the copy must survive that. Fixed disclosure line under the list, in
+  the replay-result framing the claim rules require: „Einschätzung auf
+  Basis von Rücktests gegen bereits veröffentlichte Vergabeergebnisse:
+  2,3-fache Trefferquote gegenüber Zufallsauswahl." Guardrails: **CPV 452
+  only** (the one trade with measured lift — same rule as the letter;
+  elsewhere the section does not render), a teaser-sized count so the
+  ranked, reasoned full set stays paid, and the entries stay dated and
+  checkable — which is the point: with an elevated-chance claim, the aging
+  page becomes the public track record.
 - **An index page** linking the trades, and the same Impressum /
   Datenschutzerklärung the app carries.
 - **A sitemap.xml**, rendered with the pages — the pages update weekly,
