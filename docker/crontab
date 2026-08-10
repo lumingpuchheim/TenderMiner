@@ -1,0 +1,55 @@
+# /etc/cron.d/tendermining — the weekly cycle. doc/RUNBOOK.md §1c.
+#
+# Monday 08:15, matching the Windows task this replaces. Note the fifth field:
+# cron's day-of-week 1 is Monday (0 and 7 are both Sunday), which is NOT the
+# same numbering as the Windows trigger's DaysOfWeek=2.
+#
+# CRON_TZ makes the schedule explicit rather than inherited. Without it the
+# daemon uses the container's TZ, which is the same value today — but the two
+# can drift apart the day someone sets TM_TZ for a deployment elsewhere, and a
+# schedule that silently moves an hour is a bad way to find that out.
+CRON_TZ=Europe/Bucharest
+
+# CRON_TZ decides WHEN cron fires. It does not reach the job: cron hands the
+# command a bare environment, so without the line below the cycle runs in UTC
+# even though the image sets TZ. That matters because bulk.py and download.py
+# choose the download window with date.today() — between midnight and 03:00
+# local the container would ask TED for the wrong day. Verified: the first
+# working test run stamped itself "17:10:02 UTC" while the container clock said
+# 20:10 EEST. Keep this equal to the image's TZ.
+TZ=Europe/Bucharest
+
+SHELL=/bin/sh
+PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# cron gives a job almost no environment, so the state's location has to be
+# stated here. These are the image's own ENV values (Dockerfile); if they ever
+# disagree, the container is the one that is wrong.
+TM_DATA_DIR=/data
+TM_MODELS_DIR=/data/models
+FASTEMBED_CACHE_PATH=/models_cache
+HF_HOME=/models_cache/huggingface
+PYTHONUNBUFFERED=1
+
+# The redirect is not decoration. cron hands a job's output to the local mail
+# transport, and a container has none — so without one the job runs, writes its
+# logs under /data, and `docker compose logs scheduler` shows nothing at all.
+# Verified the hard way: the first test of this file fired correctly, failed
+# correctly, and reported absolutely nothing to the outside.
+#
+# It redirects to a FILE, not to the usual container trick of `> /proc/1/fd/1`.
+# That trick needs the job to run as the same user as PID 1, and this job
+# deliberately runs as `tm` while the daemon is root — so it fails with
+# "Permission denied" before the script starts, which is a *worse* silence than
+# the one it was meant to fix. Also verified the hard way. The scheduler service
+# tails this file to stdout instead (docker-compose.yml), which has the side
+# benefit of surviving a `docker logs` truncation.
+#
+# /data rather than $TM_DATA_DIR: the container path is fixed by the mount, and
+# a redirect that lands in /logs/ because a variable was empty would take the
+# evidence with it.
+#
+# m  h  dom mon dow  user  command
+  15 8  *   *   1    tm    /app/docker/weekly.sh >> /data/logs/cron.log 2>&1
+
+# A cron.d file that does not end in a newline is silently ignored. This is it.

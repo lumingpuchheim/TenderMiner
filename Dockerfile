@@ -12,10 +12,13 @@ FROM python:3.13-slim-bookworm
 
 # libgomp1: CatBoost's wheel links against OpenMP and fails at import without
 # it — the one system library the slim image does not already carry.
-# tzdata: report filenames are dates, so the container has to agree with the
-# operator about which day it is. See TZ below.
+# tzdata: several programs date their work with date.today(), so the container
+# has to agree with the operator about which day it is. See TZ below.
+# cron: only the `scheduler` service runs it (docker-compose.yml), but it lives
+# in the same image so the thing that fires the cycle and the thing that runs it
+# can never be two different builds.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libgomp1 tzdata \
+ && apt-get install -y --no-install-recommends libgomp1 tzdata cron \
  && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1 \
@@ -50,10 +53,13 @@ ENV TM_DATA_DIR=/data \
 ENV FASTEMBED_CACHE_PATH=/models_cache \
     HF_HOME=/models_cache/huggingface
 
-# German notices, German deadlines, and report_<date>.html names the operator's
-# day — a UTC container would file Monday 00:30 CEST under Sunday. Override at
-# run time (compose passes TM_TZ) if the deployment sits elsewhere.
-ENV TZ=Europe/Berlin
+# The operator's laptop clock, which is what the cycle has always been dated by.
+# loop.py's own report names come from now_utc() and do not care — but bulk.py
+# and download.py pick the download window with date.today(), backtest.py and
+# calibrate.py name their receipts the same way, and the weekly schedule fires
+# at 08:15 local. A UTC container would shift all of those by two or three hours
+# and, once a day, by a whole date. Override at run time (compose passes TM_TZ).
+ENV TZ=Europe/Bucharest
 
 # Non-root, and the mount points exist and are owned before the volumes are
 # created: Docker seeds a named volume's ownership from the image, so getting
@@ -61,6 +67,16 @@ ENV TZ=Europe/Berlin
 RUN useradd --create-home --uid 1000 tm \
  && mkdir -p /data /models_cache \
  && chown tm:tm /data /models_cache
+
+# The weekly schedule. cron refuses a cron.d file that is group/world-writable
+# or executable, and does so silently — which is the failure mode where the
+# container looks healthy for a week and then no report arrives on Monday.
+# Copying via /app keeps the file under version control as docker/crontab.
+# The exec bit is set here rather than relied on from the build context: the
+# checkout is on Windows, which does not carry one.
+RUN install -m 0644 -o root -g root /app/docker/crontab /etc/cron.d/tendermining \
+ && chmod 0755 /app/docker/weekly.sh
+
 USER tm
 
 # One cycle, the RUNBOOK's routine command. Override freely:

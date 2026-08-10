@@ -5,8 +5,14 @@
 # The build then fails on a machine that only differs from this one by having
 # checked the file out again.
 
-Dockerfile        text eol=lf
-*.dockerignore    text eol=lf
-.dockerignore     text eol=lf
+Dockerfile         text eol=lf
+.dockerignore      text eol=lf
 docker-compose.yml text eol=lf
-requirements.txt  text eol=lf
+requirements.txt   text eol=lf
+
+# Same reasoning, sharper consequences. A CRLF shell script fails with
+# "bad interpreter: /bin/sh^M", and cron ignores a CRLF file in /etc/cron.d
+# without a word — which is the failure mode where no report arrives on Monday
+# and nothing anywhere says why.
+docker/*.sh        text eol=lf
+docker/crontab     text eol=lf

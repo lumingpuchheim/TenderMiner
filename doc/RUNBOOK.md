@@ -97,11 +97,55 @@ to compare against. Harmless; the vectors are byte-identical to the laptop's.
 docker run --rm -v C:\Users\user\workspace\tm-state:/data -v tm-model-cache:/models_cache tendermining:latest python loop.py run --last 7d
 ```
 
-**The scheduled task does not change by itself.** It still runs the laptop's
-Python (§1). To move Monday 08:15 into the container, the two lines become one
-`docker run` each — worth doing only once a cycle has run green in the
-container against the real `data/`, because a half-migrated schedule that
-writes the same ledgers from two Pythons is worse than either.
+## 1c. Monday 08:15, in the container
+
+The weekly schedule exists twice now, and **only one of them may be switched
+on.** Both run the same thing — [`docker/weekly.sh`](../docker/weekly.sh), which
+reproduces the Windows task's action line exactly: the cycle, then, *only if it
+succeeded*, a dated heading and the simulation scorecard, both appended to
+`data/logs/loop_scheduled.log` and `data/logs/simcheck.log`.
+
+**Option A — cron inside a container** ([`docker/crontab`](../docker/crontab)):
+
+```
+docker compose --profile scheduler up -d scheduler
+docker compose logs -f scheduler
+docker compose stop scheduler
+```
+
+**Option B — the Windows task keeps the trigger, the container does the work.**
+One `docker run` replaces the task's whole action line, because the chaining now
+lives in `weekly.sh`:
+
+```
+docker run --rm -v C:\Users\user\workspace\TenderMining\data:/data -v tm-model-cache:/models_cache tendermining:latest /app/docker/weekly.sh
+```
+
+**On this laptop, B is the better one**, and it is not close. The existing task
+does three things cron cannot:
+
+| | Windows task | cron in a container |
+| --- | --- | --- |
+| laptop asleep at 08:15 | `StartWhenAvailable` — runs when it wakes | the Monday is simply skipped |
+| on battery | will not start, stops if unplugged mid-run | runs regardless, flattens the battery |
+| runaway cycle | `ExecutionTimeLimit` 6 h | runs forever |
+| after a reboot | task survives | Docker Desktop `AutoStart` is **off**, so nothing is running |
+
+A is the right shape the day this moves to a host that is always on — which is
+where [`STORAGE.md`](STORAGE.md) 0 is heading, and it is why the service exists
+now rather than being invented under time pressure later. It is behind a compose
+profile so it cannot start by accident.
+
+**Switching over, either way:** disable the old trigger first, in the same
+sitting. Two schedulers appending to the same ledgers from two different Pythons
+is the one outcome worse than no schedule at all.
+
+```
+Disable-ScheduledTask -TaskName 'TenderMining weekly loop'
+```
+
+Note the day numbering if you ever edit the schedule: cron's `dow` 1 is Monday;
+the Windows trigger's `DaysOfWeek` 2 is the same day.
 
 ## 2. Customers: add, change, render
 
