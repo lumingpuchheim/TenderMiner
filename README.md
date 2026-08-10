@@ -13,6 +13,8 @@ Key documents: [`ONLINE_LEARNING.md`](doc/ONLINE_LEARNING.md) (the running syste
 [`BUSINESS_CASE.md`](doc/BUSINESS_CASE.md) (value case),
 [`MARKET_AND_COMPETITORS.md`](doc/MARKET_AND_COMPETITORS.md) (the market by
 trade, what competitors sell and charge, what we may claim),
+[`ONBOARDING.md`](doc/ONBOARDING.md) (target list → letter → free weeks →
+subscription, with every open decision marked),
 [`train_single_bidder.ipynb`](train_single_bidder.ipynb) (the original
 experiment, fully explained in plain language).
 
