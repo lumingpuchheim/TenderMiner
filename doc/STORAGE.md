@@ -535,15 +535,7 @@ and `--dry-run` deletes nothing. Kept in its own file because importing `loop`
 pulls in pandas, numpy and CatBoost, and the storage suite is worth keeping free
 of the ML stack.
 
-### 6.5 A Dockerfile that runs one cycle (small-medium)
-
-**Blocked on the operator's machine, not on the work.** Docker is not on PATH
-here, so a Dockerfile written now could not be built or run — and an unverified
-Dockerfile is precisely the artifact that looks finished and is not. Every other
-item in this document carries a receipt; this one would carry a claim. It waits
-for a machine that can execute `docker build`.
-
-
+### 6.5 A Dockerfile that runs one cycle — DONE 2026-08-10
 
 `docker run` produces a week's reports with nothing from the operator's laptop.
 
@@ -551,6 +543,134 @@ for a machine that can execute `docker build`.
 purchase. It is also the honest test of 6.1 and 6.2 — if state is truly
 configured and nothing reaches into the checkout, this is short; if it is long,
 they were not finished.
+
+It was short, and it found exactly two things. Docker arrived on the machine on
+2026-08-10 (engine 29.6.2, `linux/x86_64`, an 8-CPU / 8.2 GB VM), so this item
+stopped being a claim and became [`Dockerfile`](../Dockerfile),
+[`docker-compose.yml`](../docker-compose.yml),
+[`requirements.txt`](../requirements.txt) and
+[`.dockerignore`](../.dockerignore). How to run it: [`RUNBOOK.md`](RUNBOOK.md)
+§1b.
+
+**The receipts.**
+
+- **Build**: `tendermining:latest`, 1.62 GB. ~17 minutes cold, nearly all of it
+  pip resolving CatBoost, onnxruntime, scipy and pyarrow; seconds after a code
+  edit, because dependencies are their own layer. No `torch` — fastembed runs
+  the sentence-transformer through onnxruntime, which is the difference between
+  1.6 GB and the ~5 GB that ruled Vercel out in section 0.
+- **Tests**: `docker run --rm tendermining:latest python -m unittest discover -t
+  . -s tests` → 83 tests, OK, 1.2 s. The same 83 the laptop runs.
+- **One full cycle**, `--last 7d --skip-download`, against a 672 MB copy of the
+  real state mounted at `/data`, **with `--network none`** so the run could not
+  reach TED or HuggingFace even by accident: first line
+  `[config] data root: /data [$TM_DATA_DIR]` — and *no* "inside the code
+  checkout" warning, which is 6.1's test passing in one line. 28,973 tender
+  rows, sidecar current at 24,023 lots, a candidate model trained
+  (`m2026-08-10-124827`, val PR-AUC 0.532 vs champion 0.669 → champion kept,
+  correctly), 4,686 open rows scored, all four drift checks green, the operator
+  report, all 8 subscriptions rendered, the simulation and the dashboard.
+  `[done]` in 2.9 minutes.
+- **The same cycle again with `--read-only --tmpfs /tmp`**, i.e. a container
+  whose entire filesystem is immutable except the two mounts and a scratch
+  `/tmp`. Identical output, `[done]`. That is the strongest form of the claim
+  this item exists to make: *nothing* the cycle writes lands anywhere but the
+  configured state.
+- **The embedding model is copied from the laptop, not downloaded.** 309 MB
+  seeded into a named volume from `%TEMP%\fastembed_cache`; loads in 2.1 s with
+  the network off, and with the network *on* the volume is still 309 MB and
+  nothing is re-fetched. fastembed logs `Local file sizes do not match the
+  metadata` against a hand-copied cache and then uses it — there is no
+  HuggingFace metadata to compare against. Cosmetic.
+
+**What the honest test found.** 6.1 held for the data root: all 19 `--data-dir`
+defaults across 18 programs already come from `config.data_root()`, and not one
+of them had to move. Two things did:
+
+1. **The model registry was still named relative to the working directory.**
+   `--models-dir` defaulted to the string `'models'` in [`loop.py`](../loop.py),
+   [`simulation.py`](../simulation.py) and [`tryout.py`](../tryout.py), and
+   [`render_dashboard.py`](../render_dashboard.py) fell back to
+   `REPO / 'models'`. In a container that is `/app/models` — inside the image.
+   The cycle would have trained a model, promoted it, written `registry.jsonl`
+   into the code directory, and lost all of it when the container exited; the
+   next container would have started from an empty registry and seen no
+   champion to beat. Now `config.models_root()` with `TM_MODELS_DIR`, the same
+   three steps as `data_root` and the same CWD-relative default, so **nothing
+   moves on the laptop**. The image sets it to `/data/models`, which is why one
+   mounted volume carries the whole state. Two tests, including one asserting
+   the two roots are independent — 5.1 is still undecided, and a registry that
+   relocated itself the day someone set `TM_DATA_DIR` would take the promoted
+   model with it.
+2. **CatBoost wrote into the checkout on every fit.** `catboost_info/`,
+   per-iteration tsv logs nobody reads — which is why `.gitignore` has a line
+   for it. `allow_writing_files=False` in
+   [`single_bidder.py`](../single_bidder.py) `make_model`; it affects logging
+   only, never the fitted model, and it is what lets the read-only receipt above
+   exist at all.
+
+**The schedule now exists in the container too**, added 2026-08-10 on the
+operator's request: `cron` in the image, `docker/crontab` firing
+`docker/weekly.sh` at Monday 08:15, behind a compose profile so it cannot start
+by accident. `weekly.sh` reproduces the Windows task's action line including the
+`&&` — the simulation scorecard is appended only if the cycle succeeded, because
+a dated heading with no run behind it is worse than a gap in a log that is read
+weeks later.
+
+*Receipt:* the committed crontab was edited in place inside a container to fire
+two minutes out and the real daemon ran it — same file, same `tm` user field,
+same redirect. `[cron] weekly cycle starting` streamed to `docker logs`, the
+cycle finished, and `simcheck.log` gained `=== Mon 2026-08-10 ===` followed by
+the scorecard, which only happens when the cycle exits 0.
+
+**Cron cost three attempts, and every failure was silent.** Worth recording,
+because each one produces a container that looks perfectly healthy:
+
+1. **No output anywhere.** cron hands a job's stdout to the local mail
+   transport; a container has none. The first run fired, failed, and reported
+   nothing. Fixed by redirecting the job to a file and having the scheduler
+   service `tail -F` it to stdout.
+2. **`> /proc/1/fd/1` made it worse.** The usual container trick needs the job
+   to run as the same user as PID 1 — this job runs as `tm` while the daemon is
+   root, so the shell could not open the target and the job died *before*
+   `weekly.sh` started. A silence one step earlier than the silence it replaced.
+3. **The job ran in UTC.** `CRON_TZ` decides when cron fires; it does not reach
+   the command, which gets a bare environment. The run that finally worked
+   stamped itself `17:10:02 UTC` while the container clock read `20:10 EEST`.
+   Harmless for `loop.py` (it dates from `now_utc()`), not harmless for
+   `bulk.py` and `download.py`, which pick the download window with
+   `date.today()` — between midnight and 03:00 local the container would have
+   asked TED for the wrong day. `TZ` is now set in the crontab's env block
+   alongside `CRON_TZ`.
+
+Also added: `TM_WEEKLY_ARGS`, so `weekly.sh` can be re-run with
+`--skip-download`. Found by running the weekly command against a state directory
+with no `data/raw` — `features.py` rebuilds the store from the *entire* archive,
+so a partial one silently replaced a 22 MB store with an 810 KB one and then
+died in `single_bidder` with `KeyError: 'n_tenders'`. Exactly the failure §6.5's
+"Deliberately not in this plan" predicts for deleting the archive, reached from
+the other direction.
+
+Reading the real task rather than this document's summary of it turned up
+something worth writing down: **the laptop is on UTC+3 (`GTB Standard Time`),
+not German time.** The image had been given `TZ=Europe/Berlin` on the assumption
+that German notices meant a German clock. `loop.py` dates its own reports from
+`now_utc()` and would not have noticed, but `bulk.py` and `download.py` choose
+the download window with `date.today()`, and `backtest.py` and `calibrate.py`
+name their receipts the same way — an hour off, and once a day a whole date off.
+Now `Europe/Bucharest`, overridable with `TM_TZ`.
+
+**What this still does not do — and the recommendation.** The live Monday task is
+untouched: it still runs the laptop's Python, and the container has only ever
+been pointed at a *copy* of the state. Cutting over is an operator decision, and
+the runbook (§1c) argues for keeping the **Windows trigger** and giving it a
+`docker run` action rather than switching cron on, for as long as the host is a
+laptop. The existing task has `StartWhenAvailable`, so a Monday spent asleep runs
+on waking; it refuses to start on battery and stops if unplugged; it has a 6-hour
+execution limit; and it survives a reboot, which a container does not while
+Docker Desktop's `AutoStart` is off. Cron in a container has none of that and is
+the right shape only once the host is always on. Whichever is chosen, the other
+must be disabled in the same sitting.
 
 ### Deliberately not in this plan
 
@@ -590,6 +710,9 @@ conversation.
 | 2026-08-08 | Vercel ruled out for the cycle (execution cap, no persistent filesystem, bundle size); kept in mind for a customer front end | operator question, answered |
 | 2026-08-08 | raw notice archive is NOT deleted — the store is rebuilt from the whole archive every cycle | operator question, answered |
 | 2026-08-08 | document restructured: section 6 is the only plan; the old build order and finish plan removed as contradictory | revision |
+| 2026-08-10 | 6.5: image built and a full cycle run in it, read-only rootfs, `--network none`, against a copy of the state | implemented, receipts in 6.5 |
+| 2026-08-10 | the model registry gets its own variable (`TM_MODELS_DIR`), not a subdirectory of the data root — 5.1 is still open | implemented |
+| 2026-08-10 | the weekly schedule stays on the laptop's Python until a cycle has run green in the container against the real `data/` | deferred, operator's call |
 | | 5.1 registry / CURRENT: | |
 | | 5.2 loop_checkpoint: | |
 | | 5.3 migration window: | |

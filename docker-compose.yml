@@ -1,0 +1,70 @@
+# TenderMining — the cycle, containerised. doc/STORAGE.md 6.5.
+#
+#   docker compose build
+#   docker compose run --rm tm python loop.py run --last 7d
+#   docker compose run --rm tm python -m unittest discover -t . -s tests
+#
+# Compose exists here for one reason: to write the two mounts down once. The
+# image itself needs nothing from this file — the equivalent plain `docker run`
+# is in doc/RUNBOOK.md §1b, and it is what a host like Render or Railway runs.
+
+name: tendermining
+
+services:
+  tm:
+    build: .
+    image: tendermining:latest
+    init: true                       # so Ctrl-C reaches python, not PID 1
+    environment:
+      # Which day the container thinks it is; the download window and the
+      # dated receipts depend on it. Default is the operator's laptop zone.
+      TZ: ${TM_TZ:-Europe/Bucharest}
+      # Sidecar tag — a model change is a new directory and a full re-embed,
+      # never an in-place mutation (embed.py). Flipping it here flips it for
+      # the whole cycle, which is the only way it should ever be flipped.
+      EMBED_MODEL: ${EMBED_MODEL:-jina-v2-base-de}
+    volumes:
+      # THE state directory. Defaults to ./data — today's behaviour, so a
+      # container started in the checkout finds exactly what the laptop
+      # finds. Point TM_STATE somewhere outside the checkout (an absolute
+      # path, or a named volume) and nothing else has to change: that is
+      # what 6.1 bought.
+      - ${TM_STATE:-./data}:/data
+      # The 309 MB embedding model. Its own volume, not part of the state:
+      # it is a cache, it is re-downloadable, and a backup of /data should
+      # not be 309 MB heavier for it.
+      - model-cache:/models_cache
+
+  # The weekly schedule, Monday 08:15 — the container equivalent of the Windows
+  # task "TenderMining weekly loop". Not started by `up` unless asked for:
+  #
+  #   docker compose up -d scheduler        # start it
+  #   docker compose logs -f scheduler      # watch it
+  #   docker compose stop scheduler         # stand it down
+  #
+  # Read doc/RUNBOOK.md §1c before turning this on alongside the Windows task.
+  # Two schedulers appending to the same ledgers is worse than either alone.
+  scheduler:
+    extends: tm
+    profiles: ["scheduler"]
+    # cron is the one thing here that needs root: it drops to `tm` per job (see
+    # the user field in docker/crontab), so the cycle itself still runs as 1000.
+    user: root
+    # cron daemonises, then `tail -F` becomes the foreground process and streams
+    # the job's own output to `docker compose logs`. The tail is what keeps the
+    # container alive, and -F (not -f) means it does not care that cron.log does
+    # not exist until the first Monday.
+    #
+    # Why not `cron -f` alone: cron's -L flag logs to syslog, which no container
+    # has, and a job's stdout goes to the mail spool, which no container has
+    # either. Run that way the service looks perfectly healthy and reports
+    # nothing, ever. See the comment in docker/crontab.
+    command: ["sh", "-c", "cron -L 2 && exec tail -F /data/logs/cron.log"]
+    restart: unless-stopped
+
+volumes:
+  model-cache:
+    # Named explicitly rather than project-prefixed, so seeding it once from a
+    # laptop's existing cache (doc/RUNBOOK.md §1b) survives a compose project
+    # rename and is shared by plain `docker run`.
+    name: tm-model-cache

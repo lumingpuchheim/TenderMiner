@@ -1,0 +1,29 @@
+# What never belongs in the image. The rule is section 0 of doc/STORAGE.md:
+# an image ships CODE, state lives on a mounted volume and outlives the
+# container. Anything below is either state, or weight with no runtime use.
+
+# State. /data is a mount point, never a layer — copying it in would freeze a
+# snapshot of the ledgers into the image and hide the fact that the container
+# is writing somewhere that dies with it.
+data/
+models/
+catboost_info/
+
+# History and tooling
+.git/
+.gitignore
+.claude/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# 1.3 MB of notebooks and 794 KB of PDF: analysis artifacts, read by people,
+# never by the cycle, and the only files here heavy enough to be worth a line.
+*.ipynb
+*.pdf
+
+# The markdown stays. It is ~250 KB, `features.py --fields-doc` actually reads
+# FIELDS.md, and an image that can explain itself (`docker run ... cat
+# doc/RUNBOOK.md`) is worth more than the layer it costs.

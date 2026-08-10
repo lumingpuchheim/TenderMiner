@@ -18,6 +18,31 @@ this small change".
 If you notice you have already edited the primary checkout, stop and move
 the change to a worktree before committing.
 
+## Inside the worktree you have full access
+
+Once the session is in a worktree under `.claude/worktrees/`, run whatever the
+work needs — scripts, the test suite, a receipt harness, a throwaway
+`python -c` — without stopping to ask each time. The worktree *is* the safety
+margin: the files are a private copy on a private branch, `master` is
+untouched, and the worst outcome is one `git worktree remove`. Asking for
+permission to run `python foo.py` there buys nothing and costs a round trip.
+
+Two things are not covered by that, because they reach outside the worktree:
+
+- **The real `data/`.** A fresh worktree has no `data/` at all (it is
+  gitignored), so anything touching real records has to be pointed at the
+  primary checkout's copy explicitly — and that copy is shared with scheduled
+  `loop.py` runs. Reading it is fine; writing to `data/tendermining.db` or a
+  live ledger is still a question first.
+- **`git push`, and the deny-list.** Pushing, `reset --hard`, force-push and
+  the rest stay gated wherever you are.
+
+This rule is about *asking*, not about the permission prompt itself — that one
+is decided by the allow-list in `~/.claude/settings.json`, which is user-level
+precisely so a newly created worktree inherits it instead of re-asking from
+scratch. If a routine command prompts every time, the fix is a line there, not
+a paragraph here.
+
 ## Merging and pushing is yours to do
 
 You may merge a worktree branch into `master` and push it to `origin`

@@ -175,11 +175,24 @@ does), `--region DE2`, `--since 2026-01`, `--sort`, `--min-lots`, `--top`.
 - **Python 3** (tested on 3.13).
 - The **exploration scripts** below need only the standard library.
 - The **production pipeline** (`loop.py`, `features.py`, `single_bidder.py`)
-  additionally needs: `pip install pandas pyarrow catboost scikit-learn`.
+  additionally needs `pip install -r requirements.txt` — the exact versions the
+  cycle runs on, so a rebuild months from now is the same system.
 - Internet access; all TED endpoints are public, **no API key**.
 - Run every command from the repository root. Downloaded data lands in `data/`
   (git-ignored). `data/raw/` and `data/ledger/` are the two things worth backing
   up — everything else is rebuildable.
+
+**Or skip all of that** — [`Dockerfile`](Dockerfile) and
+[`docker-compose.yml`](docker-compose.yml) build an image with the whole stack
+in it, and the cycle runs against a mounted state directory:
+
+```bash
+docker compose build && docker compose run --rm tm python loop.py run --last 7d
+```
+
+See [`RUNBOOK.md`](doc/RUNBOOK.md) §1b for the mounts and the plain `docker run`
+equivalent, and [`STORAGE.md`](doc/STORAGE.md) 6.5 for why the image ships code
+only and every writable path is configuration.
 
 ```bash
 cd C:\Users\user\workspace\TenderMining

@@ -1,0 +1,25 @@
+# TenderMining runtime dependencies — the versions the 2026-08-10 cycle runs on.
+#
+# Pinned exactly, because this file is what makes an image reproducible: a
+# floating `pandas` would let a rebuild months from now change the store's
+# dtypes or CatBoost's inputs without a single line of this repository moving.
+# Bump deliberately, one line at a time, with the test suite as the receipt.
+#
+# Notably absent: torch. fastembed runs the sentence-transformer through
+# onnxruntime, which is why the image is ~1 GB instead of ~5 (doc/STORAGE.md 0).
+#
+#   pip install -r requirements.txt        # laptop
+#   docker compose build                   # container
+
+catboost==1.2.10
+fastembed==0.8.0
+ftfy==6.3.1
+numpy==2.2.6
+pandas==2.3.2
+pyarrow==22.0.0
+scikit-learn==1.9.0
+
+# Not imported directly, pinned because they are the ones that move underfoot:
+# onnxruntime is fastembed's engine, scipy is scikit-learn's.
+onnxruntime==1.28.0
+scipy==1.17.1

@@ -69,6 +69,42 @@ publish, and the join does the rest. The check is read-only and can be run
 any time; the numbers simply firm up as outcomes arrive (~90-day median
 award lag).
 
+## The gate rides along (2026-08-10)
+
+The simulation picked by coarse market (cpv3 x NUTS-1) plus the competition
+flag — the relevance gate never saw a simulated pick. That left the gate's
+only accumulating live evidence at 8 subscriptions while the machinery it
+runs on (profiles, cores, phases 9c–9i) was measured on hand labels alone.
+Now every simulated pick also receives a **gate verdict**, recorded in its
+own append-only ledger `simulations_gate` (same natural key as
+`simulation`: company, procedure_id, lot_id — one verdict forever, the
+gate that was live when the verdict was written):
+
+```jsonl
+{"ts": "…", "company": "Weber Tiefbau GmbH", "procedure_id": "…",
+ "lot_id": "LOT-0001", "verdict": "admit", "gate_pass": 1,
+ "text": 0.71, "code": 1.0, "why": "evidence: estrich, zement"}
+```
+
+`verdict` is one of `admit` / `borderline` / `reject` (the real
+`relevance.judge()`, profile built from the company's wins exactly as
+onboarding would), or `no_profile` (no resolvable win in the sidecar —
+the new-customer bootstrap case, recorded rather than skipped because its
+size is itself a number we quote) or `not_in_sidecar` (the lot cannot be
+judged). The PICK record is untouched — what the simulation would have
+sent stays comparable across time; the verdict rides beside it.
+
+The backlog is judged too, deliberately: picks already graded by
+published awards get verdicts on the first pass, so the join below has
+signal from day one instead of after the ~90-day award lag.
+
+The check gains the split that motivates all of it: hit rates and
+own-win rates per verdict. If gate-admitted picks end uncontested (and
+won by the simulated customer) more often than gate-rejected ones, the
+gate is buying precision at market scale, measured on outcomes — not on
+labels. A failure in the verdict pass must never break the cycle: the
+simulation is instrumentation, and the loop wraps it accordingly.
+
 ## What this is not
 
 - Not model training input — winner identities never feed features

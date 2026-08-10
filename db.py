@@ -254,6 +254,28 @@ CREATE INDEX IF NOT EXISTS ix_sim_seq     ON simulation (seq);
 CREATE INDEX IF NOT EXISTS ix_sim_company ON simulation (company);
 CREATE INDEX IF NOT EXISTS ix_sim_lot     ON simulation (procedure_id, lot_id);
 
+-- SIMULATION.md "the gate rides along" (2026-08-10): one relevance-gate
+-- verdict per simulated pick, same natural key as `simulation`. A separate
+-- table, not new columns: `simulation` rows are append-only history and the
+-- verdict arrives on its own schedule (the backlog pass judges picks written
+-- before the gate rode along).
+CREATE TABLE IF NOT EXISTS simulation_gate (
+    ts           TEXT NOT NULL,
+    company      TEXT NOT NULL,
+    procedure_id TEXT NOT NULL,
+    lot_id       TEXT NOT NULL,
+    verdict      TEXT NOT NULL,
+    gate_pass    INTEGER,
+    text         REAL,
+    code         REAL,
+    why          TEXT,
+    seq          INTEGER NOT NULL,
+    raw          BLOB NOT NULL,
+    UNIQUE (company, procedure_id, lot_id)
+);
+CREATE INDEX IF NOT EXISTS ix_simg_seq     ON simulation_gate (seq);
+CREATE INDEX IF NOT EXISTS ix_simg_company ON simulation_gate (company);
+
 CREATE TABLE IF NOT EXISTS gate_config (
     fingerprint TEXT PRIMARY KEY,
     first_seen  TEXT NOT NULL,
@@ -328,6 +350,13 @@ def connect(data_dir, create=True):
     con.execute('PRAGMA foreign_keys=ON')
     con.execute('PRAGMA synchronous=NORMAL')
     _assert_schema_current(con, p)
+    # Additive self-heal (2026-08-10, the simulation_gate table): SCHEMA and
+    # TRIGGERS are IF-NOT-EXISTS throughout, so a table added by newer code
+    # materialises on first touch without a migration. An older-version
+    # database was already refused above, so this can only ADD objects —
+    # it can never reinterpret existing rows.
+    con.executescript(SCHEMA)
+    con.executescript(TRIGGERS)
     return con
 
 
@@ -378,6 +407,7 @@ LEDGERS = {
     'learned_refs': ('ledger/learned_refs.jsonl', 'learned_ref'),
     'gate_configs': ('ledger/gate_configs.jsonl', 'gate_config'),
     'simulations': ('ledger/simulations.jsonl', 'simulation'),
+    'simulations_gate': ('ledger/simulations_gate.jsonl', 'simulation_gate'),
 }
 
 # Fields that are JSON arrays in the ledger and stay JSON text in a column.

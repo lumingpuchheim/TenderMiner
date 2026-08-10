@@ -486,21 +486,40 @@ class Sandbox(TempHome):
 
 class Config(unittest.TestCase):
     def setUp(self):
-        self.saved = os.environ.get(config.ENV_VAR)
+        self.saved = {v: os.environ.get(v)
+                      for v in (config.ENV_VAR, config.MODELS_ENV_VAR)}
         self.addCleanup(self._restore)
-        os.environ.pop(config.ENV_VAR, None)
+        for v in self.saved:
+            os.environ.pop(v, None)
 
     def _restore(self):
-        if self.saved is None:
-            os.environ.pop(config.ENV_VAR, None)
-        else:
-            os.environ[config.ENV_VAR] = self.saved
+        for var, val in self.saved.items():
+            if val is None:
+                os.environ.pop(var, None)
+            else:
+                os.environ[var] = val
 
     def test_resolution_order(self):
         self.assertEqual(config.data_root(), Path(config.FALLBACK))
         os.environ[config.ENV_VAR] = '/srv/state'
         self.assertEqual(config.data_root(), Path('/srv/state'))
         self.assertEqual(config.data_root('/explicit'), Path('/explicit'))
+
+    def test_models_resolution_order(self):
+        """The registry resolves like the data root and by its own variable —
+        a container puts it under the mounted state, a laptop leaves it in the
+        working directory (STORAGE.md 6.5)."""
+        self.assertEqual(config.models_root(), Path(config.MODELS_FALLBACK))
+        os.environ[config.MODELS_ENV_VAR] = '/srv/state/models'
+        self.assertEqual(config.models_root(), Path('/srv/state/models'))
+        self.assertEqual(config.models_root('/explicit'), Path('/explicit'))
+
+    def test_the_two_roots_are_independent(self):
+        """Setting the state root must not silently move the model registry:
+        5.1 has not been decided, and a registry that relocates itself the day
+        someone sets TM_DATA_DIR would take the promoted model with it."""
+        os.environ[config.ENV_VAR] = '/srv/state'
+        self.assertEqual(config.models_root(), Path(config.MODELS_FALLBACK))
 
     def test_state_inside_the_checkout_is_detected(self):
         self.assertTrue(config.inside_checkout(config.REPO / 'data'))

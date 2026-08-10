@@ -1,7 +1,9 @@
 """TenderMining configuration — where the state lives.
 
 doc/STORAGE.md 6.1. One question, answered in one place: **which directory holds
-this deployment's state?**
+this deployment's state?** (Two, since 6.5: the trained-model registry answers
+it separately — see `models_root` for why it is its own variable and not a
+subdirectory of the first.)
 
 Until now the answer was hardcoded eighteen times as the string `'data'`, and
 once as `REPO / 'data'` — the code directory's own path. That is the coupling
@@ -30,6 +32,9 @@ from pathlib import Path
 ENV_VAR = 'TM_DATA_DIR'
 FALLBACK = 'data'
 
+MODELS_ENV_VAR = 'TM_MODELS_DIR'
+MODELS_FALLBACK = 'models'
+
 REPO = Path(__file__).resolve().parent
 
 
@@ -43,6 +48,26 @@ def data_root(explicit=None):
     if env:
         return Path(env)
     return Path(FALLBACK)
+
+
+def models_root(explicit=None):
+    """The trained-model registry's directory — `registry.jsonl`, `CURRENT`
+    and the model binaries. Same three-step order as `data_root`, its own
+    variable, and the same CWD-relative default, so nothing moves by itself.
+
+    It is separate from the data root because 5.1 has not been decided: the
+    registry may yet become rows in the database rather than a directory. It
+    is *configurable* because 6.5 found it was the one piece of state still
+    named relative to the working directory — a cycle in a container would
+    have written its promoted model into the image's own code directory,
+    where the next container would not find it.
+    """
+    if explicit:
+        return Path(explicit)
+    env = os.environ.get(MODELS_ENV_VAR)
+    if env:
+        return Path(env)
+    return Path(MODELS_FALLBACK)
 
 
 def inside_checkout(root=None):
