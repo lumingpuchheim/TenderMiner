@@ -2432,6 +2432,39 @@ delivery consistency ever becomes a measured requirement, re-run the
 receipt before re-tuning.
 
 
+## Phase 9g — a lone non-core title word no longer convicts alone (2026-08-10)
+
+Prompted by the 2026-08-10 backtest's business-fit axis: recognisable trade
+bleed — 'Lufttechnische Anlagen' admitted on lüftung(t1), a Tischler lot on
+tischlerarbeiten(t1) — "a single trade term in the title is carrying a lot
+into a market it doesn't belong to." (Two caveats checked first: that run
+predates 9d/9e, and its grader is declared CPV3 trade lists, which calls a
+Rohbau firm winning an Abbruch lot wrong where the hand labels call it
+right. The complaint survived both.)
+
+The census over all 1,595 hand-read cases, admissions by conviction channel:
+
+| channel | in | out |
+| --- | --- | --- |
+| core root in the title | 309 | 43 |
+| LONE non-core title keyword | 18 | 16 |
+| body, 2+ distinct keywords | 79 | 43 |
+
+A core-title conviction is 88% right; a lone non-core title keyword is a
+coin flip. So it no longer convicts alone — it needs the hard code channel
+to agree. Core titles and two-keyword bodies are untouched, which is what
+protects the 9c-9e recall gains: they convict through the core.
+
+Two corroborators were simulated before implementation: hard-code
+(1352/1595) beat shared-family-with-core (1346/1595 — the bleed keyword
+usually shares the family, so the exemption waves it back in). Through the
+real judge: benchmark 1344 -> 1351. The cost, named: 9 in-labeled lots now
+need their code to agree and lose (RIENTH Systemtrennwände, Schweerbau
+Gleiserneuerung) — firms whose lexicon carries the trade but whose core
+does not; most are single-benchmark-appearance firms whose cores the next
+labeling round should revisit. Rollback: LONE_TITLE_NEEDS_CODE=0.
+
+
 ## Open, not scheduled
 
 The two standing accuracy problems, as of phase 9b. Both are measured against

@@ -802,10 +802,20 @@ def _judge_evidence(gate, profile, scored_row, i, config=None):
         core = profile.get('keywords_core') or []
         title_f = evd.fold(str(gate.all_title[i] or '').casefold())
         core_title = any(r in title_f for r in core)
+        convicting = evd.convicts(gate.all_title[i], ev) or core_title
+        # phase 9g: a lone NON-core keyword in the title is a coin flip
+        # (census: 18 in / 16 out on the hand-read cases), so alone it no
+        # longer convicts — it needs the hard code channel to agree. A core
+        # root in the title (88% right) and a two-keyword body convict
+        # exactly as before.
+        if (evd.LONE_TITLE_NEEDS_CODE and convicting and not core_title
+                and evidence_witnesses(ev) < evd.CONVICT_BODY_MIN
+                and not c_hard >= profile['min_code_hard']):
+            convicting = False
         passed, borderline = _evidence_verdict(
             profile, text, c_hard, same_buyer, bool(ev) or core_title,
             witnesses=evidence_witnesses(ev),
-            convicting=evd.convicts(gate.all_title[i], ev) or core_title,
+            convicting=convicting,
             wide_witnesses=evidence_witnesses(ev_wide), config=cfg)
     # phase 8d: deterministic partial admit of the borderline band
     if (not passed and borderline and cfg.borderline_admit_p > 0

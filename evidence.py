@@ -285,6 +285,13 @@ CORE_TITLE_FALLBACK = os.environ.get('CORE_TITLE_FALLBACK', '1') != '0'
 # pay for it yet. Re-measure at the next benchmark growth. CORE_HYSTERESIS=1
 # to enable.
 CORE_HYSTERESIS = os.environ.get('CORE_HYSTERESIS', '0') != '0'
+# Phase 9g: a LONE non-core keyword in the title convicts only when the
+# hard code channel corroborates it. The census over the 1,595 hand-read
+# cases: core-in-title admissions are 88% right, a lone non-core title
+# word is a coin flip (18 in / 16 out) — 'Lüftungsarbeiten' admitted for
+# a non-HVAC firm on the one word. Core titles and two-keyword bodies
+# convict as before. Rollback: LONE_TITLE_NEEDS_CODE=0.
+LONE_TITLE_NEEDS_CODE = os.environ.get('LONE_TITLE_NEEDS_CODE', '1') != '0'
 # rollback switch for phase 8f (A) and (B); env var overrides per run so the
 # A/B needs no edit (BUYER_DIVERSITY=0 reproduces the phase-8e lexicons)
 BUYER_DIVERSITY = os.environ.get('BUYER_DIVERSITY', '1') != '0'
