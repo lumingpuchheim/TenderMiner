@@ -127,9 +127,25 @@ stated in the email as verdict + reason; feedback does not override it.
   click instead of a typed reply. On a pick, a confirmation that gives the
   profile's anchors weight.
 
-Lots we never showed at all produce no feedback — accepted: boundary
-learning comes entirely from the near-miss list, which exists to put the
-gate's edge in front of the customer every week.
+**Lots we never showed — the recall channel.** One box, somewhere stable
+(report footer, the customer's page): "Wir haben eine Ausschreibung
+übersehen? Nummer oder Link hier." The customer pastes a number or the
+tender's URL — the one moment a contractor has either at hand is when the
+tender documents are in front of them, and paste beats typing. The
+submission is treated as a **question, never as a fact**:
+
+1. We resolve it and answer with the lot's full identity plus our verdict —
+   "Los 2, Dachsanierung Grundschule, Stadt Erfurt, Frist 12.09. — ja, Ihr
+   Geschäft. Nicht empfohlen, weil wir viele Bieter erwarten." The echo *is*
+   the error check: a mistyped number resolves to a lot the customer
+   instantly recognises as wrong, an unresolvable one fails loudly, and no
+   confirmation is ever asked. It is also the only place a contested verdict
+   reaches a customer — on request, which is the reason to show it.
+2. **A submitted ref never becomes a `learned_ref` automatically.** Resolves
+   and fits the existing profile (trade, plausible region) → learn; the
+   worst wrong number that still fits looks like their business anyway.
+   Resolves but does not fit → answered normally, ref to the manual review
+   queue. Wrong numbers can waste a click; they cannot poison a profile.
 
 Feedback clicks get the same scanner protection as the stop link (§ below): a
 click lands on a page with the lot's title and one button, otherwise a mail
@@ -231,7 +247,7 @@ conversion against the €60–€99 entrant band vs. €179 anchor
 | 2 | pre-flight check + automatic activation | safe signups | — |
 | 3 | `contact_state` + stop page + guarded mailer | lawful sending at all | — |
 | 4 | pick grading + results notes | the post-trial conversion channel | award publications (data, not code) |
-| 4a | feedback links + confirm pages + ledger events | the learning loop at trial time | — |
+| 4a | feedback links + confirm pages + recall box + ledger events | the learning loop at trial time | — |
 | 5 | trade market pages (public, static) | QR landing target, later inbound | — |
 | 6 | outreach ledger events + console report | conversion by channel, ask-to-yes gap | — |
 | 7 | Stripe page | first paid conversion | price decision, due before first trial ends |
