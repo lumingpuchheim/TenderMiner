@@ -2402,6 +2402,36 @@ firms filled (some had name-only cores that gained their won trades);
 surface median 4.0% of store, 2 firms over the 10% line.
 
 
+## Phase 9f — hysteresis: built and measured, NOT shipped (2026-08-10)
+
+The operator's design, tried against the measured defect: 40% of multi-win
+firms (546 of 1371) lost a core root as wins accumulated, and what churned
+was the context (an estrich firm oscillating estrich <-> estrich+daemm+
+abdicht+schall), not the trade. The mechanism, stateless and replayable:
+references replay in publication order; the first nonempty core
+establishes; afterwards a challenger needs one win more than the bar and
+an incumbent exits when its share of root-bearing refs falls below
+CORE_SHARE/2. Second cut after the first flip list: friction applies only
+to CROSS-family challengers — a same-family challenger is the firm's own
+breadth showing and enters at the ordinary bar.
+
+What it bought: flapping 546 -> 51 firms (-91%), no core emptied, p90 core
+size 5 -> 4, and the narrowings read correctly (Metallbau keeps metallbau,
+drops fassade/tueren; Reiners keeps rohbau, drops five context roots).
+
+Why it is off: the 1,595 hand-read cases price it at 1342/1595 (first cut)
+and 1343/1595 (family-aware cut) against 1344 without. The first cut's
+losses were 13 in-labeled building-services lots of the 9d firms — real
+breadth suppressed; the family exemption recovered most but not all. The
+pre-committed gate was >= 1344: not met, not shipped, no further tuning.
+
+The code stays behind CORE_HYSTERESIS (default off) with the date plumbing
+in place (gate.all_date, core_keywords(dates=...)). The stability gain is
+real and unpriced by a benchmark of independent single-date judgments; if
+delivery consistency ever becomes a measured requirement, re-run the
+receipt before re-tuning.
+
+
 ## Open, not scheduled
 
 The two standing accuracy problems, as of phase 9b. Both are measured against

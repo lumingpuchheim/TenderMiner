@@ -456,6 +456,8 @@ class Gate:
                            lots['cpv_additional']))
         key_ctype = dict(zip(zip(lots['procedure_id'], lots['lot_id']),
                              lots['contract_type']))
+        key_date = dict(zip(zip(lots['procedure_id'], lots['lot_id']),
+                            lots['publication_date']))
         self.all_cpv = np.array(
             [key_cpv.get((r['procedure_id'], r['lot_id'])) for r in self.rows],
             dtype=object)
@@ -467,6 +469,11 @@ class Gate:
             dtype=object)
         self.all_buyer = np.array(
             [key_buyer.get((r['procedure_id'], r['lot_id'])) for r in self.rows],
+            dtype=object)
+        # phase 9f: hysteresis replays a profile's references in the order
+        # they were published, so the core needs each reference's date
+        self.all_date = np.array(
+            [key_date.get((r['procedure_id'], r['lot_id'])) for r in self.rows],
             dtype=object)
         self.all_title = np.array(
             [key_title.get((r['procedure_id'], r['lot_id'])) for r in self.rows],
@@ -620,8 +627,13 @@ def build_profile(gate, sub, config=None):
         # ref_titles is aligned with refs (both are ref_rows then
         # profile_texts), which is what lets a ONE-reference profile read
         # its trade off the title instead of the whole document.
+        # dates aligned like ref_titles: references then free texts; free
+        # texts are operator-written and timeless, so they carry None and
+        # sort to the front of the phase-9f replay
+        ref_dates = ([gate.all_date[i] for i in ref_rows]
+                     + [None] * len(sub.get('profile_texts') or []))
         core = evd.core_keywords(refs, firm=sub.get('name'),
-                                 titles=ref_titles)
+                                 titles=ref_titles, dates=ref_dates)
     return {
         'ref_matrix': np.vstack(expanded),
         'ref_titles': ref_titles,
