@@ -133,13 +133,26 @@ what is a trade worth, who wins it, and which trade to sell into next. Prints
 to stdout and writes nothing.
 
 ```bash
+python market.py next                   # THE decision: which market first,
+                                        # who is contactable, what to charge
+python market.py pitch Jebsen           # one firm's letter numbers
 python market.py trade Blitzschutz      # lots/month, value, 0/1-bidder share,
                                         # buyers, regions, how it is bought
 python market.py firms Blitzschutz      # who wins it — the prospect list
-python market.py rank                   # which trade next, all trades ranked
+python market.py rank                   # browse all trades on one sort key
 python market.py suggest Blitzschutz    # words this trade may be missing
 python market.py trades                 # what the trade list claims
 ```
+
+`next` decides instead of sorting: a firm is **contactable** when it is
+small/micro, has won ≥2 lots in the trade, and its own regions yield ≥12
+picks a year (so "we will definitely recommend you tenders" is always true);
+the per-firm price is a share of the value the subscription plausibly creates
+(uncontested lots in reach × median award × uplift × margin), floored at
+€75/month, flipping to a percentage-of-deal pitch where one median award is
+large. Trades are ranked by total chargeable revenue, rejected trades are
+printed with the failing gate, and the uplift/margin constants are labelled
+GUESSES in every output until a customer's answers replace them.
 
 A trade is **defined by words, not by CPV**: of the store lots whose title says
 Blitzschutz, only 64% carry `45312310` as their main code, so a code filter
