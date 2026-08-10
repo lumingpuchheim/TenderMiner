@@ -111,19 +111,25 @@ signup ── 4 free weekly reports ── the ask (once) ──┬── yes �
 
 ### Feedback in every report
 
-Every lot in the weekly report carries two tokened links: **"ist unser
-Geschäft"** and **"nicht unser Geschäft"**; every entry in the near-miss list
-carries **"das hätten wir sehen wollen"**. No login, no free text, one click
-each — the customer improves their own picks without writing a word:
+Every lot the report shows — picks and near-misses alike — carries the same
+two tokened links: **"ist unser Geschäft"** and **"nicht unser Geschäft"**.
+No login, no free text, no typed TED numbers anywhere (a customer will not
+hunt down a publication number; the token already names the lot). One
+question only, because one question is all a customer can answer for us:
+**relevance**. Whether a relevant lot gets *recommended* is our pick policy
+(the competition forecast may say "your business, but contested — skip"),
+stated in the email as verdict + reason; feedback does not override it.
 
-- *nicht unser Geschäft* on a pick → a rejection event; it also measures the
+- *nicht unser Geschäft* → rejection event; on picks it also measures the
   wrong-trade leakage claim live, per customer.
-- *ist unser Geschäft* → a confirmation event; the profile's anchors gain
-  weight.
-- *das hätten wir sehen wollen* on a near-miss → exactly what the reply loop
-  produces today: a `learned_ref` and a new subscription version — one click
-  instead of a typed TED number. The typed reply stays available for lots we
-  never showed at all.
+- *ist unser Geschäft* on a near-miss → the boundary signal the reply loop
+  was designed to catch: a `learned_ref` and a new subscription version, one
+  click instead of a typed reply. On a pick, a confirmation that gives the
+  profile's anchors weight.
+
+Lots we never showed at all produce no feedback — accepted: boundary
+learning comes entirely from the near-miss list, which exists to put the
+gate's edge in front of the customer every week.
 
 Feedback clicks get the same scanner protection as the stop link (§ below): a
 click lands on a page with the lot's title and one button, otherwise a mail
