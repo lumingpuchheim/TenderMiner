@@ -37,7 +37,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--sub', required=True, help='subscription id to render')
     ap.add_argument('--data-dir', default=config.data_root())
-    ap.add_argument('--models-dir', default='models')
+    ap.add_argument('--models-dir', default=config.models_root())
     ap.add_argument('--set', action='append', default=[], metavar='FIELD=VALUE',
                     dest='overrides',
                     help='override a subscription field for this render only '

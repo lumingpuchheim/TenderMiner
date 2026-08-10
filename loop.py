@@ -1616,7 +1616,7 @@ def main():
                      dest='sim_min_deadline_days',
                      help='deadline floor for simulated picks, like the product default')
     run.add_argument('--data-dir', default=config.data_root(), dest='data_dir')
-    run.add_argument('--models-dir', default='models', dest='models_dir')
+    run.add_argument('--models-dir', default=config.models_root(), dest='models_dir')
     run.add_argument('--skip-download', action='store_true', dest='skip_download',
                      help='reuse the existing store (offline run)')
     run.set_defaults(func=cmd_run)

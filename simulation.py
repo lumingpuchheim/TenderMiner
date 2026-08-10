@@ -207,7 +207,7 @@ def main():
     run.add_argument('--max-picks', type=int, default=5, dest='max_picks')
     run.add_argument('--min-deadline-days', type=int, default=14, dest='min_deadline_days')
     run.add_argument('--data-dir', default=config.data_root(), dest='data_dir')
-    run.add_argument('--models-dir', default='models', dest='models_dir')
+    run.add_argument('--models-dir', default=config.models_root(), dest='models_dir')
     run.set_defaults(func=cmd_run)
     args = ap.parse_args()
     args.func(args)

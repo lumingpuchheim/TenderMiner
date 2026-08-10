@@ -257,6 +257,12 @@ def make_model(cat_cols, one_hot_max_size=ONE_HOT_MAX_SIZE, seed=SEED, **overrid
         eval_metric='PRAUC',
         random_seed=seed,
         verbose=False,
+        # CatBoost otherwise drops a `catboost_info/` scratch directory into
+        # the working directory on every fit — per-iteration tsv logs nobody
+        # reads, and the last thing in this program that wrote to the code
+        # checkout (doc/STORAGE.md 6.5). It affects logging only, never the
+        # fitted model.
+        allow_writing_files=False,
     )
     params.update(overrides)
     return CatBoostClassifier(**params)

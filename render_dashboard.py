@@ -176,11 +176,12 @@ def drift_panel(drift):
 # ------------------------------------------------------------------- assemble
 
 def main(data_dir=None, models_dir=None):
-    # config.data_root, not REPO / 'data': the state's location is a
-    # deployment's choice, not a fact about where the code happens to sit
-    # (doc/STORAGE.md 6.1). loop.py always passes it explicitly.
+    # config.data_root / config.models_root, not REPO / '...': the state's
+    # location is a deployment's choice, not a fact about where the code
+    # happens to sit (doc/STORAGE.md 6.1, and 6.5 for the registry).
+    # loop.py always passes both explicitly.
     data = Path(data_dir) if data_dir else config.data_root()
-    models = Path(models_dir) if models_dir else REPO / 'models'
+    models = Path(models_dir) if models_dir else config.models_root()
     out = data / 'reports' / 'dashboard.html'
     registry = read_jsonl(models / 'registry.jsonl')
     # through ledger.py, or the dashboard would keep reading a file the cycle

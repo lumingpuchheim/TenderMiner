@@ -48,6 +48,61 @@ firm up there as awards publish (~90-day median lag). Nothing else is
 scheduled by design: calibration and backtests are event-driven (§4, §3),
 and the embedding sidecar rides inside the cycle.
 
+## 1b. The same cycle, in a container
+
+Same command, same outputs, none of the laptop's Python. Why it exists is
+[`STORAGE.md`](STORAGE.md) 6.5; what to type is here.
+
+```
+docker compose build
+docker compose run --rm tm python loop.py run --last 7d
+```
+
+Every command in this runbook works with `docker compose run --rm tm` in front
+of it — `python tryout.py --sub beck --set max_picks=8`, `python evidence.py
+--benchmark`, `python -m unittest discover -t . -s tests`. The image is the
+stack, not the cycle.
+
+**Two mounts, and they are the whole story.**
+
+| mount | what | why it is a mount and not a layer |
+| --- | --- | --- |
+| `${TM_STATE:-./data}` → `/data` | this deployment's state: store, database, embeddings, reports, and `models/` | it has to outlive the container. Nothing else is writable |
+| `tm-model-cache` → `/models_cache` | the 309 MB embedding model | a cache, re-downloadable, and no reason for a state backup to carry it |
+
+`TM_STATE` defaults to `./data`, so a container started in the checkout finds
+what the laptop finds. Point it at an absolute path outside the checkout and
+nothing else changes — that is what 6.1 bought:
+
+```
+TM_STATE=C:\Users\user\workspace\tm-state docker compose run --rm tm python loop.py run --last 7d
+```
+
+**Seed the model cache from this laptop rather than downloading it.** The model
+is already in `%TEMP%\fastembed_cache`; copying it in means the first cycle in a
+fresh container reaches HuggingFace zero times:
+
+```
+docker volume create tm-model-cache
+docker run --rm -v tm-model-cache:/models_cache -v "%TEMP%\fastembed_cache:/host_cache:ro" --user root tendermining:latest sh -c "cp -r /host_cache/models--jinaai--jina-embeddings-v2-base-de /models_cache/ && chown -R 1000:1000 /models_cache"
+```
+
+fastembed logs `Local file sizes do not match the metadata` on a cache seeded
+this way and then uses it anyway — a copied cache has no HuggingFace metadata
+to compare against. Harmless; the vectors are byte-identical to the laptop's.
+
+**Without compose**, which is what a host like Render or Railway will run:
+
+```
+docker run --rm -v C:\Users\user\workspace\tm-state:/data -v tm-model-cache:/models_cache tendermining:latest python loop.py run --last 7d
+```
+
+**The scheduled task does not change by itself.** It still runs the laptop's
+Python (§1). To move Monday 08:15 into the container, the two lines become one
+`docker run` each — worth doing only once a cycle has run green in the
+container against the real `data/`, because a half-migrated schedule that
+writes the same ledgers from two Pythons is worse than either.
+
 ## 2. Customers: add, change, render
 
 A customer is lines in `data/subscriptions.jsonl` (private, gitignored,

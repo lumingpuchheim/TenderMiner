@@ -1,0 +1,42 @@
+# TenderMining — the cycle, containerised. doc/STORAGE.md 6.5.
+#
+#   docker compose build
+#   docker compose run --rm tm python loop.py run --last 7d
+#   docker compose run --rm tm python -m unittest discover -t . -s tests
+#
+# Compose exists here for one reason: to write the two mounts down once. The
+# image itself needs nothing from this file — the equivalent plain `docker run`
+# is in doc/RUNBOOK.md §1b, and it is what a host like Render or Railway runs.
+
+name: tendermining
+
+services:
+  tm:
+    build: .
+    image: tendermining:latest
+    init: true                       # so Ctrl-C reaches python, not PID 1
+    environment:
+      # Which day the container thinks it is; report_<date>.html depends on it.
+      TZ: ${TM_TZ:-Europe/Berlin}
+      # Sidecar tag — a model change is a new directory and a full re-embed,
+      # never an in-place mutation (embed.py). Flipping it here flips it for
+      # the whole cycle, which is the only way it should ever be flipped.
+      EMBED_MODEL: ${EMBED_MODEL:-jina-v2-base-de}
+    volumes:
+      # THE state directory. Defaults to ./data — today's behaviour, so a
+      # container started in the checkout finds exactly what the laptop
+      # finds. Point TM_STATE somewhere outside the checkout (an absolute
+      # path, or a named volume) and nothing else has to change: that is
+      # what 6.1 bought.
+      - ${TM_STATE:-./data}:/data
+      # The 309 MB embedding model. Its own volume, not part of the state:
+      # it is a cache, it is re-downloadable, and a backup of /data should
+      # not be 309 MB heavier for it.
+      - model-cache:/models_cache
+
+volumes:
+  model-cache:
+    # Named explicitly rather than project-prefixed, so seeding it once from a
+    # laptop's existing cache (doc/RUNBOOK.md §1b) survives a compose project
+    # rename and is shared by plain `docker run`.
+    name: tm-model-cache
