@@ -290,6 +290,21 @@ client-assembled JavaScript**, and these pages exist to rank.
   ranked, reasoned full set stays paid, and the entries stay dated and
   checkable — which is the point: with an elevated-chance claim, the aging
   page becomes the public track record.
+- **„Aktuelle Ausschreibungen (Auswahl)"** — three to five *live* lots per
+  trade page: title, buyer, region, deadline. No verdicts, no forecast, no
+  reasons. Added 2026-08-10 after filtering the inventory by the criterion
+  *"can a real customer begin with this?"* — without it, a visitor outside
+  CPV 452 finds orientation and proof but no first step. It gives nothing
+  away: notices are public on every portal; the product is completeness +
+  the personalized gate + the forecast + the learning loop, none of which
+  the sample contains.
+
+The same filtering, recorded so the sections keep their honest jobs:
+the aggregates are **orientation** ("lohnt sich das?"), the sample and the
+452 Kandidaten are the **first step**, the fresh 0/1 awards are **proof**,
+and the national report is **PR for backlinks** — the last two are not
+customer-start data and must not crowd the first two on the page.
+
 - **An index page** linking the trades, and the same Impressum /
   Datenschutzerklärung the app carries.
 - **A sitemap.xml**, rendered with the pages — the pages update weekly,
