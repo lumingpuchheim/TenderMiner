@@ -221,15 +221,11 @@ What is public vs. personal is decided by a rule, not case by case:
 
 - **Public = aggregates only** — content with no customer and no person in
   it. This product has exactly one such asset: the per-trade market
-  statistics (lots/month, median award, 0/1-bid share, closed-without-award
-  share) from `market.py`. Nobody else in Germany publishes them; they are
-  the future advertising. **Deferred with the inbound channel**: with
-  QR-only acquisition there is no stranger to show them to. When that
-  channel opens, they go out as **static HTML** (Google-readable by design —
-  the SEO argument for HTML over JavaScript), rendered by the cycle,
-  uploaded by the cycle to a static host in front of the app. No git-triggered
-  builds ever: the host receives finished files, because the data they are
-  rendered from lives in the database, not the repo.
+  statistics from `market.py`. Nobody else in Germany publishes them; they
+  are the future advertising. Specified in §4.1; *opening* the channel (i.e.
+  actually deploying them) remains a decision, but the spec and the
+  interface (§4.2) are fixed now so the app is built against them from the
+  start.
 - **Personal = everything with a firm in it**, and it is not merely
   non-public but **actively unfindable**: tokened URLs, `noindex`, tokens
   long enough that guessing is hopeless. A customer page reachable through
@@ -242,6 +238,67 @@ What is public vs. personal is decided by a rule, not case by case:
 The administrator has no web surface at all: the console `report` subcommand
 and the review queue are the whole back office, on the machine the data
 lives on.
+
+### 4.1 The public site, specified
+
+Static HTML on a static host — Vercel is the working assumption, but the
+spec is host-agnostic: *any host that accepts finished files*. Chosen for
+exactly one reason: **Google reads server-delivered HTML better than
+client-assembled JavaScript**, and these pages exist to rank.
+
+- **One page per trade** in [`trades.txt`](../trades.txt), at a stable slug
+  (`/gewerke/strassenbau`), German-language: lots per month, median award,
+  €/year in scope, the 0/1-bid share, the closed-without-award share — the
+  `market.py trade` numbers, plus the month they were computed. Nothing
+  else: no firm names, no lot lists, no login, no JavaScript required to
+  read the content.
+- **An index page** linking the trades, and the same Impressum /
+  Datenschutzerklärung the app carries.
+- **A sitemap.xml**, rendered with the pages — the pages update weekly,
+  and freshness is part of why they rank.
+- Every page links to the app for anything personal or interactive; the
+  public site itself has **zero forms and zero backend** on the static
+  host. When the open-signup form for strangers eventually comes, it lives
+  on the app (`app.…/anmelden`) and is merely *linked* from here.
+
+**[BUILD]** (whenever the channel opens — nothing else waits for it): a
+renderer beside the report renderer, driven by the cycle; output directory
+is gitignored build artifact.
+
+### 4.2 The interface between the static host and the app
+
+The whole interface is two things, and deliberately nothing more:
+
+1. **Hyperlinks at stable URLs.** The static pages know the app only as
+   `app.<domain>` plus a handful of paths; the app knows the public site
+   only as `www.<domain>`. The URL contract, fixed now:
+
+   | URL | serves | side |
+   | --- | --- | --- |
+   | `www.<domain>/gewerke/<slug>` | trade page | static |
+   | `app.<domain>/t/<token>` | QR / signup page | app |
+   | `app.<domain>/f/<token>` | feedback confirm (lot + verdict in token) | app |
+   | `app.<domain>/s/<token>` | stop page, two buttons | app |
+   | `app.<domain>/check` | recall box | app |
+
+   Tokens are single-use-purpose, unguessable, and carry their meaning —
+   the URL never exposes ids, e-mails or lot numbers in the clear. Either
+   side may be redeployed freely; the contract is only that these URLs keep
+   working.
+2. **A one-way deploy pipeline, build-time only.** The cycle renders the
+   public pages from the database and uploads finished files
+   (`vercel deploy --prebuilt` or equivalent). **At runtime there is no
+   data flow at all**: static pages contain no `fetch()` to the app, no
+   embedded API calls, nothing — which also means no CORS surface, and the
+   public site stays fully readable when the app is down. Interaction
+   happens only when a person clicks a link and lands on the app.
+   Upload failures are non-fatal to the cycle (a week-stale public page is
+   acceptable; an undelivered weekly report is not) — logged, retried next
+   cycle.
+
+What the interface is **not**: the app never proxies the static site, the
+static site never embeds app content, and no secret is shared between them
+— the static host holds nothing worth stealing.
 
 ## 5. Seeing conversion
 
@@ -276,7 +333,7 @@ conversion against the €60–€99 entrant band vs. €179 anchor
 | 3 | `contact_state` + stop page + guarded mailer | lawful sending at all | — |
 | 4 | pick grading + results notes | the post-trial conversion channel | award publications (data, not code) |
 | 4a | feedback links + confirm pages + recall box + ledger events | the learning loop at trial time | — |
-| 5 | ~~trade market pages~~ deferred with the inbound channel (§4) | later inbound | opening that channel |
+| 5 | public site renderer + upload step (spec: §4.1–4.2) | the inbound channel | the decision to open it |
 | 6 | outreach ledger events + console report | conversion by channel, ask-to-yes gap | — |
 | 7 | Stripe page | first paid conversion | price decision, due before first trial ends |
 
