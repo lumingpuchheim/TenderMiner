@@ -172,6 +172,45 @@ logged as a defect. Every send is a ledger event.
 - Backups are the database's problem (already handled by the cycle's
   environment), not the app's; the app holds no state outside `data/`.
 
+## 10b. Build status — 2026-08-10
+
+The **serving core is built and answers from the image**:
+[`app.py`](../app.py) (stdlib `wsgiref`, no new dependency — seven routes did
+not need a framework and `requirements.txt` is unchanged) and
+[`tokens.py`](../tokens.py), the §3 `[BUILD]` module, with its own `token`
+table. That table lands through `db.connect`'s additive self-heal, the same way
+`simulation_gate` did, so no migration runs — and it is deliberately **not** in
+`LEDGER_TABLES`: revocation that could not take effect immediately would not be
+revocation.
+
+*Receipt* — against a container holding a copy of the real database:
+
+    GET /            -> 200, text/html, X-Robots-Tag: noindex, nofollow, noarchive
+    GET /t/<token>   -> 200, the firm's signup page, token minted in the container
+    GET /healthz     -> 200, cycle_last_success=20260810, cycle_age_days=0
+
+Done: `/`, `/impressum`, `/datenschutz`, `/healthz`, `robots.txt`, the neutral
+invalid-token page, and the **GET** side of all four token routes. Purpose
+binding, revocation and the no-oracle rule are enforced and tested — a feedback
+token is not a stop token, and a revoked token renders byte-identically to one
+that never existed. 24 tests in `tests/test_app.py`, no port bound and no real
+data: the WSGI callable is called directly, which is what a request reduces to.
+
+Two headers beyond the spec, both because tokens live in the URL path:
+`Referrer-Policy: no-referrer` (a token must not travel in a `Referer` to any
+link the page names) and a `Content-Security-Policy` of `default-src 'none'`,
+which costs nothing on pages that already load nothing.
+
+**Not built, and why:** the POST handlers of §4-§6 and the mailer of §7. They
+need `contact_state`, `email` and `consent_at`, none of which are in
+`subscriptions.KNOWN` — and CLAUDE.md requires the `KNOWN` half to land *in the
+same commit* as the first write, so those fields belong to the commit that
+writes them, not to this one. Until then a POST to a token route answers **405**
+with a page saying so, rather than a form that accepts what a customer typed and
+drops it. The §9 `[CLARIFY]` (VPS or tunnel) is untouched and still blocks
+printing letters, as is the real Impressum text, which is left visibly absent
+rather than filled with a plausible placeholder.
+
 ## 10. Explicitly out of scope
 
 No REST API, no JS framework, no login, no admin pages, no dashboard, no
