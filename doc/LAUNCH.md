@@ -265,11 +265,16 @@ client-assembled JavaScript**, and these pages exist to rank.
   citable, newsworthy number only this data produces; it exists to earn
   the backlinks that make everything else rank. It is also the public
   version of the letter's opening argument.
-- **A freshness line on every trade page**: this week's new-lot count, next
-  deadline, two or three example titles (buyers are public organs, not
-  persons — still no firm names, no lot pages). Signals liveness to Google
-  and reality to the visitor without giving the product away: the product
-  is the filtered pick plus forecast, not a scrollable list.
+- **„Fast ohne Wettbewerb: diese Woche vergeben"** on each trade page —
+  two or three of the week's freshly *published awards* in that trade that
+  closed with 0–1 bidders: lot title, buyer (public organs, not persons),
+  award value, bid count; **the winner stays unnamed** (the rule). Decided
+  2026-08-10 over a plain new-lot count, which googles but is useless to
+  the visitor: this shows money that went uncontested in their own trade —
+  the letter's argument, made public. Backward-looking on purpose: award
+  facts are published record, so nothing forecast-shaped is claimed and
+  the forward-looking product is not given away. Real titles and cities
+  double as the pages' indexable long-tail text.
 - **An index page** linking the trades, and the same Impressum /
   Datenschutzerklärung the app carries.
 - **A sitemap.xml**, rendered with the pages — the pages update weekly,
