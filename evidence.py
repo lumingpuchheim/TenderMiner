@@ -263,6 +263,12 @@ CORE_NEED_BEARING = os.environ.get('CORE_NEED_BEARING', '1') != '0'
 # spelling across two roots, each just under a bar both together clear.
 # Rollback: CORE_FAMILY=0.
 CORE_FAMILY = os.environ.get('CORE_FAMILY', '1') != '0'
+# Phase 9e: the last resort for an empty core — the union of the TITLES.
+# Two wins in two trades is a firm that does both (AAS Rafuna won
+# Trockenbauarbeiten and Malerarbeiten of the same refurbishment; need=2
+# said it does neither). Titles only, never bodies: each title names the
+# one Gewerk that lot procured. Rollback: CORE_TITLE_FALLBACK=0.
+CORE_TITLE_FALLBACK = os.environ.get('CORE_TITLE_FALLBACK', '1') != '0'
 # rollback switch for phase 8f (A) and (B); env var overrides per run so the
 # A/B needs no edit (BUYER_DIVERSITY=0 reproduces the phase-8e lexicons)
 BUYER_DIVERSITY = os.environ.get('BUYER_DIVERSITY', '1') != '0'
@@ -930,6 +936,18 @@ def core_keywords(refs, firm=None, titles=None):
             if c >= need:
                 core = [r for r, k in found.items()
                         if k >= 2 and fams.get(r) == top]
+    # phase 9e: still empty — the titles decide, as they do at n=1. A firm
+    # whose two wins are titled Trockenbauarbeiten and Malerarbeiten does
+    # both trades; recurrence (need=2) said it does neither. Union of
+    # TITLE roots only — bodies stay out, so the fill is as narrow as the
+    # buyer's own naming. Fills an empty core only: monotone.
+    if CORE_TITLE_FALLBACK and titles and not core:
+        by_title = {r for i in bearing
+                    for w in set(tokens(fix_text(
+                        str(titles[i] or '')).casefold()))
+                    for r in roots_in(w)}
+        if by_title:
+            core = list(by_title)
     # the name is on every reference the firm has, so it recurs by
     # definition — scored above any word that merely recurs often
     for r in name_keywords(firm):

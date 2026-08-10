@@ -2375,6 +2375,32 @@ GU credited with the site-prep family). Unlike 9c, THE BENCHMARK SEES THIS
 CHANGE — 7 of its firms have 8+ wins. Rollback: `CORE_NEED_BEARING=0
 CORE_FAMILY=0`.
 
+Shipping receipt (store-wide judge, identical data, both-off vs 9c+9d):
+benchmark 1334 -> 1341 of 1595; recall 66.2% -> 68.5%; leakage 4.2%
+unchanged; volume 7.4% -> 7.5%. The four widest new cores (Lindner, Peters,
+Boels, Züblin), tested on their own 36 hand-read cases instead of ruled on
+by intuition: 27 -> 30 correct — 4 fixed, 1 broken (a Lindner Möblierung
+lot labeled `out` now convicts via `tischler`; accepted as the cost).
+
+## Phase 9e — two wins in two trades is a firm that does both (2026-08-10)
+
+After 9d the largest remaining empty bucket was n=2: 122 firms, 15% of the
+two-win population. `need = max(2, ...)` demands the SAME trade twice, so a
+firm that won Trockenbauarbeiten and Malerarbeiten of the same
+refurbishment (AAS Rafuna) was recorded as doing neither. The census
+(scratchpad `census2.py`) read the pairs: the two titles name two real
+trades in nearly every case — 98 of 122 fillable at a median of 2 roots.
+
+The fix is the last resort in `core_keywords()`: an EMPTY core takes the
+union of the reference TITLES' roots (`CORE_TITLE_FALLBACK`). Titles only,
+never bodies — each title names the one Gewerk its lot procured, which is
+what keeps the fill narrow (the n=1 lesson of 9c: bodies describe the
+building). Monotone: fills empty only, verified store-wide with 0 removals.
+
+Receipt: empty cores at n=2 15% -> 3%, n=3 5% -> 2%, n=4-7 4% -> 2%; 148
+firms filled (some had name-only cores that gained their won trades);
+surface median 4.0% of store, 2 firms over the 10% line.
+
 
 ## Open, not scheduled
 
