@@ -336,6 +336,20 @@ benchmark; the live figure is somewhere between. It is not a "we find
 everything" story either way, and two pilots need their profiles looked at before
 any receipt is generated for them.
 
+**Update 2026-08-10, closed: the two "dead" pilots were the metric's artifact,
+not the gate's.** Judged today, with their full reference sets and the shipped
+gate (phases 9c–9i), VLE's wins admit 7/8 and Polat's 5/6 — their profiles
+correctly name their trades (Fahrzeugrückhaltesysteme; Estrich). The 0/8 and
+0/6 above came from new-customer bootstrap in the replay: both subscriptions
+were created 2026-08-07 from these very wins, an award publishes a median 84
+days after its tender, so the earliest wins were replayed against a profile
+that did not exist yet. `backtest.py` now prints `refs at close=` per win and
+splits gate-attributable misses from never-judged ones; quote the
+gate-attributable figure, never the raw one. The two borderline residuals are
+real and small: VLE's `FRS` title (an abbreviation the roots file does not
+carry) and Polat's single Innenputz win (a second trade, correctly not yet its
+core).
+
 **The live track record is still months out.** 18 graded outcomes; 0 of the
 simulated picks graded. Quotable around November (`GO_TO_MARKET.md`).
 

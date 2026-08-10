@@ -270,6 +270,15 @@ def replay(data_dir, step_days, sub_ids):
     return {'flagged': flagged, 'scored': scored_lonely, 'sub_picks': sub_picks,
             'sub_market': sub_market, 'outcome': outcome, 'subs': subs,
             'awards_full': awards_full, 'gate_dir': str(work),
+            # call publication + deadline per lot, for the own-win fairness
+            # split: a win whose call closed before the firm had a single
+            # published reference was never judged at all (profile None)
+            'lot_dates': {
+                (r.procedure_id, r.lot_id):
+                    (str(r.publication_date or ''),
+                     str(getattr(r, 'deadline_date', '') or ''))
+                for r in tenders_full.drop_duplicates(
+                    subset=['procedure_id', 'lot_id']).itertuples(index=False)},
             'week_flags': week_flags, 'winners': winner_map(awards_full)}
 
 
@@ -531,23 +540,52 @@ def report(res, out_path):
                 res_s += ', WON by them'
             lines.append(f'  - {p["week"]}: {str(p["title"])[:60]!r} '
                          f'[{str(p["buyer_name"])[:35]}] -> {res_s}')
-        # recall of the customer's own eventual wins
+        # recall of the customer's own eventual wins.
+        #
+        # FAIRNESS SPLIT (2026-08-10): a profile is built from awards
+        # published before each cutoff (as_of_profile), and an award
+        # publishes a median 84 days after its tender. A pilot onboarded
+        # from its recent wins therefore replays its FIRST wins against a
+        # profile that does not exist yet — VLE and Polat read 0/8 and 0/6
+        # here while today's gate admits 7/8 and 5/6 of the same wins. A
+        # win whose tender closed before the firm's first OTHER reference
+        # was published was never judged at all; counting it against the
+        # gate is grading chronology, not relevance.
         aw = res['awards_full']
         wins = aw[aw['winner_names'].apply(
             lambda x: x is not None and firm in list(x))]
+        # when did each of the firm's references become citable? — the
+        # publication date of the AWARD notice that creates it
+        ref_avail = sorted(
+            (str(w['publication_date'] or ''), str(w['procedure_id']))
+            for _, w in wins.iterrows())
         rows = []
         for _, w in wins.iterrows():
             lot = (w['procedure_id'], w['lot_id'])
             in_market = lot in res['sub_market'][s]
             in_picks = lot in picks
-            rows.append((str(w['publication_date'])[:10], lot, in_market, in_picks,
-                         w['n_tenders']))
+            call_pub, deadline = res.get('lot_dates', {}).get(lot, ('', ''))
+            anchor = deadline or call_pub
+            refs_then = sum(1 for d, p in ref_avail
+                            if d and anchor and d <= anchor
+                            and p != str(w['procedure_id']))
+            rows.append((str(w['publication_date'])[:10], lot, in_market,
+                         in_picks, w['n_tenders'], refs_then))
+        vis = sum(1 for r in rows if r[2])
+        starved = sum(1 for r in rows if not r[2] and r[5] == 0)
         lines += ['', f'- Own wins visible in the replayed market: '
-                  f'{sum(1 for r in rows if r[2])}/{len(rows)} '
-                  f'(as picks: {sum(1 for r in rows if r[3])})']
-        for d, lot, im, ip, n in sorted(rows):
+                  f'{vis}/{len(rows)} (as picks: '
+                  f'{sum(1 for r in rows if r[3])})']
+        if starved:
+            gateable = len(rows) - starved
+            lines.append(
+                f'- {starved} of the misses closed before the firm had a '
+                f'single published reference (new-customer bootstrap: the '
+                f'gate never ran) — gate-attributable: {vis}/{gateable}')
+        for d, lot, im, ip, n, rt in sorted(rows):
             nb = int(n) if pd.notna(n) else '?'
-            lines.append(f'  - win awarded {d} ({nb} bids): in market={im}, pick={ip}')
+            lines.append(f'  - win awarded {d} ({nb} bids): in market={im}, '
+                         f'pick={ip}, refs at close={rt}')
         lines.append('')
     Path(out_path).write_text('\n'.join(lines), encoding='utf-8')
     print('\n'.join(lines))

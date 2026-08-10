@@ -133,7 +133,138 @@ def simulate(data_dir, scored, tenders, aw, max_picks=5, min_deadline_days=14):
     print(f'[simulate] {len(new_rows)} new simulated picks for {n_companies} '
           f'winner companies ({len(profiles)} profiles, '
           f'{sum(len(b) for b in buckets.values())} eligible lots)')
+    # SIMULATION.md "the gate rides along": every pick gets a relevance
+    # verdict, backlog included. Instrumentation, never delivery — a broken
+    # verdict pass must not cost a cycle.
+    try:
+        gate_verdicts(data_dir, aw)
+    except Exception as e:                                # noqa: BLE001
+        print(f'[simulate] gate verdicts FAILED, cycle continues: {e!r}')
     return new_rows
+
+
+def gate_verdicts(data_dir, aw=None, limit=None):
+    """One relevance-gate verdict per simulated pick (SIMULATION.md,
+    2026-08-10). Judges every pick on record that has no verdict yet —
+    the backlog deliberately included, so picks already graded by
+    published awards carry verdicts from the first pass and the
+    verdict x outcome join has signal before the ~90-day award lag.
+
+    The profile is built from the company's wins exactly as onboarding
+    would build it; a company with no resolvable win records
+    `no_profile` rather than being skipped — the size of that bucket is
+    the new-customer bootstrap rate, a number worth quoting on its own.
+    """
+    import relevance as rel
+    home = Path(data_dir)
+    sims = ledger.read(home, 'simulations')
+    have = {(g['company'], g['procedure_id'], g['lot_id'])
+            for g in ledger.read(home, 'simulations_gate')}
+    todo = [s for s in sims
+            if (s['company'], s['procedure_id'], s['lot_id']) not in have]
+    if limit:
+        todo = todo[:int(limit)]
+    if not todo:
+        print('[gate-verdicts] nothing to judge — all picks have verdicts')
+        return []
+    if aw is None:
+        awards, _ = sb.load_with_roles(
+            Path(data_dir) / 'store' / 'awards.parquet')
+        _, aw, _ = sb.assemble(pd.read_parquet(
+            Path(data_dir) / 'store' / 'tenders.parquet'), awards)
+    gate = rel.Gate(str(home))
+    wins_of = {}
+    for r in aw.itertuples():
+        names = getattr(r, 'winner_names', None)
+        if names is None or (isinstance(names, float) and pd.isna(names)):
+            continue
+        for nm in ([names] if isinstance(names, str) else list(names)):
+            nm = ' '.join(str(nm).split())
+            if nm:
+                wins_of.setdefault(nm, []).append(
+                    (r.procedure_id, r.lot_id))
+    ts = now_utc().isoformat(timespec='seconds')
+    out, prof_cache = [], {}
+    for s in todo:
+        company = s['company']
+        key = (s['procedure_id'], s['lot_id'])
+        if key not in gate.by_key:
+            out.append({'ts': ts, 'company': company,
+                        'procedure_id': key[0], 'lot_id': key[1],
+                        'verdict': 'not_in_sidecar', 'gate_pass': None})
+            continue
+        if company not in prof_cache:
+            refs = sorted({gate.rows[gate.by_key[k]]['publication_number']
+                           for k in wins_of.get(company, ())
+                           if k in gate.by_key})
+            prof_cache[company] = rel.build_profile(gate, {
+                'sub_id': 'simulation', 'version': 0, 'name': company,
+                'profile_refs': refs,
+                'min_relevance': rel.DEFAULT_MIN_RELEVANCE}) if refs else None
+        profile = prof_cache[company]
+        if profile is None:
+            out.append({'ts': ts, 'company': company,
+                        'procedure_id': key[0], 'lot_id': key[1],
+                        'verdict': 'no_profile', 'gate_pass': None})
+            continue
+        i = gate.by_key[key]
+        ok, near, tx, cd, why, _ = rel.judge(gate, profile, {
+            'procedure_id': key[0], 'lot_id': key[1],
+            'buyer_name': gate.all_buyer[i]})
+        out.append({'ts': ts, 'company': company,
+                    'procedure_id': key[0], 'lot_id': key[1],
+                    'verdict': ('admit' if ok
+                                else 'borderline' if near else 'reject'),
+                    'gate_pass': int(ok), 'text': float(tx),
+                    'code': float(cd),
+                    'why': (f'{why[0]}: {why[1]}' if why else None)})
+    n = ledger.append(home, 'simulations_gate', out)
+    from collections import Counter
+    print(f'[gate-verdicts] {n} verdicts written '
+          f'({len(prof_cache)} profiles): '
+          f'{dict(Counter(r["verdict"] for r in out))}')
+    return out
+
+
+def verdict_outcomes(data_dir):
+    """The verdict x outcome join, one row per gate verdict: how often the
+    picks the gate admitted / rejected ended with 0-1 bids, and how often
+    the simulated customer itself won them. One aggregation, two readers —
+    `check` prints it, the dashboard renders it every cycle."""
+    data = Path(data_dir)
+    sims = ledger.read(data, 'simulations')
+    grades = {(g['procedure_id'], g['lot_id']): g
+              for g in ledger.read(data, 'grades')}
+    verdicts = {(g['company'], g['procedure_id'], g['lot_id']): g['verdict']
+                for g in ledger.read(data, 'simulations_gate')}
+    winners = {}
+    aw_path = data / 'store' / 'awards.parquet'
+    if aw_path.exists():
+        afull = pd.read_parquet(aw_path)
+        latest = afull.sort_values('publication_date').drop_duplicates(
+            subset=['procedure_id', 'lot_id'], keep='last')
+        for r in latest.itertuples():
+            names = getattr(r, 'winner_names', None)
+            if names is not None and not (
+                    isinstance(names, float) and pd.isna(names)):
+                winners[(r.procedure_id, r.lot_id)] = {
+                    ' '.join(str(n).split()) for n in
+                    ([names] if isinstance(names, str) else list(names))}
+    by_verdict = {}
+    for s in sims:
+        lot = (s['procedure_id'], s['lot_id'])
+        if lot not in grades:
+            continue
+        v = verdicts.get((s['company'],) + lot, 'no_verdict')
+        won = s['company'] in winners.get(lot, ())
+        by_verdict.setdefault(v, []).append((grades[lot]['label'], won))
+    out = []
+    for v, ls in sorted(by_verdict.items()):
+        out.append({'verdict': v, 'graded': len(ls),
+                    'lonely_rate': sum(l for l, _ in ls) / len(ls),
+                    'own_wins': sum(1 for _, w in ls if w),
+                    'own_rate': sum(1 for _, w in ls if w) / len(ls)})
+    return out
 
 
 def check(data_dir, min_company_picks=3):
@@ -164,6 +295,14 @@ def check(data_dir, min_company_picks=3):
     for cpv3, labels in sorted(by_trade.items()):
         print(f'  {cpv3} {SECTOR.get(cpv3, ""):24s} {len(labels):5d} graded  '
               f'{sum(labels)/len(labels)*100:3.0f} in 100')
+    # SIMULATION.md "the gate rides along": the same graded picks, split by
+    # what the relevance gate said. The own-win column is the business-fit
+    # signal at market scale: did the simulated customer itself win the lot.
+    print('\nby gate verdict (SIMULATION.md, "the gate rides along"):')
+    for row in verdict_outcomes(data):
+        print(f'  {row["verdict"]:13s} {row["graded"]:6d} graded   '
+              f'{row["lonely_rate"]*100:3.0f} in 100 ended 0-1 bids   '
+              f'own-win {row["own_wins"]} ({row["own_rate"]*100:.1f}%)')
     by_company = {}
     for s, g in graded:
         by_company.setdefault(s['company'], []).append(g['label'])
@@ -209,6 +348,12 @@ def main():
     run.add_argument('--data-dir', default=config.data_root(), dest='data_dir')
     run.add_argument('--models-dir', default=config.models_root(), dest='models_dir')
     run.set_defaults(func=cmd_run)
+    gv = sub.add_parser('gate', help='judge every simulated pick that has no '
+                                     'relevance verdict yet (backlog included)')
+    gv.add_argument('--data-dir', default=config.data_root(), dest='data_dir')
+    gv.add_argument('--limit', type=int, default=None,
+                    help='cap this pass (smoke test); reruns pick up the rest')
+    gv.set_defaults(func=lambda a: gate_verdicts(a.data_dir, limit=a.limit))
     args = ap.parse_args()
     args.func(args)
 
