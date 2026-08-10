@@ -161,6 +161,33 @@ def slice_matrix(grades):
     return f'<table><thead><tr>{head}</tr></thead><tbody>{"".join(body)}</tbody></table>'
 
 
+def gate_panel(data):
+    """The verdict x outcome join, rendered every cycle so nobody has to
+    call `simulation.py check` to see whether the relevance gate's
+    admissions beat its rejections on published outcomes. The aggregation
+    lives in simulation.verdict_outcomes — one computation, two readers."""
+    try:
+        import simulation
+        rows = simulation.verdict_outcomes(data)
+    except Exception as e:                                # noqa: BLE001
+        return f'<p class="muted">gate panel unavailable: {esc(repr(e))}</p>'
+    if not rows:
+        return ('<p class="muted">no graded gate verdicts yet — verdicts are '
+                'written each cycle, outcomes arrive with the awards '
+                '(~90-day median lag)</p>')
+    return (
+        '<p>Every winner company in the store is a simulated customer; each '
+        'simulated pick carries a relevance-gate verdict written at pick '
+        'time. If <b>admit</b> rows beat <b>reject</b> rows on both columns, '
+        'the gate is buying precision on real outcomes, not on labels.</p>'
+        + table(['gate verdict', 'graded picks', 'ended 0–1 bids',
+                 'won by the simulated customer'],
+                [[r['verdict'], f'{r["graded"]:,}',
+                  f'{r["lonely_rate"]*100:.0f} in 100',
+                  f'{r["own_wins"]:,} ({r["own_rate"]*100:.1f}%)']
+                 for r in rows]))
+
+
 def drift_panel(drift):
     if not drift:
         return '<p class="muted">no drift results yet — written by each loop cycle</p>'
@@ -301,6 +328,9 @@ regenerate with <code>python render_dashboard.py</code></p>
 
 <h2>Track record</h2>
 {track}
+
+<h2>Relevance gate vs reality <span class="muted">(simulated picks for every winner company — SIMULATION.md)</span></h2>
+<div class="panel">{gate_panel(data)}</div>
 
 <h2>Slice matrix <span class="muted">(industry × region — which slices carry their weight)</span></h2>
 <div class="panel">{slice_matrix(grades)}</div>

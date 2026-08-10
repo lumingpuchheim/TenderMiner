@@ -2432,6 +2432,97 @@ delivery consistency ever becomes a measured requirement, re-run the
 receipt before re-tuning.
 
 
+## Phase 9g — a lone non-core title word no longer convicts alone (2026-08-10)
+
+Prompted by the 2026-08-10 backtest's business-fit axis: recognisable trade
+bleed — 'Lufttechnische Anlagen' admitted on lüftung(t1), a Tischler lot on
+tischlerarbeiten(t1) — "a single trade term in the title is carrying a lot
+into a market it doesn't belong to." (Two caveats checked first: that run
+predates 9d/9e, and its grader is declared CPV3 trade lists, which calls a
+Rohbau firm winning an Abbruch lot wrong where the hand labels call it
+right. The complaint survived both.)
+
+The census over all 1,595 hand-read cases, admissions by conviction channel:
+
+| channel | in | out |
+| --- | --- | --- |
+| core root in the title | 309 | 43 |
+| LONE non-core title keyword | 18 | 16 |
+| body, 2+ distinct keywords | 79 | 43 |
+
+A core-title conviction is 88% right; a lone non-core title keyword is a
+coin flip. So it no longer convicts alone — it needs the hard code channel
+to agree. Core titles and two-keyword bodies are untouched, which is what
+protects the 9c-9e recall gains: they convict through the core.
+
+Two corroborators were simulated before implementation: hard-code
+(1352/1595) beat shared-family-with-core (1346/1595 — the bleed keyword
+usually shares the family, so the exemption waves it back in). Through the
+real judge: benchmark 1344 -> 1351. The cost, named: 9 in-labeled lots now
+need their code to agree and lose (RIENTH Systemtrennwände, Schweerbau
+Gleiserneuerung) — firms whose lexicon carries the trade but whose core
+does not; most are single-benchmark-appearance firms whose cores the next
+labeling round should revisit. Rollback: LONE_TITLE_NEEDS_CODE=0.
+
+
+## Phase 9h — the body channel cannot be cleaned by witness quality (refused 2026-08-10)
+
+After 9g the weakest conviction channel is the body pair: two distinct
+keywords anywhere in the Leistung text, 79 in / 44 out on the hand-read
+cases (65% precision) — the inventory problem, a GU package or demolition
+LV naming every trade it contains. Three demotions were pre-stated and
+simulated script-side (scratchpad `census_body.py`), each forgiven by the
+hard code channel like 9g:
+
+| rule | idea | share of in / out having it | benchmark |
+| --- | --- | --- | --- |
+| R1 core-witness | >=1 witness carries a core root | 73% / 82% (BACKWARDS) | 1343 (-9) |
+| R2 family-pair | 2 witnesses share a family | 67% / 61% | 1347 (-5) |
+| R3 code-breadth | few declared deep codes | identical distributions | 1352 (±0) |
+
+None cleared the pre-committed gate (beat today's 1352-equivalent); none
+shipped. The reason is structural, and it closes the question phase 9b
+left open from the prose side: **the wrongly admitted body lots contain
+the firm's OWN core words** ('GU-Leistung De-/Remontagen' mentions estrich
+and fussbod — for a flooring firm those are its trade words; the lot
+merely MENTIONS its trade among fifty), and the packages do not declare
+their breadth either — the GU lots in the sample carry ONE deep CPV code,
+same as single-trade lots. Presence-based evidence cannot separate "is
+screed work" from "mentions screed"; 65% is that channel's ceiling, not a
+rule bug.
+
+Candidates that see something other than presence, unmeasured: the
+title-contradiction veto (title names a trade foreign to the profile —
+collides with labeled adjacencies like Rohbau winning Abbruch), and
+`trade_read` (phase 5) as the body-channel corroborator — embedding
+meaning instead of substring presence.
+
+## Phase 9i — the title-contradiction veto on body convictions (shipped 2026-08-10)
+
+The first of 9h's two candidates, censused with both variants pre-stated.
+The separation 9h could not find in the witnesses is in the TITLE: 89% of
+the wrong body admissions sat under a title naming a trade the profile
+does not know ('Abbrucharbeiten' + estrich witnesses — a demolition lot
+that mentions flooring), against 67% of the right ones. B1 — veto the
+body conviction when the title names a trade root, no lexicon keyword
+sits in the title, and the code channel does not corroborate — scored
+1362/1595 simulated (29 fixed / 19 broken). B2 (veto regardless of a
+lexicon keyword in the title) scored 1345: too blunt, refused.
+
+Receipts through the real judge, store-wide:
+  benchmark 1351 -> 1361 (the day's largest single gain)
+  leakage 3.8% -> 2.2% (~449 wrong admissions removed)
+  recall 67.8% -> 64.9% (~79 true lots lost — adjacency wins under
+  foreign titles; 19 of the labeled in-cases are of this kind)
+  implied store-wide precision ~64% -> ~74%
+  101 tests pass
+
+Exchange ~5.7 wrong removed per true lost. Shipped by operator decision
+2026-08-10 with the recall cost stated; the lost adjacency lots are
+recoverable through the CORE channel (which the veto never touches) as
+per-firm cores improve. Rollback: TITLE_CONTRADICTS_BODY=0.
+
+
 ## Open, not scheduled
 
 The two standing accuracy problems, as of phase 9b. Both are measured against

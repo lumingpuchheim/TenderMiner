@@ -285,6 +285,21 @@ CORE_TITLE_FALLBACK = os.environ.get('CORE_TITLE_FALLBACK', '1') != '0'
 # pay for it yet. Re-measure at the next benchmark growth. CORE_HYSTERESIS=1
 # to enable.
 CORE_HYSTERESIS = os.environ.get('CORE_HYSTERESIS', '0') != '0'
+# Phase 9g: a LONE non-core keyword in the title convicts only when the
+# hard code channel corroborates it. The census over the 1,595 hand-read
+# cases: core-in-title admissions are 88% right, a lone non-core title
+# word is a coin flip (18 in / 16 out) — 'Lüftungsarbeiten' admitted for
+# a non-HVAC firm on the one word. Core titles and two-keyword bodies
+# convict as before. Rollback: LONE_TITLE_NEEDS_CODE=0.
+LONE_TITLE_NEEDS_CODE = os.environ.get('LONE_TITLE_NEEDS_CODE', '1') != '0'
+# Phase 9i: the title-contradiction veto on BODY convictions. A body pair
+# under a title that names a trade the profile does not know is the
+# inventory pattern read from the outside: 'Abbrucharbeiten' + estrich
+# witnesses is a demolition lot that MENTIONS flooring. 89% of the
+# wrong body admissions sat under such a title (67% of the right ones —
+# adjacency is real, which is why a lexicon word in the title or the code
+# channel lifts the veto). Rollback: TITLE_CONTRADICTS_BODY=0.
+TITLE_CONTRADICTS_BODY = os.environ.get('TITLE_CONTRADICTS_BODY', '1') != '0'
 # rollback switch for phase 8f (A) and (B); env var overrides per run so the
 # A/B needs no edit (BUYER_DIVERSITY=0 reproduces the phase-8e lexicons)
 BUYER_DIVERSITY = os.environ.get('BUYER_DIVERSITY', '1') != '0'
