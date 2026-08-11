@@ -2523,6 +2523,49 @@ recoverable through the CORE channel (which the veto never touches) as
 per-firm cores improve. Rollback: TITLE_CONTRADICTS_BODY=0.
 
 
+## Phase 9j — trade_read cannot forgive the 9i veto (refused 2026-08-11)
+
+The second of 9h's two candidates: where the title-contradiction veto
+fires, a high `trade_read` (phase 5 — embedding similarity of the lot's
+own text to the profile's hard trade labels) forgives it, the hope being
+to win back the adjacency lots 9i cost without reopening the bleed.
+
+Census first (all 1,595 hand-read cases, in-process flag toggle): the 9i
+flip list reproduces exactly — 19 broken in-cases, 29 fixed out-cases.
+The structural blocker surfaced before any rule was scored: **8 of the 19
+broken cases have profiles with no hard trade labels at all** (`tread`
+identically 0), so no trade_read rule can reach them. Three forgiveness
+rules were pre-stated, all reusing existing constants; gates pre-committed
+at benchmark >= 1361, leakage <= 2.2%, recall >= 66.0%.
+
+| rule (veto stands unless) | forgives broken | re-admits fixed | benchmark |
+| --- | --- | --- | --- |
+| C1 hard label is the top read (H2 @ 0.0) | 0/19 | 0/29 | 1361 (±0) |
+| C2 world - tread < TRADE_TALK_MARGIN | 5/19 | 4/29 | 1362 (+1) |
+| C3 foreign - tread < TRADE_TALK_MARGIN | 17/19 | 23/29 | 1355 (-6) |
+
+C2, the only candidate above baseline, was implemented once behind
+`TRADE_READ_FORGIVES` and put through the battery. Store-wide, same data,
+flag off vs on: benchmark 1361 -> 1362, recall 64.9% -> 65.4% (+14 true
+lots), leakage 2.2% -> 2.6% (~112 wrong re-admissions), volume 5.3% ->
+5.7%. (The off arm matches the 9i shipping receipt to the digit — no
+store drift; the differences are attributable.)
+
+Exchange: ~8 wrong admitted per true recovered — the near-inverse of the
+9i trade it tries to soften (9i removed 5.7 wrong per true lost). Both
+pre-committed gates missed; refused, no further tuning. The code stays
+behind `TRADE_READ_FORGIVES` (default off).
+
+Why it fails, in one sentence: the wrongly-vetoed and rightly-vetoed
+populations *read the same* — an inventory lot mentioning the firm's
+trade words also reads as the firm's trade to the embedding (the GU
+De-/Remontagen lots sit at gap 0.26, inside any margin that would rescue
+the broken Fassade/Parkett cases at 0.03–0.12). Presence failed in 9h;
+reading fails here for the same structural reason, seen from the
+embedding side. The recall route for the 79 lost adjacency lots remains
+the CORE channel (which the veto never touches): better per-firm cores,
+via labeling (backlog 2) and the single-win code channel (backlog 4).
+
 ## Open, not scheduled
 
 The two standing accuracy problems, as of phase 9b. Both are measured against
