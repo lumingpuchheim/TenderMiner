@@ -91,7 +91,7 @@ the page shows a visible gap until it is set. Original list, for the record:
 | ~~domain~~ | ~~letters only~~ | **DECIDED 2026-08-11: `murara.eu`** (registered at Infomaniak). `www.murara.eu` is the public site, `app.murara.eu` the token surface. Brand is **Murara**; TenderMining stays the repository and system name |
 
 **Still to arrange for the domain**, none of it code: DNS pointing at the
-host, `kontakt@murara.eu` actually receiving mail (the landing page's only
+host, `info@murara.eu` actually receiving mail (the landing page's only
 call to action is that address — it must work before a single letter goes
 out), and the sending domain verified at Resend, or every send is refused by
 the API.

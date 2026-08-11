@@ -46,7 +46,7 @@ import ledger
 import subscriptions
 import tokens
 
-CONTACT = 'kontakt@murara.eu'   # must exist before the first letter
+CONTACT = 'info@murara.eu'   # must exist before the first letter
 
 # Every response carries these. The robots tag is not advice — it is the only
 # thing standing between a capability token and a search index.

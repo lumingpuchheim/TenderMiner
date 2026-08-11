@@ -40,7 +40,7 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
 SITE = Path(__file__).resolve().parent / 'site'
-CONTACT = 'kontakt@murara.eu'
+CONTACT = 'info@murara.eu'
 BASE_URL = 'https://www.murara.eu'
 
 # doc/TRADE_PAGES.md 3: the floor is market.py's own line for "below this, a

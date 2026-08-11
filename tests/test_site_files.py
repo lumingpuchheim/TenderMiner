@@ -47,7 +47,7 @@ class Landing(unittest.TestCase):
     def test_asks_for_nothing_but_an_email(self):
         self.assertNotIn('<form', self.html)
         self.assertNotIn('<input', self.html)
-        self.assertIn('mailto:kontakt@murara.eu', self.html)
+        self.assertIn('mailto:info@murara.eu', self.html)
 
     def test_the_cta_offers_the_lookup(self):
         """'Kontaktieren Sie uns' asks a stranger to risk something for
