@@ -310,6 +310,20 @@ TITLE_CONTRADICTS_BODY = os.environ.get('TITLE_CONTRADICTS_BODY', '1') != '0'
 # carry NO hard labels, so no trade_read rule can reach them at all.
 # TRADE_READ_FORGIVES=1 to re-measure.
 TRADE_READ_FORGIVES = os.environ.get('TRADE_READ_FORGIVES', '0') != '0'
+# Phase 9k: title roots join a NON-empty core, the same derivation phase 9e
+# already uses for an empty one. MEASURED AND REFUSED 2026-08-11 by operator
+# decision ("i dont want a worse precision") — 'all' buys the largest recall
+# move on record, 64.9% -> 70.4%, and pays 2.2% -> 2.8% leakage: +148 true
+# lots for +168 wrong admissions, ~1:1, against phase 9i's accepted 5.7:1 in
+# precision's favour. Not a tuning failure; the mechanism works and the cost
+# IS the recovery. The conservative 'recur' variant did NOT fail its gates
+# (66.0% recall, 2.2% leakage, +29 lots) and was declined anyway: the leakage
+# tie is rounded to one decimal and could hide ~28 admissions, and the prize
+# was too small to spend precision risk on. NEITHER SHIPS. '' = off (shipped),
+# 'all' = every root in a reference title, 'recur' = only roots recurring in
+# >=2 reference titles. Replay with CORE_TITLE_UNION=all|recur — and measure
+# exact wrong-admission COUNTS, not the rounded percentage.
+CORE_TITLE_UNION = os.environ.get('CORE_TITLE_UNION', '')
 # rollback switch for phase 8f (A) and (B); env var overrides per run so the
 # A/B needs no edit (BUYER_DIVERSITY=0 reproduces the phase-8e lexicons)
 BUYER_DIVERSITY = os.environ.get('BUYER_DIVERSITY', '1') != '0'
@@ -1035,6 +1049,17 @@ def _core_once(per_ref, titles, idxs, fallbacks=True):
                     for r in roots_in(w)}
         if by_title:
             core = list(by_title)
+    # phase 9k (candidate, default off): the same title derivation applied to
+    # a NON-empty core. Diagnosed 2026-08-11: cores hold BODY vocabulary where
+    # titles use TRADE names, so a lot titled 'Starkstromanlagen' matches no
+    # core root of a firm whose wins are titled exactly that.
+    if CORE_TITLE_UNION and titles and core:
+        per = [{r for w in set(tokens(fix_text(str(titles[i] or '')).casefold()))
+                for r in roots_in(w)} for i in bearing]
+        seen = Counter(r for s in per for r in s)
+        add = ({r for r in seen} if CORE_TITLE_UNION == 'all'
+               else {r for r, c in seen.items() if c >= 2})
+        core = sorted(set(core) | add)
     return core, found, need, bearing
 
 

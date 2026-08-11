@@ -2641,6 +2641,87 @@ two; Möbeltischler vs Fenster-/Türenbauer; Schlosser vs Alu-Fensterbau;
 Mittelspannung/Trafostation and 110-kV-Kabelbau as specialties or ordinary
 Starkstrom.
 
+## Phase 9k — trade words from the win TITLES: refused on the operator's precision rule (2026-08-11)
+
+**In plain words:** a firm's trade words are collected from its past wins.
+Where a win's title names the trade ("Starkstromanlagen"), that word should
+arguably be kept — today it often is not, because the words are taken from
+the fine print instead. This phase tried keeping them. It finds more of the
+customer's real work and also lets in more work that is not theirs. The
+operator ruled precision first, so it is **off**.
+
+The defect it addresses, from the 2026-08-11 labeling round: a core can be
+neither empty (phase 9c/9e's failure) nor over-wide (9c's other failure) yet
+still point at the wrong trade. SPIE Building Technology holds
+`kabel, leuchte, steckdose` — parts from an electrical LV — with 0.6% store
+reach, so both existing health checks pass. Of the 116 store lots titled
+Starkstrom/Niederspannung it convicts on 4, while 132 of the 151 lots it does
+reach carry no strom/elektro/spannung at all (Kabeltiefbau, ESTW cable
+trenching, "OP-Leuchten"). Its own win titles carry `starkstrom`,
+`niederspannung`, `alarmanlage` and NONE of the three is in the core. Cause:
+two of its three wins are titled with a project name, so the core came from
+those lots' bodies — the 9c inventory trap at n=3, which 9c (n=1 only) and
+9e (empty cores only) both miss.
+
+Two variants, both reusing phase 9e's existing title-root derivation, pre-
+stated with the gate before measuring — benchmark >= 1492, recall > 64.9%,
+**leakage <= 2.2%**:
+
+| | benchmark | recall | leakage | profiles touched |
+| --- | --- | --- | --- | --- |
+| off (shipped) | 1492/1752 | 64.9% | 2.2% | — |
+| U1 all title roots | 1518/1752 | **70.4%** | **2.8%** | 1089 |
+| U2 roots recurring in >=2 titles | 1495/1752 | 66.0% | 2.2% | 271 |
+
+U1 in whole tenders: **+148 true lots for +168 wrong admissions**, about one
+wrong per one right. The largest recall move the project has recorded —
+recall had been stuck between 58% and 68% for weeks — and it still fails the
+leakage gate. It also runs against phase 9i's accepted trade, which gave up
+79 true lots to remove 449 wrong ones (5.7:1 in precision's favour); U1 is
+0.88:1 against, the same currency at a far worse rate.
+
+**Operator decision 2026-08-11, on seeing these numbers: "i dont want a worse
+precision." U1 refused.** Not a tuning failure and not re-openable by
+adjusting a threshold — the mechanism works exactly as designed, and what it
+admits is the cost of admitting what it recovers.
+
+**U2 refused as well, same day, same ruling ("dont ship it") — and it is
+worth recording that U2 did NOT fail its gates.** It reads recall 66.0%
+(+29 true lots) at 2.2% leakage, i.e. apparently free. Two reasons it was
+declined anyway, both stated before the ruling: the two leakage figures are
+printed to one decimal, so "2.2 vs 2.2" is a rounded tie that can conceal up
+to ~28 extra wrong admissions (the exact count was being measured when the
+decision came, and was stopped as moot); and +29 lots on a 2,698-lot base is
+too small a prize to spend precision risk on. **Neither variant ships.**
+Replay either with `CORE_TITLE_UNION=all|recur`; if it is ever revisited, run
+the exact-count check first, not the rounded percentage.
+
+What the refusal does NOT settle: the SPIE-type core is still wrong, and the
+recall it costs is real. The remaining routes are narrower than a blanket
+union — restrict the added title roots to firms whose core shares no root
+with any win title (SPIE qualifies; a firm that already carries its trade
+does not), or to firms whose win titles are project names. Neither is
+censused.
+
+**A second, separate defect the same round found, needing no rule at all.**
+For single-win firms the core is small and CORRECT — `tiefbau`, `fassade`,
+`elektro`, `maler`, `schreiner`, reach 1.75%-7.1% — and the refusals are
+vocabulary: `tiefbau` refused *Erdbauarbeiten*, `fassade` refused
+*Putzarbeiten Innen*, `schreiner` refused *Küchenarbeiten*. Phase 9k does
+nothing for them (9c already puts a single-win firm's title root in its
+core). Nor do the root families: they are consulted ONLY to fill an empty
+core, they are coarse (573 roots in 6 groups, one spanning electrical
+through elevators), and on 5 of 6 checked pairs the lot title yields **no
+known root at all** — there is nothing to group. Note also that `maler` and
+`fassade` sit in DIFFERENT families though painters do execute WDVS and
+Fassadenanstrich, so that boundary is itself misplaced.
+
+The fix there is missing words, with `--collide` first as always:
+`erdbau` is clean (15 forms, 206 occurrences, 0.9% of store, all genuinely
+earthworks — safe to add); `kueche` is NOT (222 forms, 6.9% of the store,
+dominated by *Teeküche*, the office kitchenette — needs exceptions or
+refusing, like `stei` and `gla`). Unstarted.
+
 ## Open, not scheduled
 
 The two standing accuracy problems, as of phase 9b. Both are measured against
