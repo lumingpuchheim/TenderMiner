@@ -62,6 +62,34 @@ services:
     command: ["sh", "-c", "cron -L 2 && exec tail -F /data/logs/cron.log"]
     restart: unless-stopped
 
+  # The customer-facing app (doc/APP.md). Same image, same /data — it reads the
+  # database per request, so a data change never needs a deploy and only a code
+  # change does (APP.md 9).
+  #
+  #   docker compose up -d app          # then http://localhost:8000/
+  #
+  # Not behind a profile, unlike the scheduler: two schedulers writing the same
+  # ledgers is a hazard, whereas two readers are not, and the app is meant to
+  # answer around the clock — a customer clicks at 21:00 on a Sunday.
+  app:
+    extends: tm
+    command: ["python", "app.py", "--port", "8000"]
+    ports:
+      - "${TM_APP_PORT:-8000}:8000"
+    # APP.md 9: app down = forms fail visibly, while picks, grading and report
+    # generation carry on inside the cycle. So: restart hard, and let /healthz
+    # be what says whether it came back.
+    restart: always
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    # TLS is terminated in front (APP.md 9). Nothing here listens on 443, and
+    # the app must never be the thing facing the internet directly.
+
 volumes:
   model-cache:
     # Named explicitly rather than project-prefixed, so seeding it once from a

@@ -147,6 +147,43 @@ Disable-ScheduledTask -TaskName 'TenderMining weekly loop'
 Note the day numbering if you ever edit the schedule: cron's `dow` 1 is Monday;
 the Windows trigger's `DaysOfWeek` 2 is the same day.
 
+## 1d. The customer app
+
+The web surface ([`APP.md`](APP.md)) runs from the same image and reads the
+same `/data`, so a data change never needs a deploy — only a code change does.
+
+```
+docker compose up -d app          # http://localhost:8000/
+docker compose logs -f app
+```
+
+Or without compose, which is what a host will run:
+
+```
+docker run -d --restart always -p 8000:8000 -v C:\Users\user\workspace\tm-state:/data tendermining:latest python app.py --port 8000
+```
+
+`TM_APP_PORT` moves the published port. `/healthz` answers `ok` plus the
+cycle's last successful window and its age in days — that is the restart
+check, and the fastest way to tell "the app is down" from "the cycle has not
+run since Monday", which look identical from a customer's side.
+
+**Nothing here listens on TLS.** The app is meant to sit behind a proxy that
+terminates it (APP.md §9); it must never be the thing facing the internet
+directly.
+
+Tokens are minted, never typed:
+
+```
+docker compose run --rm tm python -c "import tokens; print(tokens.mint('/data','t','mueller-elektro'))"
+```
+
+`t` signup · `f` feedback (needs lot and verdict) · `s` stop · `c` recall. A
+handler accepts only its own purpose, so a feedback link cannot act as an
+unsubscribe link. Revoke with `tokens.revoke(...)`, or `tokens.revoke_all(...)`
+for every live link one customer holds — which is what a hard stop needs, since
+"stop sending" does nothing about the links already in their inbox.
+
 ## 2. Customers: add, change, render
 
 A customer is lines in `data/subscriptions.jsonl` (private, gitignored,

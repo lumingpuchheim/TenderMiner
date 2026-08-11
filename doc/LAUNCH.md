@@ -305,6 +305,56 @@ the aggregates are **orientation** ("lohnt sich das?"), the sample and the
 and the national report is **PR for backlinks** — the last two are not
 customer-start data and must not crowd the first two on the page.
 
+- **The facts block** (dataset-checked 2026-08-10 against
+  `data/store/awards.parquet` / `tenders.parquet`; survivors of the
+  *then-what* test — a fact may appear only if its consequence ends at our
+  signup):
+  - **Preisspanne**: median highest/lowest bid on the same lot = **1.43×**
+    (1,801 lots with both amounts). Copy sense: „Der teuerste Bieter liegt
+    typischerweise 43 % über dem günstigsten — Sie müssen nicht der
+    Billigste sein." Directly under it, the **CTA**:
+    - on **CPV 452 pages** (the only trade where forecast claims are
+      permitted): „**Wir empfehlen Ausschreibungen mit voraussichtlich
+      wenig Wettbewerb — wo der Preis selten entscheidet. Kontaktieren Sie
+      uns.**" The price half is arithmetic, not a measured claim (fewer
+      bidders ⇒ less price pressure), the forecast half carries the
+      established „voraussichtlich" hedge;
+    - on **all other trade pages**, the product-general CTA without any
+      forecast flavour: „Wir finden die passenden Ausschreibungen für Ihr
+      Gewerbe — Woche für Woche. Kontaktieren Sie uns." (claim rules:
+      no lift language outside 452).
+    - CTA target: the contact address until the open-signup form exists;
+      then `app.…/anmelden`.
+  - **Mittelstandsanteil**: small+micro firms take **48 %** of sized
+    awards; ~89 % of bidders are SMEs (8,125 / 3,843 lots). Then-what:
+    „this is your market", the belief-unblocker for the whole segment.
+  - **Preis-oder-Qualität**: **42 %** of lots with criteria data award on
+    price alone (12,970 lots covered). Same treatment as the Preisspanne
+    (decided 2026-08-10): the stat's then-what is not a criterion filter
+    but the low-competition recommendation — *when few bidders show up,
+    the criterion barely matters; even a pure price award is winnable at a
+    sane price*. CTA under it, same two variants: **CPV 452 pages**: „Ob
+    Preis oder Qualität entscheidet, ist zweitrangig, wenn kaum jemand
+    mitbietet — wir empfehlen Ausschreibungen mit voraussichtlich wenig
+    Wettbewerb. Kontaktieren Sie uns." **Other trades**: the
+    product-general CTA (no forecast language). The criterion line in the
+    weekly report (`APP.md` §8) still ships — the customer should see
+    „100 % Preis" on a pick and know it was recommended anyway — but it
+    is transparency behind the claim, no longer a gate on the stat.
+  - Rejected by the then-what test: the inadmissible-bid share (13.2 %) —
+    its consequence leads to a Vergabeberater, not to us; parked for the
+    beginner guide. `est_value_lot` stats: coverage too thin (2,352 of
+    28,973).
+
+This inventory is **closed against plausibility arguments** (2026-08-10,
+after two candidate sections — buyer pages, timing stats — died on
+inspection): a new public section needs either *query evidence* (real
+impressions in Search Console once these pages are live) or *demonstrated
+customer utility*, not a story about what contractors probably google. A
+quarterly competition map may ride along with the single-bidder report as
+its visual (same numbers, rendered); a data-backed beginner guide is
+parked until the site exists and someone will own its text.
+
 - **An index page** linking the trades, and the same Impressum /
   Datenschutzerklärung the app carries.
 - **A sitemap.xml**, rendered with the pages — the pages update weekly,

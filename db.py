@@ -276,6 +276,29 @@ CREATE TABLE IF NOT EXISTS simulation_gate (
 CREATE INDEX IF NOT EXISTS ix_simg_seq     ON simulation_gate (seq);
 CREATE INDEX IF NOT EXISTS ix_simg_company ON simulation_gate (company);
 
+-- SIMULATION.md "the gate rides along" (2026-08-10): the verdict x outcome
+-- join, snapshotted once per cycle. The join itself is a computation over
+-- `simulation`, `simulation_gate` and `grade` — this table is its TIME SERIES,
+-- so "did the gate's admissions pull ahead of its rejections, and when" is a
+-- query rather than a diff of two rendered dashboards. One row per
+-- (cycle ts, verdict); a cycle that finds nothing gradeable still writes its
+-- zero row, because "nothing was gradeable on that day" is the record.
+CREATE TABLE IF NOT EXISTS gate_outcome (
+    ts             TEXT NOT NULL,
+    verdict        TEXT NOT NULL,
+    graded         INTEGER,
+    lonely_rate    REAL,
+    own_wins       INTEGER,
+    own_rate       REAL,
+    picks_total    INTEGER,
+    verdicts_total INTEGER,
+    seq            INTEGER NOT NULL,
+    raw            BLOB NOT NULL,
+    UNIQUE (ts, verdict)
+);
+CREATE INDEX IF NOT EXISTS ix_gout_seq     ON gate_outcome (seq);
+CREATE INDEX IF NOT EXISTS ix_gout_verdict ON gate_outcome (verdict, ts);
+
 CREATE TABLE IF NOT EXISTS gate_config (
     fingerprint TEXT PRIMARY KEY,
     first_seen  TEXT NOT NULL,
@@ -283,6 +306,23 @@ CREATE TABLE IF NOT EXISTS gate_config (
     seq         INTEGER NOT NULL,
     raw         BLOB NOT NULL
 );
+
+-- Capability tokens (doc/APP.md 3). Owned by tokens.py; no other module reads
+-- or writes it. Deliberately NOT in LEDGER_TABLES: a token is mutable state,
+-- not a frozen record — revocation and first use are stamped in place, and
+-- revocation that could not take effect immediately would not be revocation.
+CREATE TABLE IF NOT EXISTS token (
+    token        TEXT PRIMARY KEY,
+    purpose      TEXT NOT NULL,      -- t signup | f feedback | s stop | c recall
+    sub_id       TEXT NOT NULL,      -- the subject; for `t`, the target-list firm
+    procedure_id TEXT,               -- `f` only: the lot the verdict is about
+    lot_id       TEXT,               -- `f` only
+    verdict      TEXT,               -- `f` only: never in the URL, always here
+    created_at   TEXT NOT NULL,
+    revoked_at   TEXT,
+    used_at      TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_token_subject ON token (sub_id, purpose);
 """
 
 # Append-only enforcement. Ledgers are frozen records; `customer` is
@@ -408,6 +448,7 @@ LEDGERS = {
     'gate_configs': ('ledger/gate_configs.jsonl', 'gate_config'),
     'simulations': ('ledger/simulations.jsonl', 'simulation'),
     'simulations_gate': ('ledger/simulations_gate.jsonl', 'simulation_gate'),
+    'gate_outcomes': ('ledger/gate_outcomes.jsonl', 'gate_outcome'),
 }
 
 # Fields that are JSON arrays in the ledger and stay JSON text in a column.
