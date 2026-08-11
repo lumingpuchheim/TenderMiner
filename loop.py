@@ -1555,9 +1555,19 @@ def cmd_run(args):
     except Exception as e:  # the dashboard is a convenience; never fail the cycle over it
         print(f'[dashboard] rendering failed: {e}')
 
-    # No public-site step: the site is plain HTML in `site/`, checked in and
-    # uploaded as-is (doc/LAUNCH.md 4.1). A page with no data in it needs no
-    # build, and a build nobody needs is a build that breaks the cycle.
+    # The trade market pages (doc/TRADE_PAGES.md). The rest of `site/` is
+    # hand-written HTML that needs no build; these 32 carry figures that move
+    # every week, which no one maintains by hand. Non-fatal by the same rule
+    # the dashboard gets: a week-stale market page is acceptable, a missing
+    # customer report is not. Nothing uploads here.
+    if not args.skip_trade_pages:
+        try:
+            import trade_pages
+            built, skipped = trade_pages.build(paths.data)
+            print(f'[trades] {len(built)} market pages, {len(skipped)} trades '
+                  f'below the floor of {trade_pages.MIN_AWARDED} awarded lots')
+        except Exception as e:                                 # noqa: BLE001
+            print(f'[trades] page build failed, cycle continues: {e!r}')
 
     prune_caches(paths)
 
@@ -1623,6 +1633,9 @@ def main():
     run.add_argument('--models-dir', default=config.models_root(), dest='models_dir')
     run.add_argument('--skip-download', action='store_true', dest='skip_download',
                      help='reuse the existing store (offline run)')
+    run.add_argument('--skip-trade-pages', action='store_true',
+                     dest='skip_trade_pages',
+                     help='do not rebuild site/gewerke/ (doc/TRADE_PAGES.md)')
     run.set_defaults(func=cmd_run)
     args = ap.parse_args()
     args.func(args)

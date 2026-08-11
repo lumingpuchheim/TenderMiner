@@ -109,6 +109,24 @@ class Files(unittest.TestCase):
         self.assertIn('Allow: /',
                       (SITE / 'robots.txt').read_text(encoding='utf-8'))
 
+    def test_every_link_and_stylesheet_resolves_to_a_real_file_ALL(self):
+        """Same check as below, but over EVERY html file in site/, including
+        the generated trade pages — a generator that emits a wrong relative
+        depth breaks 32 pages at once."""
+        checked = 0
+        for page in sorted(SITE.rglob('*.html')):
+            html = page.read_text(encoding='utf-8')
+            for href in re.findall(r'(?:href|src)="([^"]+)"', html):
+                if href.startswith(('mailto:', 'http://', 'https://', '#')):
+                    continue
+                rel = page.relative_to(SITE)
+                self.assertFalse(href.startswith('/'),
+                                 f'{rel}: "{href}" is absolute')
+                self.assertTrue((page.parent / href).resolve().exists(),
+                                f'{rel}: "{href}" points at nothing')
+                checked += 1
+        self.assertGreater(checked, 100)
+
     def test_every_link_and_stylesheet_resolves_to_a_real_file(self):
         """Follows every href/src on every page and checks the target exists
         on disk, relative to the page that names it.

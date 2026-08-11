@@ -57,13 +57,18 @@ the project's existing line for "below this, a share is indicative, not a
 rate". A page whose headline figure cannot honestly be quoted should not
 exist.
 
-Measured against the live store (2026-08-11, 12 covered months): **28 of 40
-trades clear it.** The twelve that do not — Modulbau (2 awarded lots),
-Zaunbau (3), Wasser- und Abwassertechnik (5), Brückenbau (6), Schließanlagen
-(7), Kanalbau (8), Feuerlöschanlagen (10), Schwimmbad (11), Industrieboden
-(15), Möbel (16), Reinigung (17), Sicherheits- und Meldeanlagen (21) — get no
-page until the data arrives. The floor is re-checked at every build, so a
-trade appears on its own the month it qualifies.
+Measured by the generator against the live store (2026-08-11, 12 covered
+months): **32 of 47 trades clear it.** The fifteen that do not — Sportstätten
+(27 awarded lots), Küchen-/Bühnentechnik (26), Photovoltaik (22),
+Sicherheits- und Meldeanlagen (21), Reinigung (17), Möbel (16),
+Industrieboden (15), Schwimmbad (11), Feuerlöschanlagen (10), Kanalbau (8),
+Schließanlagen (7), Brückenbau (6), Wasser- und Abwassertechnik (5), Zaunbau
+(3), Modulbau (2) — get no page until the data arrives. The floor is
+re-checked at every build, so a trade appears on its own the month it
+qualifies, and disappears again if it stops qualifying.
+
+`python trade_pages.py --dry-run` prints exactly this list without writing
+anything.
 
 **Where the trade list comes from.** Today `trades.txt`, hand-owned, one
 word list per trade. The operator's note (2026-08-11) is that an agent can
@@ -123,12 +128,38 @@ and the legal pages stay files you edit. These pages are generated from the
 store into `site/gewerke/` by a small program run from the cycle — the same
 place `render_dashboard` runs, non-fatal in the same way.
 
-**[CLARIFY]** whether the generated pages are committed to git (a visible
-diff each week, and the site remains uploadable from a clean checkout) or left
-as a build artifact (no weekly noise, but the upload must run after a build).
-Recommendation: **committed**, because it keeps "upload the `site/` folder"
-true, and because a diff is how you notice a number moving in a way it should
-not.
+**DECIDED: committed.** It keeps "upload the `site/` folder" true from a clean
+checkout, and a diff is how a number moving in a way it should not gets
+noticed. The cost is a weekly commit touching 32 files; `--skip-trade-pages`
+turns the step off when that is unwanted.
+
+## 6b. Built — 2026-08-11
+
+[`trade_pages.py`](../trade_pages.py), run from the cycle, output committed in
+`site/gewerke/`. 32 pages; the 15 trades below the floor are named at every
+run so the gap is visible rather than silent.
+
+Every figure comes from `market.py`'s own loader, coverage rule and
+`SMALL_SAMPLE` — the public number and the operator's number cannot drift
+apart, because there is only one of them.
+
+Two things the build got wrong first, both now tested:
+
+- **Money was printed in the console's format** — `204 k €`, `34.08 M €`.
+  Right for a terminal, wrong for a German page, which wants `204.075 €` and
+  `34,1 Mio. €`. Note the naive fix is also wrong: swapping `,`→`.` and then
+  `.`→`,` turns the thousands separator into a decimal comma and yields
+  `34,1 Mio,`. Both spellings are asserted.
+- **Relative depth.** These pages sit two levels down, so the stylesheet is
+  `../../style.css`. A test now walks *every* HTML file under `site/` and
+  resolves every `href` and `src` against the file naming it — a generator
+  with the wrong depth breaks 32 pages at once, and the earlier absolute-path
+  bug proved this is not hypothetical.
+
+Also enforced by test, not by intention: no page links sideways to another
+trade, every page links up to the index and home, every page states its
+denominator and its date, names TED and the ~3-month award lag, carries no
+forecast language, no firm name and no lot listing.
 
 ## 7. Out of scope
 
