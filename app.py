@@ -57,18 +57,9 @@ BASE_HEADERS = [
     ('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'"),
 ]
 
-STYLE = """
-  :root { color-scheme: light dark }
-  body { font: 16px/1.6 system-ui, -apple-system, Segoe UI, sans-serif;
-         max-width: 34rem; margin: 3rem auto; padding: 0 1.2rem; }
-  h1 { font-size: 1.35rem; margin-bottom: .2rem }
-  h2 { font-size: 1.05rem; margin-top: 2rem }
-  .muted { color: #6b7280 }
-  dl { display: grid; grid-template-columns: max-content 1fr; gap: .3rem .9rem }
-  dt { color: #6b7280 }
-  footer { margin-top: 3rem; font-size: .875rem; color: #6b7280 }
-  a { color: inherit }
-"""
+import style as style_mod
+
+STYLE = style_mod.CSS
 
 
 def esc(s):
@@ -126,7 +117,8 @@ def page(title, body, status='200 OK'):
            f'<meta name="viewport" content="width=device-width, initial-scale=1">'
            f'<meta name="robots" content="noindex, nofollow">'
            f'<title>{esc(title)} — TenderMining</title>'
-           f'<style>{STYLE}</style></head><body>{body}'
+           f'<style>{STYLE}</style></head><body>'
+           f'{style_mod.header()}{body}'
            f'<footer><a href="/impressum">Impressum</a> · '
            f'<a href="/datenschutz">Datenschutz</a> · '
            f'<a href="mailto:{esc(CONTACT)}">{esc(CONTACT)}</a></footer>'
@@ -277,10 +269,8 @@ def get_signup(ctx, row):
          Wettbewerb erwarten. Kostenlos zum Kennenlernen, monatlich beendbar.</p>
       <form method="post">
         <p><label>E-Mail-Adresse<br>
-           <input type="email" name="email" required
-                  style="width:100%;padding:.5rem;font:inherit"></label></p>
-        <p><button type="submit" style="padding:.5rem 1.2rem;font:inherit">
-           Berichte erhalten</button></p>
+           <input type="email" name="email" required></label></p>
+        <p><button type="submit">Berichte erhalten</button></p>
       </form>
       <p class="muted">Mit der Anmeldung erhalten Sie die wöchentlichen
          Berichte und danach gelegentlich Ergebnis-Nachrichten und Angebote
@@ -374,8 +364,8 @@ def get_feedback(ctx, row):
       <dl><dt>Los</dt><dd>{esc(row['procedure_id'])} · {esc(row['lot_id'])}</dd>
           <dt>Ihre Angabe</dt><dd>{esc(row['verdict'])}</dd></dl>
       <form method="post"><p>
-        <button type="submit" style="padding:.5rem 1.2rem;font:inherit">
-          Bestätigen: {esc(row['verdict'])}</button></p></form>
+        <button type="submit">Bestätigen: {esc(row['verdict'])}</button>
+      </p></form>
       <p class="muted">Erst der Klick speichert etwas.</p>""")
 
 
@@ -395,11 +385,9 @@ def get_stop(ctx, row):
     return page('Abbestellen', """
       <h1>Abbestellen</h1>
       <form method="post">
-        <p><button name="wahl" value="berichte" type="submit"
-                   style="padding:.5rem 1.2rem;font:inherit">
+        <p><button name="wahl" value="berichte" type="submit">
            Keine wöchentlichen Berichte mehr</button></p>
-        <p><button name="wahl" value="alles" type="submit"
-                   style="padding:.5rem 1.2rem;font:inherit">
+        <p><button name="wahl" value="alles" type="submit" class="secondary">
            Keine E-Mails mehr</button></p>
       </form>
       <p class="muted">„Keine Berichte mehr" lässt gelegentliche
@@ -425,8 +413,7 @@ def post_stop(ctx, row, form):
       <p>Die wöchentlichen Berichte sind aus. Gelegentliche
          Ergebnis-Nachrichten können noch kommen.</p>
       <form method="post"><p>
-        <button name="wahl" value="alles" type="submit"
-                style="padding:.5rem 1.2rem;font:inherit">
+        <button name="wahl" value="alles" type="submit" class="secondary">
           Auch das nicht — keine E-Mails mehr</button></p></form>""")
 
 
@@ -459,10 +446,9 @@ def get_recall(ctx, row):
       <p>Nummer oder Link einer Ausschreibung — wir sagen Ihnen, wie wir sie
          für Sie einschätzen.</p>
       <form method="post">
-        <p><input name="ref" required placeholder="Nummer oder Link hier"
-                  style="width:100%;padding:.5rem;font:inherit"></p>
-        <p><button type="submit" style="padding:.5rem 1.2rem;font:inherit">
-           Prüfen</button></p>
+        <p><input type="text" name="ref" required
+                  placeholder="Nummer oder Link hier"></p>
+        <p><button type="submit">Prüfen</button></p>
       </form>""")
 
 

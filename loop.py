@@ -1555,6 +1555,20 @@ def cmd_run(args):
     except Exception as e:  # the dashboard is a convenience; never fail the cycle over it
         print(f'[dashboard] rendering failed: {e}')
 
+    # The public site (doc/LAUNCH.md 4.1): finished files for a static host,
+    # rendered from the store like the dashboard is. Non-fatal by the same
+    # rule LAUNCH.md 4.2 applies to the upload — a week-stale public page is
+    # acceptable, an undelivered customer report is not. Nothing uploads here;
+    # the deploy is a separate, later step.
+    if not args.skip_public:
+        try:
+            import public_site
+            urls = public_site.render(paths.data, paths.data / 'public',
+                                      args.public_base_url)
+            print(f'[public] {len(urls)} pages -> {paths.data / "public"}')
+        except Exception as e:                                 # noqa: BLE001
+            print(f'[public] rendering failed, cycle continues: {e!r}')
+
     prune_caches(paths)
 
     checkpoint['last_success_at'] = now_utc().isoformat(timespec='seconds')
@@ -1617,6 +1631,11 @@ def main():
                      help='deadline floor for simulated picks, like the product default')
     run.add_argument('--data-dir', default=config.data_root(), dest='data_dir')
     run.add_argument('--models-dir', default=config.models_root(), dest='models_dir')
+    run.add_argument('--skip-public', action='store_true',
+                     help='do not render the public site (doc/LAUNCH.md 4.1)')
+    run.add_argument('--public-base-url', default='',
+                     help='e.g. https://www.tendermining.de — canonical URLs '
+                          'and sitemap entries for the public site')
     run.add_argument('--skip-download', action='store_true', dest='skip_download',
                      help='reuse the existing store (offline run)')
     run.set_defaults(func=cmd_run)

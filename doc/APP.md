@@ -172,6 +172,20 @@ logged as a defect. Every send is a ledger event.
 - Backups are the database's problem (already handled by the cycle's
   environment), not the app's; the app holds no state outside `data/`.
 
+## 10d. Style — 2026-08-11
+
+One stylesheet for both surfaces, [`style.py`](../style.py), blue (operator's
+choice). It is a module and not CSS in either program because the app and the
+public site deploy separately and must still look like one product: a visitor
+crosses from `www.…/gewerke/dachdecker` to `app.…/t/<token>` in one click, and
+the shared header bar is what stops that feeling like leaving.
+
+Constraints, both from the specs rather than taste: **no external anything**
+(the app serves under `default-src 'none'`, and LAUNCH.md 4.2 requires the
+public pages to render with the app down — a web font would break one or the
+other), and **no JavaScript**, so the dark scheme is `prefers-color-scheme`
+with both palettes written out rather than a toggle.
+
 ## 10c. Build status — 2026-08-11: the POST side, the mailer, the edge
 
 HOSTING.md §2's six blockers, all landed:

@@ -368,6 +368,31 @@ parked until the site exists and someone will own its text.
 renderer beside the report renderer, driven by the cycle; output directory
 is gitignored build artifact.
 
+**BUILT 2026-08-11** — [`public_site.py`](../public_site.py), rendering into
+`data/public/` (gitignored, being under `data/`) and wired into the cycle
+beside the dashboard, non-fatal by the same rule §4.2 applies to the upload.
+`--skip-public` turns it off; `--public-base-url` fills canonicals and the
+sitemap. Receipt against the live store: **82 pages** — 32 trade pages, 11
+trade×Land pages that cleared the ≥10 lots/month floor (Elektro, Heizung,
+Lüftung, Sanitär), the report, index, legal pages, `sitemap.xml`,
+`robots.txt`.
+
+Numbers come from `market.py`'s own loader and coverage rule, deliberately:
+the public figure and the operator's figure must not be able to drift apart.
+The three rules that are promises about other people's data are enforced in
+code and tested, not trusted — **no winner name reaches any page** (buyers,
+being public bodies, are named), **forecast language renders only where the
+lots are CPV 452** (`_is_452`, one gate, both the Kandidaten section and the
+CTA variant), and the **thin-page guardrail** is arithmetic on lots/month
+rather than a judgement call. A further test asserts the pages contain no
+`<script>`, no `fetch(`, and no external URL at all — §4.2's "build-time
+only" made checkable rather than remembered.
+
+Still open, and deliberately: the **upload** (needs the host decision), and
+the facts block's figures are hard-coded with their denominators — they are
+quarterly editorial claims, and a number that silently moved under a fixed
+sentence is how a claim stops matching its copy.
+
 ### 4.2 The interface between the static host and the app
 
 The whole interface is two things, and deliberately nothing more:
