@@ -1555,15 +1555,15 @@ def cmd_run(args):
     except Exception as e:  # the dashboard is a convenience; never fail the cycle over it
         print(f'[dashboard] rendering failed: {e}')
 
-    # The public site (doc/LAUNCH.md 4.1): finished files for a static host,
-    # rendered from the store like the dashboard is. Non-fatal by the same
-    # rule LAUNCH.md 4.2 applies to the upload — a week-stale public page is
-    # acceptable, an undelivered customer report is not. Nothing uploads here;
-    # the deploy is a separate, later step.
+    # The public site (doc/LAUNCH.md 4.1): finished files for a static host.
+    # It reads no data today — the landing page carries no figures — so this
+    # only keeps the build wired up for the day it does. Non-fatal by the same
+    # rule 4.2 gives the upload: a stale public page is acceptable, an
+    # undelivered customer report is not. Nothing uploads here.
     if not args.skip_public:
         try:
             import public_site
-            urls = public_site.render(paths.data, paths.data / 'public',
+            urls = public_site.render(paths.data / 'public',
                                       args.public_base_url)
             print(f'[public] {len(urls)} pages -> {paths.data / "public"}')
         except Exception as e:                                 # noqa: BLE001

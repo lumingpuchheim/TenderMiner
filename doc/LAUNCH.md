@@ -368,30 +368,41 @@ parked until the site exists and someone will own its text.
 renderer beside the report renderer, driven by the cycle; output directory
 is gitignored build artifact.
 
-**BUILT 2026-08-11** — [`public_site.py`](../public_site.py), rendering into
-`data/public/` (gitignored, being under `data/`) and wired into the cycle
-beside the dashboard, non-fatal by the same rule §4.2 applies to the upload.
-`--skip-public` turns it off; `--public-base-url` fills canonicals and the
-sitemap. Receipt against the live store: **82 pages** — 32 trade pages, 11
-trade×Land pages that cleared the ≥10 lots/month floor (Elektro, Heizung,
-Lüftung, Sanitär), the report, index, legal pages, `sitemap.xml`,
-`robots.txt`.
+**BUILT, then cut back to one page — operator, 2026-08-11.**
+[`public_site.py`](../public_site.py) renders `data/public/`: **the landing
+page, Impressum, Datenschutz, `sitemap.xml`, `robots.txt`.** That is the site.
 
-Numbers come from `market.py`'s own loader and coverage rule, deliberately:
-the public figure and the operator's figure must not be able to drift apart.
-The three rules that are promises about other people's data are enforced in
-code and tested, not trusted — **no winner name reaches any page** (buyers,
-being public bodies, are named), **forecast language renders only where the
-lots are CPV 452** (`_is_452`, one gate, both the Kandidaten section and the
-CTA variant), and the **thin-page guardrail** is arithmetic on lots/month
-rather than a judgement call. A further test asserts the pages contain no
-`<script>`, no `fetch(`, and no external URL at all — §4.2's "build-time
-only" made checkable rather than remembered.
+The per-trade and trade×Land pages of the inventory above were built (82
+pages, the ≥10 lots/month floor working as specified) and then **removed on
+the operator's instruction**. The reason overrides the SEO argument rather
+than disputing it: *a visitor has one trade, and a site organised as "browse
+the trades" spends his time to save his time* — and a page headed
+„Elektroinstallation" reads as though we are in that business, which we are
+not. The market figures went with them. `git log public_site.py` holds the
+whole thing if the long-tail argument is ever reopened.
 
-Still open, and deliberately: the **upload** (needs the host decision), and
-the facts block's figures are hard-coded with their denominators — they are
-quarterly editorial claims, and a number that silently moved under a fixed
-sentence is how a claim stops matching its copy.
+**No figures on the page at all**, also the operator's call: a number on a
+cold page needs its denominator, its date and its method beside it, or it is
+just a claim. The consequence is that this renderer reads no data — it is
+wired into the cycle only so the build exists for the day it does.
+
+What the page does instead: says what the service is, then that the profile
+comes from *what the firm has won* rather than from a questionnaire (the
+sentence no competitor can write), then what arrives on Monday, then what we
+refuse to promise — and asks for a line of e-mail, offering in exchange the
+lookup only this product can perform ("we will tell you what you won and what
+matched this week"). Approved copy, 2026-08-11.
+
+The **warm** entrance stays separate and is the real funnel: the letter's QR
+lands on `app.<domain>/t/<token>`, which already knows the firm
+(ONBOARDING.md §5.1) — a different page in `app.py` doing a different job.
+
+One rule now has a test because the mistake is invisible in English:
+„**Wir schätzen den Wettbewerb**" reads as *we value competition* — the
+opposite of the product, stated as a position. `schätzen` may not appear on
+the page.
+
+Still open: the **upload** (needs the host decision).
 
 ### 4.2 The interface between the static host and the app
 
