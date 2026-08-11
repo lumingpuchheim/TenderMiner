@@ -109,11 +109,32 @@ class Files(unittest.TestCase):
         self.assertIn('Allow: /',
                       (SITE / 'robots.txt').read_text(encoding='utf-8'))
 
-    def test_every_page_links_the_stylesheet(self):
-        for rel in ('index.html', 'impressum/index.html',
-                    'datenschutz/index.html'):
-            self.assertIn('/style.css',
-                          (SITE / rel).read_text(encoding='utf-8'), rel)
+    def test_every_link_and_stylesheet_resolves_to_a_real_file(self):
+        """Follows every href/src on every page and checks the target exists
+        on disk, relative to the page that names it.
+
+        This exists because the first version used absolute paths (`/style.css`,
+        `/impressum/`), which resolve to the drive root when the file is opened
+        directly — so every link was dead and the page rendered unstyled, and
+        nothing caught it. Relative links work both from `file://` and from a
+        host, and this test is what keeps them that way."""
+        pages = ['index.html', 'impressum/index.html', 'datenschutz/index.html']
+        checked = 0
+        for rel in pages:
+            page = SITE / rel
+            html = page.read_text(encoding='utf-8')
+            for href in re.findall(r'(?:href|src)="([^"]+)"', html):
+                if href.startswith(('mailto:', 'http://', 'https://', '#')):
+                    continue
+                self.assertFalse(
+                    href.startswith('/'),
+                    f'{rel}: "{href}" is absolute — it breaks when the file '
+                    f'is opened directly. Use a relative path.')
+                target = (page.parent / href).resolve()
+                self.assertTrue(target.exists(),
+                                f'{rel}: "{href}" points at nothing')
+                checked += 1
+        self.assertGreater(checked, 8)   # guards against a vacuous pass
 
 
 if __name__ == '__main__':
