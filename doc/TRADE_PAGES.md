@@ -179,6 +179,58 @@ trade, every page links up to the index and home, every page states its
 denominator and its date, names TED and the ~3-month award lag, carries no
 forecast language, no firm name and no lot listing.
 
+## 6c. The forecast section — built 2026-08-11
+
+Each page answers "wie gut trifft unsere Einschätzung?" for its own trade.
+This is the **forecast** precision/recall of [`METHODS.md`](METHODS.md) §0 —
+did a lot we flagged really end with 0-1 bids — never the gate's, and it is
+sliced **by title word-match like everything else**, not by CPV3 as
+`backtest.py`'s own prose table does, because buyers enter CPV wrongly.
+
+**Where the number comes from.** Only the as-of replay can answer it: a live
+award publishes a median 84 days after its tender, so the live grade ledger
+holds 18 rows and will for months. `backtest.py` now writes
+`data/reports/backtest_lots.json` — three facts per checkable lot (examined,
+flagged, final bid count) and nothing else. Deliberately no title, trade or
+CPV in it: whoever slices joins to the store, so `trades.txt` can change
+without invalidating a receipt.
+
+That receipt is the reason the replay is worth its hours. It used to keep
+per-lot facts in memory and write only prose, which made every new question a
+fresh multi-hour run. **Run the replay once, slice it many times.**
+
+**Not in the weekly cycle**, and it must not be: the replay retrains the
+champion at every cutoff. Refresh it when the model changes or quarterly; the
+page prints the receipt's own date, so a figure ages visibly instead of
+silently.
+
+**Three states, and the page always says which one it is in:**
+
+| state | what the page says |
+| --- | --- |
+| no receipt | „…noch nicht genug ausgewertete Hinweise… behaupten wir dazu nichts" |
+| fewer than `SMALL_SAMPLE` checked alarms | names the count and refuses to quote a rate |
+| enough, and it beats the base rate | both denominators, the factor, and the recall line |
+| enough, and it does **not** | **says so plainly** |
+
+The last row is the operator's call (2026-08-11), and it is the one worth
+defending: a page that shows the market and then admits the forecast is not
+beating chance in this trade is auditable, and a silently missing section is
+not. It also says something true — there the value is the coverage, not the
+forecast. The recall line always accompanies a quoted precision, because
+precision alone cannot be wrong in an interesting way: flag one lot a year,
+get it right, claim 100 %.
+
+`loop.flag_stats` computes it — the same function the weekly report and the
+backtest use, so the replayed number and the live number stay one statistic
+rather than two implementations that agree by coincidence.
+
+*Receipt:* proven end-to-end against a synthetic replay over the real 6,685
+resolved lots (a rule, not a model — plumbing only, and written to the scratch
+copy so it could never be mistaken for a measurement). 22 of 32 trades landed
+in "too few checked", 10 in "beats chance", which is the shape to expect: **on
+real data most trades will not have enough checked alarms to say anything.**
+
 ## 7. Out of scope
 
 No Bundesland or city pages (§5.3). No lot or award listings. No firm names.

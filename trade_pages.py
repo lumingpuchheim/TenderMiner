@@ -28,6 +28,7 @@ itself.
 
 import argparse
 import html
+import json
 import re
 import shutil
 import sys
@@ -73,6 +74,18 @@ def money_de(x):
     if x >= 1_000_000:
         return f'{de(x / 1_000_000, 1)} Mio.'
     return de(round(x))
+
+
+def pct_de(x):
+    """A share as German typography writes it: a space before the sign.
+    Python's `:.0%` produces '10%', which is the English convention and looks
+    wrong beside the '12 %' the figure cards already print."""
+    return f'{100 * x:.0f} %'
+
+
+def factor_de(x):
+    """'2,2' — a decimal comma, like every other number on the page."""
+    return f'{x:.1f}'.replace('.', ',')
 
 
 def slugify(name):
@@ -126,6 +139,106 @@ def figures(lots, sel, covered, mature):
     }
 
 
+# --------------------------------------------- the forecast, per trade
+#
+# doc/METHODS.md 0: this is the FORECAST precision/recall — did a lot we
+# flagged really end with 0-1 bids — not the gate's. It can only come from the
+# as-of replay (`backtest.py`), because a live award publishes a median 84
+# days after its tender, so the live grade ledger holds 18 rows.
+#
+# The replay is sliced HERE, by the same title word-match that defines a trade
+# everywhere else, rather than by CPV3 as the backtest's own prose table does:
+# buyers enter CPV wrongly, which is why `market.py` never consults it.
+
+RECEIPT = 'backtest_lots.json'
+
+# A precision over a handful of alarms is noise: flag one lot a year, get it
+# right, claim 100 %. Same line the pages already use for a market share.
+MIN_CHECKED = market.SMALL_SAMPLE
+
+
+def load_receipt(data_dir):
+    """The last replay's per-lot facts, or None. No file, no forecast claim —
+    which is the state on a fresh checkout, and it is the correct one."""
+    p = Path(data_dir) / 'reports' / RECEIPT
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding='utf-8'))
+    except (ValueError, OSError):
+        return None
+
+
+def forecast_for(receipt, lots, sel):
+    """-> (stats, generated) for this trade's slice of the replay, or None.
+
+    `stats` is `loop.flag_stats`' dict — the SAME function the weekly report
+    and the backtest's own table use. That sharing is deliberate: until live
+    awards accumulate, the replayed number is the one quoted, and it must be
+    the same statistic rather than a second implementation that agrees by
+    coincidence.
+    """
+    if not receipt:
+        return None
+    keys = set(zip(lots.loc[sel, 'procedure_id'], lots.loc[sel, 'lot_id']))
+    rows = [{'flag': r['flag'], 'label': int(r['n_tenders'] <= 1)}
+            for r in receipt['lots']
+            if (r['procedure_id'], r['lot_id']) in keys]
+    if not rows:
+        return None
+    from loop import flag_stats           # lazy: pulls the ML stack
+    return flag_stats(rows), receipt.get('generated', '?')
+
+
+def forecast_section(fc):
+    """Three states, and the page says which one it is in.
+
+    The unflattering one is printed rather than dropped (operator's call,
+    2026-08-11): a page that shows the market and then admits the forecast is
+    not beating the base rate here is auditable, and silent omission is not.
+    It also says something true — in that trade the value is the coverage,
+    not the forecast."""
+    if fc is None:
+        return ('<h2>Wie gut trifft unsere Einschätzung?</h2>'
+                '<p>Für dieses Gewerk liegen noch nicht genug ausgewertete '
+                'Hinweise vor, um das zu belegen. Solange das so ist, '
+                'behaupten wir dazu nichts.</p>')
+    st, generated = fc
+    checked, hits = st['flagged'], st['tp']
+    if checked < MIN_CHECKED or st['precision'] is None:
+        return ('<h2>Wie gut trifft unsere Einschätzung?</h2>'
+                f'<p>Bisher konnten erst {checked} unserer Hinweise in diesem '
+                f'Gewerk gegen ein veröffentlichtes Ergebnis geprüft werden — '
+                f'zu wenige für eine belastbare Quote. Wir nennen sie erst ab '
+                f'{MIN_CHECKED}.</p>')
+    prec, base = st['precision'], st['base']
+    lead = (f'<p>Von {checked} Hinweisen, die wir in diesem Gewerk gegeben '
+            f'haben und deren Ergebnis inzwischen veröffentlicht ist, endeten '
+            f'<strong>{hits} mit höchstens einem Angebot '
+            f'({pct_de(prec)})</strong>. '
+            f'Ohne jede Einschätzung liegt die Quote im Gewerk bei '
+            f'{pct_de(base)}.</p>')
+    if not st['beats_base']:
+        verdict = ('<p><strong>Damit trifft unsere Einschätzung hier nicht '
+                   'besser als der Durchschnitt.</strong> Wir sagen das, '
+                   'statt es wegzulassen: in diesem Gewerk liegt unser Nutzen '
+                   'derzeit in der vollständigen Übersicht, nicht in der '
+                   'Vorhersage.</p>')
+    else:
+        verdict = (f'<p>Das ist das {factor_de(prec / base)}-Fache der Quote '
+                   f'ohne Einschätzung.</p>')
+    rec = ('' if st['recall'] is None else
+           f'<p class="muted">Umgekehrt gilt: wir finden nicht alle. Von '
+           f'allen Losen dieses Gewerks, die mit höchstens einem Angebot '
+           f'endeten, hatten wir {pct_de(st["recall"])} vorher genannt.</p>')
+    return ('<h2>Wie gut trifft unsere Einschätzung?</h2>' + lead + verdict
+            + rec +
+            f'<p class="muted">Grundlage ist ein Rücktest: die Historie wird '
+            f'so nachgespielt, wie das System sie damals gesehen hätte, und '
+            f'jede Einschätzung gegen das später veröffentlichte Ergebnis '
+            f'geprüft. Stand des Rücktests: {esc(generated)}.</p>')
+
+
 def fig(value, label):
     """One figure card. The classes are the stylesheet's own — `.figs/.fig`
     with `.n` and `.l`. Getting this wrong is not a cosmetic slip: unknown
@@ -157,7 +270,7 @@ def dist_table(dist, n_awarded):
             f'<tbody>{rows}</tbody></table>')
 
 
-def page(name, slug, f):
+def page(name, slug, f, fc=None):
     """One trade page. Short on purpose: a page of four true numbers ranks
     safely, a padded one is what gets a domain demoted (TRADE_PAGES.md 5)."""
     today = date.today()
@@ -204,6 +317,7 @@ def page(name, slug, f):
         f'kein Angebot ein, auf {f["one"]} genau eines — zusammen '
         f'{100 * f["low_bid"]:.0f} %.</p>\n'
         f'{closed}\n\n'
+        f'{forecast_section(fc)}\n\n'
         f'<h2>Woher die Zahlen kommen</h2>\n'
         f'<p>Quelle ist <em>Tenders Electronic Daily</em> (TED), das '
         f'Amtsblatt der EU für öffentliche Vergaben. Ein Los zählt zu diesem '
@@ -301,6 +415,7 @@ def build(data_dir, out=None, dry_run=False, site=SITE):
     lots = market.add_text(market.load_lots(data_dir))
     trades = market.load_trades()
     covered, mature, _ = market.coverage(lots)
+    receipt = load_receipt(data_dir)
 
     built, skipped, pages = [], [], {}
     for name, trade in sorted(trades.items()):
@@ -313,7 +428,7 @@ def build(data_dir, out=None, dry_run=False, site=SITE):
             continue
         slug = slugify(name)
         built.append((name, slug))
-        pages[slug] = page(name, slug, f)
+        pages[slug] = page(name, slug, f, forecast_for(receipt, lots, sel))
 
     if dry_run:
         return built, skipped

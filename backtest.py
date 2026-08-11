@@ -498,6 +498,48 @@ def simulate_targets(res, targets_csv, out_csv, max_picks=MAX_PICKS):
     return lines
 
 
+RECEIPT_NAME = 'backtest_lots.json'
+
+
+def write_receipt(res, out_dir):
+    """Persist the replay's LOT-LEVEL results, so the run can be sliced later
+    without replaying anything.
+
+    The replay is the expensive thing in this repository — it retrains the
+    champion at every weekly cutoff — and until now it kept its per-lot facts
+    in memory and wrote only prose. That made every new question ("how does
+    the forecast do in *this* trade?") a fresh multi-hour run.
+
+    Three facts per lot, and nothing else: was it examined while open, did we
+    raise an alarm, and how many bids did it eventually get. Deliberately NO
+    title, trade or CPV: whoever slices joins to the store themselves, so the
+    trade definitions in `trades.txt` can change without invalidating a
+    receipt — and so this file cannot drift from the store's own text.
+
+    Written next to the prose report. `trade_pages.py` reads it; nothing in
+    the weekly cycle does, because nothing in the weekly cycle may depend on
+    a run that takes hours.
+    """
+    outcome = res['outcome']
+    lots = []
+    for lot in res['scored']:
+        if lot not in outcome:
+            continue                      # no published award yet: uncheckable
+        lots.append({'procedure_id': lot[0], 'lot_id': lot[1],
+                     'flag': bool(lot in res['flagged']),
+                     'n_tenders': int(outcome[lot])})
+    payload = {
+        'generated': date.today().isoformat(),
+        'model_tag': MODEL_TAG,
+        'n_lots': len(lots),
+        'lots': lots,
+    }
+    p = Path(out_dir) / RECEIPT_NAME
+    p.write_text(json.dumps(payload), encoding='utf-8')
+    print(f'[backtest] lot-level receipt: {len(lots)} checkable lots -> {p}')
+    return p
+
+
 def report(res, out_path):
     outcome = res['outcome']
     graded_pool = {lot: outcome[lot] for lot in res['scored'] if lot in outcome}
@@ -632,6 +674,10 @@ def main():
     out.parent.mkdir(parents=True, exist_ok=True)
     report(res, out)
     print(f'[backtest] report -> {out}')
+    # The receipt is written LAST and unconditionally: a replay that has run
+    # for hours must not lose its per-lot facts because the prose failed to
+    # format.
+    write_receipt(res, out.parent)
 
 
 if __name__ == '__main__':
