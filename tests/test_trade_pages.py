@@ -235,6 +235,14 @@ class GeneratedOutput(unittest.TestCase):
             self.assertNotIn('GmbH', html, p.parent.name)
             self.assertNotIn('<li>', html, p.parent.name)
 
+    def test_the_brand_is_murara_not_the_repo_name(self):
+        """Murara is what a customer sees; TenderMining is the repository."""
+        for p in self.pages:
+            html = p.read_text(encoding='utf-8')
+            self.assertIn('Murara', html, p.parent.name)
+            self.assertNotIn('TenderMining', html, p.parent.name)
+            self.assertIn('murara.eu', html, p.parent.name)
+
     def test_every_page_carries_the_same_cta(self):
         for p in self.pages:
             self.assertIn('was Sie in den letzten Jahren gewonnen haben',

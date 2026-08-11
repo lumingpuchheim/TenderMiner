@@ -121,11 +121,16 @@ CSS = """
 """
 
 
+# The customer-facing brand. TenderMining is the repository and the system;
+# nothing a visitor reads says TenderMining (see the murara-brand-name note).
+BRAND = 'Murara'
+
+
 def header(tagline='Ausschreibungen mit wenig Wettbewerb', home='/'):
     """The blue bar. Same markup on both surfaces — that shared bar is what
     makes the hop from the public site to the app not feel like a hop."""
     return (f'<header class="bar"><a class="brand" href="{home}">'
-            f'TenderMining</a><span class="tag">{tagline}</span></header>')
+            f'{BRAND}</a><span class="tag">{tagline}</span></header>')
 
 
 def fig(number, label):

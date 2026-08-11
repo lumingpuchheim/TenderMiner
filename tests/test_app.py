@@ -55,7 +55,9 @@ class PublicPages(Base):
         self.assertEqual(status, '200 OK')
         self.assertTrue(headers['Content-Type'].startswith('text/html'))
         self.assertIn('<!doctype html>', body)
-        self.assertIn('TenderMining', body)
+        # Murara is the customer-facing brand; TenderMining is the repository
+        self.assertIn('Murara', body)
+        self.assertNotIn('TenderMining', body)
 
     def test_legal_pages_render(self):
         for path in ('/impressum', '/datenschutz'):

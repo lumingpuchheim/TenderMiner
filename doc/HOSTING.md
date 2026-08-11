@@ -87,8 +87,14 @@ the page shows a visible gap until it is set. Original list, for the record:
 | --- | --- | --- |
 | **SMTP provider** | №3, and therefore printing letters | now the long pole |
 | **VPS provider & size** | everything in §3 | measured guidance: 2 CPU / 4 GB / 40 GB is comfortable; cycle ran in 2.9 min on 8 CPU / 8 GB |
-| **Windows task cutover** | — | the day the scheduler container starts on the server, `Disable-ScheduledTask -TaskName 'TenderMining weekly loop'` in the same sitting ([`RUNBOOK.md`](RUNBOOK.md) §1c) |
-| domain | letters only | deferred, recorded above |
+| **Windows task cutover** | — | DONE 2026-08-11: the scheduler container runs the weekly cycle and the Windows task is disabled ([`RUNBOOK.md`](RUNBOOK.md) §1c) |
+| ~~domain~~ | ~~letters only~~ | **DECIDED 2026-08-11: `murara.eu`** (registered at Infomaniak). `www.murara.eu` is the public site, `app.murara.eu` the token surface. Brand is **Murara**; TenderMining stays the repository and system name |
+
+**Still to arrange for the domain**, none of it code: DNS pointing at the
+host, `kontakt@murara.eu` actually receiving mail (the landing page's only
+call to action is that address — it must work before a single letter goes
+out), and the sending domain verified at Resend, or every send is refused by
+the API.
 
 ## 5. Order of work
 

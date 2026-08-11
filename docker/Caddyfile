@@ -1,7 +1,7 @@
 # TLS in front of the app — doc/APP.md 9, doc/HOSTING.md §2 no. 5.
 #
 # Caddy terminates TLS; the app itself never faces the internet. With a real
-# domain set (TM_DOMAIN=app.example.de) Caddy fetches and renews Let's Encrypt
+# domain set (TM_DOMAIN=app.murara.eu) Caddy fetches and renews Let's Encrypt
 # certificates by itself. Without one — the domain is deferred, HOSTING.md §1 —
 # it falls back to ":443" with an internal self-signed certificate, so the
 # stack is testable end-to-end on a bare IP today and the switch to the real

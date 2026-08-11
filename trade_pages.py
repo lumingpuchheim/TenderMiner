@@ -1,19 +1,24 @@
-"""Market pages per trade, for search — doc/TRADE_PAGES.md.
+"""Murara's public site — doc/TRADE_PAGES.md.
 
-    python trade_pages.py                     # -> site/gewerke/
+    python trade_pages.py                     # -> <data-dir>/public/
     python trade_pages.py --dry-run           # who qualifies, writes nothing
 
-One page per trade at `/gewerke/<slug>`, carrying that trade's market figures
-and nothing else, so a contractor searching for his own trade can find it and
-learn something true when he arrives. The pages never link to each other: a
-Maler is shown nothing about Elektro, which is the rule the whole design
+Builds the whole site: the hand-written pages copied out of `site/`, plus one
+generated market page per trade at `/gewerke/<slug>` and the sitemap that
+knows both halves. A contractor searching for his own trade can find that page
+and learn something true when he arrives. The pages never link to each other:
+a Maler is shown nothing about Elektro, which is the rule the whole design
 exists to protect.
 
-**Generated, unlike the rest of `site/`.** The operator's split (2026-08-11)
-is hand-write what has no data in it, generate what does: `site/index.html`
-is a file you edit, these are 28 pages of figures that move every week and
-nobody maintains by hand. Output is committed, so "upload the site/ folder"
-stays true and a moving number shows up in a diff.
+**Source and output are separate directories** (operator, 2026-08-11).
+`site/` is source — committed, hand-edited, and inside the code checkout,
+which in the container is the read-only image. The build therefore goes to
+`<data-dir>/public/`, on the mounted volume: nothing generated is committed,
+and nothing is written where the container would discard it. Upload
+`<data-dir>/public/`, never `site/`.
+
+Murara is the customer-facing brand; TenderMining stays the internal system
+name, so nothing a visitor reads says TenderMining.
 
 **Every figure comes from `market.py`** — its loader, its coverage rule, its
 `SMALL_SAMPLE` line. The public figure and the operator's figure must not be
@@ -35,8 +40,8 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
 SITE = Path(__file__).resolve().parent / 'site'
-CONTACT = 'kontakt@tendermining.de'
-BASE_URL = 'https://www.tendermining.de'
+CONTACT = 'kontakt@murara.eu'
+BASE_URL = 'https://www.murara.eu'
 
 # doc/TRADE_PAGES.md 3: the floor is market.py's own line for "below this, a
 # share is indicative, not a rate". A page whose headline figure cannot
@@ -172,7 +177,7 @@ def page(name, slug, f):
         f'<meta charset="utf-8">\n'
         f'<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         f'<title>Öffentliche Ausschreibungen {esc(name)} — Marktzahlen | '
-        f'TenderMining</title>\n'
+        f'Murara</title>\n'
         f'<meta name="description" content="Wie viel öffentliche Arbeit im '
         f'Gewerk {esc(name)} ausgeschrieben wird: {f["per_month"]:.0f} Lose '
         f'pro Monat, Median-Auftragswert '
@@ -182,7 +187,7 @@ def page(name, slug, f):
         f'<link rel="stylesheet" href="../../style.css">\n'
         f'</head>\n<body>\n\n'
         f'<header class="bar">\n'
-        f'  <a class="brand" href="../../index.html">TenderMining</a>\n'
+        f'  <a class="brand" href="../../index.html">Murara</a>\n'
         f'  <span class="tag">Ausschreibungen mit wenig Wettbewerb</span>\n'
         f'</header>\n\n'
         f'<h1>Öffentliche Ausschreibungen für {esc(name)}</h1>\n\n'
@@ -235,7 +240,7 @@ def index_page(built):
         f'<!doctype html>\n<html lang="de">\n<head>\n'
         f'<meta charset="utf-8">\n'
         f'<meta name="viewport" content="width=device-width, initial-scale=1">\n'
-        f'<title>Marktzahlen nach Gewerk | TenderMining</title>\n'
+        f'<title>Marktzahlen nach Gewerk | Murara</title>\n'
         f'<meta name="description" content="Öffentliche Bauvergaben nach '
         f'Gewerk: Lose pro Monat, Auftragswerte und wie oft kaum jemand '
         f'mitbietet.">\n'
@@ -243,7 +248,7 @@ def index_page(built):
         f'<link rel="stylesheet" href="../style.css">\n'
         f'</head>\n<body>\n\n'
         f'<header class="bar">\n'
-        f'  <a class="brand" href="../index.html">TenderMining</a>\n'
+        f'  <a class="brand" href="../index.html">Murara</a>\n'
         f'  <span class="tag">Ausschreibungen mit wenig Wettbewerb</span>\n'
         f'</header>\n\n'
         f'<h1>Marktzahlen nach Gewerk</h1>\n'

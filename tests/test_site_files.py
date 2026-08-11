@@ -47,7 +47,7 @@ class Landing(unittest.TestCase):
     def test_asks_for_nothing_but_an_email(self):
         self.assertNotIn('<form', self.html)
         self.assertNotIn('<input', self.html)
-        self.assertIn('mailto:kontakt@tendermining.de', self.html)
+        self.assertIn('mailto:kontakt@murara.eu', self.html)
 
     def test_the_cta_offers_the_lookup(self):
         """'Kontaktieren Sie uns' asks a stranger to risk something for
@@ -68,9 +68,15 @@ class Landing(unittest.TestCase):
         self.assertNotIn('noindex', self.html)
         self.assertIn('rel="canonical"', self.html)
         self.assertNotIn('<script', self.html)
-        # the only external reference allowed is our own stylesheet
-        self.assertEqual(re.findall(r'https?://(?!www\.tendermining\.de)',
+        # the only external reference allowed is our own canonical URL
+        self.assertEqual(re.findall(r'https?://(?!www\.murara\.eu)',
                                     self.html), [])
+
+    def test_the_brand_is_murara_not_the_repo_name(self):
+        """Murara is the customer-facing name; TenderMining is the repository
+        and the system. Nothing a visitor reads may say TenderMining."""
+        self.assertIn('Murara', self.html)
+        self.assertNotIn('TenderMining', self.html)
 
 
 class LegalTextsMatchTheApp(unittest.TestCase):

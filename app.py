@@ -46,7 +46,7 @@ import ledger
 import subscriptions
 import tokens
 
-CONTACT = 'kontakt@tendermining.de'   # [CLARIFY] the real address, before print
+CONTACT = 'kontakt@murara.eu'   # must exist before the first letter
 
 # Every response carries these. The robots tag is not advice — it is the only
 # thing standing between a capability token and a search index.
@@ -116,7 +116,7 @@ def page(title, body, status='200 OK'):
     doc = (f'<!doctype html><html lang="de"><head><meta charset="utf-8">'
            f'<meta name="viewport" content="width=device-width, initial-scale=1">'
            f'<meta name="robots" content="noindex, nofollow">'
-           f'<title>{esc(title)} — TenderMining</title>'
+           f'<title>{esc(title)} — Murara</title>'
            f'<style>{STYLE}</style></head><body>'
            f'{style_mod.header()}{body}'
            f'<footer><a href="/impressum">Impressum</a> · '
@@ -129,8 +129,8 @@ def page(title, body, status='200 OK'):
 # ----------------------------------------------------------------- the pages
 
 def get_root(ctx):
-    return page('TenderMining', f"""
-      <h1>TenderMining</h1>
+    return page('Murara', f"""
+      <h1>Murara</h1>
       <p>Wir melden Bauausschreibungen, bei denen wenige Mitbewerber zu
          erwarten sind — wöchentlich, für ein Gewerk und eine Region.</p>
       <p class="muted">Diese Seite richtet sich an bestehende Kontakte. Fragen
@@ -300,7 +300,7 @@ def post_signup(ctx, row, form):
     try:
         import mailer
         mailer.send(home, 'confirm', row['sub_id'],
-                    'Ihre Anmeldung bei TenderMining',
+                    'Ihre Anmeldung bei Murara',
                     f'<p>Ihre Anmeldung ist eingegangen. '
                     f'{"Der erste Bericht kommt mit dem nächsten Wochenlauf."
                        if ok else

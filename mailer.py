@@ -33,7 +33,9 @@ import subscriptions
 
 API_URL = 'https://api.resend.com/emails'
 KEY_ENV = 'RESEND_API_KEY'
-FROM_ENV = 'TM_MAIL_FROM'      # e.g. "TenderMining <post@tendermining.de>"
+FROM_ENV = 'TM_MAIL_FROM'      # e.g. "Murara <post@murara.eu>" — the sending
+                               # domain must be verified at Resend first, or
+                               # every send is refused by the API
 
 # kind -> contact states it may reach. THE table of this module.
 ALLOWED = {
