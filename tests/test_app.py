@@ -19,16 +19,21 @@ import app                                                      # noqa: E402
 import tokens                                                   # noqa: E402
 
 
-def request(data_dir, path, method='GET'):
+def request(data_dir, path, method='GET', form=None, ip='127.0.0.1'):
     """-> (status, headers dict, body). A request without a server."""
+    import io
+    from urllib.parse import urlencode
     captured = {}
 
     def start_response(status, headers):
         captured['status'] = status
         captured['headers'] = dict(headers)
 
-    body = app.make_app(data_dir)(
-        {'REQUEST_METHOD': method, 'PATH_INFO': path}, start_response)
+    body_in = urlencode(form or {}).encode('utf-8')
+    environ = {'REQUEST_METHOD': method, 'PATH_INFO': path,
+               'REMOTE_ADDR': ip, 'CONTENT_LENGTH': str(len(body_in)),
+               'wsgi.input': io.BytesIO(body_in)}
+    body = app.make_app(data_dir)(environ, start_response)
     return captured['status'], captured['headers'], b''.join(body).decode('utf-8')
 
 
@@ -37,6 +42,11 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.dir = Path(self.tmp.name)
         self.addCleanup(self.tmp.cleanup)
+        # LIFO: collect BEFORE the tmp dir is removed — Windows refuses to
+        # delete a database file some unclosed connection still holds.
+        import gc
+        self.addCleanup(gc.collect)
+        app._hits.clear()          # the rate brake is per-process state
 
 
 class PublicPages(Base):
@@ -136,10 +146,172 @@ class TokenRoutes(Base):
         self.assertIsNone(row['used_at'])
         self.assertIsNone(row['revoked_at'])
 
-    def test_post_to_an_unbuilt_handler_refuses_visibly(self):
-        value = tokens.mint(self.dir, 't', 'beck')
-        status, _, _ = request(self.dir, f'/t/{value}', method='POST')
-        self.assertEqual(status, '405 Method Not Allowed')
+    def test_rate_limit_brakes_enumeration(self):
+        """APP.md 3: lookups per IP are capped. The 31st probe in a minute
+        gets a 429; a different IP is unaffected."""
+        for _ in range(app.RATE_MAX):
+            request(self.dir, '/t/probe', ip='10.0.0.9')
+        status, _, _ = request(self.dir, '/t/probe', ip='10.0.0.9')
+        self.assertEqual(status, '429 Too Many Requests')
+        status, _, _ = request(self.dir, '/t/probe', ip='10.0.0.10')
+        self.assertEqual(status, '200 OK')
+
+    def test_access_log_scrubbing_truncates_tokens(self):
+        """APP.md 3: first 8 characters only, in EVERY log line. The regex is
+        what stands between a capability URL and `docker logs`."""
+        line = 'GET /t/AIZqvIs_oJfgmKj57DsBZRomDCYLXff0 HTTP/1.1'
+        out = app._TOKEN_IN_PATH.sub(r'\1…', line)
+        self.assertEqual(out, 'GET /t/AIZqvIs_… HTTP/1.1')
+        self.assertNotIn('oJfgmKj57DsBZRomDCYLXff0', out)
+
+
+class Handlers(Base):
+    """The POST side — APP.md 4-6. No store parquet in the tmp dir, so the
+    pre-flight lands every signup in `held`, which is its conservative
+    default and exactly what these tests assert."""
+
+    def _events(self, kind=None):
+        import ledger
+        rows = ledger.read(self.dir, 'app_events')
+        return [r for r in rows if kind is None or r['kind'] == kind]
+
+    def test_signup_records_consent_and_holds_without_a_draft(self):
+        value = tokens.mint(self.dir, 't', 'mueller')
+        status, _, body = request(self.dir, f'/t/{value}', method='POST',
+                                  form={'email': 'chef@mueller.de'})
+        self.assertEqual(status, '200 OK')
+        self.assertIn('richten Ihr Profil ein', body)
+        cust = subs_mod().customer_get(self.dir, 'mueller')
+        self.assertEqual(cust['contact_email'], 'chef@mueller.de')
+        self.assertIsNotNone(cust['consent_at'])
+        self.assertEqual(cust['contact_state'], 'active')
+        held = self._events('signup_held')
+        self.assertEqual(len(held), 1)
+        self.assertIn('no draft subscription', held[0]['detail'])
+
+    def test_signup_rejects_a_broken_address_and_keeps_the_token(self):
+        value = tokens.mint(self.dir, 't', 'mueller')
+        _, _, body = request(self.dir, f'/t/{value}', method='POST',
+                             form={'email': 'not-an-address'})
+        self.assertIn('unvollständig', body)
+        self.assertIsNone(tokens.resolve(self.dir, 't', value)['used_at'])
+
+    def test_second_signup_shows_masked_email_and_overwrites_nothing(self):
+        """APP.md 4: duplicate submit -> already-registered page, stored
+        address masked, no silent overwrite."""
+        value = tokens.mint(self.dir, 't', 'mueller')
+        request(self.dir, f'/t/{value}', method='POST',
+                form={'email': 'chef@mueller.de'})
+        _, _, body = request(self.dir, f'/t/{value}', method='POST',
+                             form={'email': 'other@else.de'})
+        self.assertIn('c…@mueller.de', body)
+        cust = subs_mod().customer_get(self.dir, 'mueller')
+        self.assertEqual(cust['contact_email'], 'chef@mueller.de')
+
+    def test_stop_soft_then_hard(self):
+        """LAUNCH.md 3: two buttons, two states, one event each — and the
+        soft page carries the hard button."""
+        value = tokens.mint(self.dir, 's', 'beck')
+        _, _, body = request(self.dir, f'/s/{value}', method='POST',
+                             form={'wahl': 'berichte'})
+        self.assertIn('Ergebnis-Nachrichten können noch kommen', body)
+        self.assertIn('keine E-Mails mehr', body)
+        self.assertEqual(subs_mod().customer_get(self.dir, 'beck')['contact_state'],
+                         'soft_stopped')
+        request(self.dir, f'/s/{value}', method='POST', form={'wahl': 'alles'})
+        self.assertEqual(subs_mod().customer_get(self.dir, 'beck')['contact_state'],
+                         'hard_stopped')
+        self.assertEqual(len(self._events('stop_soft')), 1)
+        self.assertEqual(len(self._events('stop_hard')), 1)
+
+    def test_feedback_click_is_one_event_with_the_tokens_verdict(self):
+        value = tokens.mint(self.dir, 'f', 'beck', procedure_id='p1',
+                            lot_id='L1', verdict='passend')
+        _, _, body = request(self.dir, f'/f/{value}', method='POST')
+        self.assertIn('Danke', body)
+        ev = self._events('feedback')
+        self.assertEqual(len(ev), 1)
+        self.assertEqual((ev[0]['procedure_id'], ev[0]['verdict']),
+                         ('p1', 'passend'))
+
+    def test_recall_unresolvable_records_the_attempt_only(self):
+        value = tokens.mint(self.dir, 'c', 'beck')
+        _, _, body = request(self.dir, f'/c/{value}', method='POST',
+                             form={'ref': 'nonsense-99'})
+        self.assertIn('Nicht gefunden', body)
+        ev = self._events('recall')
+        self.assertEqual(len(ev), 1)
+        self.assertIn('unresolved', ev[0]['detail'])
+
+
+def subs_mod():
+    import subscriptions
+    return subscriptions
+
+
+class Mailer(Base):
+    """APP.md 7: the contact_state guard IS the module. A fake transport
+    records what would have been sent; the network is never touched."""
+
+    def setUp(self):
+        super().setUp()
+        self.sent = []
+        self.transport = lambda payload: self.sent.append(payload) or 'id-1'
+
+    def _mailer(self):
+        import mailer
+        return mailer
+
+    def test_report_reaches_an_active_customer(self):
+        subs_mod().customer_update(self.dir, 'beck',
+                                   contact_email='b@beck.de')
+        mid = self._mailer().send(self.dir, 'report', 'beck', 'Bericht',
+                                  '<p>…</p>', transport=self.transport)
+        self.assertEqual(mid, 'id-1')
+        self.assertEqual(self.sent[0]['to'], ['b@beck.de'])
+
+    def test_soft_stopped_gets_results_but_never_the_report(self):
+        m = self._mailer()
+        subs_mod().customer_update(self.dir, 'beck',
+                                   contact_email='b@beck.de',
+                                   contact_state='soft_stopped')
+        with self.assertRaises(m.MailerError):
+            m.send(self.dir, 'report', 'beck', 'x', 'x',
+                   transport=self.transport)
+        m.send(self.dir, 'results', 'beck', 'x', 'x',
+               transport=self.transport)
+        self.assertEqual(len(self.sent), 1)
+
+    def test_hard_stopped_gets_nothing_and_the_attempt_is_a_ledgered_defect(self):
+        m = self._mailer()
+        subs_mod().customer_update(self.dir, 'beck',
+                                   contact_email='b@beck.de',
+                                   contact_state='hard_stopped')
+        for kind in ('report', 'results', 'confirm'):
+            with self.assertRaises(m.MailerError):
+                m.send(self.dir, kind, 'beck', 'x', 'x',
+                       transport=self.transport)
+        self.assertEqual(self.sent, [])
+        import ledger
+        refused = [r for r in ledger.read(self.dir, 'app_events')
+                   if r['kind'] == 'send_refused']
+        self.assertEqual(len(refused), 3)
+
+    def test_every_send_is_a_ledger_event(self):
+        subs_mod().customer_update(self.dir, 'beck', contact_email='b@b.de')
+        self._mailer().send(self.dir, 'confirm', 'beck', 'x', 'x',
+                            transport=self.transport)
+        import ledger
+        sends = [r for r in ledger.read(self.dir, 'app_events')
+                 if r['kind'] == 'send']
+        self.assertEqual(len(sends), 1)
+
+    def test_unknown_customer_field_is_refused(self):
+        with self.assertRaises(subs_mod().SubscriptionError):
+            subs_mod().customer_update(self.dir, 'beck', emial='x@y.de')
+        with self.assertRaises(subs_mod().SubscriptionError):
+            subs_mod().customer_update(self.dir, 'beck',
+                                       contact_state='paused')
 
 
 class Tokens(Base):

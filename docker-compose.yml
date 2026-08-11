@@ -87,10 +87,31 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
-    # TLS is terminated in front (APP.md 9). Nothing here listens on 443, and
-    # the app must never be the thing facing the internet directly.
+    # TLS is terminated in front (APP.md 9): the `edge` service below. The app
+    # must never be the thing facing the internet directly.
+
+  # TLS edge (doc/HOSTING.md §2 no.5). Behind a profile: on the laptop there is
+  # no reason to hold ports 80/443, on the server it starts alongside the app:
+  #
+  #   TM_DOMAIN=app.example.de docker compose --profile edge up -d app edge
+  #
+  # Without TM_DOMAIN it serves a self-signed certificate on :443 — good enough
+  # to test the full path on a bare IP before the domain decision lands.
+  edge:
+    image: caddy:2
+    profiles: ["edge"]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      TM_DOMAIN: ${TM_DOMAIN:-}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data          # certificates survive the container
+    restart: always
 
 volumes:
+  caddy-data:
   model-cache:
     # Named explicitly rather than project-prefixed, so seeding it once from a
     # laptop's existing cache (doc/RUNBOOK.md §1b) survives a compose project

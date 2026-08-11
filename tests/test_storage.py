@@ -371,6 +371,11 @@ class AppendOnly(TempHome):
             'score': 0.8, 'cpv3': '452'}])
         db.migrate(self.home)
         self.con = db.connect(self.home)
+        # app_events has no file era to migrate from — seeded through its own
+        # write path, so the trigger tests above stay non-vacuous for it too.
+        ledger.append(self.home, 'app_events', [{
+            'ts': '2026-08-01T00:00:00+00:00', 'kind': 'signup',
+            'sub_id': 'acme'}])
 
     def test_every_ledger_table_has_a_row_to_test_against(self):
         """Guards the test above: an empty table would make it vacuous."""
