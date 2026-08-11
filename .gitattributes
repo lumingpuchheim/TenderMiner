@@ -16,3 +16,4 @@ requirements.txt   text eol=lf
 # and nothing anywhere says why.
 docker/*.sh        text eol=lf
 docker/crontab     text eol=lf
+docker/Caddyfile   text eol=lf

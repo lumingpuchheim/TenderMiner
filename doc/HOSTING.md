@@ -36,7 +36,10 @@ by the cycle). **≈2 GB, growing ~90 MB/week** with the raw archive.
 
 ## 2. Blocking — must be fixed before the app faces the internet
 
-Ordered; №1 is a real defect, the rest are absences.
+**All six DONE 2026-08-11** (commit history + APP.md §10b carry the receipts;
+e-mail transport is Resend, operator decision 2026-08-11). What remains of №4:
+the operator's legal identity, supplied at deploy time via `TM_IMPRESSUM` —
+the page shows a visible gap until it is set. Original list, for the record:
 
 1. **Tokens leak into the access logs.** `wsgiref`'s request logging prints
    every path in full — and the path *is* the token: `GET /t/AIZqvIs…`

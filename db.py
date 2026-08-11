@@ -307,6 +307,26 @@ CREATE TABLE IF NOT EXISTS gate_config (
     raw         BLOB NOT NULL
 );
 
+-- App events (doc/APP.md 2, LAUNCH.md 3): every state change the app makes is
+-- a POST plus one row here — signup, consent, stop transitions, feedback
+-- clicks, recall questions, and every mailer send or refusal. Append-only:
+-- this is the record "how many soft-stops came back" is queried from, and the
+-- review queue is simply a query over it.
+CREATE TABLE IF NOT EXISTS app_event (
+    ts           TEXT NOT NULL,
+    kind         TEXT NOT NULL,      -- signup|signup_held|stop_soft|stop_hard|
+                                     -- feedback|recall|send|send_refused
+    sub_id       TEXT NOT NULL,
+    procedure_id TEXT,
+    lot_id       TEXT,
+    verdict      TEXT,
+    detail       TEXT,
+    seq          INTEGER NOT NULL,
+    raw          BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_appev_seq  ON app_event (seq);
+CREATE INDEX IF NOT EXISTS ix_appev_sub  ON app_event (sub_id, kind);
+
 -- Capability tokens (doc/APP.md 3). Owned by tokens.py; no other module reads
 -- or writes it. Deliberately NOT in LEDGER_TABLES: a token is mutable state,
 -- not a frozen record — revocation and first use are stamped in place, and
@@ -329,7 +349,7 @@ CREATE INDEX IF NOT EXISTS ix_token_subject ON token (sub_id, purpose);
 # deliberately excluded because personal data must stay correctable and
 # erasable.
 LEDGER_TABLES = ('subscription_version', 'prediction', 'grade', 'delivery',
-                 'learned_ref', 'gate_config', 'simulation')
+                 'learned_ref', 'gate_config', 'simulation', 'app_event')
 
 # The one deliberate SQLite-specific construct left (doc/STORAGE.md 6.2). The
 # RULE — a ledger row is never updated or deleted — is portable; only this
@@ -397,6 +417,14 @@ def connect(data_dir, create=True):
     # it can never reinterpret existing rows.
     con.executescript(SCHEMA)
     con.executescript(TRIGGERS)
+    # Additive COLUMN self-heal, the sibling of the table self-heal above.
+    # `IF NOT EXISTS` cannot add a column to a table that already exists, so a
+    # column added by newer code is checked for and ALTERed in — nullable and
+    # unread by older code, which is what keeps this safe in both directions.
+    # contact_state: LAUNCH.md §3 — active | soft_stopped | hard_stopped;
+    # NULL means active (every pre-existing customer consented to be one).
+    if 'contact_state' not in columns_of(con, 'customer'):
+        con.execute('ALTER TABLE customer ADD COLUMN contact_state TEXT')
     return con
 
 
@@ -449,6 +477,7 @@ LEDGERS = {
     'simulations': ('ledger/simulations.jsonl', 'simulation'),
     'simulations_gate': ('ledger/simulations_gate.jsonl', 'simulation_gate'),
     'gate_outcomes': ('ledger/gate_outcomes.jsonl', 'gate_outcome'),
+    'app_events': ('ledger/app_events.jsonl', 'app_event'),
 }
 
 # Fields that are JSON arrays in the ledger and stay JSON text in a column.

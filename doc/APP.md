@@ -172,6 +172,42 @@ logged as a defect. Every send is a ledger event.
 - Backups are the database's problem (already handled by the cycle's
   environment), not the app's; the app holds no state outside `data/`.
 
+## 10c. Build status — 2026-08-11: the POST side, the mailer, the edge
+
+HOSTING.md §2's six blockers, all landed:
+
+- **§4–6 handlers are live.** Signup records e-mail + `consent_at` on the
+  customer row, runs the ONBOARDING §5.3 pre-flight (own wins vs. proposed
+  gate; *any* failure — no draft, no store, a crashing gate — lands in `held`,
+  because the review queue costs a person minutes and a bad first report costs
+  the customer), and appends the activating version through
+  `subscriptions.append_version`. Stop writes the LAUNCH §3 states; the soft
+  page carries the hard button. Feedback and recall record events; recall
+  learns a ref only when the lot passes the customer's own market filter — a
+  wrong number can waste a click, never poison a profile.
+- **Storage**: `app_event` ledger (append-only, triggered, in `LEDGER_TABLES`)
+  for every state change, send, and refusal; `contact_state` column added to
+  `customer` by an additive ALTER self-heal in `db.connect` — the column
+  sibling of the table self-heal.
+- **`mailer.py`**: the §7 guard as a module; transport is **Resend** (operator
+  decision), `RESEND_API_KEY` read at send time — the project's first secret.
+  A hard-stopped attempt raises AND ledgers `send_refused`: reaching the
+  mailer with one already means a caller's guard is missing.
+- **The token-log leak is fixed**: wsgiref logged full capability URLs into
+  `docker logs`; a scrubbing handler truncates to 8 chars. Receipt from the
+  running container: `"POST /t/NB9hJZ80… HTTP/1.1" 200`. The server is
+  threading now, too.
+- **Rate limit** (§3): 30 token lookups/IP/min, checked before `resolve`.
+- **Legal**: full Art. 14 Datenschutzerklärung; Impressum renders
+  `TM_IMPRESSUM` (identity stays out of the public repo) with a visible gap
+  when unset.
+- **TLS edge**: `docker/Caddyfile` + compose `edge` profile — real domain via
+  `TM_DOMAIN` with auto-certificates, self-signed on a bare IP until then.
+
+End-to-end receipt against a container on a copy of the real database: signup
+POST → `Das war alles` page, consent + `signup_held: no draft subscription on
+file` in the ledger; stop POST → `soft_stopped` on the customer row. 150 tests.
+
 ## 10b. Build status — 2026-08-10
 
 The **serving core is built and answers from the image**:

@@ -362,6 +362,76 @@ def write_sandbox(home, subs):
     return home
 
 
+def append_version(home, row):
+    """Append one validated subscription version to LIVE storage — the write
+    the app's signup handler uses (doc/APP.md 4). Validation first, then
+    ledger.append, so the storage format stays ledger.py's business and an
+    invalid version can never reach disk. Returns rows written (0 if the
+    (sub_id, version) already exists — idempotent, like every append)."""
+    import ledger
+    validated = validate(row, source=f"append_version({row.get('sub_id')})")
+    return ledger.append(home, 'subscriptions', [dict(row)]) if validated else 0
+
+
+# ------------------------------------------------- the customer row (identity)
+
+CONTACT_STATES = ('active', 'soft_stopped', 'hard_stopped')
+
+# The columns the app may write on `customer`. Guarded like KNOWN: a typo'd
+# field must fail loudly, not vanish into an UPDATE that touched nothing.
+CUSTOMER_FIELDS = {'name', 'award_names', 'contact_email', 'contact_note',
+                   'billing_note', 'consent_at', 'contact_state'}
+
+
+def customer_get(home, sub_id):
+    """The customer row as a dict, or None. contact_state of NULL reads as
+    'active' — every pre-existing customer consented to be one (LAUNCH.md 3)."""
+    import db
+    con = db.connect(home, create=False)
+    if con is None:
+        return None
+    row = con.execute('SELECT * FROM customer WHERE customer_id = ?',
+                      (sub_id,)).fetchone()
+    con.close()
+    if row is None:
+        return None
+    d = dict(row)
+    d['contact_state'] = d.get('contact_state') or 'active'
+    return d
+
+
+def customer_update(home, sub_id, **fields):
+    """Write identity/contact fields on the customer row, creating it if new.
+
+    `customer` is the one mutable table (STORAGE.md 1): identity must stay
+    correctable and erasable, so this is an UPDATE on purpose, unlike
+    everything else in this module. contact_state is validated against the
+    three states of LAUNCH.md 3 — an unknown state on this column would
+    silently change who the mailer may write to."""
+    import db
+    bad = set(fields) - CUSTOMER_FIELDS
+    if bad:
+        raise SubscriptionError(
+            f'unknown customer field(s) {sorted(bad)}; '
+            f'known: {", ".join(sorted(CUSTOMER_FIELDS))}')
+    state = fields.get('contact_state')
+    if state is not None and state not in CONTACT_STATES:
+        raise SubscriptionError(
+            f'contact_state {state!r} is not one of {CONTACT_STATES}')
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat(timespec='seconds')
+    con = db.connect(home)
+    with con:
+        con.execute(
+            f'{db.IGNORE_PREFIX} customer (customer_id, created_at)'
+            f' VALUES (?, ?)', (sub_id, now))
+        sets = ', '.join(f'{k} = ?' for k in fields)
+        con.execute(
+            f'UPDATE customer SET {sets}, updated_at = ? WHERE customer_id = ?',
+            [*fields.values(), now, sub_id])
+    con.close()
+
+
 def override(sub, **fields):
     """A validated copy with `fields` replaced — the sandbox operation.
 
