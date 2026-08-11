@@ -300,6 +300,16 @@ LONE_TITLE_NEEDS_CODE = os.environ.get('LONE_TITLE_NEEDS_CODE', '1') != '0'
 # adjacency is real, which is why a lexicon word in the title or the code
 # channel lifts the veto). Rollback: TITLE_CONTRADICTS_BODY=0.
 TITLE_CONTRADICTS_BODY = os.environ.get('TITLE_CONTRADICTS_BODY', '1') != '0'
+# Phase 9j: trade_read (phase 5, embedding) as the 9i corroborator — the
+# veto is forgiven when the lot's own text reads as the profile's hard
+# trade labels to within TRADE_TALK_MARGIN of its best reading anywhere
+# (the phase-7 constant). Measured 2026-08-11 and REFUSED, default off:
+# store-wide it buys back 14 true lots at ~112 wrong re-admissions (~8:1
+# against — leakage 2.2% -> 2.6%, recall 64.9% -> 65.4%, both
+# pre-committed gates missed). 8 of the 19 9i-broken benchmark cases
+# carry NO hard labels, so no trade_read rule can reach them at all.
+# TRADE_READ_FORGIVES=1 to re-measure.
+TRADE_READ_FORGIVES = os.environ.get('TRADE_READ_FORGIVES', '0') != '0'
 # rollback switch for phase 8f (A) and (B); env var overrides per run so the
 # A/B needs no edit (BUYER_DIVERSITY=0 reproduces the phase-8e lexicons)
 BUYER_DIVERSITY = os.environ.get('BUYER_DIVERSITY', '1') != '0'

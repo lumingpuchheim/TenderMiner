@@ -821,7 +821,16 @@ def _judge_evidence(gate, profile, scored_row, i, config=None):
                 and not c_hard >= profile['min_code_hard']
                 and any(evd.roots_in(w)
                         for w in set(evd.tokens(title_f)))):
-            convicting = False
+            # phase 9j: the embedding may lift the veto where the lexicon
+            # cannot — a lot whose own text READS as the profile's hard
+            # trade (within the phase-7 margin of its best reading
+            # anywhere) is that trade despite the foreign title. A profile
+            # without hard labels has tread 0 and is never forgiven.
+            tread, world = trade_read(gate, profile, i)
+            if not (evd.TRADE_READ_FORGIVES
+                    and cfg.trade_talk_margin is not None
+                    and world - tread < cfg.trade_talk_margin):
+                convicting = False
         passed, borderline = _evidence_verdict(
             profile, text, c_hard, same_buyer, bool(ev) or core_title,
             witnesses=evidence_witnesses(ev),
