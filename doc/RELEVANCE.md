@@ -2566,6 +2566,81 @@ embedding side. The recall route for the 79 lost adjacency lots remains
 the CORE channel (which the veto never touches): better per-firm cores,
 via labeling (backlog 2) and the single-win code channel (backlog 4).
 
+## Targeted labeling round — the benchmark finally sees single-win firms (2026-08-11)
+
+157 cases added (38 in / 119 out), 1,595 -> 1,752, plus 17 skips. Two arms,
+both chosen because the benchmark was blind there:
+
+- **single-win firms** — 4,105 of 5,476 winners have exactly one win and the
+  benchmark contained NOT ONE of them. 100 cases over 50 firms, half drawn
+  from the group whose win title names no trade (phase 9c's body-union
+  fallback, the over-wide cores). A single-win firm's own won lot is useless
+  as a case (leave-one-out empties the profile), so each firm is paired with
+  lots it did NOT win from its win's own 4-digit CPV class.
+- **the 25 firms whose in-labeled cases the 9g+9i vetoes broke** — each
+  appeared once or twice, so it could not be told whether the LABEL was
+  marginal or the firm's CORE is wrong. 75 cases, 3 per firm.
+
+**The labels were read by Claude, and that was measured before it was
+trusted.** 120 already-labeled cases were replayed blind — label hidden, and
+own-win status hidden too, so nothing but the two texts decided: **119/120
+agreement with the operator, 100/100 on the cases the reader called clear.**
+The single miss was the blinding's own doing (a GU office building the firm
+had in fact won; the real task discloses that). Bar was fixed at >=95%
+before the run. Inter-rater agreement on a 30-case re-read of the single-win
+arm, where no operator label exists to calibrate against: 25/26 (96.2%).
+
+Receipts on the new cases, judged leave-one-out like everything else:
+
+| arm | correct | in-labeled | out-labeled |
+| --- | --- | --- | --- |
+| single-win firms | 79/89 (88.8%) | 16/25 | **63/64** |
+| 9g+9i broken firms | 52/68 (76.5%) | **4/13** | 48/55 |
+
+The single-win out column **retires a standing fear**: phase 9c warned these
+firms could claim >10% of the store, yet against same-CPV-class neighbours —
+the hard region — they admit one wrong lot in 64. Their defect is the other
+side, missing a third of their own trade.
+
+The broken-firm arm is the finding. 4 of 13 is not a marginal-label problem,
+which is what phase 9g guessed; these firms are refused work unmistakably
+theirs (SPIE, whose win is titled *Starkstromanlagen*, refused a Starkstrom
+lot of NSHV and Unterverteilungen; RIENTH, a Schreiner, refused
+*Tischlerarbeiten*). It errs both ways: innoline (Fenster/Türen) is admitted
+for Zimmerer lots, Metallbau Jansen for wooden Tischlerarbeiten.
+
+Cause, diagnosed per case by toggling the vetoes: **10 cases the core never
+carried the trade, 8 the core has it and a veto refuses anyway.** Both halves
+have one root — the cores hold BODY vocabulary where titles use TRADE names.
+SPIE's core is `kabel, leuchte, steckdose` (the contents of an electrical LV);
+HADI, a Haustechnik firm, carries `gips, dach, ummantel, abgehaengt,
+gitterrost`, absorbed from project prose. A lot titled *Starkstrom…* matches
+no core root, drops to the body channel, and is vetoed there.
+
+**The hypothesis this names, unmeasured: title roots should always JOIN the
+core, not only when it is empty.** Phase 9e's `CORE_TITLE_FALLBACK` builds
+exactly that union but fires only on an empty core; phase 9c established
+titles as the trustworthy field precisely because bodies describe the
+building. SPIE would gain `starkstrom` and convict through the CORE channel,
+which the veto never touches — recall recovered without reopening the body
+bleed. Census, pre-stated gate and simulation first, as always.
+
+Benchmark totals on the grown set: evidence 1492/1752, embedding 1350/1752.
+**Not comparable to the 1361/1595 the phases were gated on** — different
+denominator, and a deliberately out-heavy round (near-miss pairings are
+mostly wrong-trade) moved composition from 65% to 66% out-labeled, which
+tilts what the gate metric rewards toward precision. Future rounds wanting
+balance should draw same-trade lots the firm did not win.
+
+Trade boundaries the round could not settle, for an operator ruling — each
+is a market convention, not a reading: Ortterrazzo as Estricharbeiten under
+VOB/C DIN 18353 (the one inter-rater disagreement); Zimmerer vs Dachdecker on
+bundled roof packages; Lüftung against an HLS firm whose win names only
+Heizung/Sanitär; WDVS/Fassadendämmung and Innenputz as one Putz trade or
+two; Möbeltischler vs Fenster-/Türenbauer; Schlosser vs Alu-Fensterbau;
+Mittelspannung/Trafostation and 110-kV-Kabelbau as specialties or ordinary
+Starkstrom.
+
 ## Open, not scheduled
 
 The two standing accuracy problems, as of phase 9b. Both are measured against
