@@ -1555,19 +1555,9 @@ def cmd_run(args):
     except Exception as e:  # the dashboard is a convenience; never fail the cycle over it
         print(f'[dashboard] rendering failed: {e}')
 
-    # The public site (doc/LAUNCH.md 4.1): finished files for a static host.
-    # It reads no data today — the landing page carries no figures — so this
-    # only keeps the build wired up for the day it does. Non-fatal by the same
-    # rule 4.2 gives the upload: a stale public page is acceptable, an
-    # undelivered customer report is not. Nothing uploads here.
-    if not args.skip_public:
-        try:
-            import public_site
-            urls = public_site.render(paths.data / 'public',
-                                      args.public_base_url)
-            print(f'[public] {len(urls)} pages -> {paths.data / "public"}')
-        except Exception as e:                                 # noqa: BLE001
-            print(f'[public] rendering failed, cycle continues: {e!r}')
+    # No public-site step: the site is plain HTML in `site/`, checked in and
+    # uploaded as-is (doc/LAUNCH.md 4.1). A page with no data in it needs no
+    # build, and a build nobody needs is a build that breaks the cycle.
 
     prune_caches(paths)
 
@@ -1631,11 +1621,6 @@ def main():
                      help='deadline floor for simulated picks, like the product default')
     run.add_argument('--data-dir', default=config.data_root(), dest='data_dir')
     run.add_argument('--models-dir', default=config.models_root(), dest='models_dir')
-    run.add_argument('--skip-public', action='store_true',
-                     help='do not render the public site (doc/LAUNCH.md 4.1)')
-    run.add_argument('--public-base-url', default='',
-                     help='e.g. https://www.tendermining.de — canonical URLs '
-                          'and sitemap entries for the public site')
     run.add_argument('--skip-download', action='store_true', dest='skip_download',
                      help='reuse the existing store (offline run)')
     run.set_defaults(func=cmd_run)

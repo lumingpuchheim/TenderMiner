@@ -368,9 +368,17 @@ parked until the site exists and someone will own its text.
 renderer beside the report renderer, driven by the cycle; output directory
 is gitignored build artifact.
 
-**BUILT, then cut back to one page — operator, 2026-08-11.**
-[`public_site.py`](../public_site.py) renders `data/public/`: **the landing
-page, Impressum, Datenschutz, `sitemap.xml`, `robots.txt`.** That is the site.
+**BUILT, then cut back to one page, then to plain files — operator,
+2026-08-11.** The site is [`site/`](../site/): `index.html`, `impressum/`,
+`datenschutz/`, `style.css`, `robots.txt`, `sitemap.xml`. Checked in, edited
+by hand, uploaded as-is.
+
+**There is no renderer and no build step.** There was one — `public_site.py`,
+driven by the cycle as this section asked — and it was deleted: once the page
+carries no figures it has no data in it, and generating a static page from
+Python only means you must run Python to change a sentence. The one real risk
+of hand-written files, the legal texts drifting from the ones `app.py` serves,
+is covered by `tests/test_site_files.py` instead.
 
 The per-trade and trade×Land pages of the inventory above were built (82
 pages, the ≥10 lots/month floor working as specified) and then **removed on
@@ -383,8 +391,8 @@ whole thing if the long-tail argument is ever reopened.
 
 **No figures on the page at all**, also the operator's call: a number on a
 cold page needs its denominator, its date and its method beside it, or it is
-just a claim. The consequence is that this renderer reads no data — it is
-wired into the cycle only so the build exists for the day it does.
+just a claim. That is what removed the last data dependency, and with it the
+reason for a renderer.
 
 What the page does instead: says what the service is, then that the profile
 comes from *what the firm has won* rather than from a questionnaire (the
