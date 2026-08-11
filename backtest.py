@@ -295,7 +295,22 @@ def cpv3_labels():
 
 
 def flag_matrix(res, outcome):
-    """Precision AND recall for the binary alarm, across the whole replay.
+    """**Forecast** precision AND recall for the binary alarm, across the
+    whole replay.
+
+    "Forecast", not just "precision": this project measures two unrelated
+    things with those words, and reading one for the other is the easiest
+    mistake to make in it.
+
+      * **forecast** precision/recall — HERE and nowhere else. Did a lot we
+        flagged really end with 0-1 bids? Ground truth is `n_tenders` from a
+        published award, so it can only be answered by an as-of replay.
+      * **gate** precision/recall — `calibrate.py`. Is a lot in this
+        customer's trade at all? Ground truth is the hand-labelled benchmark,
+        and it has nothing to do with how many people bid.
+
+    A number from one is meaningless in the other's sentence. `doc/METHODS.md`
+    has the table.
 
     The summary above this section reports precision only ("alarms right, N x
     better than chance"). Precision alone cannot be wrong in an interesting
@@ -315,9 +330,9 @@ def flag_matrix(res, outcome):
                            if lot in outcome)]
     f = loop.flag_stats(rows)
     if not f:
-        return ['## The flag: precision and recall', '',
+        return ['## The flag: forecast precision and recall', '',
                 'No examined tender has a published result yet.', '']
-    lines = ['## The flag: precision and recall', '',
+    lines = ['## The flag: forecast precision and recall', '',
              'The same statistic the weekly report prints, over the replay '
              'instead of over live', 'grading — which is the only reason it '
              'can be read today: a live award publishes a', 'median 84 days '
@@ -334,14 +349,14 @@ def flag_matrix(res, outcome):
     prec = (f"{f['precision']:.0%}" if f['precision'] is not None else '—')
     rec = (f"{f['recall']:.0%}" if f['recall'] is not None else '—')
     ci_p, ci_r = f['precision_ci'], f['recall_ci']
-    lines += [f"- **precision** (alarms right): {prec}"
+    lines += [f"- **forecast precision** (alarms right): {prec}"
               + (f" (95% CI {ci_p[0]:.0%}-{ci_p[1]:.0%})" if ci_p else ''),
-              f"- **recall** (0-1-bid tenders caught): {rec}"
+              f"- **forecast recall** (0-1-bid tenders caught): {rec}"
               + (f" (95% CI {ci_r[0]:.0%}-{ci_r[1]:.0%})" if ci_r else ''),
               f"- **F1**: {f['f1']:.2f}" if f['f1'] is not None else '- **F1**: —',
               '']
     if f['positives']:
-        lines += ['Against raising an alarm on **every** tender: precision '
+        lines += ['Against raising an alarm on **every** tender: forecast precision '
                   f"{f['base']:.0%}, recall 100%"
                   + (f", F1 {f['base_f1']:.2f}." if f['base_f1'] is not None else '.'),
                   '']

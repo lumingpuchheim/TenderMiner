@@ -11,6 +11,41 @@ Weinheim, Metallbauarbeiten"*, description-lot listing quantities (48 m railing 
 plates, 43 m² stainless-steel netting, 136 m double handrails, 4 exterior doors), CPV
 `45262670`, region `DE128`, open procedure, actual award **€196,069.17**, **4 bids**.
 
+## 0. Which program answers which question
+
+Added 2026-08-11, from the operator's observation that it was not obvious
+where a number comes from. Five programs measure "how good are we" and they
+measure **different things**; the table is the map.
+
+| program | the question | ground truth | how a lot is grouped |
+| --- | --- | --- | --- |
+| `market.py` | how big is this trade's market? | the store — no prediction is involved at all | **title words** (`trades.txt`) |
+| `backtest.py` | **is the competition forecast any good?** as-of replay → *forecast* precision/recall, lift vs base rate | `n_tenders` on a published award | CPV3 today — **wrong grouping to publish**, see below |
+| `calibrate.py` | where should the relevance bars sit? → *gate* precision/recall | the hand-labelled benchmark | per customer profile |
+| `loop.py` (grade step) | the live track record, as awards publish | same as backtest, but live | per lot |
+| `simulation.py check` | would simulated customers have been served well? | grades, joined to simulated picks | per company |
+
+**Two different things are called "precision and recall" in this repository**,
+and confusing them is the easiest mistake available:
+
+- **forecast** precision/recall — `backtest.py`. *Did a lot we flagged really
+  end with 0-1 bids?* Only an as-of replay can answer it, because a live
+  award publishes a median 84 days after its tender.
+- **gate** precision/recall — `calibrate.py`. *Is this lot in the customer's
+  trade at all?* Nothing to do with how many firms bid.
+
+They share a name, share no data, and a number from one is meaningless in the
+other's sentence. Both files now carry the qualifier in their output and in
+their docstrings; keep it anywhere a person reads the number.
+
+**One known inconsistency, recorded rather than hidden:** `backtest.py` groups
+its per-trade table by **CPV3**, while everything customer-facing groups by
+**title words** — because CPV is entered by the buyer and is often wrong,
+which is why `market.py` never consults it. So the backtest's per-trade rates
+are not directly quotable on a trade page. Fixing that means slicing the
+replay by word-match; until then no forecast figure appears on a public page
+(operator, 2026-08-11).
+
 ## Decision record
 
 | Method | Decision | Reason |

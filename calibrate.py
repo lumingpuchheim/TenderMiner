@@ -3,6 +3,16 @@
 Derives the default gate thresholds and the trusted-code list from the data, no
 customers required.
 
+**Every "precision" and "recall" in this file is a GATE number** — is a lot in
+this customer's trade at all? Ground truth is the hand-labelled benchmark.
+
+It is not the same statistic as the one `backtest.py` reports, which is the
+**forecast** precision/recall: did a lot we flagged really end with 0-1 bids,
+ground truth `n_tenders` from a published award. The two share a name, share
+no data, and answer different questions — a number from one is meaningless in
+the other's sentence. `doc/METHODS.md` has the table; keep the qualifier when
+either is quoted anywhere a person reads.
+
 Positives: each repeat winner's held-out win scored against the firm's remaining
 references — thresholds are set so the recall promise holds ("90% of a firm's own
 wins pass their own gate").
