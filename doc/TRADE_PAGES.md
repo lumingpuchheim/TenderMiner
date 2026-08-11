@@ -128,10 +128,28 @@ and the legal pages stay files you edit. These pages are generated from the
 store into `site/gewerke/` by a small program run from the cycle — the same
 place `render_dashboard` runs, non-fatal in the same way.
 
-**DECIDED: committed.** It keeps "upload the `site/` folder" true from a clean
-checkout, and a diff is how a number moving in a way it should not gets
-noticed. The cost is a weekly commit touching 32 files; `--skip-trade-pages`
-turns the step off when that is unwanted.
+**DECIDED (operator, 2026-08-11): not committed.** The generated pages were
+briefly committed and that was wrong for a reason beyond the weekly diff
+noise: `site/` is inside the code checkout, which in the container is `/app` —
+the image. A build writing there is discarded when the container exits, and
+fails outright under the read-only root filesystem the cycle is proven to run
+with (STORAGE.md 6.5).
+
+So the split is by **source vs. output**, not by hand-written vs. generated:
+
+| | what | where |
+| --- | --- | --- |
+| source | `site/` — landing page, legal pages, `style.css`, `robots.txt` | committed, hand-edited |
+| output | `<data-dir>/public/` — the source copied in, plus `gewerke/` and `sitemap.xml` | gitignored, on the mounted volume, rebuilt weekly |
+
+`trade_pages.publish()` copies the hand-written half; `build()` adds the
+generated half. **Upload `<data-dir>/public/`**, never `site/`. The sitemap is
+generated rather than committed because it is the one file that has to know
+both halves.
+
+*Receipt (2026-08-11):* built inside a container with `--read-only --tmpfs
+/tmp` against the mounted volume — 32 trade pages plus the five hand-written
+files landed in `/data/public/`, and nothing was written to the image.
 
 ## 6b. Built — 2026-08-11
 

@@ -1,5 +1,13 @@
-# Downloaded notice data — re-fetch with the scripts, never commit
+# Downloaded notice data — re-fetch with the scripts, never commit.
+# The built public site lives here too, at data/public/: `site/` is the
+# hand-written source, the generated trade pages are never committed
+# (doc/TRADE_PAGES.md 6).
 data/
+
+# Guard against an older command writing the generated pages back into the
+# checkout — in the container that path is the read-only image.
+site/gewerke/
+site/sitemap.xml
 *.zip
 
 # Python

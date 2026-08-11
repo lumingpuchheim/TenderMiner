@@ -269,9 +269,30 @@ def sitemap(built):
             f'{body}\n</urlset>\n')
 
 
-def build(data_dir, site=SITE, dry_run=False):
-    """-> (built, skipped). `built` is [(name, slug)], `skipped` is
+def publish(out, site=SITE):
+    """Copy the hand-written part of the site into `out`.
+
+    `site/` is source — files a person edits, committed. `out` is the built
+    site, which is what gets uploaded. Keeping them apart is what lets the
+    generated pages stay out of git AND out of the image: in the container
+    `site/` is `/app`, read-only by design, while `out` lives on the mounted
+    volume and survives the container."""
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    for src in Path(site).rglob('*'):
+        if src.is_dir() or 'gewerke' in src.parts:
+            continue
+        dst = out / src.relative_to(site)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+
+
+def build(data_dir, out=None, dry_run=False, site=SITE):
+    """Build the whole site into `out` (default `<data-dir>/public`).
+
+    -> (built, skipped). `built` is [(name, slug)], `skipped` is
     [(name, n_awarded)] — the trades that cannot yet carry a page."""
+    out = Path(out) if out else Path(data_dir) / 'public'
     lots = market.add_text(market.load_lots(data_dir))
     trades = market.load_trades()
     covered, mature, _ = market.coverage(lots)
@@ -292,15 +313,18 @@ def build(data_dir, site=SITE, dry_run=False):
     if dry_run:
         return built, skipped
 
-    out = Path(site) / 'gewerke'
     if out.exists():
-        shutil.rmtree(out)          # a trade that fell below the floor must go
-    out.mkdir(parents=True)
+        shutil.rmtree(out)   # a trade that fell below the floor must vanish
+    publish(out, site)
+    gew = out / 'gewerke'
+    gew.mkdir(parents=True)
     for slug, text in pages.items():
-        (out / slug).mkdir()
-        (out / slug / 'index.html').write_text(text, encoding='utf-8')
-    (out / 'index.html').write_text(index_page(built), encoding='utf-8')
-    (Path(site) / 'sitemap.xml').write_text(sitemap(built), encoding='utf-8')
+        (gew / slug).mkdir()
+        (gew / slug / 'index.html').write_text(text, encoding='utf-8')
+    (gew / 'index.html').write_text(index_page(built), encoding='utf-8')
+    # the sitemap can only be written here: it is the one file that has to
+    # know both halves, the hand-written pages and the generated ones
+    (out / 'sitemap.xml').write_text(sitemap(built), encoding='utf-8')
     return built, skipped
 
 
@@ -310,14 +334,16 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter)
     import config
     ap.add_argument('--data-dir', default=config.data_root())
-    ap.add_argument('--site', default=SITE)
+    ap.add_argument('--out', default=None,
+                    help='built site (default: <data-dir>/public)')
     ap.add_argument('--dry-run', action='store_true',
                     help='report who qualifies, write nothing')
     args = ap.parse_args()
-    built, skipped = build(args.data_dir, args.site, args.dry_run)
-    print(f'[trades] {len(built)} pages'
+    out = Path(args.out) if args.out else Path(args.data_dir) / 'public'
+    built, skipped = build(args.data_dir, out, args.dry_run)
+    print(f'[trades] {len(built)} trade pages'
           + (' (dry run, nothing written)' if args.dry_run else
-             f' -> {Path(args.site) / "gewerke"}'))
+             f'; site built -> {out}'))
     if skipped:
         print(f'[trades] {len(skipped)} below the floor of {MIN_AWARDED} '
               f'awarded lots, no page:')

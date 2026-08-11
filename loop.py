@@ -1555,19 +1555,25 @@ def cmd_run(args):
     except Exception as e:  # the dashboard is a convenience; never fail the cycle over it
         print(f'[dashboard] rendering failed: {e}')
 
-    # The trade market pages (doc/TRADE_PAGES.md). The rest of `site/` is
-    # hand-written HTML that needs no build; these 32 carry figures that move
-    # every week, which no one maintains by hand. Non-fatal by the same rule
-    # the dashboard gets: a week-stale market page is acceptable, a missing
-    # customer report is not. Nothing uploads here.
+    # The public site (doc/TRADE_PAGES.md): the hand-written pages copied from
+    # `site/` plus the generated trade pages, built into `<data>/public/`.
+    #
+    # Into the DATA directory, not back into `site/`: in the container the
+    # checkout is the image, so a build writing there would be discarded with
+    # the container and would break the read-only filesystem the cycle runs
+    # under. This is also why the generated pages are not committed.
+    #
+    # Non-fatal by the same rule the dashboard gets: a week-stale market page
+    # is acceptable, a missing customer report is not. Nothing uploads here.
     if not args.skip_trade_pages:
         try:
             import trade_pages
             built, skipped = trade_pages.build(paths.data)
-            print(f'[trades] {len(built)} market pages, {len(skipped)} trades '
-                  f'below the floor of {trade_pages.MIN_AWARDED} awarded lots')
+            print(f'[public] site -> {paths.data / "public"}: '
+                  f'{len(built)} trade pages, {len(skipped)} trades below the '
+                  f'floor of {trade_pages.MIN_AWARDED} awarded lots')
         except Exception as e:                                 # noqa: BLE001
-            print(f'[trades] page build failed, cycle continues: {e!r}')
+            print(f'[public] site build failed, cycle continues: {e!r}')
 
     prune_caches(paths)
 

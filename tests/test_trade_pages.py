@@ -1,16 +1,18 @@
 """The generated trade pages — doc/TRADE_PAGES.md.
 
-Two kinds of test here. The pure ones (formatting, slugs, the floor) run on
-synthetic frames and need nothing. The others read the **committed output** in
-`site/gewerke/`, which is the thing that actually gets uploaded — a generator
-that is correct and output that is stale would still serve a wrong page.
+Everything here runs on synthetic frames — nothing loads the real store, which
+would cost ~40 s and 2 GB for a suite that has to stay quick enough to run.
+The pages under test are produced by `page()` and `index_page()`, the same
+functions the cycle calls, into a temporary directory.
 
-Nothing here loads the real store: building 32 pages takes ~40 s and a test
-suite that slow is a test suite nobody runs.
+The output itself is deliberately not committed and not read from disk: it is
+built into `<data-dir>/public/` (doc/TRADE_PAGES.md 6), which in the container
+is the mounted volume rather than the read-only image.
 """
 
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -20,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import trade_pages as tp                                        # noqa: E402
 
-GEWERKE = Path(__file__).resolve().parent.parent / 'site' / 'gewerke'
+SITE = Path(__file__).resolve().parent.parent / 'site'
 
 
 class MoneyGerman(unittest.TestCase):
@@ -94,15 +96,46 @@ class TheFloor(unittest.TestCase):
         self.assertAlmostEqual(f['low_bid'], 0.25)
 
 
-@unittest.skipUnless(GEWERKE.exists(), 'trade pages not generated')
 class GeneratedOutput(unittest.TestCase):
-    """The committed pages — what actually gets uploaded."""
+    """The generated pages.
+
+    Built here from synthetic figures rather than read off disk: the output is
+    no longer committed (it goes to `<data-dir>/public/`, doc/TRADE_PAGES.md
+    6), and building it for real needs the 2 GB store and ~40 s — a suite that
+    slow is a suite nobody runs. `page()` is the same function the cycle
+    calls, so these assertions hold for the real pages too."""
 
     def setUp(self):
-        self.pages = sorted(p for p in GEWERKE.glob('*/index.html'))
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        out = Path(self.tmp.name)
+        months = [pd.Period('2026-01', freq='M')]
+        self.pages = []
+        for name, n, low in (('Maler- und Lackierarbeiten', 60, 2),
+                             ('Lüftung, Klima und Kälte', 40, 12),
+                             ('Brandschutz (baulich)', 30, 30)):
+            lots = frame(n, low_bid=low)
+            f = tp.figures(lots, pd.Series([True] * len(lots)), months, months)
+            slug = tp.slugify(name)
+            d = out / 'gewerke' / slug
+            d.mkdir(parents=True)
+            (d / 'index.html').write_text(tp.page(name, slug, f),
+                                          encoding='utf-8')
+            self.pages.append(d / 'index.html')
+        (out / 'gewerke' / 'index.html').write_text(
+            tp.index_page([(n, tp.slugify(n)) for n in
+                           ('Maler- und Lackierarbeiten',
+                            'Lüftung, Klima und Kälte',
+                            'Brandschutz (baulich)')]), encoding='utf-8')
+        (out / 'sitemap.xml').write_text(
+            tp.sitemap([(n, tp.slugify(n)) for n in
+                        ('Maler- und Lackierarbeiten',
+                         'Lüftung, Klima und Kälte',
+                         'Brandschutz (baulich)')]), encoding='utf-8')
+        self.out = out
 
     def test_there_are_pages(self):
-        self.assertGreater(len(self.pages), 20)
+        self.assertEqual(len(self.pages), 3)
 
     def test_no_trade_page_links_to_another_trade_page(self):
         """The rule the whole design exists to protect: a Maler is never shown
@@ -137,7 +170,7 @@ class GeneratedOutput(unittest.TestCase):
         not define — so four numbers rendered as bare divs running together
         into one unreadable line. Class names are a correctness property here,
         not a cosmetic one."""
-        css = (GEWERKE.parent / 'style.css').read_text(encoding='utf-8')
+        css = (SITE / 'style.css').read_text(encoding='utf-8')
         for cls in ('.figs', '.fig', 'table.dist', '.bar', '.barcell'):
             self.assertIn(cls, css)
         for p in self.pages:
@@ -208,12 +241,12 @@ class GeneratedOutput(unittest.TestCase):
                           p.read_text(encoding='utf-8'), p.parent.name)
 
     def test_index_lists_every_page_and_nothing_else(self):
-        index = (GEWERKE / 'index.html').read_text(encoding='utf-8')
+        index = (self.out / 'gewerke' / 'index.html').read_text(encoding='utf-8')
         linked = set(re.findall(r'href="([a-z0-9-]+)/index\.html"', index))
         self.assertEqual(linked, {p.parent.name for p in self.pages})
 
     def test_sitemap_covers_every_page(self):
-        xml = (GEWERKE.parent / 'sitemap.xml').read_text(encoding='utf-8')
+        xml = (self.out / 'sitemap.xml').read_text(encoding='utf-8')
         for p in self.pages:
             self.assertIn(f'/gewerke/{p.parent.name}/', xml)
 

@@ -12,6 +12,7 @@ two properties a hand-edited page can lose without anyone noticing:
 
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -100,32 +101,67 @@ class LegalTextsMatchTheApp(unittest.TestCase):
 
 
 class Files(unittest.TestCase):
-    def test_the_site_is_complete(self):
-        for rel in ('index.html', 'style.css', 'robots.txt', 'sitemap.xml',
+    """Link checks run against the BUILT site, not the source tree.
+
+    `site/` is source: the hand-written pages plus the stylesheet. The trade
+    pages are generated into `<data-dir>/public/` and never committed, so
+    `site/index.html`'s link to `gewerke/` resolves only after a build — which
+    is exactly the state that gets uploaded, and therefore the state worth
+    checking. The build here is `publish()` plus a stub trade index, so no
+    store and no 40 s."""
+
+    def setUp(self):
+        import trade_pages
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.built = Path(self.tmp.name) / 'public'
+        trade_pages.publish(self.built, SITE)
+        gew = self.built / 'gewerke'
+        gew.mkdir(parents=True)
+        (gew / 'index.html').write_text(
+            trade_pages.index_page([('Malerarbeiten', 'malerarbeiten')]),
+            encoding='utf-8')
+        (gew / 'malerarbeiten').mkdir()
+        (gew / 'malerarbeiten' / 'index.html').write_text('x', encoding='utf-8')
+        (self.built / 'sitemap.xml').write_text(
+            trade_pages.sitemap([('Malerarbeiten', 'malerarbeiten')]),
+            encoding='utf-8')
+
+    def test_the_source_tree_is_the_hand_written_half_only(self):
+        for rel in ('index.html', 'style.css', 'robots.txt',
                     'impressum/index.html', 'datenschutz/index.html'):
             self.assertTrue((SITE / rel).exists(), rel)
+        self.assertFalse((SITE / 'gewerke').exists(),
+                         'generated pages must not be committed')
+        self.assertFalse((SITE / 'sitemap.xml').exists(),
+                         'the sitemap is generated — it knows both halves')
+
+    def test_publish_copies_every_hand_written_file(self):
+        for rel in ('index.html', 'style.css', 'robots.txt',
+                    'impressum/index.html', 'datenschutz/index.html'):
+            self.assertTrue((self.built / rel).exists(), rel)
 
     def test_robots_allows_indexing_unlike_the_app(self):
         self.assertIn('Allow: /',
-                      (SITE / 'robots.txt').read_text(encoding='utf-8'))
+                      (self.built / 'robots.txt').read_text(encoding='utf-8'))
 
     def test_every_link_and_stylesheet_resolves_to_a_real_file_ALL(self):
         """Same check as below, but over EVERY html file in site/, including
         the generated trade pages — a generator that emits a wrong relative
         depth breaks 32 pages at once."""
         checked = 0
-        for page in sorted(SITE.rglob('*.html')):
+        for page in sorted(self.built.rglob('*.html')):
             html = page.read_text(encoding='utf-8')
             for href in re.findall(r'(?:href|src)="([^"]+)"', html):
                 if href.startswith(('mailto:', 'http://', 'https://', '#')):
                     continue
-                rel = page.relative_to(SITE)
+                rel = page.relative_to(self.built)
                 self.assertFalse(href.startswith('/'),
                                  f'{rel}: "{href}" is absolute')
                 self.assertTrue((page.parent / href).resolve().exists(),
                                 f'{rel}: "{href}" points at nothing')
                 checked += 1
-        self.assertGreater(checked, 100)
+        self.assertGreater(checked, 10)
 
     def test_every_link_and_stylesheet_resolves_to_a_real_file(self):
         """Follows every href/src on every page and checks the target exists
@@ -139,7 +175,7 @@ class Files(unittest.TestCase):
         pages = ['index.html', 'impressum/index.html', 'datenschutz/index.html']
         checked = 0
         for rel in pages:
-            page = SITE / rel
+            page = self.built / rel
             html = page.read_text(encoding='utf-8')
             for href in re.findall(r'(?:href|src)="([^"]+)"', html):
                 if href.startswith(('mailto:', 'http://', 'https://', '#')):
