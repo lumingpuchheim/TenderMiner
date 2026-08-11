@@ -66,6 +66,21 @@
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums }
   .scroll { overflow-x: auto }
 
+  /* bidder distribution: a bar chart made of table cells, so it still reads
+     as a table with CSS off or with a screen reader. No image, no script. */
+  table.dist { font-size: .95rem }
+  table.dist caption { caption-side: bottom; text-align: left;
+                       padding-top: .5rem; font-size: .85rem }
+  table.dist th[scope=row] { text-transform: none; letter-spacing: 0;
+                             color: var(--ink); font-weight: 500;
+                             white-space: nowrap }
+  table.dist td.num { width: 3.5rem; color: var(--muted) }
+  table.dist td.barcell { width: 55%; padding-left: .8rem }
+  table.dist .bar { display: block; height: .62rem; min-width: 2px;
+                    border-radius: 3px; background: var(--blue) }
+  /* the two buckets the product is about, marked without a legend */
+  table.dist tr:nth-child(-n+2) th[scope=row] { font-weight: 650 }
+
   ul.plain { list-style: none; padding: 0 }
   ul.plain li { padding: .55rem 0; border-bottom: 1px solid var(--line) }
 

@@ -125,10 +125,61 @@ class GeneratedOutput(unittest.TestCase):
         figure — and a market page with no date silently ages into a lie."""
         for p in self.pages:
             html = p.read_text(encoding='utf-8')
-            self.assertRegex(html, r'Von \d+ ausgewerteten Losen',
+            self.assertRegex(html, r'über \d+ ausgewertete Lose',
+                             p.parent.name)
+            self.assertRegex(html, r'der \d+ ausgewerteten Lose',
                              p.parent.name)
             self.assertIn('Stand:', html)
             self.assertIn('vollständig erfasste Monate', html)
+
+    def test_the_distribution_uses_the_stylesheets_own_classes(self):
+        """The first version emitted `.tiles/.tile`, which the stylesheet does
+        not define — so four numbers rendered as bare divs running together
+        into one unreadable line. Class names are a correctness property here,
+        not a cosmetic one."""
+        css = (GEWERKE.parent / 'style.css').read_text(encoding='utf-8')
+        for cls in ('.figs', '.fig', 'table.dist', '.bar', '.barcell'):
+            self.assertIn(cls, css)
+        for p in self.pages:
+            html = p.read_text(encoding='utf-8')
+            self.assertIn('class="figs"', html, p.parent.name)
+            self.assertIn('class="dist"', html, p.parent.name)
+            self.assertNotIn('class="tile', html, p.parent.name)
+
+    def test_the_distribution_shares_add_up(self):
+        """Five buckets over the same denominator: if they do not sum to
+        100 %, a lot is being double-counted or dropped."""
+        for p in self.pages:
+            html = p.read_text(encoding='utf-8')
+            table = re.search(r'<table class="dist".*?</table>', html, re.S)
+            shares = [int(x) for x in
+                      re.findall(r'<td class="num">(\d+) %</td>', table.group(0))]
+            self.assertEqual(len(shares), 5, p.parent.name)
+            self.assertAlmostEqual(sum(shares), 100, delta=3,
+                                   msg=f'{p.parent.name}: {shares}')
+
+    def test_the_bars_are_scaled_to_the_biggest_bucket(self):
+        """Scaled to 100 % of the total instead, a thin market's shape
+        flattens into nothing — so the largest bucket must be full width.
+        At least one, not exactly one: two buckets can genuinely tie, and
+        two trades currently do."""
+        for p in self.pages:
+            widths = [float(w) for w in
+                      re.findall(r'class="bar" style="width:([\d.]+)%"',
+                                 p.read_text(encoding='utf-8'))]
+            self.assertGreaterEqual(sum(1 for w in widths if w == 100.0), 1,
+                                    p.parent.name)
+            self.assertLessEqual(max(widths), 100.0, p.parent.name)
+
+    def test_an_empty_bucket_draws_no_bar(self):
+        """The stylesheet's min-width would draw a 2px stub for 0 %, which
+        reads as 'a few' rather than 'none'."""
+        for p in self.pages:
+            html = p.read_text(encoding='utf-8')
+            table = re.search(r'<table class="dist".*?</table>', html, re.S)
+            for row in re.findall(r'<tr>.*?</tr>', table.group(0), re.S):
+                if '<td class="num">0</td>' in row:
+                    self.assertNotIn('class="bar"', row, p.parent.name)
 
     def test_every_page_names_its_source_and_the_award_lag(self):
         for p in self.pages:

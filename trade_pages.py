@@ -96,6 +96,16 @@ def figures(lots, sel, covered, mature):
     one = int((mat.n_tenders == 1).sum())
     closed = float((mat.result_code == 'selec-n').mean()) \
         if 'result_code' in mat.columns else None
+    # How competition is spread, in buckets a contractor thinks in. This is
+    # the page's real content: "9 % have at most one bidder" is a headline,
+    # but the shape underneath is what tells him whether his market is a
+    # price war with a tail or genuinely thin.
+    buckets = [('kein Angebot', (mat.n_tenders == 0)),
+               ('1 Angebot', (mat.n_tenders == 1)),
+               ('2–3', mat.n_tenders.between(2, 3)),
+               ('4–6', mat.n_tenders.between(4, 6)),
+               ('7 und mehr', (mat.n_tenders >= 7))]
+    dist = [(label, int(m.sum()), float(m.mean())) for label, m in buckets]
     return {
         'per_month': per_month,
         'per_year': per_month * 12,
@@ -107,12 +117,39 @@ def figures(lots, sel, covered, mature):
         'median_bidders': float(mat.n_tenders.median()),
         'closed': closed,
         'months': n_months,
+        'dist': dist,
     }
 
 
-def tile(value, label):
-    return (f'<div class="tile"><div class="tile-value">{esc(value)}</div>'
-            f'<div class="tile-label">{esc(label)}</div></div>')
+def fig(value, label):
+    """One figure card. The classes are the stylesheet's own — `.figs/.fig`
+    with `.n` and `.l`. Getting this wrong is not a cosmetic slip: unknown
+    class names render as bare divs, so all four numbers run together into one
+    unreadable line, which is exactly how this shipped the first time."""
+    return (f'<div class="fig"><span class="n">{esc(value)}</span>'
+            f'<span class="l">{esc(label)}</span></div>')
+
+
+def dist_table(dist, n_awarded):
+    """The bidder spread as a bar chart made of table cells — no image, no
+    script, and it still reads as a table with a screen reader or with CSS
+    off. Bars are scaled to the biggest bucket rather than to 100 %, or a
+    thin market's shape flattens into nothing."""
+    peak = max((share for _, _, share in dist), default=0) or 1
+    rows = ''.join(
+        f'<tr><th scope="row">{esc(label)}</th>'
+        f'<td class="num">{n}</td>'
+        f'<td class="num">{100 * share:.0f} %</td>'
+        # an empty bucket gets no bar at all: the stylesheet's min-width
+        # would otherwise draw a 2px stub, which reads as "a few" rather
+        # than "none"
+        f'<td class="barcell">' + (
+            f'<span class="bar" style="width:{100 * share / peak:.1f}%">'
+            f'</span>' if n else '') + '</td></tr>'
+        for label, n, share in dist)
+    return (f'<table class="dist"><caption class="muted">Angebote je Los, '
+            f'über {n_awarded} ausgewertete Lose</caption>'
+            f'<tbody>{rows}</tbody></table>')
 
 
 def page(name, slug, f):
@@ -120,11 +157,11 @@ def page(name, slug, f):
     safely, a padded one is what gets a domain demoted (TRADE_PAGES.md 5)."""
     today = date.today()
     stand = f'{MONTHS_DE[today.month - 1]} {today.year}'
-    tiles = ''.join([
-        tile(f'{f["per_month"]:.0f}', 'Lose pro Monat'),
-        tile(f'{money_de(f["median_award"])} €', 'Median-Auftragswert'),
-        tile(f'{100 * f["low_bid"]:.0f} %', 'mit höchstens einem Angebot'),
-        tile(f'{money_de(f["year_scope"])} €', 'Volumen pro Jahr, überschlägig'),
+    figs = ''.join([
+        fig(f'{f["per_month"]:.0f}', 'Lose pro Monat'),
+        fig(f'{money_de(f["median_award"])} €', 'Median-Auftragswert'),
+        fig(f'{100 * f["low_bid"]:.0f} %', 'höchstens ein Angebot'),
+        fig(f'{money_de(f["year_scope"])} €', 'Volumen pro Jahr, überschlägig'),
     ])
     closed = ''
     if f['closed'] is not None:
@@ -153,12 +190,14 @@ def page(name, slug, f):
         f'ist, was ein Los im Mittel wert ist und wie oft nur ein oder gar '
         f'kein Angebot eingeht — berechnet aus dem amtlichen '
         f'EU-Vergaberegister.</p>\n\n'
-        f'<div class="tiles">{tiles}</div>\n\n'
-        f'<h2>Wie oft kaum jemand mitbietet</h2>\n'
-        f'<p>Von {f["n_awarded"]} ausgewerteten Losen dieses Gewerks gingen '
-        f'bei {f["zero"]} gar kein und bei {f["one"]} genau ein Angebot ein '
-        f'— zusammen {100 * f["low_bid"]:.0f} %. Im Mittel bewerben sich '
-        f'{f["median_bidders"]:.0f} Bieter auf ein Los.</p>\n'
+        f'<div class="figs">{figs}</div>\n\n'
+        f'<h2>Wie viele bieten mit?</h2>\n'
+        f'<p>Im Mittel bewerben sich {f["median_bidders"]:.0f} Bieter auf ein '
+        f'Los dieses Gewerks. So verteilt sich das:</p>\n'
+        f'{dist_table(f["dist"], f["n_awarded"])}\n'
+        f'<p>Auf {f["zero"]} der {f["n_awarded"]} ausgewerteten Lose ging gar '
+        f'kein Angebot ein, auf {f["one"]} genau eines — zusammen '
+        f'{100 * f["low_bid"]:.0f} %.</p>\n'
         f'{closed}\n\n'
         f'<h2>Woher die Zahlen kommen</h2>\n'
         f'<p>Quelle ist <em>Tenders Electronic Daily</em> (TED), das '
