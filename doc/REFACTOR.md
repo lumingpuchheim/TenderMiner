@@ -5,7 +5,10 @@ Status: phase 0 (the two bugs) **implemented** 2026-08-06; phase 1
 Phase 2 (SQLite) and phase 4 (`select.py` / `render.py`) are specified here
 and not started — phase 3 was taken before phase 2 because the ledger could
 not say which rules produced a pick, while the storage problems are ones the
-system will have rather than has. Uses the vocabulary of
+system will have rather than has. Phase 5 (`asof.py`, the one rewind engine)
+**specified** 2026-08-12, and ordered **before** phase 4: it is
+behaviour-preserving, while phase 4 changes the backtest's measured numbers
+(it fixes defect 1) and must land alone. Uses the vocabulary of
 [`ONLINE_LEARNING.md`](ONLINE_LEARNING.md) and
 [`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md) (**component** = a box that always
 runs; **phase** = build order in time, never a scope cut). Nothing here
@@ -341,6 +344,162 @@ backtest's and replay's copies of the selection loop as each lands. This is
 the phase that makes the backtest trustworthy; it is last because it is worth
 doing on top of a validated subscription model and an explicit gate config,
 not underneath them.
+
+## Phase 5 — `asof.py`, the one rewind engine (specified 2026-08-12)
+
+### The duplication this phase removes
+
+Three programs rebuild the past, one per zoom level: `backtest.py` (every
+weekly cutoff → the statistic), `playback.py` (one past win → would we have
+caught it?), `replay.py` (one customer at one past Monday → the report we
+would have sent, and its grading). The zoom levels are the non-redundant
+part and they stay. What is redundant is the rewind machinery itself — each
+program materialises its own past world, near-verbatim, in its own scratch
+directory:
+
+1. filter both store parquets to `publication_date < D` (pyarrow filter,
+   which preserves the per-column role metadata `load_with_roles` needs — a
+   subtlety only `playback.py` still documents);
+2. copy the embeddings sidecar whole;
+3. run `calibrate.calibrate` inside the world, write `trusted_codes_asof.json`
+   (the same dict comprehension, three times), build the `GateConfig`;
+4. resolve a firm's pre-D wins to profile references;
+5. train the champion strictly inside the world.
+
+That is ~170 copy-pasted lines of the most leakage-sensitive code in the
+repository, and the copies are already rotting independently: the
+crash-safety fix of 2026-08-11 (write `.partial`, then rename — an
+interrupted run used to leave a truncated parquet that poisoned every later
+run) exists only in `backtest.py`; the role-metadata warning only in
+`playback.py`. Three copies means a fix lands in one and waits in the others
+until it hurts.
+
+### What `asof.py` is
+
+**A library, not a program.** It answers no question and has no CLI. Its one
+concept is *a materialised past you can trust*: given the full store and a
+cutoff D, it hands back the world as it stood before D, plus the artifacts
+every rewind question needs — a gate config calibrated inside that world, a
+firm's pre-D references, a champion trained pre-D.
+
+```python
+w = asof.World(data_dir, work_dir)   # sidecar copied once, reused after
+w.rewind(D)                          # store filtered to < D; caches dropped
+cfg = w.calibrated_config('F')       # or 'H' — calibrate + trust list, inside
+gate = w.gate(cfg)
+refs = w.refs_for_firm(name)         # pre-D resolvable wins, as profile refs
+model = w.model()                    # champion trained on pre-D labels only
+```
+
+`rewind()` is what `backtest.py`'s weekly loop needs: refilter the store,
+keep the sidecar, drop the gate/model caches — but **not** the calibration,
+because how often to recalibrate (`RECAL_EVERY`) is the caller's cadence
+decision, not the engine's. `WorldTooThin` propagates; what to do about it
+stays policy per program (the statistic skips the cutoff, the other two stop
+with advice).
+
+The guarantees the module owns, and the disclosures that live with it:
+
+- the filtered store preserves schema and role metadata, and is written
+  crash-safe (`.partial` + rename) — for every caller, not one;
+- the sidecar is copied whole, once, and therefore outruns the world it sits
+  in — the disclosed residual currently buried in `backtest.py`'s docstring
+  moves here, next to the code it discloses;
+- nothing inside the world can read a publication dated ≥ D; the module
+  never touches outcomes at all — **grading stays at the call sites**, which
+  join to the full store *after* the as-of work is done.
+
+### What `asof.py` is not
+
+Not a fourth program. Not a renderer — phase 5 keeps the rule of
+`TRADE_PAGES.md` §6d: engines produce worlds, programs produce data,
+renderers display. Not the selection algorithm — slicing, judging, ranking
+and capping are **phase 4's seam** (`select.py`), which both `loop.py` and
+the rewind programs will call; until phase 4 lands, that composition stays
+duplicated at the call sites, visibly, rather than being absorbed here where
+it would pre-empt the better cut.
+
+### Recorded differences, preserved verbatim
+
+The engine must not silently unify what the three programs deliberately (or
+accidentally) do differently. Each is kept exactly as found, and each
+unification, if ever wanted, is its own decision:
+
+- **Gate recipe:** `backtest.py` and `playback.py` calibrate configuration
+  F, `replay.py` configuration H. Why the split exists is not documented
+  anywhere; ask the operator before ever unifying it.
+- **Bar placement:** the backtest drops a customer's own three bars so the
+  as-of calibration on the config decides (`as_of_profile`'s docstring says
+  why); the playback puts F's bars on the synthetic subscription; the replay
+  puts none on a firm's. Profile *assembly* therefore stays at the call
+  sites — the engine only resolves references.
+- **Directory layout:** `playback.py`'s extra `asof/data/` nesting
+  disappears; the engine settles one layout (`<work>/store/`,
+  `<work>/embeddings/`, `<work>/trusted_codes_asof.json`). Behaviour-neutral.
+- **Scratch homes:** one parent, one subdirectory per program —
+  `data/asof/all/`, `data/asof/win/`, `data/asof/report/` — so two rewinds
+  can run at once and a half-hour run is never lost to a collision. The
+  housekeeping sweep (`test_housekeeping.py`) follows the move.
+
+### Migration — one program per step, each with a receipt
+
+Prerequisite: the in-flight document work lands first (`backtest.py` emits
+one JSON document on stdout, `TRADE_PAGES.md` §6d) — step 1's receipt is
+that document, so it must be trustworthy before the refactor starts.
+
+1. **Extract the engine from `backtest.py`** (the most-exercised copy) and
+   point `backtest.py` at it. Receipt: replay the same store before and
+   after — the document is byte-identical except `generated`.
+2. **Port `playback.py`.** Receipt: the same verdict on the Jebsen solo win,
+   same console numbers modulo timings.
+3. **Port `replay.py`** — config H proves the recipe is really a parameter.
+   Receipt: the same two HTML reports modulo timestamps.
+4. **Delete the three inline copies and rename the view programs — all
+   five.** Operator's call (2026-08-12): `backtest`, `playback`, `replay`,
+   `explain` and `tryout` are terrible names that describe nothing of what a
+   program does — three of them are near-synonyms for the same rewind, and
+   none says what question it answers. A name must say the direction and the
+   thing produced:
+
+   | old | new | what it does |
+   | --- | --- | --- |
+   | `backtest.py` | `rewind_all.py` | rewind every week, grade every alarm → the statistic |
+   | `playback.py` | `rewind_win.py` | rewind one past win → would we have caught it? |
+   | `replay.py` | `rewind_report.py` | rewind one customer's Monday → the report we would have sent, graded |
+   | `explain.py` | `explain_verdict.py` | why this lot passes or fails this customer's gate, now |
+   | `tryout.py` | `preview_report.py` | one customer's report from the current scores, with overrides, sandboxed |
+
+   The two families read as what they are: `rewind_*` share the engine and
+   the direction; `preview_report` ↔ `rewind_report` are the same question
+   in opposite directions. All `git mv`, docs updated in the same commit.
+   Receipt: `grep` finds no store-filtering `pq.write_table` outside
+   `asof.py`, no `backtest_world`/`playback_asof`/`replay_asof` anywhere,
+   and no reference to the five old program names outside this file's
+   history sections.
+
+Time-isolation properties get their own test file against `asof.py`
+(pre-D-only store, metadata preserved, crash interruption leaves a usable
+world, `rewind()` invalidates what it must) — tests none of the three copies
+has today, which is rather the point.
+
+### Order against phase 4, and the principle both serve
+
+**Phase 5 before phase 4.** Phase 5 is behaviour-preserving and its receipt
+is byte-identity; phase 4 is *not* behaviour-preserving for the backtest —
+it deletes the drifted copy of the selection loop (defect 1), so the
+measured numbers will change, and that change must arrive alone and
+explained, never buried in a refactor diff.
+
+Both phases serve the architecture the programs already gesture at — **one
+writer, many readers**: `loop.py` is the single scheduled writer
+(deliveries, ledgers, learning); every question-answering view, forward
+(`explain_verdict.py`, `preview_report.py`) or rewinding (`rewind_*.py`), is
+a read-only program over a shared engine. The 2×3 map of question ×
+direction belongs in `METHODS.md` §0 when step 4 lands. Explicitly rejected:
+one `rewind.py` with `--all/--win/--report` modes — a mode-switch program is
+`loop.deliver()`'s tangle mirrored backwards. Open after step 4, cheap and
+optional: `rewind_win.py` is nearly a special case of `rewind_report.py`;
+folding 3 → 2 becomes a small diff once both are thin.
 
 ## Open, not scheduled
 
