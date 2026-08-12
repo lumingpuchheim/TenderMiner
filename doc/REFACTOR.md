@@ -1,11 +1,15 @@
 # REFACTOR — separating the two questions, and giving subscriptions a home
 
 Status: phase 0 (the two bugs) **implemented** 2026-08-06; phase 1
-(`subscriptions.py`) and phase 3 (`GateConfig`) **implemented** 2026-08-07.
-Phase 2 (SQLite) and phase 4 (`select.py` / `render.py`) are specified here
-and not started — phase 3 was taken before phase 2 because the ledger could
-not say which rules produced a pick, while the storage problems are ones the
-system will have rather than has. Phase 5 (`asof.py`, the one rewind engine)
+(`subscriptions.py`) and phase 3 (`GateConfig`) **implemented** 2026-08-07;
+phase 2 (SQLite) **implemented** 2026-08-08 — `db.py` carries the
+`customer` / `subscription_version` split and the ledger tables, the
+database has been the record since (`CLAUDE.md`), and this line said "not
+started" for four days after it landed, which is its own small lesson about
+status lines. Phase 4 (`select.py` / `render.py`) is specified and not
+started. Phase 3 was taken before phase 2 because the ledger could not say
+which rules produced a pick, while the storage problems were ones the
+system would have rather than had. Phase 5 (`asof.py`, the one rewind engine)
 **implemented** 2026-08-12, same day it was specified — all four steps, each
 with its receipt (byte-identical document; identical playback verdict;
 identical report-rewind console and annexes; the renames with a green
@@ -509,17 +513,33 @@ folding 3 → 2 becomes a small diff once both are thin.
 
 ## Open, not scheduled
 
-- **`predictions.jsonl` is 50 MB and fully parsed twice per cycle** — once for
-  the dedup `seen` set in `predict_open`, once for the receipt fallback
-  `pred_info` in `deliver`. It grows linearly forever. The answer is probably
-  Parquet partitioned by cycle date, not SQLite, and it is independent of
-  everything above.
-- **Circular imports papered over with function-level imports** (`loop` ↔
-  `feedback`, `relevance` ↔ `evidence`, `relevance` → `feedback`). Not a
-  problem in itself; it is the layering pointing at where phases 1 and 4
-  belong. Expect these to resolve themselves rather than needing their own
-  work.
-- **Profile growth is still unbounded** (noted in `feedback.py`): a firm with
-  3 wins and one with 300 derive very different lexicons, and derivation cost
-  is linear in references. A union-time cap belongs in the subscription
-  repository once phase 2 lands.
+Re-audited 2026-08-12, item by item against the code. Two of the three were
+stale; the ruling on each is recorded rather than the item silently deleted.
+
+- **`predictions.jsonl` parsed twice per cycle — RESOLVED by phase 2**, and
+  not the way this item predicted. It guessed "Parquet partitioned by cycle
+  date, not SQLite"; what actually happened is the 2026-08-08 migration put
+  predictions in the database, `predict_open`'s dedup set became one
+  four-column `SELECT` (`ledger.prediction_keys`) and `deliver`'s receipt
+  fallback a filtered `SELECT` (`ledger.prediction_titles`). The 50 MB file
+  still exists as a frozen pre-migration snapshot that `ledger.read` refuses
+  to serve stale. Nothing parses it. Kept here as a reminder that a
+  speculated fix in an open-items list is a guess, not a plan.
+- **Circular imports papered over with function-level imports — HALF
+  RESOLVED.** `loop` ↔ `feedback` is no longer a cycle: `feedback` stopped
+  importing `loop` (phases 1-2 gave it `subscriptions`/`ledger` to import
+  instead, which was the point). Still cyclic today: `relevance` ↔
+  `evidence` and `relevance` ↔ `feedback`, papered over in the same
+  function-level way. Unchanged expectation, now with the phase named:
+  phase 4 (`select.py`/`render.py`) is the layering that should dissolve
+  them; if it lands and they persist, then they earn their own work.
+- **Profile growth is still unbounded — OPEN, and gated on a receipt, not on
+  a phase.** This item used to wait for "the subscription repository once
+  phase 2 lands"; phase 2 landed and the cap rightly did not, because
+  `feedback.py`'s note has the better rule: capping is a union-time decision
+  (keep the newest N; the ledger stays a complete history), and it stays
+  unbuilt **until a receipt shows growth actually moving leakage or cost**
+  (RELEVANCE.md phase 9). The largest live profile today is 8 references, so
+  the receipt cannot yet exist. What would trigger it: a customer whose
+  reference count reaches the hundreds, or `build_profile` visibly slowing a
+  cycle.
