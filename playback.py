@@ -1,13 +1,12 @@
 """Playback: would TenderMining have recommended a firm's solo win BEFORE the
 deadline, knowing only the past?
 
-Time isolation by construction: an as-of data directory (data/playback_asof)
-holds only notices published before the cutoff; profile, trust list,
-thresholds and the CatBoost model are all rebuilt inside it. The outcome
-(bid count) is read from the full store only at evaluation time. Residuals
-disclosed: the embedding vectors are looked up from the full sidecar
-(per-notice, no cross-notice info) and the system's *design* postdates the
-replayed period.
+Time isolation lives in `asof.py` (REFACTOR.md phase 5): the as-of world
+under data/asof/win holds only notices published before the cutoff; profile
+references, trust list, thresholds and the CatBoost model are all rebuilt
+inside it, and the engine's guarantees (and disclosed sidecar residual) are
+documented there. The outcome (bid count) is read from the full store only
+at evaluation time.
 
 Usage:
     python playback.py                                # Jebsen's 2026 solo win
@@ -15,15 +14,13 @@ Usage:
 """
 
 import argparse
-import json
-import shutil
 import sys
 import time
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
+import asof
 import calibrate as cal
 import config
 import relevance as rel
@@ -45,7 +42,6 @@ args = ap.parse_args()
 NUTS = [p for p in args.nuts.split(',') if p]
 
 FULL = Path(args.data_dir)
-ASOF = FULL / 'playback_asof'
 t0 = time.time()
 
 # ---- step 1: the target and the cutoff --------------------------------------
@@ -68,56 +64,32 @@ print(f"[playback] award published {tgt_award['publication_date']} with "
       f"{int(tgt_award['n_tenders'])} bid(s)")
 print(f"[playback] cutoff D = {D.date()} (deadline - 14d, the last honest cycle)")
 
-# ---- step 2: the as-of world ------------------------------------------------
-if ASOF.exists():
-    shutil.rmtree(ASOF)
-(ASOF / 'data' / 'store').mkdir(parents=True)
-import pyarrow.compute as pc
-import pyarrow.parquet as pq
-for name in ('tenders', 'awards'):
-    tab = pq.read_table(FULL / 'store' / f'{name}.parquet')
-    mask = pc.less(tab.column('publication_date'), D.date())
-    # pyarrow filter preserves the schema including the per-column role
-    # metadata that load_with_roles depends on (a pandas round-trip drops it)
-    pq.write_table(tab.filter(mask), ASOF / 'data' / 'store' / f'{name}.parquet')
-pub_t = pd.to_datetime(tenders_full['publication_date'])
-pub_a = pd.to_datetime(awards_full['publication_date'])
-tenders = tenders_full[pub_t < D].copy()
-awards = awards_full[pub_a < D].copy()
-shutil.copytree(FULL / 'embeddings', ASOF / 'data' / 'embeddings')
-print(f'[playback] as-of store: {len(tenders)} tender rows, {len(awards)} award rows '
-      f'({len(tenders_full) - len(tenders)} / {len(awards_full) - len(awards)} future rows excluded)')
+# ---- step 2: the as-of world (asof.py owns the guarantees) ------------------
+world = asof.World(FULL, FULL / 'asof' / 'win')
+world.rewind(D)
+print(f'[playback] as-of store: {len(world.tenders)} tender rows, '
+      f'{len(world.awards)} award rows '
+      f'({len(tenders_full) - len(world.tenders)} / '
+      f'{len(awards_full) - len(world.awards)} future rows excluded)')
 
 # ---- step 3: as-of calibration (trust list + thresholds) --------------------
 try:
-    r = cal.calibrate(str(ASOF / 'data'))
+    r = world.calibrate()
 except cal.WorldTooThin as e:
     raise SystemExit(f'[playback] {e}\n'
                      f'[playback] too little of the store predates {D.date()} '
                      'to calibrate against. Pick a later cutoff.')
 F = r['configs']['F hard/soft codes + floor/consensus']
-trust_json = ASOF / 'trusted_codes_asof.json'
-trust_json.write_text(json.dumps(
-    {'baseline': r['baseline'], 'cut': r['trust_cut'],
-     'codes': {k: {'n': v['n'], 'cohesion': v['cohesion'],
-                   'trusted': v['cohesion'] >= r['trust_cut']}
-               for k, v in r['cohesion'].items()}}), encoding='utf-8')
 print(f"[playback] as-of F: text {F['threshold']:.3f}, hard {F['code_threshold']:.3f}, "
       f"soft {F['soft_threshold']:.3f} (floor {F['soft_floor']:.2f}/k{F['soft_consensus']}), "
       f"leakage {F['leakage']:.1%}")
 
 # ---- step 4: as-of profile + gate -------------------------------------------
-# the as-of calibration as a config value (REFACTOR.md phase 3); assigning
-# to relevance's module globals no longer reaches the gate
-cfg = rel.DEFAULT_CONFIG.replace(trusted_codes=trust_json,
-                                 soft_floor=F['soft_floor'],
-                                 soft_consensus=F['soft_consensus'])
-gate = rel.Gate(str(ASOF / 'data'), config=cfg)
-jb_asof = awards[awards['winner_names'].apply(
-    lambda x: x is not None and args.firm in list(x))]
-refs = sorted({gate.rows[gate.by_key[(p, l)]]['publication_number']
-               for p, l in zip(jb_asof['procedure_id'], jb_asof['lot_id'])
-               if (p, l) in gate.by_key})
+# Recipe F carries the bars on the config; the sub below carries the same
+# values, as this program always has — either carrier alone decides the same.
+cfg = world.calibrated_config('F')
+gate = world.gate(cfg)
+refs = asof.refs_for_firm(gate, world.awards, args.firm)
 if not refs:
     sys.exit(f'[playback] {args.firm!r} had no resolvable win before {D.date()}')
 print(f'[playback] profile as of {D.date()}: {len(refs)} won tenders {refs}')
@@ -127,20 +99,15 @@ sub = {'sub_id': 'playback', 'version': 1, 'name': args.firm,
 profile = rel.build_profile(gate, sub)
 
 # ---- step 5: as-of model ----------------------------------------------------
-tenders_r, roles = sb.load_with_roles(ASOF / 'data' / 'store' / 'tenders.parquet')
-awards_r, _ = sb.load_with_roles(ASOF / 'data' / 'store' / 'awards.parquet')
-data, aw, _ = sb.assemble(tenders_r, awards_r)
-X, cat_cols, num_cols, _ = sb.build_features(data, roles, list_frame=tenders_r)
-k = data.groupby(sb.KEY)['label'].transform('size')
-model = sb.train(X, data['label'].to_numpy(), (1.0 / k).to_numpy(), cat_cols)
-print(f'[playback] model trained on {data.groupby(sb.KEY).ngroups} labeled lots '
-      f'(all pre-{D.date()}) in {time.time() - t0:.0f}s')
+model = world.model()
+print(f'[playback] model trained on {world.data.groupby(sb.KEY).ngroups} '
+      f'labeled lots (all pre-{D.date()}) in {time.time() - t0:.0f}s')
 
 # ---- step 6: replay the cycle at D ------------------------------------------
-open_t = sb.open_tenders(tenders_r, aw)
+open_t = sb.open_tenders(world.tenders, world.aw)
 deadline = pd.to_datetime(open_t.get('deadline_date'), errors='coerce')
 open_t = open_t[deadline >= D + pd.Timedelta(days=14)]  # min_deadline_days promise
-Xo, _, _, _ = sb.build_features(open_t, roles, list_frame=tenders_r)
+Xo, _, _, _ = sb.build_features(open_t, world.roles, list_frame=world.tenders)
 scores = sb.predict(model, Xo)
 flags = scores >= 0.5
 
