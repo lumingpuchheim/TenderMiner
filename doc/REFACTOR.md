@@ -1,27 +1,29 @@
 # REFACTOR — separating the two questions, and giving subscriptions a home
 
-Status: phase 0 (the two bugs) **implemented** 2026-08-06; phase 1
-(`subscriptions.py`) and phase 3 (`GateConfig`) **implemented** 2026-08-07;
-phase 2 (SQLite) **implemented** 2026-08-08 — `db.py` carries the
-`customer` / `subscription_version` split and the ledger tables, the
-database has been the record since (`CLAUDE.md`), and this line said "not
-started" for four days after it landed, which is its own small lesson about
-status lines. Phase 4 (`select.py` / `render.py`) is specified and not
-started. Phase 3 was taken before phase 2 because the ledger could not say
-which rules produced a pick, while the storage problems were ones the
-system would have rather than had. Phase 5 (`asof.py`, the one rewind engine)
-**implemented** 2026-08-12, same day it was specified — all four steps, each
-with its receipt (byte-identical document; identical playback verdict;
-identical report-rewind console and annexes; the renames with a green
-suite). It was ordered **before** phase 4 deliberately: phase 5 is
-behaviour-preserving, while phase 4 changes the backtest's measured numbers
-(it fixes defect 1) and must land alone. Phase 4 is now the next one due. Uses the vocabulary of
+Status (2026-08-12):
+
+| phase | what | state |
+| --- | --- | --- |
+| 0 | the two bugs | **done** 2026-08-06 |
+| 1 | `subscriptions.py`, still file-backed | **done** 2026-08-07 |
+| 3 | `GateConfig`, stamped on every delivery | **done** 2026-08-07 |
+| 2 | subscriptions and ledgers move to SQLite | **done** 2026-08-08 |
+| 5 | `asof.py`, the one rewind engine + the program renames | **done** 2026-08-12 |
+| 4 | `select.py`, then `render.py` | specified, **next due** |
+
+Phases are build order in time, never a scope cut (vocabulary of
 [`ONLINE_LEARNING.md`](ONLINE_LEARNING.md) and
-[`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md) (**component** = a box that always
-runs; **phase** = build order in time, never a scope cut). Nothing here
-changes what the system decides — every phase below is a behaviour-preserving
-move, and the one place where behaviour *does* change (phase 0, defect 1) is a
-promise the docs already made and the code failed to keep.
+[`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md)). They ran out of numeric order
+twice, both times deliberately: 3 before 2 because the ledger could not say
+which rules produced a pick, while the storage problems were ones the system
+would have rather than had; 5 before 4 because 5 is behaviour-preserving
+(receipt: byte-identity) while 4 changes the backtest's measured numbers (it
+fixes defect 1) and must land alone.
+
+Nothing here changes what the system decides — every phase is a
+behaviour-preserving move, and the one place where behaviour *did* change
+(phase 0, defect 1) is a promise the docs already made and the code failed
+to keep.
 
 ## What this is, in one paragraph
 
@@ -30,12 +32,14 @@ relevance gate, [`relevance.py`](../relevance.py) /
 [`evidence.py`](../evidence.py)) and **is it uncontested** (the CatBoost model,
 [`single_bidder.py`](../single_bidder.py)). As *estimators* those two are cleanly
 separated already — `judge()` never sees the score, the model never sees the
-profile. What is tangled is the **composer**: the code that slices a market,
-asks both questions, ranks, caps, renders and records lives in one 250-line
-function, and a second, drifted copy of it lives in the backtest. This
-document names the seam, records the defects that the tangle produced, and
-recommends a real home for subscription state before the first paying
-customer arrives.
+profile. The tangles were one layer up, and there were two of them: the
+**composer** (the code that slices a market, asks both questions, ranks,
+caps, renders and records lives in one 250-line function, with a drifted
+copy in the all-lots rewind — still open, phase 4), and the **rewind
+machinery** (three programs each materialised their own past — closed,
+phase 5). This document names the seams, records the defects the tangles
+produced, and gave subscription state a real home before the first paying
+customer arrives (phase 2).
 
 ## The tangle, precisely
 
@@ -64,14 +68,16 @@ here.
 
 | module | owns | called by |
 |---|---|---|
-| `subscriptions.py` ✅ | field validation, as-of resolution, market filter | loop, backtest, replay, tryout, explain, feedback |
-| `relevance.py` ✅ config | the verdict only; config passed in (a `Verdict` object is still open) | composer, explain, evidence harnesses |
-| `select.py` | slice → gate → rank → cap → `SliceResult(picks, borderline, market)`. No I/O, no HTML, ~40 lines | loop, backtest, replay |
-| `render.py` | `SliceResult` → report HTML, annex HTML, delivery rows | loop, tryout |
+| `subscriptions.py` ✅ | field validation, as-of resolution, market filter | loop, rewind_all, rewind_report, preview_report, explain_verdict, feedback |
+| `relevance.py` ✅ config | the verdict only; config passed in (a `Verdict` object is still open) | composer, explain_verdict, evidence harnesses |
+| `asof.py` ✅ | the materialised past: filtered store, calibration inside it, pre-cutoff refs and champion | rewind_all, rewind_win, rewind_report |
+| `select.py` | slice → gate → rank → cap → `SliceResult(picks, borderline, market)`. No I/O, no HTML, ~40 lines | loop, rewind_all, rewind_report |
+| `render.py` | `SliceResult` → report HTML, annex HTML, delivery rows | loop, preview_report |
 
 `deliver()` then reads: for each sub → `select.for_sub(...)` →
-`render.report(...)` → append ledger. The backtest calls `select.for_sub` and
-measures the shipped selection by construction, which is the whole point.
+`render.report(...)` → append ledger. The all-lots rewind calls
+`select.for_sub` and measures the shipped selection by construction, which
+is the whole point.
 
 Two smaller cuts in the same direction:
 
@@ -224,7 +230,16 @@ report and annex HTML byte-identical, run back-to-back against the pre-change
 code. The legacy-file guard, the file-path rejection and `write_sandbox`
 validation each tested directly.
 
-## Phase 2 — subscriptions move to SQLite
+## Phase 2 — subscriptions move to SQLite (done, 2026-08-08)
+
+Implemented essentially as specified below: `db.py` carries the
+`customer` / `subscription_version` split, the ledger tables, and the
+append-only triggers (a plain `sqlite3` repository, schema version 3);
+`python db.py --migrate` is the importer, `--export-jsonl` the tested
+rollback, and `data/tendermining.db` has been the record since
+(`CLAUDE.md`). The JSONL files remain as frozen pre-migration snapshots
+that `ledger.read` refuses to serve stale. The specification is kept as
+written — it is the reasoning record:
 
 Everything the current design earned is kept: versioned and never edited,
 `effective_from`, as-of reconstruction, append-only audit. JSONL is the wrong
@@ -347,25 +362,35 @@ lexicon caches moving underneath — re-running the OLD code reproduced the
 "new" numbers exactly. On a live system, an equivalence test is only evidence
 if both arms see the same data.
 
-## Phase 4 — `select.py`, then `render.py`
+## Phase 4 — `select.py`, then `render.py` (next due)
 
-The extraction described under **The seam**, in that order, deleting the
-backtest's and replay's copies of the selection loop as each lands. This is
-the phase that makes the backtest trustworthy; it is last because it is worth
-doing on top of a validated subscription model and an explicit gate config,
-not underneath them.
+The extraction described under **The seam**, in that order, deleting
+`rewind_all.py`'s and `rewind_report.py`'s copies of the selection loop as
+each lands. This is the phase that makes the all-lots rewind trustworthy; it
+comes after the others because it is worth doing on top of a validated
+subscription model, an explicit gate config and a shared rewind engine, not
+underneath them.
 
-## Phase 5 — `asof.py`, the one rewind engine (specified 2026-08-12)
+**It is not behaviour-preserving for the rewind statistic** — deleting the
+drifted copy fixes defect 1, so the measured forecast numbers will change.
+Land it alone, rerun the replay, and explain the delta; never bury it in a
+refactor diff.
 
-### The duplication this phase removes
+## Phase 5 — `asof.py`, the one rewind engine (done, 2026-08-12)
+
+Specified and implemented the same day, one migration step per commit, each
+with its receipt (listed at the end of this section as obtained).
+
+### The duplication this phase removed
 
 Three programs rebuild the past, one per zoom level: `backtest.py` (every
 weekly cutoff → the statistic), `playback.py` (one past win → would we have
 caught it?), `replay.py` (one customer at one past Monday → the report we
-would have sent, and its grading). The zoom levels are the non-redundant
-part and they stay. What is redundant is the rewind machinery itself — each
-program materialises its own past world, near-verbatim, in its own scratch
-directory:
+would have sent, and its grading) — the pre-rename names, kept in this
+section because they are what the duplication looked like. The zoom levels
+are the non-redundant part and they stayed. What was redundant is the rewind
+machinery itself — each program materialised its own past world,
+near-verbatim, in its own scratch directory:
 
 1. filter both store parquets to `publication_date < D` (pyarrow filter,
    which preserves the per-column role metadata `load_with_roles` needs — a
@@ -401,7 +426,7 @@ refs = w.refs_for_firm(name)         # pre-D resolvable wins, as profile refs
 model = w.model()                    # champion trained on pre-D labels only
 ```
 
-`rewind()` is what `backtest.py`'s weekly loop needs: refilter the store,
+`rewind()` is what `rewind_all.py`'s weekly loop needs: refilter the store,
 keep the sidecar, drop the gate/model caches — but **not** the calibration,
 because how often to recalibrate (`RECAL_EVERY`) is the caller's cadence
 decision, not the engine's. `WorldTooThin` propagates; what to do about it
@@ -413,8 +438,8 @@ The guarantees the module owns, and the disclosures that live with it:
 - the filtered store preserves schema and role metadata, and is written
   crash-safe (`.partial` + rename) — for every caller, not one;
 - the sidecar is copied whole, once, and therefore outruns the world it sits
-  in — the disclosed residual currently buried in `backtest.py`'s docstring
-  moves here, next to the code it discloses;
+  in — the disclosed residual that used to be buried in `backtest.py`'s
+  docstring lives here now, next to the code it discloses;
 - nothing inside the world can read a publication dated ≥ D; the module
   never touches outcomes at all — **grading stays at the call sites**, which
   join to the full store *after* the as-of work is done.
@@ -435,41 +460,47 @@ The engine must not silently unify what the three programs deliberately (or
 accidentally) do differently. Each is kept exactly as found, and each
 unification, if ever wanted, is its own decision:
 
-- **Gate recipe:** `backtest.py` and `playback.py` calibrate configuration
-  F, `replay.py` configuration H. Why the split exists is not documented
-  anywhere; ask the operator before ever unifying it.
-- **Bar placement:** the backtest drops a customer's own three bars so the
-  as-of calibration on the config decides (`as_of_profile`'s docstring says
-  why); the playback puts F's bars on the synthetic subscription; the replay
-  puts none on a firm's. Profile *assembly* therefore stays at the call
-  sites — the engine only resolves references.
-- **Directory layout:** `playback.py`'s extra `asof/data/` nesting
-  disappears; the engine settles one layout (`<work>/store/`,
-  `<work>/embeddings/`, `<work>/trusted_codes_asof.json`). Behaviour-neutral.
+- **Gate recipe:** `rewind_all.py` and `rewind_win.py` calibrate
+  configuration F, `rewind_report.py` configuration H. Why the split exists
+  is not documented anywhere; ask the operator before ever unifying it.
+- **Bar placement:** the all-lots rewind drops a customer's own three bars
+  so the as-of calibration on the config decides (`as_of_profile`'s
+  docstring says why); the win rewind puts F's bars on the synthetic
+  subscription; the report rewind puts none on a firm's. Profile *assembly*
+  therefore stays at the call sites — the engine only resolves references.
+- **Directory layout:** the old `playback_asof/data/` extra nesting is gone;
+  the engine settles one layout (`<work>/store/`, `<work>/embeddings/`,
+  `<work>/trusted_codes_asof.json`). Behaviour-neutral.
 - **Scratch homes:** one parent, one subdirectory per program —
   `data/asof/all/`, `data/asof/win/`, `data/asof/report/` — so two rewinds
   can run at once and a half-hour run is never lost to a collision. The
-  housekeeping sweep (`test_housekeeping.py`) follows the move.
+  housekeeping sweep (`test_housekeeping.py`) followed the move and retires
+  the three pre-phase-5 homes by the same age rule.
 
-### Migration — one program per step, each with a receipt
+### Migration — one program per step, receipts as obtained
 
-Prerequisite: the in-flight document work lands first (`backtest.py` emits
-one JSON document on stdout, `TRADE_PAGES.md` §6d) — step 1's receipt is
-that document, so it must be trustworthy before the refactor starts.
+Prerequisite (met first): the document work of `TRADE_PAGES.md` §6d landed,
+so step 1's receipt — the replay's JSON document — was trustworthy before
+the refactor started.
 
-1. **Extract the engine from `backtest.py`** (the most-exercised copy) and
-   point `backtest.py` at it. Receipt: replay the same store before and
-   after — the document is byte-identical except `generated`.
-2. **Port `playback.py`.** Receipt: the same verdict on the Jebsen solo win,
-   same console numbers modulo timings.
-3. **Port `replay.py`** — config H proves the recipe is really a parameter.
-   Receipt: the same two HTML reports modulo timestamps.
-4. **Delete the three inline copies and rename the view programs — all
+1. **Engine extracted from `backtest.py`** (the most-exercised copy), which
+   became its first reader. Receipt: `--step 56` replay before and after,
+   documents **byte-identical** (1,091,788 bytes, including `generated` —
+   same day). The receipt run itself caught a real bug: without `--sub`,
+   `subscriptions.load`'s retired-field warnings printed ahead of the
+   stdout guard and corrupted the document; guard widened, test added for
+   exactly that branch.
+2. **`playback.py` ported.** Receipt: the default Jebsen run before and
+   after, output identical except the elapsed-seconds line.
+3. **`replay.py` ported** — config H proving the recipe is really a
+   parameter. Receipt: `jebsen-blitzschutz` at `--cutoff 2026-03-25
+   --check-date 2026-08-01`, console identical except two elapsed-time
+   lines, both annex HTML files **byte-identical**.
+4. **The three inline copies deleted, and the view programs renamed — all
    five.** Operator's call (2026-08-12): `backtest`, `playback`, `replay`,
-   `explain` and `tryout` are terrible names that describe nothing of what a
-   program does — three of them are near-synonyms for the same rewind, and
-   none says what question it answers. A name must say the direction and the
-   thing produced:
+   `explain` and `tryout` described nothing of what a program does — three
+   were near-synonyms for the same rewind, and none said what question it
+   answers. A name must say the direction and the thing produced:
 
    | old | new | what it does |
    | --- | --- | --- |
@@ -482,34 +513,30 @@ that document, so it must be trustworthy before the refactor starts.
    The two families read as what they are: `rewind_*` share the engine and
    the direction; `preview_report` ↔ `rewind_report` are the same question
    in opposite directions. All `git mv`, docs updated in the same commit.
-   Receipt: `grep` finds no store-filtering `pq.write_table` outside
-   `asof.py`, no `backtest_world`/`playback_asof`/`replay_asof` anywhere,
-   and no reference to the five old program names outside this file's
-   history sections.
+   Receipt: full suite green (232); store-filtering `pq.write_table` exists
+   only in `asof.py` (`features.py` builds the real store, which is not a
+   rewind); `backtest_world`/`playback_asof`/`replay_asof` survive only in
+   the housekeeping sweep that retires them, and the old program names only
+   in history sections like this one.
 
-Time-isolation properties get their own test file against `asof.py`
-(pre-D-only store, metadata preserved, crash interruption leaves a usable
-world, `rewind()` invalidates what it must) — tests none of the three copies
-has today, which is rather the point.
+The time-isolation properties have their own test file
+(`tests/test_asof.py`): pre-cutoff-only store, role metadata surviving the
+filter, an interrupted rewind leaving a repairable world (the 2026-08-11
+truncated-parquet failure, now impossible to reintroduce silently), caches
+dropped on rewind, calibration deliberately kept, the F/H recipe mappings.
+None of the three copies had any of these tests — which is rather the point.
 
-### Order against phase 4, and the principle both serve
+### The principle this phase and phase 4 both serve
 
-**Phase 5 before phase 4.** Phase 5 is behaviour-preserving and its receipt
-is byte-identity; phase 4 is *not* behaviour-preserving for the backtest —
-it deletes the drifted copy of the selection loop (defect 1), so the
-measured numbers will change, and that change must arrive alone and
-explained, never buried in a refactor diff.
-
-Both phases serve the architecture the programs already gesture at — **one
-writer, many readers**: `loop.py` is the single scheduled writer
+**One writer, many readers**: `loop.py` is the single scheduled writer
 (deliveries, ledgers, learning); every question-answering view, forward
 (`explain_verdict.py`, `preview_report.py`) or rewinding (`rewind_*.py`), is
 a read-only program over a shared engine. The 2×3 map of question ×
-direction belongs in `METHODS.md` §0 when step 4 lands. Explicitly rejected:
-one `rewind.py` with `--all/--win/--report` modes — a mode-switch program is
-`loop.deliver()`'s tangle mirrored backwards. Open after step 4, cheap and
-optional: `rewind_win.py` is nearly a special case of `rewind_report.py`;
-folding 3 → 2 becomes a small diff once both are thin.
+direction is `METHODS.md` §0. Explicitly rejected: one `rewind.py` with
+`--all/--win/--report` modes — a mode-switch program is `loop.deliver()`'s
+tangle mirrored backwards. Open, cheap and optional: `rewind_win.py` is
+nearly a special case of `rewind_report.py`; folding 3 → 2 is a small diff
+now that both are thin.
 
 ## Open, not scheduled
 
