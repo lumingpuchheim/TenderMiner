@@ -6,9 +6,12 @@ Phase 2 (SQLite) and phase 4 (`select.py` / `render.py`) are specified here
 and not started — phase 3 was taken before phase 2 because the ledger could
 not say which rules produced a pick, while the storage problems are ones the
 system will have rather than has. Phase 5 (`asof.py`, the one rewind engine)
-**specified** 2026-08-12, and ordered **before** phase 4: it is
+**implemented** 2026-08-12, same day it was specified — all four steps, each
+with its receipt (byte-identical document; identical playback verdict;
+identical report-rewind console and annexes; the renames with a green
+suite). It was ordered **before** phase 4 deliberately: phase 5 is
 behaviour-preserving, while phase 4 changes the backtest's measured numbers
-(it fixes defect 1) and must land alone. Uses the vocabulary of
+(it fixes defect 1) and must land alone. Phase 4 is now the next one due. Uses the vocabulary of
 [`ONLINE_LEARNING.md`](ONLINE_LEARNING.md) and
 [`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md) (**component** = a box that always
 runs; **phase** = build order in time, never a scope cut). Nothing here

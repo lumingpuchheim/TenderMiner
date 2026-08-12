@@ -1,100 +1,73 @@
 # HANDOFF — the public trade pages and the forecast figure
 
-Written 2026-08-11 at the end of a long session, for whoever picks this up.
-The goal in one line:
+Rewritten 2026-08-12. The 2026-08-11 version of this file described a
+half-built pipeline and one unverified claim; both are resolved, and the
+open question it could not settle is answered with a measurement below.
+
+The goal, unchanged:
 
 > **A visitor on a trade page should see how well we predict a
 > non-contested tender — in his trade, honestly, including when we are bad
 > at it.**
 
-The machinery for that is built and merged. What is missing is the *data*,
-and one claim of mine that was never verified.
+## 1. How the pieces fit now
 
-## 1. Where things stand
-
-**Built and on master:**
-
-- `site/` — the hand-written public pages (landing, Impressum, Datenschutz,
-  `style.css`, `robots.txt`). Brand is **Murara**, contact `info@murara.eu`,
-  domain `murara.eu`. Edit these by hand; there is no build step for them.
-- `trade_pages.py` — builds the whole site into **`<data-dir>/public/`**
-  (never into `site/`, which in the container is the read-only image). 32 of
-  47 trades qualify; the other 15 are named at every run.
-- The forecast section on every trade page — [`TRADE_PAGES.md`](TRADE_PAGES.md)
-  §6c has the full design, four states, and why the unflattering one prints.
-- `backtest.py` writes `data/reports/backtest_lots.json` — the per-lot receipt
-  the section reads. **Run the replay once, slice it many times.**
-- `doc/METHODS.md` §0 — which program answers which question. Read it before
-  quoting any precision or recall.
-
-**Every page today says „noch nicht genug ausgewertete Hinweise".** That is
-correct behaviour, not a bug: no receipt exists in the live `data/` yet.
-
-## 2. The one thing that makes it real
+The replay produces **one JSON document on stdout** and owns no path; every
+readable form is a renderer over that document ([`TRADE_PAGES.md`](TRADE_PAGES.md)
+§6d). The rewind machinery lives in `asof.py`, shared by all three rewind
+programs (`REFACTOR.md` phase 5 — implemented, receipts in the log). The
+programs were renamed 2026-08-12; [`METHODS.md`](METHODS.md) §0 has the
+question × direction grid.
 
 ```
-docker compose run --rm tm python backtest.py
+python rewind_all.py > run-<date>.json        # the replay, ~33 min
+python rewind_all.py --render run-<date>.json # operator prose, seconds
+python trade_pages.py --replay run-<date>.json # the pages, with the figure
 ```
 
-That writes the receipt. The next `trade_pages.py` run then fills the section
-in. Nothing else is needed.
+No `--replay` → every page says „…behaupten wir dazu nichts", which is
+correct, not a bug.
 
-**Expect most trades still to say nothing.** A synthetic dry run over the real
-6,685 resolved lots put 22 of 32 trades in "too few checked alarms" and 10 in
-"beats chance" — and that used a deliberately generous flagging rule. The
-floor is `market.SMALL_SAMPLE` = 30 *checked alarms*, which is the right bar
-and will exclude most trades for a while.
+## 2. Measurements that used to be guesses
 
-## 3. Open question I could not settle — and where I was probably wrong
+- **The full weekly replay takes ~33 minutes** (measured 2026-08-11: 79
+  cutoffs, 46 trained, 33 min 26 s; seeded end to end, so a rerun is
+  byte-identical). The old "it takes hours" claim was never a measurement.
+  It *could* run weekly; there is currently no reason to spend that, since
+  the figure moves quarterly at best and the page prints the document's
+  date.
+- **Forecast quality over the whole store** (run of 2026-08-11, 5,994
+  checkable lots): precision 17% (CI 15–20%), recall 31% (CI 28–35%), base
+  rate 9%, 1.83× chance. Per CPV3 (internal targeting only, never public):
+  452 at 2.01×, 453 at 1.34×, 454 at 1.18×, 450 and 451 **below chance** —
+  no lift number in their letters.
 
-The operator asked, and I did not get to answer: **why can the backtest not
-just run weekly?**
+## 3. What remains before the figure is live
 
-I said repeatedly that it takes hours. **I never measured it.** That claim
-came from a line in `STORAGE.md` ("a backtest can run for hours") written
-about a different configuration, and I repeated it as if it were a
-measurement. The operator pushed back and may well be right.
-
-What is actually true: `backtest.py` replays every weekly cutoff since the
-awards begin, and retrains the champion at each one. Whether that is minutes
-or hours on this store **is an empirical question nobody has answered.**
-
-So: **time it.** `--step 28` replays monthly instead of weekly and should be
-roughly a quarter of the cost. If a full run is tolerable, put it in the
-weekly cycle and delete the "not in the cycle" caveat from
-[`TRADE_PAGES.md`](TRADE_PAGES.md) §6c. If it is not, keep the receipt and
-refresh it quarterly. Either way the page prints the receipt's own date, so a
-stale figure ages visibly.
+1. **Produce the document from the current store** and keep it wherever
+   run artifacts should live (operator's naming — the program will not
+   choose).
+2. **Build and upload the site** with `--replay` pointing at it. Expect
+   most trades to say "too few checked alarms" — the floor is
+   `market.SMALL_SAMPLE` = 30 checked alarms, and that is the right bar.
 
 ## 4. Rules this work must keep
 
-Four, all learned the hard way in this session:
-
-1. **Trades are matched by words in the lot title, never by CPV.** Buyers
-   enter CPV wrongly; `market.py` never consults it. `backtest.py`'s own prose
-   table still groups by CPV3 — that table is therefore **not quotable on a
-   public page**, and the per-trade slice deliberately re-does the grouping.
-2. **Two different things are called precision/recall.** *Forecast* (did a
-   flagged lot really end with 0-1 bids — `backtest.py`) and *gate* (is this
-   lot in the customer's trade — `calibrate.py`). Never quote one in the
+1. **Trades are matched by words in the lot title, never by CPV.** The
+   document carries `cpv3` (raw store field) but no trade; consumers join
+   to the store. `rewind_all.py`'s own CPV3 table is not quotable publicly.
+2. **Two different things are called precision/recall** — *forecast*
+   (`rewind_all.py`) vs *gate* (`calibrate.py`). Never quote one in the
    other's sentence. `METHODS.md` §0.
-3. **No figure without its denominator and its date.** A share over 8 alarms
-   is noise; a market page with no „Stand" silently ages into a lie.
-4. **An unflattering measured result gets printed, not dropped.** Operator's
-   call. A silently missing section is the version a reader cannot audit.
+3. **No figure without its denominator and its date.**
+4. **An unflattering measured result gets printed, not dropped.**
 
-## 5. Housekeeping left over
+## 5. Still open, none of it code
 
-- **`murara:latest` is an orphan image** — from a rename that was reverted.
-  `docker rmi murara:latest`, nothing references it.
-- **The running scheduler is on a stale image** (`39059efcd2db`, ~9 h old, now
-  untagged). Docker never swaps a running container's image on rebuild, so
-  next Monday it would run pre-forecast code. Recreate it:
-  `docker compose --profile scheduler up -d scheduler`, then the old layer is
-  collectable.
-- **Blocking the first letter**, none of it code: the Impressum text
-  (`TM_IMPRESSUM`, § 5 TMG — the HTML comment in
-  `site/impressum/index.html` lists what is required), `info@murara.eu`
-  receiving mail, and the Resend sending domain verified.
-- The VPS is still unchosen; [`HOSTING.md`](HOSTING.md) has the measurements
-  and the comparison.
+- The Impressum text (`TM_IMPRESSUM`), `info@murara.eu` receiving mail,
+  and the Resend sending domain — blocking the first letter.
+- The VPS is unchosen; [`HOSTING.md`](HOSTING.md) has the comparison.
+- `REFACTOR.md` phase 4 (`select.py` / `render.py`) is now the next
+  refactor due, and it will **change the backtest's measured numbers**
+  (it deletes the drifted copy of the selection loop — defect 1). Land it
+  alone, rerun the replay, and explain the delta when it happens.
