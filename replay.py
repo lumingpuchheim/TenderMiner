@@ -6,11 +6,12 @@ second report at --check-date (default today) where "Ihre Empfehlungen im
 Rückblick" grades those picks against the outcomes the market has published
 since. Two HTML files, side by side: what we said, and whether it was right.
 
-Time isolation as in playback.py/backtest.py: an as-of world under
-data/replay_asof/ holds only pre-D publications; trust list, thresholds
-(configuration H), profile and CatBoost model are rebuilt inside it. The
-full store is consulted only to grade. Everything is written to
-data/replay/<sub_id>/ — real ledgers and reports are never touched.
+Time isolation lives in `asof.py` (REFACTOR.md phase 5): an as-of world
+under data/asof/report holds only pre-D publications; trust list, thresholds
+(configuration H), profile and CatBoost model are rebuilt inside it, and the
+engine's guarantees are documented there. The full store is consulted only
+to grade. Everything is written to data/replay/<sub_id>/ — real ledgers and
+reports are never touched.
 
 Choosing D: awards follow deadlines by ~3 months, so a cutoff 3-6 months
 back usually has graded outcomes; `python backtest.py` prints per-subscription
@@ -28,7 +29,6 @@ Usage:
 """
 
 import argparse
-import json
 import re
 import shutil
 import sys
@@ -36,11 +36,9 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
-import pyarrow.compute as pc
-import pyarrow.parquet as pq
 
+import asof
 import calibrate as cal
 import config
 import ledger
@@ -96,21 +94,14 @@ def main():
         if sub is None:
             sys.exit(f'[replay] no active subscription {args.sub!r}')
 
-    # ---- the as-of world -----------------------------------------------------
-    ASOF = FULL / 'replay_asof'
-    if ASOF.exists():
-        shutil.rmtree(ASOF)
-    (ASOF / 'store').mkdir(parents=True)
-    for name in ('tenders', 'awards'):
-        tab = pq.read_table(FULL / 'store' / f'{name}.parquet')
-        pq.write_table(tab.filter(pc.less(tab.column('publication_date'), D.date())),
-                       ASOF / 'store' / f'{name}.parquet')
-    shutil.copytree(FULL / 'embeddings', ASOF / 'embeddings')
+    # ---- the as-of world (asof.py owns the guarantees) -----------------------
+    world = asof.World(FULL, FULL / 'asof' / 'report')
+    world.rewind(D)
     print(f'[replay] as-of world at {D.date()} built in {time.time() - t0:.0f}s')
 
     # ---- as-of calibration (configuration H) + gate constants ---------------
     try:
-        r = cal.calibrate(str(ASOF))
+        r = world.calibrate()
     except cal.WorldTooThin as e:
         raise SystemExit(
             f'[replay] {e}\n'
@@ -119,40 +110,27 @@ def main():
             'claims to show. Pick a later cutoff — --scan lists the ones '
             'with graded picks.')
     H = r['configs']['H single bar + trade-read corroboration']
-    trust_json = ASOF / 'trusted_codes_asof.json'
-    trust_json.write_text(json.dumps(
-        {'baseline': r['baseline'], 'cut': r['trust_cut'],
-         'codes': {k: {'n': v['n'], 'cohesion': v['cohesion'],
-                       'trusted': v['cohesion'] >= r['trust_cut']}
-                   for k, v in r['cohesion'].items()}}), encoding='utf-8')
-    # the as-of calibration as a config value (REFACTOR.md phase 3);
-    # assigning to relevance's module globals no longer reaches the gate
-    cfg = rel.DEFAULT_CONFIG.replace(
-        trusted_codes=trust_json,
-        soft_floor=H['soft_floor'],
-        soft_consensus=H['soft_consensus'],
-        trade_read_form=H['corr_form'] if H['corr_form'] != 'off' else 'off',
-        trade_read_param=H['corr_param'])
+    cfg = world.calibrated_config('H')
     print(f"[replay] as-of gate H: text {H['threshold']:.3f}, hard "
           f"{H['code_threshold']:.3f}, soft {H['soft_threshold']:.3f}, "
           f"corr {H['corr_form']}@{H['corr_param']:.3f}")
 
     # ---- as-of profile from the wins the firm had at D ----------------------
-    gate = rel.Gate(str(ASOF), config=cfg)
-    awards_asof = pd.read_parquet(ASOF / 'store' / 'awards.parquet')
-    tenders_asof = pd.read_parquet(ASOF / 'store' / 'tenders.parquet')
+    gate = world.gate(cfg)
+    awards_asof = world.awards
     lots_nuts = {(p, l): n for p, l, n in zip(
-        tenders_asof['procedure_id'], tenders_asof['lot_id'],
-        tenders_asof['place_nuts3'])}
+        world.tenders['procedure_id'], world.tenders['lot_id'],
+        world.tenders['place_nuts3'])}
 
     def firm_asof(firm_name):
-        """(refs, NUTS1 prefixes) of a real firm's resolvable as-of wins."""
+        """(refs, NUTS1 prefixes) of a real firm's resolvable as-of wins.
+        Refs come from the engine; the NUTS prefixes are this program's own
+        need (a firm's region = where it won)."""
+        f_refs = asof.refs_for_firm(gate, awards_asof, firm_name)
         aw_f = awards_asof[awards_asof['winner_names'].apply(
             lambda x: x is not None and firm_name in list(x))]
         keys = [(p, l) for p, l in zip(aw_f['procedure_id'], aw_f['lot_id'])
                 if (p, l) in gate.by_key]
-        f_refs = sorted({gate.rows[gate.by_key[k]]['publication_number']
-                         for k in keys})
         nuts = sorted({str(lots_nuts.get(k))[:3] for k in keys
                        if isinstance(lots_nuts.get(k), str) and lots_nuts.get(k)})
         return f_refs, nuts
@@ -186,19 +164,15 @@ def main():
         print(f'[replay] profile as of {D.date()}: {len(refs)} won tenders')
 
     # ---- as-of model + scores for the open market at D ----------------------
-    tenders_r, roles = sb.load_with_roles(ASOF / 'store' / 'tenders.parquet')
-    awards_r, _ = sb.load_with_roles(ASOF / 'store' / 'awards.parquet')
-    data, aw, _ = sb.assemble(tenders_r, awards_r)
-    X, cat_cols, _, _ = sb.build_features(data, roles, list_frame=tenders_r)
-    k = data.groupby(sb.KEY)['label'].transform('size')
-    model = sb.train(X, data['label'].to_numpy(), (1.0 / k).to_numpy(), cat_cols)
-    print(f'[replay] model trained on {data.groupby(sb.KEY).ngroups} pre-{D.date()} '
-          f'lots in {time.time() - t0:.0f}s')
+    model = world.model()
+    print(f'[replay] model trained on {world.data.groupby(sb.KEY).ngroups} '
+          f'pre-{D.date()} lots in {time.time() - t0:.0f}s')
 
-    open_t = sb.open_tenders(tenders_r, aw)
+    open_t = sb.open_tenders(world.tenders, world.aw)
     deadline = pd.to_datetime(open_t.get('deadline_date'), errors='coerce')
     open_t = open_t[deadline.isna() | (deadline >= D)]
-    Xo, cats_o, _, _ = sb.build_features(open_t, roles, list_frame=tenders_r)
+    Xo, cats_o, _, _ = sb.build_features(open_t, world.roles,
+                                         list_frame=world.tenders)
     scores = sb.predict(model, Xo)
     why_lonely, why_crowded = loop.explain_rows(model, Xo, cats_o)
     scored = []
@@ -286,7 +260,7 @@ def main():
         shutil.rmtree(OUT)
     (OUT / 'ledger').mkdir(parents=True)
     subscriptions.write_sandbox(OUT, [replay_sub])
-    paths = loop.Paths(str(ASOF), 'models')
+    paths = loop.Paths(str(world.work), 'models')
     paths.subs_home = OUT
     # one sandbox home for every ledger this replay writes. OUT is recreated on
     # each run (rmtree above), so appending to an empty store is what the old
