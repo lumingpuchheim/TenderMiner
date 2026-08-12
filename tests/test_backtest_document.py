@@ -92,6 +92,27 @@ class StdoutIsTheDocument(unittest.TestCase):
         self.assertEqual(doc['n_lots'], 2)
         self.assertNotIn('calibrate', out)
 
+    def test_the_default_sub_resolution_is_guarded_too(self):
+        """The 2026-08-12 corruption: without --sub, main() resolves the
+        gated subscriptions BEFORE replaying, `subscriptions.load` prints
+        its retired-field warnings, and the first stdout-purity test passed
+        --sub and so never walked that branch. This one walks it."""
+        import subscriptions as subs_mod
+        real = subs_mod.load
+
+        def chatty_load(*a, **k):
+            print('[subscriptions] ignoring retired field on 11 version(s)')
+            return [{'sub_id': 'x', 'profile_refs': ['r1']}]
+
+        subs_mod.load = chatty_load
+        try:
+            out = self.run_main(['backtest.py'], lambda *a, **k: minimal_res())
+        finally:
+            subs_mod.load = real
+        doc = json.loads(out)
+        self.assertEqual(doc['n_lots'], 2)
+        self.assertNotIn('subscriptions', out)
+
     def test_out_writes_the_named_file_and_leaves_stdout_empty(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / 'run.json'

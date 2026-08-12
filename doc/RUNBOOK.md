@@ -373,7 +373,7 @@ template noise the corroboration cannot see.
 | `embed.py` / `calibrate.py` / `relevance.py` / `loop.py` / `simulation.py` | the programs | yes |
 | `tryout.py` / `explain.py` / `playback.py` / `backtest.py` | the test tools (§3) | yes |
 | `outreach.py` | target-list builder (§7) | yes |
-| `data/tryout/`, `data/playback_asof/`, `data/backtest_world/` | disposable test sandboxes | no |
+| `data/tryout/`, `data/asof/` | disposable test sandboxes (as-of worlds: `asof.py`) | no |
 
 ## 7. Outreach: the cold-contact target list
 

@@ -20,39 +20,66 @@ import loop
 
 
 class ScratchWorldSweep(unittest.TestCase):
-    """`data/backtest_world` is a per-cutoff copy of the store plus a full copy
-    of the embeddings, rebuilt from the real store on every backtest and read by
-    nothing in between. It reached 203.8 MB — the second largest thing under
-    `data/` after the notice archive — for something entirely reconstructible."""
+    """The as-of scratch worlds under `data/asof/` are per-cutoff copies of
+    the store plus a full copy of the embeddings, rebuilt from the real store
+    on every rewind (`asof.py`) and read by nothing in between. One reached
+    203.8 MB — the second largest thing under `data/` after the notice
+    archive — for something entirely reconstructible."""
 
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix='tm-house-'))
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
-        self.world = self.root / 'backtest_world' / 'store'
+        self.world = self.root / 'asof' / 'all' / 'store'
         self.world.mkdir(parents=True)
         (self.world / 'tenders.parquet').write_bytes(b'x' * 1024)
         self.paths = loop.Paths(self.root, self.root / 'models')
 
-    def _age(self, days):
+    def _age(self, days, world='asof'):
         when = time.time() - days * 86400
-        for f in (self.root / 'backtest_world').rglob('*'):
+        for f in (self.root / world).rglob('*'):
             if f.is_file():
                 os.utime(f, (when, when))
 
     def test_a_fresh_world_is_left_alone(self):
-        """Age is the safety catch: a backtest can run for hours, and a sweep
-        must not pull the floor out from under it."""
+        """Age is the safety catch: a rewind runs for half an hour, and a
+        sweep must not pull the floor out from under it."""
         self.assertEqual(loop._prune_scratch_world(self.paths, 30), (0, 0))
-        self.assertTrue((self.root / 'backtest_world').exists())
+        self.assertTrue((self.root / 'asof' / 'all').exists())
 
     def test_an_aged_world_is_swept(self):
         self._age(40)
         n, freed = loop._prune_scratch_world(self.paths, 30)
         self.assertEqual((n, freed), (1, 1024))
+        self.assertFalse((self.root / 'asof' / 'all').exists())
+
+    def test_worlds_age_on_their_own_clocks(self):
+        """A fresh rewind must not protect a stale one: each subdirectory of
+        data/asof/ is swept by its own newest file."""
+        other = self.root / 'asof' / 'report' / 'store'
+        other.mkdir(parents=True)
+        (other / 'tenders.parquet').write_bytes(b'y' * 2048)
+        self._age(40)                       # ages asof/all AND asof/report
+        os.utime(other / 'tenders.parquet', None)   # report is fresh again
+        n, freed = loop._prune_scratch_world(self.paths, 30)
+        self.assertEqual((n, freed), (1, 1024))
+        self.assertFalse((self.root / 'asof' / 'all').exists())
+        self.assertTrue((self.root / 'asof' / 'report').exists())
+
+    def test_the_pre_phase5_homes_are_still_swept(self):
+        """`backtest_world`, `playback_asof` and `replay_asof` linger on
+        operator machines from before the engine; the sweep retires them by
+        the same age rule."""
+        legacy = self.root / 'backtest_world' / 'store'
+        legacy.mkdir(parents=True)
+        (legacy / 'tenders.parquet').write_bytes(b'z' * 512)
+        self._age(40, world='backtest_world')
+        shutil.rmtree(self.root / 'asof')
+        n, freed = loop._prune_scratch_world(self.paths, 30)
+        self.assertEqual((n, freed), (1, 512))
         self.assertFalse((self.root / 'backtest_world').exists())
 
     def test_absent_world_is_not_an_error(self):
-        shutil.rmtree(self.root / 'backtest_world')
+        shutil.rmtree(self.root / 'asof')
         self.assertEqual(loop._prune_scratch_world(self.paths, 30), (0, 0))
 
     def test_prune_caches_never_raises(self):

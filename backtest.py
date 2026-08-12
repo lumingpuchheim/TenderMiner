@@ -14,27 +14,13 @@ bidder count (the customer-outcome claim). The axes have different
 denominators: the first needs a countable bid field, the second only a
 named winner on the latest award revision.
 
-Time isolation is by construction: one working directory whose store
-parquets are rewritten per cutoff (pyarrow filter — preserves the role
-metadata), and every component (calibration, trust list, profile, model)
-reads only from it.
-
-The embedding sidecar is the exception, and it is a deliberate one: it is
-copied whole, once, because embedding every cutoff over again would dominate
-the run. It is therefore a per-notice cache that outruns the world it sits
-in, and anything reading it must intersect with the store first —
-`calibrate.calibrate` does that with its `world` row set. Two draws there
-once indexed the sidecar by raw row number and so estimated the cohesion
-baseline (hence which CPV codes are trusted) and the admitted-volume pool
-partly from notices published after the cutoff; fixed 2026-08-10. What
-crossed was aggregate text distribution, never an outcome — no bid count,
-winner or award row has ever reached the as-of side.
-
-Remaining disclosed residuals: a notice's embedding vector is looked up from
-that shared sidecar (a per-notice function of its own text, so no other
-notice's existence changes it); the system's design postdates the replayed
-period; trust/thresholds are recalibrated every RECAL_EVERY cutoffs, not
-weekly (cost) — which uses staler thresholds, never later ones.
+Time isolation lives in `asof.py` (REFACTOR.md phase 5): the as-of world,
+the calibration inside it, the pre-cutoff profile references and the pre-
+cutoff champion are the engine's guarantees, shared with the other rewind
+programs and documented there — including the embedding-sidecar residual.
+One residual is this program's own: trust/thresholds are recalibrated every
+RECAL_EVERY cutoffs, not weekly (cost) — which uses staler thresholds, never
+later ones.
 
 **This program produces one thing: a JSON document on stdout** (see
 `build_payload`). It writes no file and owns no path — the operator names the
@@ -55,23 +41,20 @@ Usage:
 
 import argparse
 import json
-import shutil
 import sys
 from datetime import date
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pyarrow.compute as pc
-import pyarrow.parquet as pq
 
+import asof
 import config
 import loop
 import relevance as rel
 import single_bidder as sb
 import subscriptions
 from calibrate import WorldTooThin
-from calibrate import calibrate as run_calibration
 from embed import MODEL_TAG
 
 if hasattr(sys.stdout, 'reconfigure'):
@@ -104,26 +87,6 @@ def winner_map(awards_full):
     return winners
 
 
-def write_world(full_store, work_store, D):
-    """Rewrite the working store to contain only pre-D publications.
-
-    Written to a temp file and renamed, so an interrupted run leaves the
-    previous cutoff's world rather than a half-written parquet. Not for
-    concurrency — this scratch store has one writer — but because a replay
-    that is Ctrl-C'd in the middle of the write used to poison the directory
-    for every LATER run: the next start died on "Parquet magic bytes not found
-    in footer", and nothing rebuilt it, so the only repair was knowing to
-    delete the file by hand. Half an hour of work behind a manual step nobody
-    documented. (Hit for real on 2026-08-11.)
-    """
-    for name in ('tenders', 'awards'):
-        tab = pq.read_table(full_store / f'{name}.parquet')
-        mask = pc.less(tab.column('publication_date'), D.date())
-        tmp = work_store / f'{name}.parquet.partial'
-        pq.write_table(tab.filter(mask), tmp)
-        tmp.replace(work_store / f'{name}.parquet')
-
-
 CALIBRATED_BARS = ('min_relevance', 'min_code_hard', 'min_code_soft')
 
 
@@ -145,12 +108,7 @@ def as_of_profile(gate, sub, awards_asof):
       customer's bars to [0, 1] — rightly: out there such a value is a typo.
       A config field is not customer input and takes them as written.
     """
-    firm = sub.get('name')
-    aw = awards_asof[awards_asof['winner_names'].apply(
-        lambda x: x is not None and firm in list(x))]
-    refs = sorted({gate.rows[gate.by_key[(p, l)]]['publication_number']
-                   for p, l in zip(aw['procedure_id'], aw['lot_id'])
-                   if (p, l) in gate.by_key})
+    refs = asof.refs_for_firm(gate, awards_asof, sub.get('name'))
     if not refs:
         return None
     spec = subscriptions.override(
@@ -161,10 +119,7 @@ def as_of_profile(gate, sub, awards_asof):
 
 def replay(data_dir, step_days, sub_ids):
     full_store = Path(data_dir) / 'store'
-    work = Path(data_dir) / 'backtest_world'
-    (work / 'store').mkdir(parents=True, exist_ok=True)
-    if not (work / 'embeddings').exists():
-        shutil.copytree(Path(data_dir) / 'embeddings', work / 'embeddings')
+    world = asof.World(data_dir, Path(data_dir) / 'asof' / 'all')
 
     tenders_full = pd.read_parquet(full_store / 'tenders.parquet')
     awards_full = pd.read_parquet(full_store / 'awards.parquet')
@@ -191,18 +146,15 @@ def replay(data_dir, step_days, sub_ids):
     week_flags = {}       # cutoff -> [(lot, score, cpv3, nuts1)] for target sim
     sub_picks = {s: {} for s in subs}
     sub_market = {s: set() for s in subs}
-    cal_f, cfg, n_run = None, None, 0
+    cfg, n_run = None, 0
     for D in cutoffs:
-        write_world(full_store, work / 'store', D)
-        tenders_r, roles = sb.load_with_roles(work / 'store' / 'tenders.parquet')
-        awards_r, _ = sb.load_with_roles(work / 'store' / 'awards.parquet')
-        data, aw, _ = sb.assemble(tenders_r, awards_r)
-        n_lots = data.groupby(sb.KEY).ngroups
+        world.rewind(D)
+        n_lots = world.data.groupby(sb.KEY).ngroups
         if n_lots < MIN_TRAIN_LOTS:
             continue
-        if cal_f is None or n_run % RECAL_EVERY == 0:
+        if cfg is None or n_run % RECAL_EVERY == 0:
             try:
-                r = run_calibration(str(work))
+                world.calibrate()
             except WorldTooThin as e:
                 # Early cutoffs only: the world grows monotonically, so this
                 # never strands a later week. Printed, not swallowed — a
@@ -210,40 +162,24 @@ def replay(data_dir, step_days, sub_ids):
                 print(f'[backtest] {D.date()}: skipped — {e}', flush=True,
                       file=sys.stderr)
                 continue
-            cal_f = r['configs']['F hard/soft codes + floor/consensus']
-            trust = work / 'trusted_codes_asof.json'
-            trust.write_text(json.dumps(
-                {'baseline': r['baseline'], 'cut': r['trust_cut'],
-                 'codes': {k: {'n': v['n'], 'cohesion': v['cohesion'],
-                               'trusted': v['cohesion'] >= r['trust_cut']}
-                           for k, v in r['cohesion'].items()}}), encoding='utf-8')
-            # the as-of configuration, as a value rather than by assigning
-            # to relevance's module globals (REFACTOR.md phase 3)
-            # All three bars ride on the config, and as_of_profile drops the
-            # customer's own — see its docstring for why.
-            cfg = rel.DEFAULT_CONFIG.replace(
-                trusted_codes=trust,
-                soft_floor=cal_f['soft_floor'],
-                soft_consensus=cal_f['soft_consensus'],
-                min_relevance=float(cal_f['threshold']),
-                min_code_hard=float(cal_f['code_threshold']),
-                min_code_soft=float(cal_f['soft_threshold']))
+            # Recipe F: all three bars ride on the config, and as_of_profile
+            # drops the customer's own — see its docstring for why.
+            cfg = world.calibrated_config('F')
         n_run += 1
 
-        X, cat_cols, _, _ = sb.build_features(data, roles, list_frame=tenders_r)
-        k = data.groupby(sb.KEY)['label'].transform('size')
-        model = sb.train(X, data['label'].to_numpy(), (1.0 / k).to_numpy(), cat_cols)
+        model = world.model()
 
-        open_t = sb.open_tenders(tenders_r, aw)
+        open_t = sb.open_tenders(world.tenders, world.aw)
         deadline = pd.to_datetime(open_t.get('deadline_date'), errors='coerce')
         open_t = open_t[deadline >= D]
         if open_t.empty:
             continue
-        Xo, _, _, _ = sb.build_features(open_t, roles, list_frame=tenders_r)
+        Xo, _, _, _ = sb.build_features(open_t, world.roles,
+                                        list_frame=world.tenders)
         scores = sb.predict(model, Xo)
 
-        gate = rel.Gate(str(work), config=cfg)
-        profiles = {s: as_of_profile(gate, subs[s], awards_r)
+        gate = world.gate(cfg)
+        profiles = {s: as_of_profile(gate, subs[s], world.awards)
                     for s in subs}
         dl_ok = (deadline.loc[open_t.index]
                  >= D + pd.Timedelta(days=MIN_DEADLINE_DAYS))
@@ -295,7 +231,7 @@ def replay(data_dir, step_days, sub_ids):
 
     return {'flagged': flagged, 'scored': scored_lonely, 'sub_picks': sub_picks,
             'sub_market': sub_market, 'outcome': outcome, 'subs': subs,
-            'awards_full': awards_full, 'gate_dir': str(work),
+            'awards_full': awards_full, 'gate_dir': str(world.work),
             'step_days': step_days, 'n_cutoffs': n_run,
             # call publication + deadline per lot, for the own-win fairness
             # split: a win whose call closed before the firm had a single
@@ -826,22 +762,25 @@ def main():
             print(f'[backtest] {e}', file=sys.stderr)
             return 2
         return
-    sub_ids = args.sub
-    if sub_ids is None:
-        sub_ids = [s0['sub_id'] for s0
-                   in subscriptions.load(args.data_dir,
-                                         date.today().isoformat())
-                   if s0.get('profile_refs')]
     # STDOUT IS THE DOCUMENT, so nothing else may write to it. `calibrate`,
     # `subscriptions` and `embed` all print progress with a bare `print`, and
     # one such line in the middle of the stream is a corrupt JSON file that
     # took half an hour to produce. Rather than police every module (and every
-    # module added later), the replay runs with `sys.stdout` bound to stderr:
-    # `print` resolves it per call, so every stray diagnostic lands with the
-    # deliberate ones and the real stream stays untouched until the dump.
+    # module added later), everything from here to the dump runs with
+    # `sys.stdout` bound to stderr: `print` resolves it per call, so every
+    # stray diagnostic lands with the deliberate ones and the real stream
+    # stays untouched until the dump. The guard starts BEFORE the default
+    # `--sub` resolution — `subscriptions.load` prints retired-field warnings,
+    # and that exact line corrupted a receipt run on 2026-08-12.
     doc_stream = sys.stdout
     try:
         sys.stdout = sys.stderr
+        sub_ids = args.sub
+        if sub_ids is None:
+            sub_ids = [s0['sub_id'] for s0
+                       in subscriptions.load(args.data_dir,
+                                             date.today().isoformat())
+                       if s0.get('profile_refs')]
         res = replay(args.data_dir, args.step, set(sub_ids))
         payload = build_payload(res, targets_csv=args.targets)
     finally:

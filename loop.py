@@ -1167,32 +1167,40 @@ def deliver(paths, scored, args):
 # ------------------------------------------------------- housekeeping
 
 def _prune_scratch_world(paths, max_age_days):
-    """Delete `data/backtest_world` once nothing in it has been touched for
-    `max_age_days`. -> (files, bytes).
+    """Delete stale as-of scratch worlds once nothing in them has been
+    touched for `max_age_days`. -> (files, bytes).
 
-    backtest.py rewrites this directory per cutoff — a copy of the parquet store
-    plus a full copy of the embeddings — and rebuilds it from the real store on
-    every run. Nothing reads it between runs. At 203.8 MB it was the second
-    largest thing under `data/` after the notice archive, for something entirely
-    reconstructible.
+    The rewind programs rebuild these directories from the real store on
+    every run (`asof.py`) — a filtered copy of the parquet store plus a full
+    copy of the embeddings, entirely reconstructible, and nothing reads them
+    between runs. At 203.8 MB apiece they were the second largest thing
+    under `data/` after the notice archive. Swept per subdirectory: each
+    world under `data/asof/` ages on its own clock, so a fresh rewind never
+    protects a stale one. The three pre-phase-5 homes are swept by the same
+    rule until they stop existing on operator machines.
 
-    Age is the safety catch, not a policy: a backtest in progress has fresh
-    files, so a sweep cannot pull the floor out from under a run that may take
-    hours.
+    Age is the safety catch, not a policy: a rewind in progress has fresh
+    files, so a sweep cannot pull the floor out from under a half-hour run.
     """
-    world = paths.data / 'backtest_world'
-    if not world.exists():
-        return 0, 0
-    files = [f for f in world.rglob('*') if f.is_file()]
-    if not files:
-        return 0, 0
-    newest = max(f.stat().st_mtime for f in files)
-    if newest >= time.time() - max_age_days * 86400:
-        return 0, 0
-    freed = sum(f.stat().st_size for f in files)
-    n = len(files)
-    shutil.rmtree(world, ignore_errors=True)
-    return n, freed
+    asof_root = paths.data / 'asof'
+    worlds = ([d for d in asof_root.iterdir() if d.is_dir()]
+              if asof_root.exists() else [])
+    worlds += [paths.data / n for n in ('backtest_world', 'playback_asof',
+                                        'replay_asof')]
+    n_total, freed_total = 0, 0
+    for world in worlds:
+        if not world.exists():
+            continue
+        files = [f for f in world.rglob('*') if f.is_file()]
+        if not files:
+            continue
+        newest = max(f.stat().st_mtime for f in files)
+        if newest >= time.time() - max_age_days * 86400:
+            continue
+        freed_total += sum(f.stat().st_size for f in files)
+        n_total += len(files)
+        shutil.rmtree(world, ignore_errors=True)
+    return n_total, freed_total
 
 
 def prune_caches(paths, max_age_days=30):
@@ -1218,8 +1226,8 @@ def prune_caches(paths, max_age_days=30):
                   f'freed {freed / 1e6:.1f} MB')
         wn, wfreed = _prune_scratch_world(paths, max_age_days)
         if wn:
-            print(f'[prune] backtest_world untouched for {max_age_days}d, '
-                  f'freed {wfreed / 1e6:.1f} MB ({wn} files)')
+            print(f'[prune] as-of scratch worlds untouched for '
+                  f'{max_age_days}d, freed {wfreed / 1e6:.1f} MB ({wn} files)')
         return n + wn
     except Exception as e:
         print(f'[prune] skipped ({e})')

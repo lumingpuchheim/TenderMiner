@@ -516,16 +516,20 @@ ledgers (`predictions.jsonl` back to 98,350 rows), delete the database
 entirely, and run the *previous* code: it reads all 98,350 rows and completes a
 normal cycle. So the database being load-bearing costs one command to undo.
 
-### 6.4b Housekeeping: `data/backtest_world` is swept — DONE 2026-08-08
+### 6.4b Housekeeping: the as-of scratch worlds are swept — DONE 2026-08-08
 
-203.8 MB, the second largest thing under `data/` after the notice archive, and
-entirely reconstructible: `backtest.py` rewrites it per cutoff (a copy of the
-parquet store plus a full copy of the embeddings) and rebuilds it from the real
-store on every run. Nothing reads it in between.
+203.8 MB apiece, the second largest thing under `data/` after the notice
+archive, and entirely reconstructible: `asof.py` rewrites a world per cutoff
+(a filtered copy of the parquet store plus a full copy of the embeddings)
+and rebuilds it from the real store on every rewind. Nothing reads one in
+between. Since phase 5 they live under `data/asof/<program>/`; the sweep
+covers those per subdirectory, plus the three pre-phase-5 homes
+(`backtest_world`, `playback_asof`, `replay_asof`) until they stop existing
+on operator machines.
 
-Swept by the cycle on the same 30-day rule as the discovery cache. **Age is the
-safety catch, not a policy** — a backtest can run for hours, so fresh files are
-never touched.
+Swept by the cycle on the same 30-day rule as the discovery cache. **Age is
+the safety catch, not a policy** — a rewind runs for half an hour, so fresh
+files are never touched.
 
 Receipts: `tests/test_housekeeping.py`, seven tests covering both sweeps — a
 fresh world left alone, an aged one removed, an absent one not an error,
