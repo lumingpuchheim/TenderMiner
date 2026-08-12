@@ -24,8 +24,8 @@ coordinator's part: sample, shard, merge, verify.
 
 - **The label is a reading, never a computation.** You decide by reading the
   lot's title and its Leistung section. You must not run the gate on a case
-  you are labeling — not `explain.py`, not `evidence.py --keywords`, not
-  `tryout.py`. A benchmark built from the gate's own output measures nothing.
+  you are labeling — not `explain_verdict.py`, not `evidence.py --keywords`, not
+  `preview_report.py`. A benchmark built from the gate's own output measures nothing.
 - **When you cannot decide, do not label.** Undecidable is a normal outcome
   and costs nothing; a guessed label is worse than no label, because it
   silently vetoes configurations for the rest of the project's life. The skip

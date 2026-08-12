@@ -9,8 +9,8 @@ documented there. The outcome (bid count) is read from the full store only
 at evaluation time.
 
 Usage:
-    python playback.py                                # Jebsen's 2026 solo win
-    python playback.py --firm "Firma GmbH" --since 2025-06-01
+    python rewind_win.py                                # Jebsen's 2026 solo win
+    python rewind_win.py --firm "Firma GmbH" --since 2025-06-01
 """
 
 import argparse
@@ -52,22 +52,22 @@ jb = awards_full[awards_full['winner_names'].apply(
 solo = jb[(jb['n_tenders'] == 1)
           & (jb['publication_date'].astype(str) >= args.since)]
 if solo.empty:
-    sys.exit(f'[playback] no solo win for {args.firm!r} since {args.since}')
+    sys.exit(f'[rewind_win] no solo win for {args.firm!r} since {args.since}')
 tgt_award = solo.iloc[0]
 key = (tgt_award['procedure_id'], tgt_award['lot_id'])
 tlots = tenders_full.drop_duplicates(subset=sb.KEY)
 tgt = tlots[(tlots['procedure_id'] == key[0]) & (tlots['lot_id'] == key[1])].iloc[0]
 D = pd.Timestamp(tgt['deadline_date']) - pd.Timedelta(days=14)
-print(f"[playback] target: {tgt['title']!r} | buyer {tgt['buyer_name']}")
-print(f"[playback] notice published {tgt['publication_date']}, deadline {tgt['deadline_date']}")
-print(f"[playback] award published {tgt_award['publication_date']} with "
+print(f"[rewind_win] target: {tgt['title']!r} | buyer {tgt['buyer_name']}")
+print(f"[rewind_win] notice published {tgt['publication_date']}, deadline {tgt['deadline_date']}")
+print(f"[rewind_win] award published {tgt_award['publication_date']} with "
       f"{int(tgt_award['n_tenders'])} bid(s)")
-print(f"[playback] cutoff D = {D.date()} (deadline - 14d, the last honest cycle)")
+print(f"[rewind_win] cutoff D = {D.date()} (deadline - 14d, the last honest cycle)")
 
 # ---- step 2: the as-of world (asof.py owns the guarantees) ------------------
 world = asof.World(FULL, FULL / 'asof' / 'win')
 world.rewind(D)
-print(f'[playback] as-of store: {len(world.tenders)} tender rows, '
+print(f'[rewind_win] as-of store: {len(world.tenders)} tender rows, '
       f'{len(world.awards)} award rows '
       f'({len(tenders_full) - len(world.tenders)} / '
       f'{len(awards_full) - len(world.awards)} future rows excluded)')
@@ -76,11 +76,11 @@ print(f'[playback] as-of store: {len(world.tenders)} tender rows, '
 try:
     r = world.calibrate()
 except cal.WorldTooThin as e:
-    raise SystemExit(f'[playback] {e}\n'
-                     f'[playback] too little of the store predates {D.date()} '
+    raise SystemExit(f'[rewind_win] {e}\n'
+                     f'[rewind_win] too little of the store predates {D.date()} '
                      'to calibrate against. Pick a later cutoff.')
 F = r['configs']['F hard/soft codes + floor/consensus']
-print(f"[playback] as-of F: text {F['threshold']:.3f}, hard {F['code_threshold']:.3f}, "
+print(f"[rewind_win] as-of F: text {F['threshold']:.3f}, hard {F['code_threshold']:.3f}, "
       f"soft {F['soft_threshold']:.3f} (floor {F['soft_floor']:.2f}/k{F['soft_consensus']}), "
       f"leakage {F['leakage']:.1%}")
 
@@ -91,8 +91,8 @@ cfg = world.calibrated_config('F')
 gate = world.gate(cfg)
 refs = asof.refs_for_firm(gate, world.awards, args.firm)
 if not refs:
-    sys.exit(f'[playback] {args.firm!r} had no resolvable win before {D.date()}')
-print(f'[playback] profile as of {D.date()}: {len(refs)} won tenders {refs}')
+    sys.exit(f'[rewind_win] {args.firm!r} had no resolvable win before {D.date()}')
+print(f'[rewind_win] profile as of {D.date()}: {len(refs)} won tenders {refs}')
 sub = {'sub_id': 'playback', 'version': 1, 'name': args.firm,
        'profile_refs': refs, 'min_relevance': F['threshold'],
        'min_code_hard': F['code_threshold'], 'min_code_soft': F['soft_threshold']}
@@ -100,7 +100,7 @@ profile = rel.build_profile(gate, sub)
 
 # ---- step 5: as-of model ----------------------------------------------------
 model = world.model()
-print(f'[playback] model trained on {world.data.groupby(sb.KEY).ngroups} '
+print(f'[rewind_win] model trained on {world.data.groupby(sb.KEY).ngroups} '
       f'labeled lots (all pre-{D.date()}) in {time.time() - t0:.0f}s')
 
 # ---- step 6: replay the cycle at D ------------------------------------------
@@ -133,7 +133,7 @@ for (i, row), s, fl in zip(open_t.iterrows(), scores, flags):
 # recommendable; a pick just needs the competition flag on top
 in_slice.sort(key=lambda d: -d['score'])
 picks = [d for d in in_slice if d['flag']][:5]
-print(f'[playback] market at {D.date()}: {len(in_slice)} gated lots, {len(picks)} picks')
+print(f'[rewind_win] market at {D.date()}: {len(in_slice)} gated lots, {len(picks)} picks')
 print()
 aw_full, _ = sb.latest_awards(awards_full)
 outcome = {(a['procedure_id'], a['lot_id']): a['n_tenders']
@@ -148,16 +148,16 @@ for rank, d in enumerate(picks, 1):
 print()
 v = verdicts.get(key)
 if v is None:
-    print('[playback] TARGET WAS NOT IN THE CANDIDATE SET (check filters)')
+    print('[rewind_win] TARGET WAS NOT IN THE CANDIDATE SET (check filters)')
 else:
     ok, tx, cd, ch, why = v
     tgt_row = [d for d in in_slice if (d['procedure_id'], d['lot_id']) == key]
     in_picks = any((d['procedure_id'], d['lot_id']) == key for d in picks)
-    print(f'[playback] TARGET verdict: gate passed={ok}, text={tx:.3f}, code={cd:.3f}, '
+    print(f'[rewind_win] TARGET verdict: gate passed={ok}, text={tx:.3f}, code={cd:.3f}, '
           f'hard={ch:.3f}, why={why}')
     if tgt_row:
         d = tgt_row[0]
         rank = in_slice.index(d) + 1
-        print(f'[playback] competition: score={d["score"]:.3f} flag={d["flag"]} '
+        print(f'[rewind_win] competition: score={d["score"]:.3f} flag={d["flag"]} '
               f'| rank {rank}/{len(in_slice)} in the slice')
-    print(f'[playback] RECOMMENDED AS PICK: {in_picks}')
+    print(f'[rewind_win] RECOMMENDED AS PICK: {in_picks}')

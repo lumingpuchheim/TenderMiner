@@ -81,7 +81,7 @@ def _where(source, lineno):
 
 def _is_missing(v):
     """None and the JSON null a sandbox writer emits both mean 'not set'.
-    replay.py writes `min_relevance: null` for a firm with no resolvable
+    rewind_report.py writes `min_relevance: null` for a firm with no resolvable
     win — an explicit absence, not a bad value."""
     return v is None
 
@@ -92,7 +92,7 @@ def validate(row, source='<row>', lineno=None, retired_out=None):
     Raises SubscriptionError with the file and line for anything that cannot
     be read with confidence. Returns a plain dict: the wire format stays a
     mapping, because relevance.build_profile is also handed synthetic specs
-    by the receipt harnesses (evidence.judge_run, backtest.as_of_profile).
+    by the receipt harnesses (evidence.judge_run, rewind_all.as_of_profile).
 
     `retired_out`: a dict collecting {field: count} instead of warning per
     occurrence. An append-only file accumulates retired fields on every
@@ -312,7 +312,7 @@ def resolve(rows, as_of):
     SUBSCRIPTIONS.md: versioned, never edited — the newest version with
     `effective_from <= as_of` speaks for the subscription, and `active:
     false` deactivates. A line with no `effective_from` has always been in
-    force (replay.py writes such lines into its sandbox).
+    force (rewind_report.py writes such lines into its sandbox).
     """
     as_of = str(as_of)
     in_force = {}
@@ -331,7 +331,7 @@ def load(home, as_of):
     """The active subscriptions in force on `as_of`. The one entry point.
 
     `home` is the directory subscriptions live in — `data/` in production, a
-    sandbox directory under tryout.py/replay.py. Never a file path; see
+    sandbox directory under preview_report.py/rewind_report.py. Never a file path; see
     storage()."""
     return resolve(read_all(home), as_of)
 
@@ -345,7 +345,7 @@ def write_sandbox(home, subs):
     """Create throwaway subscription storage in `home` — the only supported
     way to build a disposable customer set.
 
-    tryout.py and replay.py used to write `subscriptions.jsonl` themselves,
+    preview_report.py and rewind_report.py used to write `subscriptions.jsonl` themselves,
     which made two more places that knew the storage format. They ask for a
     sandbox now, and phase 2 changes what that means in exactly one file.
     Every row is validated first: a sandbox that cannot be read back is worse
@@ -354,8 +354,8 @@ def write_sandbox(home, subs):
     home = Path(home)
     home.mkdir(parents=True, exist_ok=True)
     rows = [validate(s, source=f'write_sandbox({home.name})') for s in subs]
-    # a sandbox uses the SAME storage the real customers use, so tryout.py and
-    # replay.py exercise the shipped read path rather than a second format
+    # a sandbox uses the SAME storage the real customers use, so preview_report.py and
+    # rewind_report.py exercise the shipped read path rather than a second format
     # only sandboxes know about
     import db
     db.put_subscriptions(home, rows)
@@ -435,7 +435,7 @@ def customer_update(home, sub_id, **fields):
 def override(sub, **fields):
     """A validated copy with `fields` replaced — the sandbox operation.
 
-    Used by tryout.py's `--set`, backtest.as_of_profile and replay.py's
+    Used by preview_report.py's `--set`, rewind_all.as_of_profile and rewind_report.py's
     as-of spec. Validated, so a sandbox cannot explore a field that does not
     exist: `--set min_relevence=0.6` now fails loudly instead of rendering
     the unchanged report and looking like the setting had no effect.
@@ -466,7 +466,7 @@ def cpv_in_market(row, prefixes):
     Tested against `cpv_main`, the full code. `cpv3` is the truncated slicing
     key and is only a fallback for rows stamped before `cpv_main` was written
     — live code, not a formality: no prediction-ledger row written so far
-    carries `cpv_main`, and tryout.py replays exactly those rows. Under the
+    carries `cpv_main`, and preview_report.py replays exactly those rows. Under the
     fallback a prefix LONGER than the key it would be tested against cannot
     be proven and therefore does not match, per the keyless-row rule.
     """

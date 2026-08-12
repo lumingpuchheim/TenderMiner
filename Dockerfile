@@ -55,7 +55,7 @@ ENV FASTEMBED_CACHE_PATH=/models_cache \
 
 # The operator's laptop clock, which is what the cycle has always been dated by.
 # loop.py's own report names come from now_utc() and do not care — but bulk.py
-# and download.py pick the download window with date.today(), backtest.py and
+# and download.py pick the download window with date.today(), rewind_all.py and
 # calibrate.py name their receipts the same way, and the weekly schedule fires
 # at 08:15 local. A UTC container would shift all of those by two or three hours
 # and, once a day, by a whole date. Override at run time (compose passes TM_TZ).

@@ -198,7 +198,7 @@ not — an operator editing the file after migrating would otherwise have the
 edit silently ignored, which is the exact failure this module exists to
 prevent. The message names the fix (`python db.py --migrate`).
 
-Sandboxes (`tryout.py`, `replay.py`) now build a small database through
+Sandboxes (`preview_report.py`, `rewind_report.py`) now build a small database through
 `write_sandbox`, so they exercise the shipped read path instead of a second
 format only sandboxes understand.
 
@@ -211,7 +211,7 @@ Receipts:
   `n3bau`, run back-to-back against the pre-change code — with the sandbox
   now being a database rather than a file.
 - Drift guard, frozen-marker guard and the sandbox round trip each tested
-  directly; `explain.py`, `feedback.py --list` and the `subscriptions.py` CLI
+  directly; `explain_verdict.py`, `feedback.py --list` and the `subscriptions.py` CLI
   all still work on the file path.
 
 ## 4d. The migration was run on live data (2026-08-08)
@@ -229,7 +229,7 @@ Receipts:
 `--verify` passed: every table exported back out reproduces its source file
 line for line. The six source files' MD5 sums are **unchanged** — migration
 does not touch them. `subscriptions.py` then reported
-`data	endermining.db [db]` and `tryout.py` rendered `beck` and
+`data	endermining.db [db]` and `preview_report.py` rendered `beck` and
 `jebsen-blitzschutz` identically to the pre-migration run.
 
 ### The first cycle on the database
@@ -272,7 +272,7 @@ whether that home's records are in the database or still in
 
 Switched over: `delivery`, `learned_ref`, `gate_config`. `loop.Paths.deliveries`
 (a file) became `Paths.deliveries_home` (a directory); `feedback.read_learned`
-and `append_learned` go through it; `tryout.py` and `replay.py` build their
+and `append_learned` go through it; `preview_report.py` and `rewind_report.py` build their
 sandbox with `ledger.start()`, so a scratch world is the shipped storage rather
 than a private format. It is generic over the ledger name, so step 4 is a
 call-site change with no new storage logic.
@@ -293,7 +293,7 @@ reports byte-faithful.
 Receipts: file-backed and database-backed reads return identical rows for all
 three ledgers; appending the same row to both gives identical read-back;
 appending it twice to the database writes 0 the second time, so a re-run cannot
-duplicate a customer's record. `tryout.py` renders `beck` and `n3bau`
+duplicate a customer's record. `preview_report.py` renders `beck` and `n3bau`
 byte-identically against the pre-change code, run back-to-back, with the
 sandbox now containing nothing but `tendermining.db`.
 
@@ -474,7 +474,7 @@ cannot go vacuous.
 
 **The plan said three reads. There were thirteen, across five files** —
 `loop.py` (eight), `render_dashboard.py`, `simulation.py` (two) and
-`tryout.py`. The sizing above was wrong and is corrected here rather than
+`preview_report.py`. The sizing above was wrong and is corrected here rather than
 quietly grown.
 
 `ledger.py` gained four targeted queries so the cycle stops asking for 94,000
@@ -487,11 +487,11 @@ live in a file, "the two paths agree" must stay checkable, and the file branch
 is what the tests compare against.
 
 `loop.Paths.predictions`/`.grades` (two files) became `Paths.ledger_home` (a
-directory). `replay.py` writes its sandbox world through `ledger.append`
+directory). `rewind_report.py` writes its sandbox world through `ledger.append`
 instead of truncating two files.
 
 **The dangerous part was the three peripheral readers.** `render_dashboard.py`,
-`simulation.py` and `tryout.py` each parsed `predictions.jsonl` directly. Once
+`simulation.py` and `preview_report.py` each parsed `predictions.jsonl` directly. Once
 the cycle writes to the database the file stops growing — so left alone they
 would have shown a market weeks out of date, silently, with no error anywhere.
 Converted in the same change.
@@ -593,7 +593,7 @@ of them had to move. Two things did:
 
 1. **The model registry was still named relative to the working directory.**
    `--models-dir` defaulted to the string `'models'` in [`loop.py`](../loop.py),
-   [`simulation.py`](../simulation.py) and [`tryout.py`](../tryout.py), and
+   [`simulation.py`](../simulation.py) and [`preview_report.py`](../preview_report.py), and
    [`render_dashboard.py`](../render_dashboard.py) fell back to
    `REPO / 'models'`. In a container that is `/app/models` — inside the image.
    The cycle would have trained a model, promoted it, written `registry.jsonl`
@@ -660,7 +660,7 @@ something worth writing down: **the laptop is on UTC+3 (`GTB Standard Time`),
 not German time.** The image had been given `TZ=Europe/Berlin` on the assumption
 that German notices meant a German clock. `loop.py` dates its own reports from
 `now_utc()` and would not have noticed, but `bulk.py` and `download.py` choose
-the download window with `date.today()`, and `backtest.py` and `calibrate.py`
+the download window with `date.today()`, and `rewind_all.py` and `calibrate.py`
 name their receipts the same way — an hour off, and once a day a whole date off.
 Now `Europe/Bucharest`, overridable with `TM_TZ`.
 

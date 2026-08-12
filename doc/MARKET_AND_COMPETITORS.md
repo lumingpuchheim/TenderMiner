@@ -240,7 +240,7 @@ A CatBoost classifier over notice-time features predicts whether a lot ends with
 assertion). Live grading is still thin (18 graded outcomes; an award publishes a
 median 84 days after the call), so the quotable numbers come from the forward
 backtest, which replays history as the loop would have run it
-(`python backtest.py`, run 2026-08-11 — it prints this to the console; the
+(`python rewind_all.py`, run 2026-08-11 — it prints this to the console; the
 per-lot facts behind it are kept in `data/reports/backtest_lots.json`):
 
 | | value |
@@ -284,7 +284,7 @@ buyer, a verdict ("wenige Bieter erwartet" / "durchschnittliche Chancen" / "viel
 Bieter erwartet") and the features behind it; the **near-miss list** of lots that
 fell just under the profile threshold, with an invitation to reply with a TED
 number so the profile learns; and the deadline-sorted ordering. Around it:
-`market.py` for trade-level market facts, `playback.py` for the per-firm receipt
+`market.py` for trade-level market facts, `rewind_win.py` for the per-firm receipt
 ("would we have recommended your actual win, knowing only the past"),
 `outreach.py` for the contact list.
 
@@ -350,7 +350,7 @@ correctly name their trades (Fahrzeugrückhaltesysteme; Estrich). The 0/8 and
 0/6 above came from new-customer bootstrap in the replay: both subscriptions
 were created 2026-08-07 from these very wins, an award publishes a median 84
 days after its tender, so the earliest wins were replayed against a profile
-that did not exist yet. `backtest.py` now prints `refs at close=` per win and
+that did not exist yet. `rewind_all.py` now prints `refs at close=` per win and
 splits gate-attributable misses from never-judged ones; quote the
 gate-attributable figure, never the raw one. The two borderline residuals are
 real and small: VLE's `FRS` title (an abbreviation the roots file does not

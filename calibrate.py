@@ -6,7 +6,7 @@ customers required.
 **Every "precision" and "recall" in this file is a GATE number** — is a lot in
 this customer's trade at all? Ground truth is the hand-labelled benchmark.
 
-It is not the same statistic as the one `backtest.py` reports, which is the
+It is not the same statistic as the one `rewind_all.py` reports, which is the
 **forecast** precision/recall: did a lot we flagged really end with 0-1 bids,
 ground truth `n_tenders` from a published award. The two share a name, share
 no data, and answer different questions — a number from one is meaningless in
@@ -243,7 +243,7 @@ def calibrate(data_dir):
     all_class = np.array([c[:4] if isinstance(c, str) else '' for c in all_cpv])
 
     # The sidecar rows THIS store has published. The sidecar is a per-notice
-    # cache shared across as-of worlds — backtest.py/replay.py copy it whole,
+    # cache shared across as-of worlds — rewind_all.py/rewind_report.py copy it whole,
     # once, because embedding is expensive — so in a replayed week it holds
     # lots that week has not reached yet. Every population sampled below must
     # be drawn from `world`; the pools built from `all_cpv` already are, since

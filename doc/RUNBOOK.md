@@ -59,7 +59,7 @@ docker compose run --rm tm python loop.py run --last 7d
 ```
 
 Every command in this runbook works with `docker compose run --rm tm` in front
-of it — `python tryout.py --sub beck --set max_picks=8`, `python evidence.py
+of it — `python preview_report.py --sub beck --set max_picks=8`, `python evidence.py
 --benchmark`, `python -m unittest discover -t . -s tests`. The image is the
 stack, not the cycle.
 
@@ -230,22 +230,22 @@ answers your question; none of them touches the real ledgers or reports.
 
 | Question | Run | Cost |
 | --- | --- | --- |
-| What would customer X's report look like if a subscription field changed? | `python tryout.py --sub <sub_id> --set FIELD=VALUE` | seconds |
-| Why did lot Y pass / fail X's gate? What trade does its text read as? | `python explain.py --sub <sub_id> <TED-number> …` | seconds |
-| Would we have recommended this firm's historical solo win, knowing only the past? | `python playback.py --firm "Firma GmbH"` | ~10 min |
-| Show me a real prediction report AND the later report that checks it (the "Rückblick" demo) | `python replay.py --sub <sub_id> --cutoff YYYY-MM-DD` | ~15 min |
+| What would customer X's report look like if a subscription field changed? | `python preview_report.py --sub <sub_id> --set FIELD=VALUE` | seconds |
+| Why did lot Y pass / fail X's gate? What trade does its text read as? | `python explain_verdict.py --sub <sub_id> <TED-number> …` | seconds |
+| Would we have recommended this firm's historical solo win, knowing only the past? | `python rewind_win.py --firm "Firma GmbH"` | ~10 min |
+| Show me a real prediction report AND the later report that checks it (the "Rückblick" demo) | `python rewind_report.py --sub <sub_id> --cutoff YYYY-MM-DD` | ~15 min |
 | Does the gate still judge every hand-labeled case correctly? | `python evidence.py --benchmark` | seconds |
 | Is a customer's lexicon made of trade words — and what does a lexicon change cost in recall vs precision? | `python lexicon_receipt.py --lexicons` | ~5 min |
 | Do the model's CPV columns still earn their keep — would deeper or shallower codes score better? | `python cpv_depth_receipt.py` (`--quick` for a first look) | ~3 min `--quick`, ~10 min full |
-| Does a gate/model change make picks better overall? | `python backtest.py` | hours |
+| Does a gate/model change make picks better overall? | `python rewind_all.py` | hours |
 
-- **`tryout.py`** re-renders one customer from the last cycle's prediction
+- **`preview_report.py`** re-renders one customer from the last cycle's prediction
   ledger inside a disposable sandbox (`data/tryout/<sub_id>/`, recreated per
   run) and prints the picks with their gate scores. `--set` is repeatable
   (`--set min_deadline_days=0 --set min_relevance=0.6`); `--keep-expired`
   also shows lots whose deadline has passed. The real subscription file is
   never modified — overrides live only in the sandbox.
-- **`explain.py`** prints the profile fingerprint (hard/soft labels), each
+- **`explain_verdict.py`** prints the profile fingerprint (hard/soft labels), each
   lot's pass path through the gate ladder, and its text→label projections.
   With no TED numbers it explains the profile references themselves — the
   sanity check that a profile reads as the customer's trade.
@@ -260,10 +260,10 @@ answers your question; none of them touches the real ledgers or reports.
   written by hand — CPV lacks the materials and the regional trade names
   (Schreiner, Spengler, Flaschner), and the embedder cannot supply them
   (measured: linoleum↔bodenbelag 0.108, at noise).
-- **`playback.py`** rebuilds an as-of world before the target's deadline
+- **`rewind_win.py`** rebuilds an as-of world before the target's deadline
   (store, trust list, thresholds, model — all time-isolated) and replays
   that cycle: was the win in the market, was it a pick.
-- **`replay.py`** renders TWO real customer reports across time: the weekly
+- **`rewind_report.py`** renders TWO real customer reports across time: the weekly
   report as it would have looked at `--cutoff` (picks by a model that could
   not see past that date), and a check report at `--check-date` (default
   today) whose "Ihre Empfehlungen im Rückblick" grades those picks against
@@ -282,7 +282,7 @@ answers your question; none of them touches the real ledgers or reports.
   questioned or after the scope widens beyond CPV 45 — the cardinalities in
   section 1 are what stands between `cpv_additional` and a silent CTR
   fallback.
-- **`backtest.py`** replays every weekly cutoff and grades all picks
+- **`rewind_all.py`** replays every weekly cutoff and grades all picks
   against published outcomes on two axes — did the lot end with 0-1 bids,
   and did the firm the pick was handed to eventually win it themselves
   (any bidder count). **It writes no file and owns no path**: the run
@@ -291,13 +291,13 @@ answers your question; none of them touches the real ledgers or reports.
   `--render` for the prose, `trade_pages.py --replay` for the pages:
 
   ```
-  python backtest.py > run-2026-08-11.json     # ~33 min, 46 cutoffs
-  python backtest.py --render run-2026-08-11.json
+  python rewind_all.py > run-2026-08-11.json     # ~33 min, 46 cutoffs
+  python rewind_all.py --render run-2026-08-11.json
   python trade_pages.py --replay run-2026-08-11.json
   ```
 
-Rule of thumb: after editing a subscription, `tryout.py`; when a verdict
-surprises you, `explain.py`; before shipping a gate change, `backtest.py`
+Rule of thumb: after editing a subscription, `preview_report.py`; when a verdict
+surprises you, `explain_verdict.py`; before shipping a gate change, `rewind_all.py`
 (and `calibrate.py` for the receipt); before shipping a FEATURE change,
 `cpv_depth_receipt.py` — and remember it is a flag day: the champion cannot
 score a build whose columns changed, so `learn()` promotes the candidate
@@ -371,7 +371,7 @@ template noise the corroboration cannot see.
 | `calibration_<tag>.md`, `trusted_codes_<tag>.json` | study receipts | **yes** |
 | `cpv_2008_de.csv` | official CPV dictionary (German) | yes |
 | `embed.py` / `calibrate.py` / `relevance.py` / `loop.py` / `simulation.py` | the programs | yes |
-| `tryout.py` / `explain.py` / `playback.py` / `backtest.py` | the test tools (§3) | yes |
+| `preview_report.py` / `explain_verdict.py` / `rewind_win.py` / `rewind_all.py` | the test tools (§3) | yes |
 | `outreach.py` | target-list builder (§7) | yes |
 | `data/tryout/`, `data/asof/` | disposable test sandboxes (as-of worlds: `asof.py`) | no |
 

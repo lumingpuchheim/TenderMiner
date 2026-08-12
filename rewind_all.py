@@ -31,11 +31,11 @@ slices the same document by trade into HTML. Replay once (33 minutes over the
 2026-08-11 store), render as often as you like.
 
 Usage:
-    python backtest.py > run.json             # weekly, whole feasible range
-    python backtest.py --out run.json         # same, without the redirect
-    python backtest.py --step 14 --sub jebsen-blitzschutz > run.json
-    python backtest.py --render run.json      # the report, without replaying
-    python backtest.py --render -             # ... from a pipe
+    python rewind_all.py > run.json             # weekly, whole feasible range
+    python rewind_all.py --out run.json         # same, without the redirect
+    python rewind_all.py --step 14 --sub jebsen-blitzschutz > run.json
+    python rewind_all.py --render run.json      # the report, without replaying
+    python rewind_all.py --render -             # ... from a pipe
     python trade_pages.py --replay run.json
 """
 
@@ -159,7 +159,7 @@ def replay(data_dir, step_days, sub_ids):
                 # Early cutoffs only: the world grows monotonically, so this
                 # never strands a later week. Printed, not swallowed — a
                 # skipped cutoff must not read as a cutoff with no picks.
-                print(f'[backtest] {D.date()}: skipped — {e}', flush=True,
+                print(f'[rewind_all] {D.date()}: skipped — {e}', flush=True,
                       file=sys.stderr)
                 continue
             # Recipe F: all three bars ride on the config, and as_of_profile
@@ -225,7 +225,7 @@ def replay(data_dir, step_days, sub_ids):
                     (d['procedure_id'], d['lot_id']),
                     {'week': str(D.date()), **{k2: d[k2] for k2 in
                                                ('title', 'buyer_name', 'score')}})
-        print(f'[backtest] {D.date()}: {n_lots} train lots, '
+        print(f'[rewind_all] {D.date()}: {n_lots} train lots, '
               f'{len(open_t)} open, {sum(1 for *_, s2, _ in rows if s2 >= FLAG_THRESHOLD)} flagged',
               flush=True, file=sys.stderr)
 
@@ -695,10 +695,10 @@ def validate(payload):
     if schema is None:
         raise BadDocument('not a replay document: no "schema" field. A file '
                           'written before 2026-08-11 (or by something else) '
-                          'cannot be rendered — re-run `python backtest.py`.')
+                          'cannot be rendered — re-run `python rewind_all.py`.')
     if not isinstance(schema, int) or schema > SCHEMA:
         raise BadDocument(f'document schema {schema!r} is newer than this '
-                          f'backtest.py understands (schema {SCHEMA}) — '
+                          f'rewind_all.py understands (schema {SCHEMA}) — '
                           f'update the code, or re-run the replay with it.')
     lots = payload.get('lots')
     if not isinstance(lots, list):
@@ -710,7 +710,7 @@ def validate(payload):
         if missing:
             raise BadDocument(
                 f'lot row {i} is missing {", ".join(missing)} — this document '
-                f'was written by an older backtest.py; re-run the replay.')
+                f'was written by an older rewind_all.py; re-run the replay.')
     for k in ('generated', 'model_tag', 'step_days', 'cutoffs_trained'):
         if k not in payload:
             raise BadDocument(f'document is missing "{k}" — every figure has '
@@ -759,7 +759,7 @@ def main():
         try:
             report(read_payload(args.render))
         except BadDocument as e:
-            print(f'[backtest] {e}', file=sys.stderr)
+            print(f'[rewind_all] {e}', file=sys.stderr)
             return 2
         return
     # STDOUT IS THE DOCUMENT, so nothing else may write to it. `calibrate`,
@@ -790,7 +790,7 @@ def main():
         doc_stream.flush()
     else:
         Path(args.out).write_text(json.dumps(payload), encoding='utf-8')
-    print(f'[backtest] {payload["n_lots"]} lots examined, '
+    print(f'[rewind_all] {payload["n_lots"]} lots examined, '
           f'{sum(1 for r in payload["lots"] if r["n_tenders"] is not None)} '
           f'with a published result'
           + ('' if args.out == '-' else f' -> {args.out}'), file=sys.stderr)

@@ -1,4 +1,4 @@
-"""`backtest.py` produces ONE document, and every readable form renders it —
+"""`rewind_all.py` produces ONE document, and every readable form renders it —
 doc/TRADE_PAGES.md §6d.
 
 The replay costs about half an hour (measured 2026-08-11: 33 min, 46 trained
@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import backtest                                                  # noqa: E402
+import rewind_all                                                  # noqa: E402
 
 
 def minimal_res(**over):
@@ -36,7 +36,7 @@ class TheDocument(unittest.TestCase):
         """One list carries both denominators: every examined lot is a row,
         and `n_tenders is None` is the ones no award has published for. Drop
         them and the report can no longer say how many were examined."""
-        p = backtest.build_payload(minimal_res())
+        p = rewind_all.build_payload(minimal_res())
         self.assertEqual(p['n_lots'], 2)
         by_lot = {r['lot_id']: r for r in p['lots']}
         self.assertEqual(by_lot['L1']['n_tenders'], 1)
@@ -46,7 +46,7 @@ class TheDocument(unittest.TestCase):
         """cpv3 is a raw store field and cannot drift. A trade is a title
         word-match that trades.txt redefines, so a document carrying trades
         would silently disagree with trades.txt the day it changed."""
-        row = backtest.build_payload(minimal_res())['lots'][0]
+        row = rewind_all.build_payload(minimal_res())['lots'][0]
         self.assertEqual(row['cpv3'], '452')
         self.assertNotIn('trade', row)
         self.assertNotIn('title', row)
@@ -54,10 +54,10 @@ class TheDocument(unittest.TestCase):
     def test_the_document_is_json_serialisable(self):
         """Tuple lot keys and numpy scalars have both leaked into payloads
         here before; json.dumps is the only honest check."""
-        json.dumps(backtest.build_payload(minimal_res()))
+        json.dumps(rewind_all.build_payload(minimal_res()))
 
     def test_metadata_says_which_run_this_was(self):
-        p = backtest.build_payload(minimal_res())
+        p = rewind_all.build_payload(minimal_res())
         for k in ('schema', 'generated', 'model_tag', 'step_days',
                   'cutoffs_trained'):
             self.assertIn(k, p)
@@ -70,15 +70,15 @@ class StdoutIsTheDocument(unittest.TestCase):
     """
 
     def run_main(self, argv, replay_impl):
-        real_replay = backtest.replay
-        backtest.replay = replay_impl
+        real_replay = rewind_all.replay
+        rewind_all.replay = replay_impl
         buf = io.StringIO()
         try:
             with contextlib.redirect_stdout(buf):
                 sys.argv = argv
-                backtest.main()
+                rewind_all.main()
         finally:
-            backtest.replay = real_replay
+            rewind_all.replay = real_replay
         return buf.getvalue()
 
     def test_a_module_printing_to_stdout_cannot_corrupt_the_document(self):
@@ -87,7 +87,7 @@ class StdoutIsTheDocument(unittest.TestCase):
             print('[subscriptions] ignoring retired field')
             return minimal_res()
 
-        out = self.run_main(['backtest.py', '--sub', 'x'], noisy)
+        out = self.run_main(['rewind_all.py', '--sub', 'x'], noisy)
         doc = json.loads(out)          # the assertion: it still parses
         self.assertEqual(doc['n_lots'], 2)
         self.assertNotIn('calibrate', out)
@@ -106,7 +106,7 @@ class StdoutIsTheDocument(unittest.TestCase):
 
         subs_mod.load = chatty_load
         try:
-            out = self.run_main(['backtest.py'], lambda *a, **k: minimal_res())
+            out = self.run_main(['rewind_all.py'], lambda *a, **k: minimal_res())
         finally:
             subs_mod.load = real
         doc = json.loads(out)
@@ -117,7 +117,7 @@ class StdoutIsTheDocument(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / 'run.json'
             out = self.run_main(
-                ['backtest.py', '--sub', 'x', '--out', str(p)],
+                ['rewind_all.py', '--sub', 'x', '--out', str(p)],
                 lambda *a, **k: minimal_res())
             self.assertEqual(out, '')
             self.assertEqual(json.loads(p.read_text(encoding='utf-8'))
@@ -130,43 +130,43 @@ class BadInput(unittest.TestCase):
     on the site path would kill a build over an optional section."""
 
     def bad(self, payload):
-        with self.assertRaises(backtest.BadDocument) as c:
-            backtest.validate(payload)
+        with self.assertRaises(rewind_all.BadDocument) as c:
+            rewind_all.validate(payload)
         return str(c.exception)
 
     def test_a_good_document_passes(self):
-        doc = backtest.build_payload(minimal_res())
-        self.assertIs(backtest.validate(doc), doc)
+        doc = rewind_all.build_payload(minimal_res())
+        self.assertIs(rewind_all.validate(doc), doc)
 
     def test_not_an_object(self):
         self.assertIn('JSON object', self.bad([1, 2, 3]))
 
     def test_no_schema_field_names_the_fix(self):
-        doc = backtest.build_payload(minimal_res())
+        doc = rewind_all.build_payload(minimal_res())
         del doc['schema']
         self.assertIn('re-run', self.bad(doc))
 
     def test_a_newer_schema_says_so_instead_of_crashing(self):
         """The failure mode this prevents: a schema-2 document rendered by
         schema-1 code, guessing at fields it does not have."""
-        doc = backtest.build_payload(minimal_res())
-        doc['schema'] = backtest.SCHEMA + 1
+        doc = rewind_all.build_payload(minimal_res())
+        doc['schema'] = rewind_all.SCHEMA + 1
         msg = self.bad(doc)
         self.assertIn('newer', msg)
-        self.assertIn(str(backtest.SCHEMA), msg)
+        self.assertIn(str(rewind_all.SCHEMA), msg)
 
     def test_an_older_document_missing_a_lot_field_is_named(self):
-        doc = backtest.build_payload(minimal_res())
+        doc = rewind_all.build_payload(minimal_res())
         del doc['lots'][0]['cpv3']
         msg = self.bad(doc)
         self.assertIn('cpv3', msg)
         self.assertIn('older', msg)
 
     def test_missing_lots_and_missing_metadata(self):
-        doc = backtest.build_payload(minimal_res())
+        doc = rewind_all.build_payload(minimal_res())
         del doc['lots']
         self.assertIn('nothing to render', self.bad(doc))
-        doc = backtest.build_payload(minimal_res())
+        doc = rewind_all.build_payload(minimal_res())
         del doc['generated']
         self.assertIn('generated', self.bad(doc))
 
@@ -174,11 +174,11 @@ class BadInput(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / 'run.json'
             p.write_text('{ not json', encoding='utf-8')
-            with self.assertRaises(backtest.BadDocument) as c:
-                backtest.read_payload(str(p))
+            with self.assertRaises(rewind_all.BadDocument) as c:
+                rewind_all.read_payload(str(p))
             self.assertIn('not valid JSON', str(c.exception))
-            with self.assertRaises(backtest.BadDocument) as c:
-                backtest.read_payload(str(Path(d) / 'absent.json'))
+            with self.assertRaises(rewind_all.BadDocument) as c:
+                rewind_all.read_payload(str(Path(d) / 'absent.json'))
             self.assertIn('cannot read', str(c.exception))
 
 
@@ -221,28 +221,28 @@ class TheProseIsARenderer(unittest.TestCase):
     def test_the_report_is_a_function_of_the_document_alone(self):
         """No replay, no store, no data dir — if this needs anything else,
         'render it many ways' is not true."""
-        doc = json.loads(json.dumps(backtest.build_payload(minimal_res())))
+        doc = json.loads(json.dumps(rewind_all.build_payload(minimal_res())))
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            backtest.report(doc)
+            rewind_all.report(doc)
         text = buf.getvalue()
         self.assertIn('Tenders examined while open: 2', text)
         self.assertIn('results known for 1', text)
 
     def test_render_reads_a_document_from_a_path(self):
-        doc = backtest.build_payload(minimal_res())
+        doc = rewind_all.build_payload(minimal_res())
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / 'run.json'
             p.write_text(json.dumps(doc), encoding='utf-8')
-            self.assertEqual(backtest.read_payload(str(p))['n_lots'], 2)
+            self.assertEqual(rewind_all.read_payload(str(p))['n_lots'], 2)
 
     def test_the_report_writes_no_file(self):
         """It used to leave a dated .md nobody read. The prose is printed."""
-        doc = backtest.build_payload(minimal_res())
+        doc = rewind_all.build_payload(minimal_res())
         with tempfile.TemporaryDirectory() as d:
             before = set(Path(d).rglob('*'))
             with contextlib.redirect_stdout(io.StringIO()):
-                backtest.report(doc)
+                rewind_all.report(doc)
             self.assertEqual(before, set(Path(d).rglob('*')))
 
 

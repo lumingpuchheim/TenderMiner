@@ -107,7 +107,7 @@ class Validation(TempHome):
                 subs.validate(sub_row(**over))
 
     def test_explicit_null_means_absent(self):
-        """replay.py writes min_relevance: null for a firm with no resolvable
+        """rewind_report.py writes min_relevance: null for a firm with no resolvable
         win — an absence, not a bad value."""
         out = subs.validate(sub_row(min_relevance=None, profile_refs=None))
         self.assertIsNone(out['min_relevance'])
@@ -144,7 +144,7 @@ class Resolution(TempHome):
         self.assertIsNone(subs.one(self.home, '2026-05-01', 'gone'))
 
     def test_missing_effective_from_is_always_in_force(self):
-        """replay.py writes sandbox lines with no effective_from."""
+        """rewind_report.py writes sandbox lines with no effective_from."""
         self.write_subs_file([sub_row('sandbox', 1, effective_from=None)])
         self.assertIsNotNone(subs.one(self.home, '2020-01-01', 'sandbox'))
 

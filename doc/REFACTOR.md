@@ -40,11 +40,13 @@ customer arrives.
 4. render two HTML documents and append delivery-ledger rows
 
 The proof that this is the defect and not a style preference:
-[`backtest.py`](../backtest.py) contains the same algorithm written a second time
-— slice filter, `rel.judge`, sort by score, `flag`, `[:MAX_PICKS]` — and the
-two copies **already disagree** (see defect 1). The backtest therefore does
-not measure the selection logic that ships. [`replay.py`](../replay.py) makes a
-third, partial copy and monkeypatches `loop.now_utc` to borrow the rest.
+[`rewind_all.py`](../rewind_all.py) (backtest.py before the phase-5 renames)
+contains the same algorithm written a second time — slice filter,
+`rel.judge`, sort by score, `flag`, `[:MAX_PICKS]` — and the two copies
+**already disagree** (see defect 1). The backtest therefore does not measure
+the selection logic that ships. [`rewind_report.py`](../rewind_report.py)
+(replay.py) makes a third, partial copy and monkeypatches `loop.now_utc` to
+borrow the rest.
 
 This problem was already solved once, one layer down: `evidence._sweep` and
 the runtime ladder share `relevance._evidence_verdict` precisely so that "the
@@ -90,8 +92,8 @@ Both are independent of every refactor above and were fixed first.
 characters, so `'453'.startswith('453123')` is `False` — for *every* lot.
 [`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md) promises full-CPV prefix matching ("a
 lot matches if its CPV starts with any listed prefix") and
-[`backtest.py`](../backtest.py) implements it that way against `cpv_main`, which
-is how the two copies drifted apart. `jebsen-blitzschutz` v1 shipped
+[`rewind_all.py`](../rewind_all.py) implements it that way against `cpv_main`,
+which is how the two copies drifted apart. `jebsen-blitzschutz` v1 shipped
 `cpv_prefixes: ["453123"]` (Blitzschutz) and addressed an empty market,
 silently: no error, no empty-slice warning, just a subscription that could
 never have a pick.
@@ -312,7 +314,8 @@ silently change what a customer is shown, and nothing on the row to say which
 way they were set. All three are config fields now, so flipping one changes
 the fingerprint and the change is visible in the ledger forever.
 
-**No more global mutation.** `backtest.py`, `playback.py` and `replay.py`
+**No more global mutation.** The three rewind programs (then `backtest.py`,
+`playback.py` and `replay.py`)
 assigned to `rel.TRUSTED_CODES` / `rel.SOFT_FLOOR` / `rel.SOFT_CONSENSUS` /
 `rel.TRADE_READ_*` to install their as-of calibration; `evidence.py` assigned
 `rel.GATE_MODE` in three functions. All of them build configs now. This was

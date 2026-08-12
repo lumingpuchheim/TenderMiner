@@ -36,7 +36,7 @@ Working and scheduled:
   small/micro firms, 471 of them with ≥2 wins** — the target pool.
 - Winner e-mail addresses exist in the raw award XML (Organizations block);
   not yet extracted.
-- `playback.py`: per-firm "would we have recommended your actual win,
+- `rewind_win.py`: per-firm "would we have recommended your actual win,
   knowing only the past" — the personalized proof generator (~10 min/firm).
 
 The gap: **live evidence is months behind ambition.** 7 graded outcomes,
@@ -91,7 +91,7 @@ the limit.)
 
 ## Build order (phases in time — no component is cut)
 
-1. **Branch ranking from the backtest** — extend `backtest.py` with a
+1. **Branch ranking from the backtest** — extend `rewind_all.py` with a
    per-trade (cpv3) table over the global replay: scored lots, graded,
    base rate, flags, hit rate, lift. Outcomes are already published for
    the replayed period, so this answers "which branch first" *now* instead

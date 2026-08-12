@@ -1,7 +1,7 @@
 """The per-trade forecast section — doc/TRADE_PAGES.md, doc/METHODS.md 0.
 
 This is the **forecast** precision/recall (did a flagged lot really end with
-0-1 bids), never the gate's. It can only come from `backtest.py`'s as-of
+0-1 bids), never the gate's. It can only come from `rewind_all.py`'s as-of
 replay, so these tests build a synthetic document rather than replaying
 anything — a real replay retrains the model at every weekly cutoff and takes
 about half an hour (measured 2026-08-11: 33 min, 46 cutoffs).

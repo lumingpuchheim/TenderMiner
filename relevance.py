@@ -277,7 +277,7 @@ class GateConfig:
     def as_dict(self):
         """Canonical, JSON-safe. The trust list enters by FILE NAME, not by
         path: the same list under a different absolute path is the same
-        configuration, and `backtest.py`'s as-of list is a different one."""
+        configuration, and `rewind_all.py`'s as-of list is a different one."""
         d = dataclasses.asdict(self)
         d['trusted_codes'] = Path(self.trusted_codes).name
         d['trade_branches'] = list(self.trade_branches)

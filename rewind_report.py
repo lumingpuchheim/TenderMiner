@@ -14,7 +14,7 @@ to grade. Everything is written to data/replay/<sub_id>/ — real ledgers and
 reports are never touched.
 
 Choosing D: awards follow deadlines by ~3 months, so a cutoff 3-6 months
-back usually has graded outcomes; `python backtest.py` prints per-subscription
+back usually has graded outcomes; `python rewind_all.py` prints per-subscription
 pick weeks with outcomes — any week listed there works.
 
 The subject should be REAL: --firm replays any actual winner company from
@@ -23,9 +23,9 @@ won) — a track record for an invented demo customer proves nothing. Use
 --scan first to see which real firms have graded picks at a cutoff.
 
 Usage:
-    python replay.py --scan --cutoff 2026-04-15
-    python replay.py --firm "Firma GmbH" --cutoff 2026-04-15
-    python replay.py --sub jebsen-blitzschutz --cutoff 2026-03-25 --check-date 2026-08-01
+    python rewind_report.py --scan --cutoff 2026-04-15
+    python rewind_report.py --firm "Firma GmbH" --cutoff 2026-04-15
+    python rewind_report.py --sub jebsen-blitzschutz --cutoff 2026-03-25 --check-date 2026-08-01
 """
 
 import argparse
@@ -76,13 +76,13 @@ def main():
     ap.add_argument('--data-dir', default=config.data_root())
     args = ap.parse_args()
     if not args.scan and not (bool(args.sub) ^ bool(args.firm)):
-        sys.exit('[replay] give exactly one of --sub / --firm (or --scan)')
+        sys.exit('[rewind_report] give exactly one of --sub / --firm (or --scan)')
     t0 = time.time()
 
     D = pd.Timestamp(args.cutoff)
     D2 = pd.Timestamp(args.check_date) if args.check_date else pd.Timestamp.today().normalize()
     if D2 <= D:
-        sys.exit('[replay] --check-date must lie after --cutoff')
+        sys.exit('[rewind_report] --check-date must lie after --cutoff')
     FULL = Path(args.data_dir)
 
     sub = None
@@ -92,26 +92,26 @@ def main():
             sub = subscriptions.one(FULL, str(pd.Timestamp.today().date()),
                                     args.sub)
         if sub is None:
-            sys.exit(f'[replay] no active subscription {args.sub!r}')
+            sys.exit(f'[rewind_report] no active subscription {args.sub!r}')
 
     # ---- the as-of world (asof.py owns the guarantees) -----------------------
     world = asof.World(FULL, FULL / 'asof' / 'report')
     world.rewind(D)
-    print(f'[replay] as-of world at {D.date()} built in {time.time() - t0:.0f}s')
+    print(f'[rewind_report] as-of world at {D.date()} built in {time.time() - t0:.0f}s')
 
     # ---- as-of calibration (configuration H) + gate constants ---------------
     try:
         r = world.calibrate()
     except cal.WorldTooThin as e:
         raise SystemExit(
-            f'[replay] {e}\n'
-            f'[replay] the store barely reaches back to {D.date()}; a gate '
+            f'[rewind_report] {e}\n'
+            f'[rewind_report] the store barely reaches back to {D.date()}; a gate '
             'calibrated on that little would not be the gate this replay '
             'claims to show. Pick a later cutoff — --scan lists the ones '
             'with graded picks.')
     H = r['configs']['H single bar + trade-read corroboration']
     cfg = world.calibrated_config('H')
-    print(f"[replay] as-of gate H: text {H['threshold']:.3f}, hard "
+    print(f"[rewind_report] as-of gate H: text {H['threshold']:.3f}, hard "
           f"{H['code_threshold']:.3f}, soft {H['soft_threshold']:.3f}, "
           f"corr {H['corr_form']}@{H['corr_param']:.3f}")
 
@@ -138,14 +138,14 @@ def main():
     if args.firm:
         f_refs, nuts1 = firm_asof(args.firm)
         if len(f_refs) < 2:
-            sys.exit(f'[replay] {args.firm!r} has fewer than 2 resolvable wins '
+            sys.exit(f'[rewind_report] {args.firm!r} has fewer than 2 resolvable wins '
                      f'before {D.date()} — try --scan to find replayable firms')
         slug = re.sub(r'[^a-z0-9]+', '-', args.firm.casefold()).strip('-')
         sub = {'sub_id': f'firm-{slug}', 'name': args.firm,
                'cpv_prefixes': ['45'], 'nuts_prefixes': nuts1,
                'min_deadline_days': 14, 'max_picks': 5,
                'profile_refs': f_refs}
-        print(f'[replay] real firm {args.firm!r}: {len(f_refs)} as-of wins, '
+        print(f'[rewind_report] real firm {args.firm!r}: {len(f_refs)} as-of wins, '
               f'region {"/".join(nuts1)}')
 
     firm = sub.get('name') if sub else None
@@ -153,7 +153,7 @@ def main():
     if sub is not None:
         refs, _ = firm_asof(firm) if firm else ([], [])
         if not refs and sub.get('profile_refs'):
-            sys.exit(f'[replay] {firm!r} had no resolvable win before '
+            sys.exit(f'[rewind_report] {firm!r} had no resolvable win before '
                      f'{D.date()} — pick a later cutoff')
         replay_sub = dict(sub, profile_refs=refs or None,
                           min_relevance=H['threshold'] if refs else None,
@@ -161,11 +161,11 @@ def main():
                           min_code_soft=H['soft_threshold'],
                           version=sub.get('version', 1),
                           effective_from=str(D.date()))
-        print(f'[replay] profile as of {D.date()}: {len(refs)} won tenders')
+        print(f'[rewind_report] profile as of {D.date()}: {len(refs)} won tenders')
 
     # ---- as-of model + scores for the open market at D ----------------------
     model = world.model()
-    print(f'[replay] model trained on {world.data.groupby(sb.KEY).ngroups} '
+    print(f'[rewind_report] model trained on {world.data.groupby(sb.KEY).ngroups} '
           f'pre-{D.date()} lots in {time.time() - t0:.0f}s')
 
     open_t = sb.open_tenders(world.tenders, world.aw)
@@ -194,7 +194,7 @@ def main():
             'buyer_name': t.get('buyer_name'), 'title': t.get('title'),
             'why_lonely': w_l, 'why_crowded': w_c,
         })
-    print(f'[replay] {len(scored)} open lots scored at {D.date()}')
+    print(f'[rewind_report] {len(scored)} open lots scored at {D.date()}')
 
     # ---- scan: which REAL firms have graded picks at this cutoff? -----------
     if args.scan:
@@ -211,7 +211,7 @@ def main():
         w = awards_asof[awards_asof['winner_names'].apply(
             lambda x: x is not None and len(x) > 0)].explode('winner_names')
         firms = [f for f, c in w['winner_names'].value_counts().items() if c >= 2]
-        print(f'[replay] scanning {len(firms)} real firms with >= 2 as-of wins')
+        print(f'[rewind_report] scanning {len(firms)} real firms with >= 2 as-of wins')
         results = []
         for firm_name in firms:
             f_refs, nuts1 = firm_asof(firm_name)
@@ -243,7 +243,7 @@ def main():
                 results.append((hits, len(graded), len(picks), firm_name, graded))
         results.sort(key=lambda t: (-t[0], -t[1]))
         if not results:
-            print('[replay] no real firm has a graded pick at this cutoff — '
+            print('[rewind_report] no real firm has a graded pick at this cutoff — '
                   'try an earlier one')
         for hits, n_graded, n_picks, firm_name, graded in results[:15]:
             print(f'\n  {firm_name}  ({n_picks} picks, {n_graded} graded, '
@@ -297,7 +297,7 @@ def main():
                        'label': bool(pd.notna(n) and n <= 1),
                        'publication_number': a.get('publication_number')})
     ledger.append(paths.ledger_home, 'grades', grades)
-    print(f'[replay] {len(grades)} of the scored lots have outcomes published '
+    print(f'[rewind_report] {len(grades)} of the scored lots have outcomes published '
           f'by {D2.date()}')
 
     # ---- report #2: the check, rendered at the check date -------------------
@@ -315,8 +315,8 @@ def main():
                else 'outcome still unpublished')
         print(f"  pick @{str(d['ts'])[:10]}: {str(d['title'])[:55]!r} -> {res}")
     none = '(no report — nothing to recommend / nothing graded)'
-    print(f'\n[replay] prediction: {rep1 if rep1.exists() else none}')
-    print(f'[replay] check:      {rep2 if rep2.exists() else none}')
+    print(f'\n[rewind_report] prediction: {rep1 if rep1.exists() else none}')
+    print(f'[rewind_report] check:      {rep2 if rep2.exists() else none}')
 
 
 if __name__ == '__main__':

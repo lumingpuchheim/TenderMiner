@@ -22,7 +22,7 @@ Learned references are DERIVED data, never operator intent:
 
 **Time isolation is fail-safe** (operator requirement 2026-08-06).
 `relevance.Gate(data_dir)` — no `as_of` — loads NO learned references at
-all, so every existing caller (playback.py, backtest.py, replay.py, the
+all, so every existing caller (rewind_win.py, rewind_all.py, rewind_report.py, the
 receipt harnesses) keeps exactly the behaviour it has today. Only
 `Gate(data_dir, as_of='YYYY-MM-DD')` unions references learned on or
 before that date. Forgetting the parameter can only ever *understate* a

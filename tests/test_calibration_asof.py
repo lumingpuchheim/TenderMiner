@@ -31,7 +31,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import backtest
+import rewind_all
 import relevance
 import subscriptions
 from calibrate import (BASELINE_SAMPLE, CODE_GRID, SEED, SOFT_GRID,
@@ -175,15 +175,15 @@ class ChannelOffIsNotCustomerInput(unittest.TestCase):
         sub = {'sub_id': 's', 'name': 'F GmbH', 'min_relevance': 0.7,
                'min_code_hard': 0.8, 'min_code_soft': 0.75}
 
-        real = backtest.rel.build_profile
-        backtest.rel.build_profile = lambda _gate, spec: spec
+        real = rewind_all.rel.build_profile
+        rewind_all.rel.build_profile = lambda _gate, spec: spec
         try:
-            spec = backtest.as_of_profile(Gate(), sub, awards)
+            spec = rewind_all.as_of_profile(Gate(), sub, awards)
         finally:
-            backtest.rel.build_profile = real
+            rewind_all.rel.build_profile = real
 
         self.assertEqual(spec['profile_refs'], ['PN-1'])
-        for bar in backtest.CALIBRATED_BARS:
+        for bar in rewind_all.CALIBRATED_BARS:
             self.assertNotIn(bar, spec, f'{bar} reached the subscription spec')
 
 

@@ -144,7 +144,7 @@ def figures(lots, sel, covered, mature):
 #
 # doc/METHODS.md 0: this is the FORECAST precision/recall — did a lot we
 # flagged really end with 0-1 bids — not the gate's. It can only come from the
-# as-of replay (`backtest.py`), because a live award publishes a median 84
+# as-of replay (`rewind_all.py`), because a live award publishes a median 84
 # days after its tender, so the live grade ledger holds 18 rows.
 #
 # The replay is sliced HERE, by the same title word-match that defines a trade
@@ -157,10 +157,10 @@ MIN_CHECKED = market.SMALL_SAMPLE
 
 
 def load_replay(path):
-    """A replay document from `backtest.py`, or None when there is none.
+    """A replay document from `rewind_all.py`, or None when there is none.
 
     There is no default path and no conventional filename on purpose: the
-    replay is produced by `python backtest.py > somewhere.json`, the operator
+    replay is produced by `python rewind_all.py > somewhere.json`, the operator
     names that file, and this program is told where it is. No argument means
     no forecast claim, which is the state on a fresh checkout and the correct
     one — the pages then say so in words.
@@ -175,7 +175,7 @@ def load_replay(path):
         return None
     # lazy, like the flag_stats import below: reading a document must not make
     # the site builder pull the ML stack when no --replay was given
-    from backtest import BadDocument, read_payload
+    from rewind_all import BadDocument, read_payload
     try:
         return read_payload(str(path))
     except BadDocument as e:
@@ -428,7 +428,7 @@ def publish(out, site=SITE):
 def build(data_dir, out=None, dry_run=False, site=SITE, replay=None):
     """Build the whole site into `out` (default `<data-dir>/public`).
 
-    `replay` is the path to a `backtest.py` document; without one the pages
+    `replay` is the path to a `rewind_all.py` document; without one the pages
     carry no forecast claim.
 
     -> (built, skipped). `built` is [(name, slug)], `skipped` is
@@ -481,7 +481,7 @@ def main():
     ap.add_argument('--dry-run', action='store_true',
                     help='report who qualifies, write nothing')
     ap.add_argument('--replay', default=None, metavar='PATH',
-                    help='a `python backtest.py > PATH` document; without it '
+                    help='a `python rewind_all.py > PATH` document; without it '
                          'the pages make no forecast claim')
     args = ap.parse_args()
     out = Path(args.out) if args.out else Path(args.data_dir) / 'public'

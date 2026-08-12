@@ -10,8 +10,8 @@ profile references are explained — a sanity check that the profile reads as
 the customer's trade. Read-only.
 
 Usage:
-    python explain.py --sub jebsen-blitzschutz 00490813-2026 00510556-2025
-    python explain.py --sub jebsen-blitzschutz
+    python explain_verdict.py --sub jebsen-blitzschutz 00490813-2026 00510556-2025
+    python explain_verdict.py --sub jebsen-blitzschutz
 """
 
 import argparse

@@ -9,9 +9,9 @@ grades, the customer's subscription line); everything the renderer writes
 on every run. The real delivery ledger and reports are never touched.
 
 Usage:
-    python tryout.py --sub jebsen-blitzschutz
-    python tryout.py --sub jebsen-blitzschutz --set min_deadline_days=0
-    python tryout.py --sub jebsen-blitzschutz --set min_relevance=0.6 --keep-expired
+    python preview_report.py --sub jebsen-blitzschutz
+    python preview_report.py --sub jebsen-blitzschutz --set min_deadline_days=0
+    python preview_report.py --sub jebsen-blitzschutz --set min_relevance=0.6 --keep-expired
 """
 
 import argparse
@@ -51,14 +51,14 @@ def main():
     paths = Paths(args.data_dir, args.models_dir)
     base = subscriptions.one(paths.subs_home, today.isoformat(), args.sub)
     if base is None:
-        sys.exit(f'[tryout] no active subscription {args.sub!r} in '
+        sys.exit(f'[preview_report] no active subscription {args.sub!r} in '
                  f'{paths.subs_home}')
 
     fields = {}
     for kv in args.overrides:
         key, sep, value = kv.partition('=')
         if not sep:
-            sys.exit(f'[tryout] --set expects FIELD=VALUE, got {kv!r}')
+            sys.exit(f'[preview_report] --set expects FIELD=VALUE, got {kv!r}')
         try:
             fields[key] = json.loads(value)
         except json.JSONDecodeError:
@@ -72,7 +72,7 @@ def main():
     except subscriptions.SubscriptionError as e:
         # a misspelled --set used to render the unchanged report, which looks
         # exactly like "that setting made no difference"
-        sys.exit(f'[tryout] {e}')
+        sys.exit(f'[preview_report] {e}')
 
     sandbox = paths.data / 'tryout' / args.sub
     if sandbox.exists():
@@ -87,11 +87,11 @@ def main():
 
     champ = loop.current_champion(paths)
     if champ is None:
-        sys.exit('[tryout] no champion model — run a loop cycle first')
+        sys.exit('[preview_report] no champion model — run a loop cycle first')
     scored = [r for r in ledger.read(args.data_dir, 'predictions')
               if r['model'] == champ['model_id']]
     if not scored:
-        sys.exit(f"[tryout] no ledger rows for champion {champ['model_id']}")
+        sys.exit(f"[preview_report] no ledger rows for champion {champ['model_id']}")
 
     awards = pd.read_parquet(Path(args.data_dir) / 'store' / 'awards.parquet')
     awarded = set(zip(awards['procedure_id'], awards['lot_id']))
@@ -102,7 +102,7 @@ def main():
                                   errors='coerce')
         scored = [r for r, d in zip(scored, deadline)
                   if pd.isna(d) or d.date() >= today]
-    print(f"[tryout] {len(scored)} open scored lots (champion "
+    print(f"[preview_report] {len(scored)} open scored lots (champion "
           f"{champ['model_id']}), overrides: {args.overrides or 'none'}")
 
     render_args = argparse.Namespace(track_window='12w', top_slice=0.2,
@@ -127,9 +127,9 @@ def main():
                   f"{str(r.get('buyer_name'))[:35]}")
     report = paths.reports / 'subscriptions' / args.sub / f'report_{today.isoformat()}.html'
     if report.exists():
-        print(f'\n[tryout] report: {report}')
+        print(f'\n[preview_report] report: {report}')
     else:
-        print('\n[tryout] no report written (nothing to recommend, nothing '
+        print('\n[preview_report] no report written (nothing to recommend, nothing '
               'graded to look back on)')
 
 

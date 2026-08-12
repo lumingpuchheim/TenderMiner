@@ -149,7 +149,7 @@ class Paths:
         self.store_awards = self.data / 'store' / 'awards.parquet'
         # the HOME whose storage holds the cycle's own record — predictions
         # and grades. A directory, not two files (ledger.py owns the format);
-        # replay.py points it at its as-of sandbox.
+        # rewind_report.py points it at its as-of sandbox.
         self.ledger_home = self.data
         # the HOME whose storage holds the delivery record and the gate-config
         # registry — a directory, not a file (ledger.py owns the format).
@@ -799,8 +799,8 @@ def record_gate_config(paths, config):
     commit was deployed that week. Append-only, one line per configuration,
     like every other ledger here.
 
-    Scoped to the DELIVERY ledger, not to the data dir: tryout.py and
-    replay.py redirect deliveries into a sandbox while still reading the real
+    Scoped to the DELIVERY ledger, not to the data dir: preview_report.py and
+    rewind_report.py redirect deliveries into a sandbox while still reading the real
     store, and a sandbox experiment must not append a configuration to the
     record of what customers were actually served under."""
     home = paths.deliveries_home

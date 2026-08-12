@@ -185,16 +185,16 @@ Each page answers "wie gut trifft unsere Einschätzung?" for its own trade.
 This is the **forecast** precision/recall of [`METHODS.md`](METHODS.md) §0 —
 did a lot we flagged really end with 0-1 bids — never the gate's, and it is
 sliced **by title word-match like everything else**, not by CPV3 as
-`backtest.py`'s own prose table does, because buyers enter CPV wrongly.
+`rewind_all.py`'s own prose table does, because buyers enter CPV wrongly.
 
 **Where the number comes from.** Only the as-of replay can answer it: a live
 award publishes a median 84 days after its tender, so the live grade ledger
-holds 18 rows and will for months. The replay is `backtest.py`, and how it
+holds 18 rows and will for months. The replay is `rewind_all.py`, and how it
 hands its results over is settled in §6d below — a JSON document on stdout,
 which this program is given the path to:
 
 ```
-python backtest.py > run-2026-08-11.json
+python rewind_all.py > run-2026-08-11.json
 python trade_pages.py --replay run-2026-08-11.json
 ```
 
@@ -240,9 +240,9 @@ copy so it could never be mistaken for a measurement). 22 of 32 trades landed
 in "too few checked", 10 in "beats chance", which is the shape to expect: **on
 real data most trades will not have enough checked alarms to say anything.**
 
-## 6d. How `backtest.py` hands its results over — decided 2026-08-11
+## 6d. How `rewind_all.py` hands its results over — decided 2026-08-11
 
-**The rule: `backtest.py` produces data, and every readable form is a renderer
+**The rule: `rewind_all.py` produces data, and every readable form is a renderer
 over that data.** Implement the replay once; extend the display as often as
 you like. Operator's decision, and it is the reason this section exists rather
 than a paragraph in a commit message.
@@ -253,7 +253,7 @@ Concretely:
   owns no path — no `RECEIPT_NAME`, no `data/reports/` convention, no dated
   filename. The operator names the file (`> run-2026-08-11.json`) or pipes it.
 - **Progress goes to stderr**, so the stream is clean whichever you do.
-- **The prose is a renderer, not a side effect.** `backtest.py --render PATH`
+- **The prose is a renderer, not a side effect.** `rewind_all.py --render PATH`
   (or `-` for stdin) prints the operator's report from a document, in a
   second, without replaying. `report()` is a pure function of the payload.
 - **`trade_pages.py --replay PATH`** slices the same document by trade into
@@ -280,7 +280,7 @@ public slice is by title words while the backtest's own table is by CPV3.
   until 2026-08-11). Rejected by the operator: the program should not own a
   path. It also invited the failure this file used to have — a dated prose
   `.md` beside it that nothing read and that could go stale against the data.
-- *A pipe as the only channel* (`backtest.py | trade_pages.py`). Rejected on
+- *A pipe as the only channel* (`rewind_all.py | trade_pages.py`). Rejected on
   lifetimes: the producer costs 33 minutes and refreshes quarterly, the site
   rebuilds far more often. A live pipe would re-replay on every rebuild. The
   document is what lets the two cadences differ; `-` still gives the pipe to

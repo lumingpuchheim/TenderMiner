@@ -380,7 +380,7 @@ trading it. The soft-membership pareto re-ran with H active and relaxed
 exactly as predicted: floor 0.60/consensus 1 → **0.45/consensus 2**,
 soft threshold 0.750 → 0.725, text bar 0.680 → 0.700 (`relevance.py`
 constants updated in the same commit; pilot subscription bumped to v6).
-Verified on the worked week via `explain.py`/`tryout.py`: both
+Verified on the worked week via `explain_verdict.py`/`preview_report.py`: both
 Rettungswache lots demote to the borderline band ("SOFT pass 1.000, NOT
 corroborated — reads as Bau von Rettungsdienststationen"), Los 12 and
 Bordesholm keep their hard passes, the pick list is unchanged.
@@ -473,13 +473,13 @@ steep and informative: margin 0.10 would contest 28.7% of hard passes at
 0.30 catches almost nothing. As predicted, the clean-negative leakage
 number does not move (1.5%, the metric is blind here); the contested
 rate is the benefit proxy, pending hand-read ground truth from the
-borderline band. Verified on every worked case via `explain.py`:
+borderline band. Verified on every worked case via `explain_verdict.py`:
 Trafostation and Bordesholm demote to borderline, Schönkirchen (−0.029)
 and Los 12 (−0.089) pass untouched; the pilot's current market shrinks
 to the two lots that are actually his trade, pick unchanged.
 Implementation: `trade_talk_contradicted()` + rule 6 in
 `relevance.py::judge`, `foreign_trade_rows` on the profile, the K sweep
-in `calibrate.py`, the trade-talk verdict line in `explain.py`.
+in `calibrate.py`, the trade-talk verdict line in `explain_verdict.py`.
 
 ## The evidence gate (phase 8, configuration L — specified 2026-08-06, supersedes the guess channels)
 
@@ -625,7 +625,7 @@ Receipts so far, honestly mixed:
 - Verified end-to-end under `GATE_MODE=evidence`: the pilot's render
   yields the same single correct pick, the "warum Ihr Geschäft" column
   quotes the found words ("nennt blitzschutz, erdungsanlag"), and
-  `explain.py` prints lexicon + evidence per lot alongside the
+  `explain_verdict.py` prints lexicon + evidence per lot alongside the
   embedding path.
 
 **Receipt trajectory (2026-08-06, all tiers-1–2 unless noted; embedding
@@ -969,7 +969,7 @@ outgoing 4.6%** — report size is essentially unchanged, so customers see
 no shift in how much they receive, only in what. That is also the second
 argument against K>=3, whose 2.9% would have cut reports by about a third
 at a moment when they are already short (the pilot currently matches 0–1
-lots per cycle; verified under both gates with `tryout.py` — the evidence
+lots per cycle; verified under both gates with `preview_report.py` — the evidence
 gate matches 1 where the embedding gate matches 0).
 
 ### The band guess is off
@@ -1014,7 +1014,7 @@ delivery ledger already relies on — and it is disposable:
 
 **Time isolation is fail-safe, by construction.** `relevance.Gate(dir)`
 with no `as_of` loads **no** learned references at all. Every pre-existing
-caller — `playback.py`, `backtest.py`, `replay.py`, `explain.py`, the
+caller — `rewind_win.py`, `rewind_all.py`, `rewind_report.py`, `explain_verdict.py`, the
 receipt harnesses — therefore keeps precisely the behaviour it had, and a
 replay path that forgets its cutoff *understates* the profile. It cannot
 pull a future win into a historical world, which is the one direction

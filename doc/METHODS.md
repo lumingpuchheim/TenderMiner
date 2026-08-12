@@ -14,21 +14,40 @@ plates, 43 m² stainless-steel netting, 136 m double handrails, 4 exterior doors
 ## 0. Which program answers which question
 
 Added 2026-08-11, from the operator's observation that it was not obvious
-where a number comes from. Five programs measure "how good are we" and they
-measure **different things**; the table is the map.
+where a number comes from; rewritten 2026-08-12 as the question × direction
+grid when the view programs were renamed (REFACTOR.md phase 5 step 4).
 
-| program | the question | ground truth | how a lot is grouped |
-| --- | --- | --- | --- |
-| `market.py` | how big is this trade's market? | the store — no prediction is involved at all | **title words** (`trades.txt`) |
-| `backtest.py` | **is the competition forecast any good?** as-of replay → *forecast* precision/recall, lift vs base rate | `n_tenders` on a published award | emits per-lot rows; its own table is CPV3 (**internal only**), the public slice is title words |
-| `calibrate.py` | where should the relevance bars sit? → *gate* precision/recall | the hand-labelled benchmark | per customer profile |
-| `loop.py` (grade step) | the live track record, as awards publish | same as backtest, but live | per lot |
-| `simulation.py check` | would simulated customers have been served well? | grades, joined to simulated picks | per company |
+**The architecture in one rule: one writer, many readers.** `loop.py` is the
+single scheduled writer — it downloads, scores, delivers, grades and learns.
+Every other program is a read-only view, and every view answers one question
+at one zoom level, in one time direction. Same predictor and same gate
+everywhere; what differs is when knowledge is frozen, and whether the outcome
+is already on public record:
+
+| zoom | looking forward (knowledge = today, outcome unknown) | rewinding (knowledge = a past date, outcome on record) |
+| --- | --- | --- |
+| **all lots** — the statistic | the track-record section of the weekly report (`loop.py`'s grade step, live awards) | `rewind_all.py` — every weekly cutoff replayed, every alarm graded |
+| **one lot** — the proof | `explain_verdict.py` — why this lot passes or fails this customer's gate, now | `rewind_win.py` — one past win: would we have caught it in time? |
+| **one customer** — the report | `preview_report.py` — the report from the current scores, with overrides, sandboxed | `rewind_report.py` — the report we would have sent at a past Monday, and its graded check |
+
+The rewind column shares one engine, `asof.py` — a materialised past you can
+trust — and a rewind is not a different activity from predicting: it is the
+same prediction made with old knowledge, checked against an answer key that
+already exists. No program mixes the two columns, and none should: a view
+that mixed "outcome unknown" and "outcome known" rows would be the leakage
+trap everything here is built to avoid.
+
+Outside the grid: `market.py` (how big is this trade's market — the store,
+no prediction involved; groups by **title words**, `trades.txt`),
+`calibrate.py` (where should the relevance bars sit — the *gate*
+precision/recall against the hand-labelled benchmark), and `simulation.py
+check` (would simulated customers have been served well — live picks fanned
+out to every winner company, graded as awards publish).
 
 **Two different things are called "precision and recall" in this repository**,
 and confusing them is the easiest mistake available:
 
-- **forecast** precision/recall — `backtest.py`. *Did a lot we flagged really
+- **forecast** precision/recall — `rewind_all.py`. *Did a lot we flagged really
   end with 0-1 bids?* Only an as-of replay can answer it, because a live
   award publishes a median 84 days after its tender.
 - **gate** precision/recall — `calibrate.py`. *Is this lot in the customer's
@@ -38,7 +57,7 @@ They share a name, share no data, and a number from one is meaningless in the
 other's sentence. Both files now carry the qualifier in their output and in
 their docstrings; keep it anywhere a person reads the number.
 
-**The grouping split, resolved 2026-08-11:** `backtest.py`'s own prose table
+**The grouping split, resolved 2026-08-11:** `rewind_all.py`'s own prose table
 groups by **CPV3**, while everything customer-facing groups by **title
 words** — because CPV is entered by the buyer and is often wrong, which is why
 `market.py` never consults it. **That table is therefore an internal targeting

@@ -141,7 +141,7 @@ def contract_refs(rows):
     ``relevance.Gate.by_pub``, which is built from the embedding sidecar over
     the TENDERS store — contract notices. An award number therefore never
     resolves and ``relevance.build_profile`` raises on it. Map through the lot
-    key instead, exactly as ``backtest.as_of_profile`` does. Last sidecar row
+    key instead, exactly as ``rewind_all.as_of_profile`` does. Last sidecar row
     per key wins, matching ``Gate.by_key``.
 
     Two consequences the caller has to live with: a won lot whose contract

@@ -12,7 +12,7 @@ Why a module rather than a few functions in `db.py`: the database is one
 storage option, and the fallback-to-file rule, the staleness guard and the
 sandbox semantics are decisions about *records*, not about SQL. Keeping them
 here means step 4 (predictions, grades) is a call-site change with no new
-storage logic, and it means a sandbox — `tryout.py`, `replay.py` — gets the
+storage logic, and it means a sandbox — `preview_report.py`, `rewind_report.py` — gets the
 same rules the real ledgers get instead of its own private ones.
 
 ## The staleness guard
@@ -233,7 +233,7 @@ def prediction_scores_since(home, cutoff_ts):
 
 def start(home):
     """Create empty storage for a sandbox home, matching whatever the real
-    ledgers use. tryout.py and replay.py call this so their scratch world is
+    ledgers use. preview_report.py and rewind_report.py call this so their scratch world is
     the shipped storage rather than a second format only sandboxes know."""
     import db
     db.init(home)
