@@ -189,26 +189,35 @@ sliced **by title word-match like everything else**, not by CPV3 as
 
 **Where the number comes from.** Only the as-of replay can answer it: a live
 award publishes a median 84 days after its tender, so the live grade ledger
-holds 18 rows and will for months. `backtest.py` now writes
-`data/reports/backtest_lots.json` — three facts per checkable lot (examined,
-flagged, final bid count) and nothing else. Deliberately no title, trade or
-CPV in it: whoever slices joins to the store, so `trades.txt` can change
-without invalidating a receipt.
+holds 18 rows and will for months. The replay is `backtest.py`, and how it
+hands its results over is settled in §6d below — a JSON document on stdout,
+which this program is given the path to:
 
-That receipt is the reason the replay is worth its hours. It used to keep
-per-lot facts in memory and write only prose, which made every new question a
-fresh multi-hour run. **Run the replay once, slice it many times.**
+```
+python backtest.py > run-2026-08-11.json
+python trade_pages.py --replay run-2026-08-11.json
+```
+
+Without `--replay` there is no forecast claim and every page says so. That is
+the state on a fresh checkout, and it is the correct one.
+
+**Run the replay once, slice it many times.** The document is the reason the
+replay is worth its half hour: it used to keep per-lot facts in memory and
+print only prose, which made every new question ("how does the forecast do in
+*this* trade?") a fresh 33-minute run.
 
 **Not in the weekly cycle**, and it must not be: the replay retrains the
 champion at every cutoff. Refresh it when the model changes or quarterly; the
-page prints the receipt's own date, so a figure ages visibly instead of
-silently.
+page prints the document's own date, so a figure ages visibly instead of
+silently. It *could* run weekly — measured 2026-08-11 at 33 minutes for 46
+trained cutoffs, not the "hours" this file used to claim — but there is no
+reason to spend that when the figure moves quarterly at best.
 
 **Three states, and the page always says which one it is in:**
 
 | state | what the page says |
 | --- | --- |
-| no receipt | „…noch nicht genug ausgewertete Hinweise… behaupten wir dazu nichts" |
+| no `--replay` (or an unreadable one) | „…noch nicht genug ausgewertete Hinweise… behaupten wir dazu nichts" |
 | fewer than `SMALL_SAMPLE` checked alarms | names the count and refuses to quote a rate |
 | enough, and it beats the base rate | both denominators, the factor, and the recall line |
 | enough, and it does **not** | **says so plainly** |
@@ -230,6 +239,57 @@ resolved lots (a rule, not a model — plumbing only, and written to the scratch
 copy so it could never be mistaken for a measurement). 22 of 32 trades landed
 in "too few checked", 10 in "beats chance", which is the shape to expect: **on
 real data most trades will not have enough checked alarms to say anything.**
+
+## 6d. How `backtest.py` hands its results over — decided 2026-08-11
+
+**The rule: `backtest.py` produces data, and every readable form is a renderer
+over that data.** Implement the replay once; extend the display as often as
+you like. Operator's decision, and it is the reason this section exists rather
+than a paragraph in a commit message.
+
+Concretely:
+
+- **One output: a JSON document on stdout.** The program writes no file and
+  owns no path — no `RECEIPT_NAME`, no `data/reports/` convention, no dated
+  filename. The operator names the file (`> run-2026-08-11.json`) or pipes it.
+- **Progress goes to stderr**, so the stream is clean whichever you do.
+- **The prose is a renderer, not a side effect.** `backtest.py --render PATH`
+  (or `-` for stdin) prints the operator's report from a document, in a
+  second, without replaying. `report()` is a pure function of the payload.
+- **`trade_pages.py --replay PATH`** slices the same document by trade into
+  HTML. No argument, no forecast claim.
+
+**What the document carries.** Everything any renderer needs, so that no
+consumer ever re-derives a fact the replay already knew: per-lot rows
+(`procedure_id`, `lot_id`, `cpv3`, `flag`, `n_tenders`), per-subscription
+picks and own-win rows, the per-firm target rows when `--targets` was given,
+and run metadata (`generated`, `model_tag`, `step_days`, `cutoffs_trained`).
+`n_tenders` is `null` when no award has published yet, which is how one list
+carries both the "examined" and the "results known" denominators.
+
+**`cpv3` is in a lot row; `trade` deliberately is not.** CPV3 is a raw store
+field and cannot drift. A trade is a title word-match that `trades.txt`
+redefines, so a document carrying trades would silently disagree with
+`trades.txt` the day it changed. Consumers that group by trade join to the
+store themselves — which is exactly what `trade_pages.py` does, and why the
+public slice is by title words while the backtest's own table is by CPV3.
+
+**Rejected alternatives**, recorded so they are not re-proposed:
+
+- *A default-named file* (`data/reports/backtest_lots.json`, what this was
+  until 2026-08-11). Rejected by the operator: the program should not own a
+  path. It also invited the failure this file used to have — a dated prose
+  `.md` beside it that nothing read and that could go stale against the data.
+- *A pipe as the only channel* (`backtest.py | trade_pages.py`). Rejected on
+  lifetimes: the producer costs 33 minutes and refreshes quarterly, the site
+  rebuilds far more often. A live pipe would re-replay on every rebuild. The
+  document is what lets the two cadences differ; `-` still gives the pipe to
+  anyone who wants it.
+- *A table in `tendermining.db`.* Rejected for scope, not taste: a replay is a
+  research artifact stamped with a model tag and a step size, not a cycle
+  record, and putting it in the database invites the weekly cycle to depend on
+  a run this expensive — which §6c forbids. Revisit if cross-run queries ever
+  matter; loading the JSONs is easy.
 
 ## 7. Out of scope
 

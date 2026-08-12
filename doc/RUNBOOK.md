@@ -285,8 +285,16 @@ answers your question; none of them touches the real ledgers or reports.
 - **`backtest.py`** replays every weekly cutoff and grades all picks
   against published outcomes on two axes — did the lot end with 0-1 bids,
   and did the firm the pick was handed to eventually win it themselves
-  (any bidder count); its report lands in
-  `data/reports/backtest_<date>.md`.
+  (any bidder count). **It writes no file and owns no path**: the run
+  produces one JSON document on stdout, which you name
+  (`TRADE_PAGES.md` §6d). Everything readable renders that document —
+  `--render` for the prose, `trade_pages.py --replay` for the pages:
+
+  ```
+  python backtest.py > run-2026-08-11.json     # ~33 min, 46 cutoffs
+  python backtest.py --render run-2026-08-11.json
+  python trade_pages.py --replay run-2026-08-11.json
+  ```
 
 Rule of thumb: after editing a subscription, `tryout.py`; when a verdict
 surprises you, `explain.py`; before shipping a gate change, `backtest.py`

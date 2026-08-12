@@ -240,34 +240,41 @@ A CatBoost classifier over notice-time features predicts whether a lot ends with
 assertion). Live grading is still thin (18 graded outcomes; an award publishes a
 median 84 days after the call), so the quotable numbers come from the forward
 backtest, which replays history as the loop would have run it
-(`data/reports/backtest_2026-08-10.md`):
+(`python backtest.py`, run 2026-08-11 — it prints this to the console; the
+per-lot facts behind it are kept in `data/reports/backtest_lots.json`):
 
 | | value |
 | --- | --- |
-| tenders examined while open | 11,709 (3,465 with a published result) |
+| tenders examined while open | 19,148 (5,994 with a published result) |
 | base rate ("chance") | 9% ended 0/1 bids |
-| alarms raised | 1,139 (391 checkable) |
-| **precision** | **16%** (95% CI 13–20%) — **1.84× chance** |
-| recall | 21% (95% CI 17–26%) |
+| alarms raised | 3,007 (1,027 checkable) |
+| **precision** | **17%** (95% CI 15–20%) — **1.83× chance** |
+| recall | 31% (95% CI 28–35%) |
 
 Per CPV group, and this is the part that decides which trades we may quote a lift
 to:
 
 | code | trade group | chance | alarms right | lift |
 | --- | --- | --- | --- | --- |
-| 452 | Hochbau (Maurer, Straßenbau, Stahlbau, Dachdeckung, Abdichtung…) | 10% | 24% (45/187) | **2.30×** |
-| 454 | Baufertigstellung (Tischler, Fenster, Boden, Putz…) | 7% | 8% (4/48) | 1.28× |
-| 453 | Bauinstallation (Elektro, Heizung, Lüftung, Sanitär, GA, Blitzschutz…) | 8% | 9% (12/137) | 1.04× |
-| 450 | Bauarbeiten allgemein | 10% | 7% (1/15) | 0.67× |
-| 451 | Baureifmachung | 3% | 0% (0/4, thin) | — |
+| 452 | Hochbau (Maurer, Straßenbau, Stahlbau, Dachdeckung, Abdichtung…) | 12% | 24% (118/492) | **2.01×** |
+| 453 | Bauinstallation (Elektro, Heizung, Lüftung, Sanitär, GA, Blitzschutz…) | 10% | 14% (48/347) | 1.34× |
+| 454 | Baufertigstellung (Tischler, Fenster, Boden, Putz…) | 6% | 7% (10/136) | 1.18× |
+| 450 | Bauarbeiten allgemein | 8% | 3% (1/35) | 0.35× |
+| 451 | Baureifmachung | 4% | 0% (0/16) | 0.00× |
 
-**There is no measured lift in CPV 453 or 450.** Those trades get the market
-facts and the relevance gate; a lift number must not appear in their letter.
-Awkwardly, 453 is where the highest uncontested rates sit (Aufzüge 23%,
-Gebäudeautomation 16%, Blitzschutz 12%).
+**In CPV 450 and 451 the alarm is worse than no alarm at all**, on 35 and 16
+checked alarms respectively. Those trades get the market facts and the
+relevance gate; a lift number must not appear in their letter. 453 has moved
+from 1.04× to 1.34× as its checked alarms went 137 → 347, which is a real
+change of evidence rather than of model — and it is where the highest
+uncontested rates sit (Aufzüge 23%, Gebäudeautomation 16%, Blitzschutz 12%).
+
+This table groups by **CPV3**, so it is an internal targeting aid and nothing
+more: a public page must slice by title words (`METHODS.md` §0), which is what
+`trade_pages.py` does from the same replay's receipt.
 
 Benchmark from the literature: precision ≈ 0.61 at recall ≈ 0.34 on 334k TED
-notices at a 21% base rate (Acikalin et al. 2023, `METHODS.md` §4.5). Our 16% at
+notices at a 21% base rate (Acikalin et al. 2023, `METHODS.md` §4.5). Our 17% at
 a 9% base rate is well under that; the gap is a to-do, not a selling point.
 
 ### 4.3 What lands in the customer's inbox

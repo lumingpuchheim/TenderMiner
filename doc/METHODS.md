@@ -20,7 +20,7 @@ measure **different things**; the table is the map.
 | program | the question | ground truth | how a lot is grouped |
 | --- | --- | --- | --- |
 | `market.py` | how big is this trade's market? | the store — no prediction is involved at all | **title words** (`trades.txt`) |
-| `backtest.py` | **is the competition forecast any good?** as-of replay → *forecast* precision/recall, lift vs base rate | `n_tenders` on a published award | CPV3 today — **wrong grouping to publish**, see below |
+| `backtest.py` | **is the competition forecast any good?** as-of replay → *forecast* precision/recall, lift vs base rate | `n_tenders` on a published award | emits per-lot rows; its own table is CPV3 (**internal only**), the public slice is title words |
 | `calibrate.py` | where should the relevance bars sit? → *gate* precision/recall | the hand-labelled benchmark | per customer profile |
 | `loop.py` (grade step) | the live track record, as awards publish | same as backtest, but live | per lot |
 | `simulation.py check` | would simulated customers have been served well? | grades, joined to simulated picks | per company |
@@ -38,13 +38,17 @@ They share a name, share no data, and a number from one is meaningless in the
 other's sentence. Both files now carry the qualifier in their output and in
 their docstrings; keep it anywhere a person reads the number.
 
-**One known inconsistency, recorded rather than hidden:** `backtest.py` groups
-its per-trade table by **CPV3**, while everything customer-facing groups by
-**title words** — because CPV is entered by the buyer and is often wrong,
-which is why `market.py` never consults it. So the backtest's per-trade rates
-are not directly quotable on a trade page. Fixing that means slicing the
-replay by word-match; until then no forecast figure appears on a public page
-(operator, 2026-08-11).
+**The grouping split, resolved 2026-08-11:** `backtest.py`'s own prose table
+groups by **CPV3**, while everything customer-facing groups by **title
+words** — because CPV is entered by the buyer and is often wrong, which is why
+`market.py` never consults it. **That table is therefore an internal targeting
+aid and is not quotable on a trade page.**
+
+It no longer blocks the public figure, because the replay now emits a document
+of per-lot rows rather than only prose (`TRADE_PAGES.md` §6d), and
+`trade_pages.py --replay` re-slices those rows by word-match for the pages.
+Same replay, two groupings, each labelled — rather than one grouping quoted in
+the wrong place.
 
 ## Decision record
 

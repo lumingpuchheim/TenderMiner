@@ -13,9 +13,8 @@ full store is consulted only to grade. Everything is written to
 data/replay/<sub_id>/ — real ledgers and reports are never touched.
 
 Choosing D: awards follow deadlines by ~3 months, so a cutoff 3-6 months
-back usually has graded outcomes; the backtest report
-(data/reports/backtest_<date>.md) lists per-subscription pick weeks with
-outcomes — any week listed there works.
+back usually has graded outcomes; `python backtest.py` prints per-subscription
+pick weeks with outcomes — any week listed there works.
 
 The subject should be REAL: --firm replays any actual winner company from
 the awards store (profile from their as-of wins, region from where they

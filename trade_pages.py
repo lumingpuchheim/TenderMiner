@@ -2,6 +2,7 @@
 
     python trade_pages.py                     # -> <data-dir>/public/
     python trade_pages.py --dry-run           # who qualifies, writes nothing
+    python trade_pages.py --replay run.json   # ... with the forecast section
 
 Builds the whole site: the hand-written pages copied out of `site/`, plus one
 generated market page per trade at `/gewerke/<slug>` and the sitemap that
@@ -150,22 +151,36 @@ def figures(lots, sel, covered, mature):
 # everywhere else, rather than by CPV3 as the backtest's own prose table does:
 # buyers enter CPV wrongly, which is why `market.py` never consults it.
 
-RECEIPT = 'backtest_lots.json'
-
 # A precision over a handful of alarms is noise: flag one lot a year, get it
 # right, claim 100 %. Same line the pages already use for a market share.
 MIN_CHECKED = market.SMALL_SAMPLE
 
 
-def load_receipt(data_dir):
-    """The last replay's per-lot facts, or None. No file, no forecast claim —
-    which is the state on a fresh checkout, and it is the correct one."""
-    p = Path(data_dir) / 'reports' / RECEIPT
-    if not p.exists():
+def load_replay(path):
+    """A replay document from `backtest.py`, or None when there is none.
+
+    There is no default path and no conventional filename on purpose: the
+    replay is produced by `python backtest.py > somewhere.json`, the operator
+    names that file, and this program is told where it is. No argument means
+    no forecast claim, which is the state on a fresh checkout and the correct
+    one — the pages then say so in words.
+
+    A **bad** document is also None, because an optional section must never
+    cost the market pages — but it is announced on the console first. Silence
+    would make a typo'd `--replay` path indistinguishable from a deliberate
+    omission: same site, no forecast anywhere, no way to tell which. That is
+    the failure this branch exists to prevent, so it prints and carries on.
+    """
+    if not path:
         return None
+    # lazy, like the flag_stats import below: reading a document must not make
+    # the site builder pull the ML stack when no --replay was given
+    from backtest import BadDocument, read_payload
     try:
-        return json.loads(p.read_text(encoding='utf-8'))
-    except (ValueError, OSError):
+        return read_payload(str(path))
+    except BadDocument as e:
+        print(f'[trades] --replay ignored: {e}', file=sys.stderr)
+        print('[trades] the pages will make no forecast claim', file=sys.stderr)
         return None
 
 
@@ -181,9 +196,13 @@ def forecast_for(receipt, lots, sel):
     if not receipt:
         return None
     keys = set(zip(lots.loc[sel, 'procedure_id'], lots.loc[sel, 'lot_id']))
+    # `n_tenders is None` = examined but no award published yet. Those rows
+    # carry the "examined" denominator for the operator's report and must not
+    # reach a rate here: an uncheckable lot is neither a hit nor a miss.
     rows = [{'flag': r['flag'], 'label': int(r['n_tenders'] <= 1)}
             for r in receipt['lots']
-            if (r['procedure_id'], r['lot_id']) in keys]
+            if r['n_tenders'] is not None
+            and (r['procedure_id'], r['lot_id']) in keys]
     if not rows:
         return None
     from loop import flag_stats           # lazy: pulls the ML stack
@@ -406,8 +425,11 @@ def publish(out, site=SITE):
         shutil.copy2(src, dst)
 
 
-def build(data_dir, out=None, dry_run=False, site=SITE):
+def build(data_dir, out=None, dry_run=False, site=SITE, replay=None):
     """Build the whole site into `out` (default `<data-dir>/public`).
+
+    `replay` is the path to a `backtest.py` document; without one the pages
+    carry no forecast claim.
 
     -> (built, skipped). `built` is [(name, slug)], `skipped` is
     [(name, n_awarded)] — the trades that cannot yet carry a page."""
@@ -415,7 +437,7 @@ def build(data_dir, out=None, dry_run=False, site=SITE):
     lots = market.add_text(market.load_lots(data_dir))
     trades = market.load_trades()
     covered, mature, _ = market.coverage(lots)
-    receipt = load_receipt(data_dir)
+    receipt = load_replay(replay)
 
     built, skipped, pages = [], [], {}
     for name, trade in sorted(trades.items()):
@@ -458,12 +480,17 @@ def main():
                     help='built site (default: <data-dir>/public)')
     ap.add_argument('--dry-run', action='store_true',
                     help='report who qualifies, write nothing')
+    ap.add_argument('--replay', default=None, metavar='PATH',
+                    help='a `python backtest.py > PATH` document; without it '
+                         'the pages make no forecast claim')
     args = ap.parse_args()
     out = Path(args.out) if args.out else Path(args.data_dir) / 'public'
-    built, skipped = build(args.data_dir, out, args.dry_run)
+    built, skipped = build(args.data_dir, out, args.dry_run,
+                           replay=args.replay)
     print(f'[trades] {len(built)} trade pages'
           + (' (dry run, nothing written)' if args.dry_run else
-             f'; site built -> {out}'))
+             f'; site built -> {out}')
+          + ('' if args.replay else '; no --replay, so no forecast section'))
     if skipped:
         print(f'[trades] {len(skipped)} below the floor of {MIN_AWARDED} '
               f'awarded lots, no page:')

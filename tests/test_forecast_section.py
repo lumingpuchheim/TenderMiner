@@ -2,9 +2,9 @@
 
 This is the **forecast** precision/recall (did a flagged lot really end with
 0-1 bids), never the gate's. It can only come from `backtest.py`'s as-of
-replay, so these tests build a synthetic receipt rather than replaying
+replay, so these tests build a synthetic document rather than replaying
 anything — a real replay retrains the model at every weekly cutoff and takes
-hours.
+about half an hour (measured 2026-08-11: 33 min, 46 cutoffs).
 
 Three states are asserted, and the unflattering one matters most: a trade
 where the forecast does NOT beat the base rate must say so on the page
@@ -26,10 +26,13 @@ import trade_pages as tp                                        # noqa: E402
 
 
 def receipt(lots, generated='2026-08-11'):
-    """lots: [(procedure_id, lot_id, flag, n_tenders)]"""
-    return {'generated': generated, 'model_tag': 'test', 'n_lots': len(lots),
-            'lots': [{'procedure_id': p, 'lot_id': l, 'flag': f,
-                      'n_tenders': n} for p, l, f, n in lots]}
+    """lots: [(procedure_id, lot_id, flag, n_tenders)] — n_tenders None means
+    examined while open but no award published yet."""
+    return {'schema': 1, 'generated': generated, 'model_tag': 'test',
+            'step_days': 7, 'cutoffs_trained': 3, 'n_lots': len(lots),
+            'lots': [{'procedure_id': p, 'lot_id': l, 'cpv3': '452', 'flag': f,
+                      'n_tenders': n} for p, l, f, n in lots],
+            'subs': []}
 
 
 def frame(keys):
@@ -48,25 +51,38 @@ class NoReceipt(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.dir = Path(self.tmp.name)
 
-    def test_absent_receipt_is_no_claim(self):
-        """A fresh checkout has never run a replay. That must produce silence,
-        not a figure — no file, no claim."""
-        self.assertIsNone(tp.load_receipt(self.dir))
+    def test_no_replay_given_is_no_claim(self):
+        """No --replay is the state on a fresh checkout, and on every build
+        that simply does not want to quote one. It must produce silence, not a
+        figure."""
+        self.assertIsNone(tp.load_replay(None))
         html = tp.forecast_section(None)
         self.assertIn('behaupten wir dazu nichts', html)
         self.assertNotIn('%', html)
 
-    def test_a_corrupt_receipt_is_treated_as_absent(self):
-        (self.dir / 'reports').mkdir()
-        (self.dir / 'reports' / tp.RECEIPT).write_text('{ not json',
-                                                       encoding='utf-8')
-        self.assertIsNone(tp.load_receipt(self.dir))
+    def test_a_missing_file_is_treated_as_absent(self):
+        """Named but not there: the forecast section goes quiet, the market
+        pages still build. A bad path must not cost the whole site."""
+        self.assertIsNone(tp.load_replay(self.dir / 'nope.json'))
 
-    def test_a_written_receipt_round_trips(self):
-        (self.dir / 'reports').mkdir()
-        (self.dir / 'reports' / tp.RECEIPT).write_text(
-            json.dumps(receipt([('p1', 'L1', True, 1)])), encoding='utf-8')
-        self.assertEqual(tp.load_receipt(self.dir)['n_lots'], 1)
+    def test_a_corrupt_document_is_treated_as_absent(self):
+        p = self.dir / 'run.json'
+        p.write_text('{ not json', encoding='utf-8')
+        self.assertIsNone(tp.load_replay(p))
+
+    def test_a_written_document_round_trips(self):
+        p = self.dir / 'run.json'
+        p.write_text(json.dumps(receipt([('p1', 'L1', True, 1)])),
+                     encoding='utf-8')
+        self.assertEqual(tp.load_replay(p)['n_lots'], 1)
+
+    def test_an_unawarded_lot_is_neither_hit_nor_miss(self):
+        """A lot examined while open but not yet awarded carries the
+        `examined` denominator in the document. It must not reach a rate."""
+        rec = receipt([('p1', 'L1', True, 1), ('p1', 'L2', True, None)])
+        st, _ = slice_of(rec, [('p1', 'L1'), ('p1', 'L2')])
+        self.assertEqual(st['n'], 1)
+        self.assertEqual(st['flagged'], 1)
 
 
 class Slicing(unittest.TestCase):

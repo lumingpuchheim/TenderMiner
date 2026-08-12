@@ -36,9 +36,21 @@ notice's existence changes it); the system's design postdates the replayed
 period; trust/thresholds are recalibrated every RECAL_EVERY cutoffs, not
 weekly (cost) — which uses staler thresholds, never later ones.
 
+**This program produces one thing: a JSON document on stdout** (see
+`build_payload`). It writes no file and owns no path — the operator names the
+file or pipes it, and progress goes to stderr so the stream stays clean. Every
+human-readable form is a renderer over that document, never a second
+computation: `--render` prints the operator's prose, `trade_pages.py --replay`
+slices the same document by trade into HTML. Replay once (33 minutes over the
+2026-08-11 store), render as often as you like.
+
 Usage:
-    python backtest.py                        # weekly, whole feasible range
-    python backtest.py --step 14 --sub jebsen-blitzschutz
+    python backtest.py > run.json             # weekly, whole feasible range
+    python backtest.py --out run.json         # same, without the redirect
+    python backtest.py --step 14 --sub jebsen-blitzschutz > run.json
+    python backtest.py --render run.json      # the report, without replaying
+    python backtest.py --render -             # ... from a pipe
+    python trade_pages.py --replay run.json
 """
 
 import argparse
@@ -64,6 +76,7 @@ from embed import MODEL_TAG
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 
 MIN_TRAIN_LOTS = 300   # first cutoff needs this many labeled lots
 RECAL_EVERY = 8        # cutoffs between trust/threshold recalibrations
@@ -92,11 +105,23 @@ def winner_map(awards_full):
 
 
 def write_world(full_store, work_store, D):
-    """Rewrite the working store to contain only pre-D publications."""
+    """Rewrite the working store to contain only pre-D publications.
+
+    Written to a temp file and renamed, so an interrupted run leaves the
+    previous cutoff's world rather than a half-written parquet. Not for
+    concurrency — this scratch store has one writer — but because a replay
+    that is Ctrl-C'd in the middle of the write used to poison the directory
+    for every LATER run: the next start died on "Parquet magic bytes not found
+    in footer", and nothing rebuilt it, so the only repair was knowing to
+    delete the file by hand. Half an hour of work behind a manual step nobody
+    documented. (Hit for real on 2026-08-11.)
+    """
     for name in ('tenders', 'awards'):
         tab = pq.read_table(full_store / f'{name}.parquet')
         mask = pc.less(tab.column('publication_date'), D.date())
-        pq.write_table(tab.filter(mask), work_store / f'{name}.parquet')
+        tmp = work_store / f'{name}.parquet.partial'
+        pq.write_table(tab.filter(mask), tmp)
+        tmp.replace(work_store / f'{name}.parquet')
 
 
 CALIBRATED_BARS = ('min_relevance', 'min_code_hard', 'min_code_soft')
@@ -182,7 +207,8 @@ def replay(data_dir, step_days, sub_ids):
                 # Early cutoffs only: the world grows monotonically, so this
                 # never strands a later week. Printed, not swallowed — a
                 # skipped cutoff must not read as a cutoff with no picks.
-                print(f'[backtest] {D.date()}: skipped — {e}', flush=True)
+                print(f'[backtest] {D.date()}: skipped — {e}', flush=True,
+                      file=sys.stderr)
                 continue
             cal_f = r['configs']['F hard/soft codes + floor/consensus']
             trust = work / 'trusted_codes_asof.json'
@@ -265,11 +291,12 @@ def replay(data_dir, step_days, sub_ids):
                                                ('title', 'buyer_name', 'score')}})
         print(f'[backtest] {D.date()}: {n_lots} train lots, '
               f'{len(open_t)} open, {sum(1 for *_, s2, _ in rows if s2 >= FLAG_THRESHOLD)} flagged',
-              flush=True)
+              flush=True, file=sys.stderr)
 
     return {'flagged': flagged, 'scored': scored_lonely, 'sub_picks': sub_picks,
             'sub_market': sub_market, 'outcome': outcome, 'subs': subs,
             'awards_full': awards_full, 'gate_dir': str(work),
+            'step_days': step_days, 'n_cutoffs': n_run,
             # call publication + deadline per lot, for the own-win fairness
             # split: a win whose call closed before the firm had a single
             # published reference was never judged at all (profile None)
@@ -294,7 +321,7 @@ def cpv3_labels():
     return labels
 
 
-def flag_matrix(res, outcome):
+def flag_matrix(payload):
     """**Forecast** precision AND recall for the binary alarm, across the
     whole replay.
 
@@ -325,9 +352,8 @@ def flag_matrix(res, outcome):
     examined while open whose award has since published. Alarms are deduped
     per lot by the replay (first week's score), so this is one row per lot.
     """
-    rows = [{'flag': lot in res['flagged'], 'label': int(n <= 1)}
-            for lot, n in ((lot, outcome[lot]) for lot in res['scored']
-                           if lot in outcome)]
+    rows = [{'flag': r['flag'], 'label': int(r['n_tenders'] <= 1)}
+            for r in payload['lots'] if r['n_tenders'] is not None]
     f = loop.flag_stats(rows)
     if not f:
         return ['## The flag: forecast precision and recall', '',
@@ -368,26 +394,30 @@ def flag_matrix(res, outcome):
     return lines
 
 
-def trade_table(res, outcome):
+def trade_table(payload):
     """Per-cpv3 slice of the global replay — the branch-ranking table.
 
     Sorted by graded flag count (evidence weight), not by hit rate: a thin
     slice's 100% is an anecdote, not a branch decision.
+
+    CPV3 is an INTERNAL grouping and this table is not quotable on a public
+    page: buyers enter CPV wrongly, which is why `market.py` never consults it
+    and why `trade_pages.py` re-slices the same payload by title words. It is
+    the reason `cpv3` rides on a lot row while `trade` deliberately does not —
+    a raw store field cannot drift, a derived grouping can.
     """
     labels = cpv3_labels()
     trades = {}
-    for lot, cpv3 in res['scored'].items():
-        t = trades.setdefault(cpv3, {'scored': 0, 'graded': [], 'flags': 0,
-                                     'graded_flags': []})
+    for r in payload['lots']:
+        t = trades.setdefault(r['cpv3'], {'scored': 0, 'graded': [], 'flags': 0,
+                                          'graded_flags': []})
         t['scored'] += 1
-        if lot in outcome:
-            t['graded'].append(outcome[lot])
-    for lot, (_, _, cpv3) in res['flagged'].items():
-        t = trades.setdefault(cpv3, {'scored': 0, 'graded': [], 'flags': 0,
-                                     'graded_flags': []})
-        t['flags'] += 1
-        if lot in outcome:
-            t['graded_flags'].append(outcome[lot])
+        if r['n_tenders'] is not None:
+            t['graded'].append(r['n_tenders'])
+        if r['flag']:
+            t['flags'] += 1
+            if r['n_tenders'] is not None:
+                t['graded_flags'].append(r['n_tenders'])
     lines = ['## Per trade — where the alarms were right', '',
              'Every rate is printed as its fraction: "115/480 (24%)" means '
              '480 alarms could',
@@ -417,12 +447,17 @@ def trade_table(res, outcome):
     return lines + ['']
 
 
-def simulate_targets(res, targets_csv, out_csv, max_picks=MAX_PICKS):
+def target_rows(res, targets_csv, max_picks=MAX_PICKS):
     """Deliver weekly picks to every firm in the outreach target list across
     the replay, and grade them — SIMULATION.md's market rule (the trades and
     NUTS-1 regions of the firm's wins; no regions = nationwide), run
     backwards through time. One pick row per (firm, lot) ever, like the live
-    simulation ledger. Returns the report lines; writes the per-firm CSV."""
+    simulation ledger.
+
+    Returns the per-firm rows for the payload. This runs at REPLAY time
+    because it needs the targets CSV and the winner map; `target_lines` then
+    renders them, so the prose is a view of the payload like everything else.
+    """
     targets = pd.read_csv(targets_csv, encoding='utf-8-sig')
     outcome = res['outcome']
     markets = {}
@@ -460,9 +495,16 @@ def simulate_targets(res, targets_csv, out_csv, max_picks=MAX_PICKS):
             'won': sum(1 for lot in known
                        if str(c).strip() in winners[lot]),
         })
-    per_firm = pd.DataFrame(rows)
-    per_firm.to_csv(out_csv, index=False, encoding='utf-8-sig')
+    return rows
 
+
+def target_lines(payload):
+    """Render the per-firm target rows. Returns [] when the run had no
+    `--targets`, which is the usual case."""
+    rows = payload.get('targets')
+    if not rows:
+        return []
+    per_firm = pd.DataFrame(rows)
     lines = ['## Target firms — picks replayed and checked', '',
              'A pick is counted per firm: the same tender handed to 20 firms '
              'counts 20',
@@ -498,56 +540,127 @@ def simulate_targets(res, targets_csv, out_csv, max_picks=MAX_PICKS):
     return lines
 
 
-RECEIPT_NAME = 'backtest_lots.json'
+SCHEMA = 1
 
 
-def write_receipt(res, out_dir):
-    """Persist the replay's LOT-LEVEL results, so the run can be sliced later
-    without replaying anything.
+def build_payload(res, targets_csv=None):
+    """The replay's results as ONE serialisable document — the single thing
+    this program produces.
 
-    The replay is the expensive thing in this repository — it retrains the
-    champion at every weekly cutoff — and until now it kept its per-lot facts
-    in memory and wrote only prose. That made every new question ("how does
-    the forecast do in *this* trade?") a fresh multi-hour run.
+    The replay is the expensive step in this repository (33 minutes over the
+    2026-08-11 store, 46 trained cutoffs), so it runs once and is rendered
+    many times: `report` prints the operator's prose from this document,
+    `trade_pages.py` slices the same document by trade into HTML, and anything
+    later is another renderer rather than another replay. Nothing downstream
+    re-derives a fact the replay knew; nothing upstream formats.
 
-    Three facts per lot, and nothing else: was it examined while open, did we
-    raise an alarm, and how many bids did it eventually get. Deliberately NO
-    title, trade or CPV: whoever slices joins to the store themselves, so the
-    trade definitions in `trades.txt` can change without invalidating a
-    receipt — and so this file cannot drift from the store's own text.
+    What a lot row carries: was it examined while open (every row was), did we
+    raise an alarm, its `cpv3`, and how many bids it eventually got —
+    `n_tenders: null` when no award has published, so the "examined" and
+    "results known" denominators are both readable off this list.
 
-    Written next to the prose report. `trade_pages.py` reads it; nothing in
-    the weekly cycle does, because nothing in the weekly cycle may depend on
-    a run that takes hours.
+    `cpv3` is here and `trade` is NOT, deliberately: cpv3 is a raw store
+    field, while a trade is a title word-match that `trades.txt` redefines. A
+    payload carrying trades would silently disagree with `trades.txt` the day
+    it changed; carrying cpv3 cannot. Consumers that group by trade join to
+    the store themselves, which is what `trade_pages.py` does.
     """
-    outcome = res['outcome']
-    lots = []
-    for lot in res['scored']:
-        if lot not in outcome:
-            continue                      # no published award yet: uncheckable
-        lots.append({'procedure_id': lot[0], 'lot_id': lot[1],
-                     'flag': bool(lot in res['flagged']),
-                     'n_tenders': int(outcome[lot])})
+    outcome, winners = res['outcome'], res['winners']
+    lots = [{'procedure_id': lot[0], 'lot_id': lot[1], 'cpv3': cpv3,
+             'flag': bool(lot in res['flagged']),
+             'n_tenders': (int(outcome[lot]) if lot in outcome else None)}
+            for lot, cpv3 in res['scored'].items()]
+
+    subs = []
+    for s, picks in res['sub_picks'].items():
+        firm = res['subs'][s].get('name', s)
+        f_name = str(firm).strip()
+        subs.append({
+            'sub_id': s, 'name': firm,
+            'picks': [{'procedure_id': lot[0], 'lot_id': lot[1],
+                       'week': p['week'], 'title': p['title'],
+                       'buyer_name': p['buyer_name'], 'score': p['score'],
+                       'n_tenders': (int(outcome[lot]) if lot in outcome
+                                     else None),
+                       'winner_known': lot in winners,
+                       'won': f_name in winners.get(lot, ())}
+                      for lot, p in sorted(picks.items(),
+                                           key=lambda kv: kv[1]['week'])],
+            'wins': own_win_rows(res, s, firm, picks),
+        })
     payload = {
+        'schema': SCHEMA,
         'generated': date.today().isoformat(),
         'model_tag': MODEL_TAG,
+        'step_days': res['step_days'],
+        'cutoffs_trained': res['n_cutoffs'],
         'n_lots': len(lots),
         'lots': lots,
+        'subs': subs,
     }
-    p = Path(out_dir) / RECEIPT_NAME
-    p.write_text(json.dumps(payload), encoding='utf-8')
-    print(f'[backtest] lot-level receipt: {len(lots)} checkable lots -> {p}')
-    return p
+    if targets_csv:
+        payload['targets'] = target_rows(res, targets_csv)
+    return payload
 
 
-def report(res, out_path):
-    outcome = res['outcome']
-    graded_pool = {lot: outcome[lot] for lot in res['scored'] if lot in outcome}
-    base = np.mean([n <= 1 for n in graded_pool.values()]) if graded_pool else 0
-    graded_flags = {lot: outcome[lot] for lot in res['flagged'] if lot in outcome}
-    hit = (np.mean([n <= 1 for n in graded_flags.values()])
+def own_win_rows(res, s, firm, picks):
+    """Each of the firm's eventual wins, and whether the replayed market saw
+    it — computed HERE, at replay time, because it needs the full awards frame
+    that never enters the payload.
+
+    FAIRNESS SPLIT (2026-08-10): a profile is built from awards published
+    before each cutoff (as_of_profile), and an award publishes a median 84
+    days after its tender. A pilot onboarded from its recent wins therefore
+    replays its FIRST wins against a profile that does not exist yet — VLE and
+    Polat read 0/8 and 0/6 here while today's gate admits 7/8 and 5/6 of the
+    same wins. A win whose tender closed before the firm's first OTHER
+    reference was published was never judged at all; counting it against the
+    gate is grading chronology, not relevance. `refs_at_close` is what lets a
+    renderer separate the two without re-reading the store.
+    """
+    aw = res['awards_full']
+    wins = aw[aw['winner_names'].apply(
+        lambda x: x is not None and firm in list(x))]
+    # when did each of the firm's references become citable? — the
+    # publication date of the AWARD notice that creates it
+    ref_avail = sorted((str(w['publication_date'] or ''), str(w['procedure_id']))
+                       for _, w in wins.iterrows())
+    rows = []
+    for _, w in wins.iterrows():
+        lot = (w['procedure_id'], w['lot_id'])
+        call_pub, deadline = res.get('lot_dates', {}).get(lot, ('', ''))
+        anchor = deadline or call_pub
+        rows.append({
+            'awarded': str(w['publication_date'])[:10],
+            'procedure_id': lot[0], 'lot_id': lot[1],
+            'in_market': lot in res['sub_market'][s],
+            'pick': lot in picks,
+            'n_tenders': (int(w['n_tenders']) if pd.notna(w['n_tenders'])
+                          else None),
+            'refs_at_close': sum(1 for d, p in ref_avail
+                                 if d and anchor and d <= anchor
+                                 and p != str(w['procedure_id'])),
+        })
+    return sorted(rows, key=lambda r: (r['awarded'], r['procedure_id'],
+                                       str(r['lot_id'])))
+
+
+def report(payload):
+    """Print the operator's prose. A pure function of the payload — every
+    number here is also derivable by any other renderer, which is the point of
+    the payload existing.
+    """
+    lots = payload['lots']
+    graded = [r['n_tenders'] for r in lots if r['n_tenders'] is not None]
+    base = np.mean([n <= 1 for n in graded]) if graded else 0
+    graded_flags = [r['n_tenders'] for r in lots
+                    if r['flag'] and r['n_tenders'] is not None]
+    hit = (np.mean([n <= 1 for n in graded_flags])
            if graded_flags else float('nan'))
-    lines = [f'# Forward backtest — {MODEL_TAG} — generated {date.today().isoformat()}',
+    lines = [f'# Forward backtest — {payload["model_tag"]} — generated '
+             f'{payload["generated"]} '
+             f'({payload["cutoffs_trained"]} cutoffs, '
+             f'step {payload["step_days"]}d)',
              '',
              'Words used here: **examined** = the model looked at the tender while it was',
              'open · **alarm** = the model said "few bidders likely" · **pick** = one of',
@@ -560,92 +673,129 @@ def report(res, out_path):
              'a winner, no matter how many bidders there were (own denominator: the',
              'award must name a winner, which is not the same set as "bid count known").',
              '',
-             f'- Tenders examined while open: {len(res["scored"])} '
-             f'(results known for {len(graded_pool)}; '
-             f'{sum(1 for n in graded_pool.values() if n <= 1)} of those '
+             f'- Tenders examined while open: {len(lots)} '
+             f'(results known for {len(graded)}; '
+             f'{sum(1 for n in graded if n <= 1)} of those '
              f'ended with 0-1 bids anyway — chance {base:.0%})',
-             f'- **Alarms raised on {len(res["flagged"])} tenders; '
-             f'{sum(1 for n in graded_flags.values() if n <= 1)} of the '
+             f'- **Alarms raised on {sum(1 for r in lots if r["flag"])} '
+             f'tenders; {sum(1 for n in graded_flags if n <= 1)} of the '
              f'{len(graded_flags)} checked alarms really ended with 0-1 bids '
              f'({hit:.0%}), {hit / base:.2f}x better than chance**'
              if graded_flags else '- no checked alarms yet',
              '']
-    lines += flag_matrix(res, outcome)
-    lines += trade_table(res, outcome)
-    if res.get('targets_csv'):
-        lines += simulate_targets(res, res['targets_csv'],
-                                  res['targets_out_csv'])
-    for s, picks in res['sub_picks'].items():
-        firm = res['subs'][s].get('name', s)
+    lines += flag_matrix(payload)
+    lines += trade_table(payload)
+    lines += target_lines(payload)
+    for sub in payload['subs']:
+        firm, picks = sub['name'], sub['picks']
         lines += [f'## {firm}', '']
-        graded = {lot: outcome.get(lot) for lot in picks}
-        n_lonely = sum(1 for n in graded.values() if n is not None and n <= 1)
-        n_graded = sum(1 for n in graded.values() if n is not None)
-        winners = res['winners']
-        f_name = str(firm).strip()
-        won = {lot for lot in picks if f_name in winners.get(lot, ())}
-        n_winner_known = sum(1 for lot in picks if lot in winners)
+        n_graded = sum(1 for p in picks if p['n_tenders'] is not None)
+        n_lonely = sum(1 for p in picks
+                       if p['n_tenders'] is not None and p['n_tenders'] <= 1)
+        won = sum(1 for p in picks if p['won'])
+        n_winner_known = sum(1 for p in picks if p['winner_known'])
         lines += [f'- Picks across the replay: {len(picks)} (results known '
                   f'for {n_graded}, of which {n_lonely} ended with 0-1 bids)',
-                  f'- Picks eventually won by {f_name} themselves: {len(won)} '
+                  f'- Picks eventually won by {firm} themselves: {won} '
                   f'of {n_winner_known} with a winner on record '
                   f'(any bidder count)', '']
-        for lot, p in sorted(picks.items(), key=lambda kv: kv[1]['week']):
-            n = outcome.get(lot)
-            res_s = f'{n} bid(s)' if n is not None else 'outcome pending'
-            if lot in won:
+        for p in picks:
+            res_s = ('outcome pending' if p['n_tenders'] is None
+                     else f'{p["n_tenders"]} bid(s)')
+            if p['won']:
                 res_s += ', WON by them'
             lines.append(f'  - {p["week"]}: {str(p["title"])[:60]!r} '
                          f'[{str(p["buyer_name"])[:35]}] -> {res_s}')
-        # recall of the customer's own eventual wins.
-        #
-        # FAIRNESS SPLIT (2026-08-10): a profile is built from awards
-        # published before each cutoff (as_of_profile), and an award
-        # publishes a median 84 days after its tender. A pilot onboarded
-        # from its recent wins therefore replays its FIRST wins against a
-        # profile that does not exist yet — VLE and Polat read 0/8 and 0/6
-        # here while today's gate admits 7/8 and 5/6 of the same wins. A
-        # win whose tender closed before the firm's first OTHER reference
-        # was published was never judged at all; counting it against the
-        # gate is grading chronology, not relevance.
-        aw = res['awards_full']
-        wins = aw[aw['winner_names'].apply(
-            lambda x: x is not None and firm in list(x))]
-        # when did each of the firm's references become citable? — the
-        # publication date of the AWARD notice that creates it
-        ref_avail = sorted(
-            (str(w['publication_date'] or ''), str(w['procedure_id']))
-            for _, w in wins.iterrows())
-        rows = []
-        for _, w in wins.iterrows():
-            lot = (w['procedure_id'], w['lot_id'])
-            in_market = lot in res['sub_market'][s]
-            in_picks = lot in picks
-            call_pub, deadline = res.get('lot_dates', {}).get(lot, ('', ''))
-            anchor = deadline or call_pub
-            refs_then = sum(1 for d, p in ref_avail
-                            if d and anchor and d <= anchor
-                            and p != str(w['procedure_id']))
-            rows.append((str(w['publication_date'])[:10], lot, in_market,
-                         in_picks, w['n_tenders'], refs_then))
-        vis = sum(1 for r in rows if r[2])
-        starved = sum(1 for r in rows if not r[2] and r[5] == 0)
+        # recall of the customer's own eventual wins; see own_win_rows for the
+        # fairness split the `refs_at_close` column carries
+        rows = sub['wins']
+        vis = sum(1 for r in rows if r['in_market'])
+        starved = sum(1 for r in rows
+                      if not r['in_market'] and r['refs_at_close'] == 0)
         lines += ['', f'- Own wins visible in the replayed market: '
                   f'{vis}/{len(rows)} (as picks: '
-                  f'{sum(1 for r in rows if r[3])})']
+                  f'{sum(1 for r in rows if r["pick"])})']
         if starved:
             gateable = len(rows) - starved
             lines.append(
                 f'- {starved} of the misses closed before the firm had a '
                 f'single published reference (new-customer bootstrap: the '
                 f'gate never ran) — gate-attributable: {vis}/{gateable}')
-        for d, lot, im, ip, n, rt in sorted(rows):
-            nb = int(n) if pd.notna(n) else '?'
-            lines.append(f'  - win awarded {d} ({nb} bids): in market={im}, '
-                         f'pick={ip}, refs at close={rt}')
+        for r in rows:
+            nb = '?' if r['n_tenders'] is None else r['n_tenders']
+            lines.append(f'  - win awarded {r["awarded"]} ({nb} bids): '
+                         f'in market={r["in_market"]}, pick={r["pick"]}, '
+                         f'refs at close={r["refs_at_close"]}')
         lines.append('')
-    Path(out_path).write_text('\n'.join(lines), encoding='utf-8')
     print('\n'.join(lines))
+
+
+class BadDocument(Exception):
+    """A replay document a renderer cannot use. The message says why."""
+
+
+LOT_FIELDS = ('procedure_id', 'lot_id', 'cpv3', 'flag', 'n_tenders')
+
+
+def validate(payload):
+    """Check a document before any renderer touches it. -> payload, or raise
+    `BadDocument` with a sentence a person can act on.
+
+    Valid JSON is not a valid document, and that is the case worth guarding:
+    an older run, a truncated file, or somebody's unrelated `.json` all parse
+    fine and then raise `KeyError` in the middle of rendering — which on the
+    public-site path used to mean a whole build died over an optional section.
+    Fail here, once, with a reason, and let each caller decide what to do
+    about it (`TRADE_PAGES.md` §6d): the site downgrades to no claim and says
+    so, `--render` stops.
+
+    Only what a renderer actually indexes is checked. This is not a schema
+    language and should not grow into one.
+    """
+    if not isinstance(payload, dict):
+        raise BadDocument(f'not a replay document: expected a JSON object, '
+                          f'got {type(payload).__name__}')
+    schema = payload.get('schema')
+    if schema is None:
+        raise BadDocument('not a replay document: no "schema" field. A file '
+                          'written before 2026-08-11 (or by something else) '
+                          'cannot be rendered — re-run `python backtest.py`.')
+    if not isinstance(schema, int) or schema > SCHEMA:
+        raise BadDocument(f'document schema {schema!r} is newer than this '
+                          f'backtest.py understands (schema {SCHEMA}) — '
+                          f'update the code, or re-run the replay with it.')
+    lots = payload.get('lots')
+    if not isinstance(lots, list):
+        raise BadDocument('document has no "lots" list — nothing to render.')
+    for i, r in enumerate(lots):
+        if not isinstance(r, dict):
+            raise BadDocument(f'lot row {i} is not an object')
+        missing = [k for k in LOT_FIELDS if k not in r]
+        if missing:
+            raise BadDocument(
+                f'lot row {i} is missing {", ".join(missing)} — this document '
+                f'was written by an older backtest.py; re-run the replay.')
+    for k in ('generated', 'model_tag', 'step_days', 'cutoffs_trained'):
+        if k not in payload:
+            raise BadDocument(f'document is missing "{k}" — every figure has '
+                              f'to be able to state which run it came from.')
+    if not isinstance(payload.get('subs'), list):
+        raise BadDocument('document has no "subs" list')
+    return payload
+
+
+def read_payload(path):
+    """Load and validate a replay document from a path, or stdin for `-`."""
+    try:
+        text = (sys.stdin.read() if path == '-'
+                else Path(path).read_text(encoding='utf-8'))
+    except OSError as e:
+        raise BadDocument(f'cannot read {path}: {e}') from e
+    try:
+        payload = json.loads(text)
+    except ValueError as e:
+        raise BadDocument(f'{path} is not valid JSON: {e}') from e
+    return validate(payload)
 
 
 def main():
@@ -658,27 +808,54 @@ def main():
     ap.add_argument('--targets', default=None,
                     help='outreach targets.csv: deliver + grade weekly picks '
                          'for every firm in it across the replay')
+    ap.add_argument('--render', metavar='PATH', default=None,
+                    help='do not replay: read a previous run\'s document '
+                         '(`-` for stdin) and print the report from it')
+    ap.add_argument('--out', metavar='PATH', default='-',
+                    help='where the document goes; `-` (the default) is '
+                         'stdout. No conventional filename either way — the '
+                         'caller names it.')
     args = ap.parse_args()
+    if args.render:
+        # The operator asked to render THIS document. A bad one is an error
+        # with a reason, never an empty report — unlike the site build, which
+        # has market pages to protect and downgrades instead.
+        try:
+            report(read_payload(args.render))
+        except BadDocument as e:
+            print(f'[backtest] {e}', file=sys.stderr)
+            return 2
+        return
     sub_ids = args.sub
     if sub_ids is None:
         sub_ids = [s0['sub_id'] for s0
                    in subscriptions.load(args.data_dir,
                                          date.today().isoformat())
                    if s0.get('profile_refs')]
-    res = replay(args.data_dir, args.step, set(sub_ids))
-    if args.targets:
-        res['targets_csv'] = args.targets
-        res['targets_out_csv'] = str(
-            Path(args.data_dir) / 'outreach' / 'backtest_per_firm.csv')
-    out = Path(args.data_dir) / 'reports' / f'backtest_{date.today().isoformat()}.md'
-    out.parent.mkdir(parents=True, exist_ok=True)
-    report(res, out)
-    print(f'[backtest] report -> {out}')
-    # The receipt is written LAST and unconditionally: a replay that has run
-    # for hours must not lose its per-lot facts because the prose failed to
-    # format.
-    write_receipt(res, out.parent)
+    # STDOUT IS THE DOCUMENT, so nothing else may write to it. `calibrate`,
+    # `subscriptions` and `embed` all print progress with a bare `print`, and
+    # one such line in the middle of the stream is a corrupt JSON file that
+    # took half an hour to produce. Rather than police every module (and every
+    # module added later), the replay runs with `sys.stdout` bound to stderr:
+    # `print` resolves it per call, so every stray diagnostic lands with the
+    # deliberate ones and the real stream stays untouched until the dump.
+    doc_stream = sys.stdout
+    try:
+        sys.stdout = sys.stderr
+        res = replay(args.data_dir, args.step, set(sub_ids))
+        payload = build_payload(res, targets_csv=args.targets)
+    finally:
+        sys.stdout = doc_stream
+    if args.out == '-':
+        json.dump(payload, doc_stream)
+        doc_stream.flush()
+    else:
+        Path(args.out).write_text(json.dumps(payload), encoding='utf-8')
+    print(f'[backtest] {payload["n_lots"]} lots examined, '
+          f'{sum(1 for r in payload["lots"] if r["n_tenders"] is not None)} '
+          f'with a published result'
+          + ('' if args.out == '-' else f' -> {args.out}'), file=sys.stderr)
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
