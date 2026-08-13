@@ -52,8 +52,10 @@ import asof
 import config
 import loop
 import relevance as rel
+import selection
 import single_bidder as sb
 import subscriptions
+from selection import lot_key
 from calibrate import WorldTooThin
 from embed import MODEL_TAG
 
@@ -64,6 +66,10 @@ if hasattr(sys.stdout, 'reconfigure'):
 MIN_TRAIN_LOTS = 300   # first cutoff needs this many labeled lots
 RECAL_EVERY = 8        # cutoffs between trust/threshold recalibrations
 FLAG_THRESHOLD = 0.5   # mirrors the loop's --threshold default
+# The market-wide target simulation has no subscription behind it, so these
+# two are its own horizon and its own cap. A CUSTOMER's deadline promise and
+# pick cap are never these: they come off the subscription line, inside
+# selection.py — which is the drift this phase removed.
 MIN_DEADLINE_DAYS = 14
 MAX_PICKS = 5
 
@@ -181,15 +187,21 @@ def replay(data_dir, step_days, sub_ids):
         gate = world.gate(cfg)
         profiles = {s: as_of_profile(gate, subs[s], world.awards)
                     for s in subs}
+        # the target simulation is a market-wide question with no subscription
+        # behind it, so it keeps its own fixed horizon; a customer's own
+        # deadline promise is applied per subscription, inside selection.py
         dl_ok = (deadline.loc[open_t.index]
                  >= D + pd.Timedelta(days=MIN_DEADLINE_DAYS))
-        rows = []
+        n_flagged = 0
+        candidates = []
         wf = week_flags.setdefault(str(D.date()), [])
         for (i, row), s in zip(open_t.iterrows(), scores):
             lot = (row['procedure_id'], row['lot_id'])
             cpv3 = str(row.get('cpv_main') or '')[:3]
             scored_lonely.setdefault(lot, cpv3)
-            if s >= FLAG_THRESHOLD:
+            flag = bool(s >= FLAG_THRESHOLD)
+            if flag:
+                n_flagged += 1
                 flagged.setdefault(lot, (str(D.date()), float(s), cpv3))
                 nuts1 = (str(row['place_nuts3'])[:3]
                          if pd.notna(row.get('place_nuts3')) else None)
@@ -197,36 +209,35 @@ def replay(data_dir, step_days, sub_ids):
                     wf.append((lot, float(s), cpv3, nuts1,
                                str(row.get('title'))[:60],
                                str(row.get('buyer_name'))[:40]))
-            rows.append((lot, row, float(s), bool(dl_ok.loc[i])))
+            # the row as the shipped selection expects it: the market fields it
+            # slices on, the deadline it promises against, and the competition
+            # verdict — the same keys a prediction-ledger row carries
+            candidates.append({
+                'procedure_id': lot[0], 'lot_id': lot[1],
+                'buyer_name': row.get('buyer_name'), 'title': row.get('title'),
+                'score': float(s), 'flag': flag,
+                'cpv_main': row.get('cpv_main'), 'cpv3': cpv3 or None,
+                'place_nuts3': row.get('place_nuts3'),
+                'deadline_date': row.get('deadline_date'),
+            })
         for s, profile in profiles.items():
             if profile is None:
                 continue
-            cand = []
-            for lot, row, sc, ok_dl in rows:
-                # ONE market filter, shared with the renderer (subscriptions.py)
-                # -- this is where the second, drifted copy used to live
-                if not subscriptions.in_market(subs[s], row):
-                    continue
-                d = {'procedure_id': lot[0], 'lot_id': lot[1],
-                     'buyer_name': row.get('buyer_name'),
-                     'title': row.get('title'), 'score': sc}
-                ok, near, tx, cd, why, ch = rel.judge(gate, profile, d)
-                if ok:
-                    sub_market[s].add(lot)
-                    if ok_dl:
-                        d.update(text=tx, hard=ch)
-                        cand.append(d)
-            # ONE bar (RELEVANCE.md decision 2026-08-05): gate passed means
-            # recommendable; a pick just needs the competition flag on top
-            cand.sort(key=lambda d: -d['score'])
-            for d in [c for c in cand
-                      if c['score'] >= FLAG_THRESHOLD][:MAX_PICKS]:
+            # The shipped selection, not a replica of it (REFACTOR.md phase 4):
+            # slice, gate, deadline, rank and cap all come from selection.py,
+            # which is what loop.deliver runs on Monday. This is the whole
+            # point of the measurement — the drifted second copy that used to
+            # live here is what defect 1 was.
+            sel = selection.for_sub(subs[s], candidates, D.date(),
+                                    gate=gate, profile=profile)
+            sub_market[s].update(lot_key(d) for d in sel.market)
+            for d in sel.picks:
                 sub_picks[s].setdefault(
-                    (d['procedure_id'], d['lot_id']),
+                    lot_key(d),
                     {'week': str(D.date()), **{k2: d[k2] for k2 in
                                                ('title', 'buyer_name', 'score')}})
         print(f'[rewind_all] {D.date()}: {n_lots} train lots, '
-              f'{len(open_t)} open, {sum(1 for *_, s2, _ in rows if s2 >= FLAG_THRESHOLD)} flagged',
+              f'{len(open_t)} open, {n_flagged} flagged',
               flush=True, file=sys.stderr)
 
     return {'flagged': flagged, 'scored': scored_lonely, 'sub_picks': sub_picks,
