@@ -1366,6 +1366,27 @@ def _coverage(table, schema, title):
         print(f'    {field:30s} {100 * filled / max(len(table), 1):5.1f}%')
 
 
+def log_dir(xml_dir):
+    """Where this run's reports go: the state directory, never the process's
+    working directory.
+
+    `--xml-dir` is always `<state>/raw/xml`, so its grandparent is the state
+    root. Deriving the path that way leaves the laptop untouched — run from
+    the checkout, `data/raw/xml` still resolves to `data/logs` — while in the
+    container it follows the mount to `/data/logs`.
+
+    The relative `'data/logs'` this replaces worked only because the laptop
+    happens to run the cycle from the checkout. In the container the working
+    directory is `/app`, owned by root, and the cycle runs as `tm`: creating a
+    relative `data/` there raises PermissionError, and since `loop.py` runs
+    this module with `check=True`, that took the entire weekly cycle down with
+    it — after the store had been rewritten, before anything was graded,
+    trained or delivered.
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(xml_dir)))
+    return os.path.join(root, 'logs')
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--xml-dir', default='data/raw/xml',
@@ -1459,8 +1480,9 @@ def main():
         award_rows.extend(awards)
 
     if failed:
-        os.makedirs('data/logs', exist_ok=True)
-        with open('data/logs/extract_failures.jsonl', 'a', encoding='utf-8') as fh:
+        logs = log_dir(args.xml_dir)
+        os.makedirs(logs, exist_ok=True)
+        with open(os.path.join(logs, 'extract_failures.jsonl'), 'a', encoding='utf-8') as fh:
             for entry in failed:
                 fh.write(json.dumps(entry) + '\n')
 
@@ -1500,7 +1522,8 @@ def main():
     if failed:
         for entry in failed[:5]:
             print(f"  {entry['file']}: {entry['error_type']}: {entry['error']}")
-        print('  full list appended to data/logs/extract_failures.jsonl')
+        print('  full list appended to '
+              f'{os.path.join(log_dir(args.xml_dir), "extract_failures.jsonl")}')
 
     flag_counts = collections.Counter(f for row in tender_rows for f in row['quality_flags'])
     flag_counts.update(f for row in award_rows for f in row['quality_flags'])
@@ -1523,10 +1546,12 @@ def main():
         'coercions': {f'{ctx}: {reason}': n for (ctx, reason), n in sorted(COERCIONS.items())},
         'quality_flags': dict(sorted(flag_counts.items())),
     }
-    os.makedirs('data/logs', exist_ok=True)
-    with open('data/logs/extract_report.json', 'w', encoding='utf-8') as fh:
+    logs = log_dir(args.xml_dir)
+    os.makedirs(logs, exist_ok=True)
+    report_path = os.path.join(logs, 'extract_report.json')
+    with open(report_path, 'w', encoding='utf-8') as fh:
         json.dump(report, fh, indent=2)
-    print('\nrun report -> data/logs/extract_report.json')
+    print(f'\nrun report -> {report_path}')
 
     # The two tables only overlap where a call and its result were both downloaded —
     # that intersection, not either row count, is the trainable set.
