@@ -44,6 +44,7 @@ import config
 import ledger
 import loop
 import relevance as rel
+import selection
 import single_bidder as sb
 import subscriptions
 
@@ -204,10 +205,6 @@ def main():
         graded_aw = aw_latest[(pub > D) & (pub <= D2)]
         outcome = {(a['procedure_id'], a['lot_id']): int(a['n_tenders'])
                    for _, a in graded_aw.iterrows() if pd.notna(a['n_tenders'])}
-        dl = pd.to_datetime([r['deadline_date'] for r in scored], errors='coerce')
-        min_dl = D + pd.Timedelta(days=14)
-        pool = [r for r, d in zip(scored, dl) if pd.notna(d) and d >= min_dl]
-        pool.sort(key=lambda r: -r['score'])
         w = awards_asof[awards_asof['winner_names'].apply(
             lambda x: x is not None and len(x) > 0)].explode('winner_names')
         firms = [f for f, c in w['winner_names'].value_counts().items() if c >= 2]
@@ -224,17 +221,13 @@ def main():
                     'min_code_soft': H['soft_threshold'], 'version': 0})
             except ValueError:
                 continue
-            picks = []
-            for r0 in pool:
-                if r0['score'] < FLAG_THRESHOLD:
-                    break
-                if not str(r0.get('place_nuts3') or '').startswith(tuple(nuts1)):
-                    continue
-                ok, *_ = rel.judge(gate, profile, r0)
-                if ok:
-                    picks.append(r0)
-                if len(picks) == 5:
-                    break
+            # the same selection the firm would have been served, not a
+            # fourth copy of it (REFACTOR.md phase 4a): a firm's region is
+            # where it won, and 14 days is the horizon this scan asks about
+            picks = selection.for_sub(
+                {'nuts_prefixes': nuts1, 'min_deadline_days': 14,
+                 'max_picks': 5},
+                scored, D.date(), gate=gate, profile=profile).picks
             graded = [(r0, outcome[(r0['procedure_id'], r0['lot_id'])])
                       for r0 in picks
                       if (r0['procedure_id'], r0['lot_id']) in outcome]

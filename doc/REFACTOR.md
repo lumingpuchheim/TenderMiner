@@ -1,6 +1,6 @@
 # REFACTOR — separating the two questions, and giving subscriptions a home
 
-Status (2026-08-12):
+Status (2026-08-13):
 
 | phase | what | state |
 | --- | --- | --- |
@@ -9,7 +9,8 @@ Status (2026-08-12):
 | 3 | `GateConfig`, stamped on every delivery | **done** 2026-08-07 |
 | 2 | subscriptions and ledgers move to SQLite | **done** 2026-08-08 |
 | 5 | `asof.py`, the one rewind engine + the program renames | **done** 2026-08-12 |
-| 4 | `select.py`, then `render.py` | specified, **next due** |
+| 4a | `selection.py`, the one selection | **done** 2026-08-13 |
+| 4b | `render.py` | specified, **next due** |
 
 Phases are build order in time, never a scope cut (vocabulary of
 [`ONLINE_LEARNING.md`](ONLINE_LEARNING.md) and
@@ -18,7 +19,7 @@ twice, both times deliberately: 3 before 2 because the ledger could not say
 which rules produced a pick, while the storage problems were ones the system
 would have rather than had; 5 before 4 because 5 is behaviour-preserving
 (receipt: byte-identity) while 4 changes the backtest's measured numbers (it
-fixes defect 1) and must land alone.
+fixes defect 1) and had to land alone — which it did, as 4a.
 
 Nothing here changes what the system decides — every phase is a
 behaviour-preserving move, and the one place where behaviour *did* change
@@ -34,9 +35,10 @@ relevance gate, [`relevance.py`](../relevance.py) /
 separated already — `judge()` never sees the score, the model never sees the
 profile. The tangles were one layer up, and there were two of them: the
 **composer** (the code that slices a market, asks both questions, ranks,
-caps, renders and records lives in one 250-line function, with a drifted
-copy in the all-lots rewind — still open, phase 4), and the **rewind
-machinery** (three programs each materialised their own past — closed,
+caps, renders and records lived in one 250-line function, with a drifted
+copy in the all-lots rewind — the selection half is closed, phase 4a; the
+rendering half is phase 4b), and the **rewind machinery** (three programs
+each materialised their own past — closed,
 phase 5). This document names the seams, records the defects the tangles
 produced, and gave subscription state a real home before the first paying
 customer arrives (phase 2).
@@ -71,13 +73,22 @@ here.
 | `subscriptions.py` ✅ | field validation, as-of resolution, market filter | loop, rewind_all, rewind_report, preview_report, explain_verdict, feedback |
 | `relevance.py` ✅ config | the verdict only; config passed in (a `Verdict` object is still open) | composer, explain_verdict, evidence harnesses |
 | `asof.py` ✅ | the materialised past: filtered store, calibration inside it, pre-cutoff refs and champion | rewind_all, rewind_win, rewind_report |
-| `select.py` | slice → gate → rank → cap → `SliceResult(picks, borderline, market)`. No I/O, no HTML, ~40 lines | loop, rewind_all, rewind_report |
+| `selection.py` ✅ | slice → gate → rank → cap → `SliceResult(market, ranked, picks, borderline, judged)`. No I/O, no HTML | loop, rewind_all |
 | `render.py` | `SliceResult` → report HTML, annex HTML, delivery rows | loop, preview_report |
 
-`deliver()` then reads: for each sub → `select.for_sub(...)` →
+`deliver()` then reads: for each sub → `selection.for_sub(...)` →
 `render.report(...)` → append ledger. The all-lots rewind calls
-`select.for_sub` and measures the shipped selection by construction, which
+`selection.for_sub` and measures the shipped selection by construction, which
 is the whole point.
+
+**The module is `selection.py`, not `select.py`.** `select` is a
+standard-library module, and a `select.py` at the repository root shadows it
+for the whole process — `import subprocess` then dies inside `selectors.py`
+with `module 'select' has no attribute 'select'`. Receipt, in the image that
+actually runs the cycle: with the file named `select.py`,
+`docker run tendermining:latest python -c "import subprocess"` fails, i.e.
+the scheduler would not have started. The name in this document was wrong,
+not the design.
 
 Two smaller cuts in the same direction:
 
