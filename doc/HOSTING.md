@@ -89,9 +89,42 @@ Three things this table does not say, and should not be read as saying:
   [`MEMORY_BUDGET.md`](MEMORY_BUDGET.md) documents, which measures the replay
   at 1,436 MB with a complete vocabulary. `embed_vocab.py` is the fix and it
   is worth ~850 MB.
-- **The embed stage is 1.9 GB of the cycle's 3.0 GB.** Running it as a
-  subprocess (the way `loop.py` already runs `features.py`) would return that
-  memory to the OS at process exit and put the cycle near 1.4 GB. Not done.
+- **The embed stage is 1.9 GB of the cycle's 3.0 GB.** What to do about that
+  is below — the obvious answer was tried and does not work.
+
+### The subprocess that did not help — tried 2026-08-13, reverted
+
+Running the embed stage as its own process (the shape `loop.py` already uses
+for `features.py`) looks like the fix: exit is the only reliable `free()`,
+since dropping the model does not hand its ~1.2 GB back to the allocator. It
+was built, proven output-identical, measured, and **reverted**. Both runs
+`--skip-download`, 278 lots to embed, one job alone under a 3 GB cap:
+
+| | in-process | subprocess |
+| --- | --- | --- |
+| **peak anonymous** | 2,958 MB | **2,957 MB** |
+| delivery | 2,334 MB | 1,700 MB |
+| dashboard | 2,107 MB | 1,541 MB |
+| wall clock | 412 s | **491 s** |
+
+**The cap is on the container, not the process.** A child runs in the same
+cgroup, so its 2.4 GB is charged to the same budget — next to the parent's
+572 MB of store frames, which it still holds. Moving an allocation into a
+child hides it from `ps`, not from the limit that kills things.
+
+What it did buy — a ~600 MB lighter tail — is bought by nothing, because
+[`heavy_lock.py`](../heavy_lock.py) is what now guarantees no second job wants
+that memory. Paying 79 s a week for headroom nothing can use is a worse trade
+than not paying it. The sidecar was byte-identical both ways (`lots.npy` and
+`lots_index.jsonl` compared by SHA-256), so this is a cost decision, not a
+correctness one.
+
+**If the peak has to come down**, the lever is not process boundaries. Either
+embed fewer sequences at once (`batch_size=8` is worth ~85 MB, and the curve
+is flat below 16), or take the embedding out of the cycle entirely and give it
+its own slot at another hour — which the lock already makes safe, and which is
+how the operator described the three jobs in the first place: *never done
+simultaneously*.
 
 ### Why they cannot collide: one lock
 
