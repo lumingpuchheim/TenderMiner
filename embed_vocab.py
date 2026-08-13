@@ -57,6 +57,7 @@ import pandas as pd
 
 import config
 import evidence as ev
+import heavy_lock
 import subscriptions
 from embed import read_cpv_labels
 
@@ -125,14 +126,28 @@ def main():
         print(f'[vocab] run `python embed_vocab.py --data-dir {args.data_dir}` '
               f'to embed them ({len(missing) * 768 * 4 / 1e6:.1f} MB)')
         return 1
-    t0 = time.time()
-    for a in range(0, len(missing), BATCH):
-        syn._embed(missing[a:a + BATCH])
-        print(f'[vocab] embedded {min(a + BATCH, len(missing))}/{len(missing)}',
-              flush=True)
-    syn.save()
-    print(f'[vocab] {len(missing)} words embedded in {time.time() - t0:.0f}s; '
-          f'cache now {len(syn)} words at {syn.vec_path}')
+    # Only the embedding path takes the heavy-job lock. `--check` returned
+    # above: it loads no model and allocates nothing worth serialising, and it
+    # is exactly what an operator wants to run *while* a cycle is going to
+    # find out whether a backfill is needed afterwards.
+    #
+    # Fail fast rather than wait, like the replay (heavy_lock, property 4):
+    # this is manual, cheap to repeat, and its operator is watching.
+    try:
+        with heavy_lock.held(args.data_dir, 'the vocabulary backfill'):
+            t0 = time.time()
+            for a in range(0, len(missing), BATCH):
+                syn._embed(missing[a:a + BATCH])
+                print(f'[vocab] embedded '
+                      f'{min(a + BATCH, len(missing))}/{len(missing)}',
+                      flush=True)
+            syn.save()
+            print(f'[vocab] {len(missing)} words embedded in '
+                  f'{time.time() - t0:.0f}s; '
+                  f'cache now {len(syn)} words at {syn.vec_path}')
+    except heavy_lock.Busy as e:
+        print(f'[vocab] {e}', file=sys.stderr)
+        return 2
     return 0
 
 

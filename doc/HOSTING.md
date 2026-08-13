@@ -66,12 +66,56 @@ Two things that look like levers and are not:
   once per thread. Noise, not a fault — but set the thread count explicitly
   on a small machine.
 
-**Still unmeasured, and it blocks the purchase:** everything after the embed
-stage. Both capped runs were OOM-killed inside it (at 3 GB and at 6 GB), so
-grading, CatBoost training, delivery and the simulation have no anon figure
-at all — and delivery is not obviously cheap, taking 733 s and writing 5,568
-simulated picks. One complete capped cycle at a lower `batch_size` settles
-it.
+### What it costs after the two fixes
+
+`batch_size=16` and `unload_model()` (both in [`embed.py`](../embed.py)).
+Every run below is one job **alone** in its own container under
+`--memory=3g --memory-swap=0`, on the rebuilt image, against a volume seeded
+from the real state:
+
+| job, run alone | peak anonymous | outcome |
+| --- | --- | --- |
+| weekly cycle, 278 lots to embed | 2,958 MB | `[done]`, no OOM |
+| replay, `--step 21`, 16 cutoffs | 2,287 MB | `exit=0`, 435 s |
+| weekly cycle, nothing to embed | 1,044 MB | `[done]` |
+
+Three things this table does not say, and should not be read as saying:
+
+- **2,958 MB is 96% of the budget.** Nothing was killed, so true demand is
+  below 3,072 MB; the sampler reads at 2 Hz, so each figure is a lower bound.
+  The margin is a few hundred MB and the store grows ~90 MB/week.
+- **The replay's 2,287 MB includes a model it should not have loaded.**
+  Three uncached words pulled in the whole ONNX runtime — the same trap
+  [`MEMORY_BUDGET.md`](MEMORY_BUDGET.md) documents, which measures the replay
+  at 1,436 MB with a complete vocabulary. `embed_vocab.py` is the fix and it
+  is worth ~850 MB.
+- **The embed stage is 1.9 GB of the cycle's 3.0 GB.** Running it as a
+  subprocess (the way `loop.py` already runs `features.py`) would return that
+  memory to the OS at process exit and put the cycle near 1.4 GB. Not done.
+
+### Why they cannot collide: one lock
+
+The three jobs fit a 4 GB machine one at a time and **do not fit two at a
+time** — 2,958 + 2,287 is 5.2 GB. Cron cannot collide with itself (one entry,
+Monday 08:15, and `weekly.sh` chains its two steps with `&&`), and the
+Windows task that used to run the cycle is confirmed `Disabled`. What was
+unguarded is a person starting a replay at 08:20.
+
+[`heavy_lock.py`](../heavy_lock.py) is that guard, and its docstring carries
+the five properties that keep a lock from becoming a hung Monday. The
+receipts, run in containers rather than argued:
+
+| check | result |
+| --- | --- |
+| replay starts while the cycle holds the lock | refused in 7 s, exit 2, message names the reason |
+| holder `SIGKILL`ed (what an OOM-killed cycle is) | next job acquired in **1 s** — no stale lock |
+| cycle starts while a replay holds the lock | waited, logged `[lock] waiting …`, acquired when the replay left |
+
+The asymmetry is deliberate: the cycle **waits** (up to an hour) because a
+skipped Monday is a missed delivery, while the replay and the backfill
+**fail immediately** because they are manual and cheap to repeat.
+`embed_vocab.py --check` takes no lock at all — it loads no model and is
+exactly what an operator wants to run *while* a cycle is going.
 
 ## 1. Decisions made here, so they stop being re-litigated
 
@@ -136,7 +180,7 @@ the page shows a visible gap until it is set. Original list, for the record:
 | decision | blocks | note |
 | --- | --- | --- |
 | **SMTP provider** | №3, and therefore printing letters | now the long pole |
-| **VPS provider & size** | everything in §3 | **4 GB is not enough as the code stands** — the cycle was OOM-killed under a 3 GB cap, which is what a 4 GB box has left after the OS and the always-on app. It peaks at 6.1 GB, all of it `batch_size=64` in the embed stage (§0a); at 8 or 16 the stage fits a 4 GB machine, but the stages after it are still unmeasured. Disk is the easy axis: 2.1 GB of state against 40 GB. Cores barely matter — 2 is fine |
+| **VPS provider & size** | everything in §3 | **4 GB works, one job at a time** (§0a): every heavy job now completes under a 3 GB cap — cycle 2,958 MB, replay 2,287 MB, quiet cycle 1,044 MB — where before the cycle needed 6.1 GB and was OOM-killed. The cycle is at 96% of that budget, so treat 4 GB as the floor, not the comfortable choice. Disk is the easy axis: 2.1 GB of state against 40 GB. Cores barely matter — 2 is fine |
 | **Windows task cutover** | — | DONE 2026-08-11: the scheduler container runs the weekly cycle and the Windows task is disabled ([`RUNBOOK.md`](RUNBOOK.md) §1c) |
 | ~~domain~~ | ~~letters only~~ | **DECIDED 2026-08-11: `murara.eu`** (registered at Infomaniak). `www.murara.eu` is the public site, `app.murara.eu` the token surface. Brand is **Murara**; TenderMining stays the repository and system name |
 

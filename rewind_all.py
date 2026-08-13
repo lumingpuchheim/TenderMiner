@@ -50,6 +50,7 @@ import pandas as pd
 
 import asof
 import config
+import heavy_lock
 import loop
 import relevance as rel
 import selection
@@ -804,6 +805,19 @@ def main():
             print(f'[rewind_all] {e}', file=sys.stderr)
             return 2
         return
+    # Fail fast rather than wait: this is a manual run with its operator
+    # watching, and the alternative is a replay that silently queues behind a
+    # 28-minute cycle and then competes with the next thing. The cycle waits
+    # for us; we never wait for it (heavy_lock, property 4).
+    try:
+        with heavy_lock.held(args.data_dir, 'the replay'):
+            return _replay_to_document(args)
+    except heavy_lock.Busy as e:
+        print(f'[rewind_all] {e}', file=sys.stderr)
+        return 2
+
+
+def _replay_to_document(args):
     # STDOUT IS THE DOCUMENT, so nothing else may write to it. `calibrate`,
     # `subscriptions` and `embed` all print progress with a bare `print`, and
     # one such line in the middle of the stream is a corrupt JSON file that

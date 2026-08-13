@@ -34,6 +34,7 @@ import numpy as np
 import pandas as pd
 
 import config
+import heavy_lock
 import ledger
 import selection
 import single_bidder as sb
@@ -1498,6 +1499,15 @@ def report(paths, tenders, args, record, gate, drift, model_id, n_graded, n_pred
 
 def cmd_run(args):
     paths = Paths(args.data_dir, args.models_dir)
+    # The cycle WAITS for the heavy-job lock rather than failing on it: a
+    # replay someone started at 08:10 is over in minutes, while a skipped
+    # Monday is a week with no delivery. The wait is bounded — heavy_lock
+    # raises rather than hanging, and property 3 in that module is why.
+    with heavy_lock.held(paths.data, 'the weekly cycle', wait=3600):
+        _run_cycle(paths, args)
+
+
+def _run_cycle(paths, args):
     # which state this cycle is operating on, before it operates on it
     # (doc/STORAGE.md 6.1) — a cycle that silently used the wrong root would
     # look exactly like a cycle with nothing to do
