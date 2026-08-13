@@ -442,8 +442,17 @@ class Gate:
                        for i, r in enumerate(self.rows)}
         # cpv + buyer per sidecar row (store read at load time — profile
         # building is model-side runtime, not a customer-number reconstruction)
-        lots = pd.read_parquet(Path(data_dir) / 'store' / 'tenders.parquet'
-                               ).drop_duplicates(subset=KEY)
+        # The seven fields below plus KEY are everything a gate reads off the
+        # store: the per-row arrays built here, and (evidence mode) the
+        # lexicon derivation, which takes `_lots` and touches title,
+        # description, buyer_name and the two code columns. Naming them keeps
+        # ~130 MB of unrelated object columns out of every gate — and a
+        # replay builds one gate per cutoff. doc/MEMORY_BUDGET.md.
+        lots = pd.read_parquet(
+            Path(data_dir) / 'store' / 'tenders.parquet',
+            columns=KEY + ['cpv_main', 'cpv_additional', 'contract_type',
+                           'buyer_name', 'publication_date', 'title',
+                           'description']).drop_duplicates(subset=KEY)
         key_cpv = dict(zip(zip(lots['procedure_id'], lots['lot_id']),
                            lots['cpv_main']))
         key_buyer = dict(zip(zip(lots['procedure_id'], lots['lot_id']),

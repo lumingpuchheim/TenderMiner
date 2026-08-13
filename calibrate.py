@@ -215,12 +215,23 @@ def threshold_for_recall(scores, n_auto, target):
         np.quantile(scores, 0.90))
 
 
-def calibrate(data_dir):
+def calibrate(data_dir, tenders=None, awards=None):
+    """Calibrate the gate over the store in `data_dir`.
+
+    `tenders`/`awards` let a caller that already holds those frames hand them
+    over instead of having them read again. `asof.World` does: it keeps the
+    world's store loaded for training, and the second copy read here was
+    ~460 MB of duplicate frames alive at the same moment as the label table
+    below — the replay's peak (doc/MEMORY_BUDGET.md). Same data either way;
+    `single_bidder.load_with_roles` is `pd.read_parquet` plus column metadata.
+    """
     rows, mat = load_sidecar(data_dir)
     lpos, lrows, lmat = load_label_sidecar(data_dir)
     pos_of = {(r['procedure_id'], r['lot_id']): i for i, r in enumerate(rows)}
-    tenders = pd.read_parquet(Path(data_dir) / 'store' / 'tenders.parquet')
-    awards = pd.read_parquet(Path(data_dir) / 'store' / 'awards.parquet')
+    if tenders is None:
+        tenders = pd.read_parquet(Path(data_dir) / 'store' / 'tenders.parquet')
+    if awards is None:
+        awards = pd.read_parquet(Path(data_dir) / 'store' / 'awards.parquet')
 
     wins = firm_win_rows(awards, tenders)
     wins['row'] = [pos_of.get((p, l)) for p, l in zip(wins['procedure_id'], wins['lot_id'])]
@@ -262,14 +273,30 @@ def calibrate(data_dir):
           f'{len(trusted)}/{len(cohesion)} deep codes trusted')
     pools = pseudo_refs(mat, all_cpv, trusted, cohesion, baseline)
 
-    # label-to-label similarities once for configuration F (~350 MB float32,
-    # freed with the function; turns every code-vs-fingerprint score into a
-    # table lookup)
-    LL = lmat @ lmat.T
+    # Label-to-label similarities once for configuration F: turns every
+    # code-vs-fingerprint score into a table lookup instead of a matrix
+    # product in a loop that runs ~10^5 times.
+    #
+    # Only the rows that can be a CANDIDATE are built. A candidate label is
+    # always a code some store lot actually carries, while a fingerprint label
+    # can be any of the ~9.5k in the dictionary -- so the table is (carried x
+    # all) rather than square. The full square is 354 MB of float32 on top of
+    # everything a replay already holds, and most of its rows are codes no lot
+    # in this world uses. `label_rows` returns positions into THIS table; the
+    # column index stays the raw label row, which is what every fingerprint
+    # already speaks. doc/MEMORY_BUDGET.md.
+    cand_codes = {c for cs in all_codes for c in cs}
+    cand_codes.update(c for cs in zip(wins['cpv_main'], wins['cpv_additional'])
+                      for c in lot_codes(*cs))
+    used = sorted({lpos[c] for c in cand_codes if is_deep(c) and c in lpos})
+    ll_row = {r: j for j, r in enumerate(used)}
+    LL = lmat[used] @ lmat.T
+    print(f'[calibrate] label table {LL.shape[0]}x{LL.shape[1]} '
+          f'({LL.nbytes / 1e6:.0f} MB; {len(lpos)} labels in the dictionary)')
     fk = [(f, k) for f in SOFT_FLOORS for k in SOFT_CONSENSUS]
 
     def label_rows(codes):
-        return [lpos[c] for c in codes if is_deep(c) and c in lpos]
+        return [ll_row[lpos[c]] for c in codes if is_deep(c) and c in lpos]
 
     def best_ll(cand_rows, fp_rows):
         if not cand_rows or not len(fp_rows):

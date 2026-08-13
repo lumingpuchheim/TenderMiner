@@ -127,7 +127,15 @@ def replay(data_dir, step_days, sub_ids):
     full_store = Path(data_dir) / 'store'
     world = asof.World(data_dir, Path(data_dir) / 'asof' / 'all')
 
-    tenders_full = pd.read_parquet(full_store / 'tenders.parquet')
+    # FOUR COLUMNS, not the whole table. The full frame is 103 mostly-object
+    # columns over ~29k lots -- 329 MB that stays resident for the whole
+    # replay beside the World's own copy of the same store, to answer two
+    # questions (the last publication date, and the dates per lot below).
+    # Read narrow, answer both here, drop it before the first cutoff.
+    # doc/MEMORY_BUDGET.md has the measurement.
+    tenders_full = pd.read_parquet(
+        full_store / 'tenders.parquet',
+        columns=['procedure_id', 'lot_id', 'publication_date', 'deadline_date'])
     awards_full = pd.read_parquet(full_store / 'awards.parquet')
     aw_latest, _ = sb.latest_awards(awards_full)
     outcome = {(a['procedure_id'], a['lot_id']): int(a['n_tenders'])
@@ -147,13 +155,32 @@ def replay(data_dir, step_days, sub_ids):
     last = pd.to_datetime(tenders_full['publication_date']).max()
     cutoffs = pd.date_range(first, last, freq=f'{step_days}D')
 
+    # call publication + deadline per lot, for the own-win fairness split: a
+    # win whose call closed before the firm had a single published reference
+    # was never judged at all (profile None). Derived here rather than in the
+    # return statement so the frame it comes from does not have to outlive the
+    # loop.
+    lot_dates = {
+        (r.procedure_id, r.lot_id): (str(r.publication_date or ''),
+                                     str(r.deadline_date or ''))
+        for r in tenders_full.drop_duplicates(
+            subset=['procedure_id', 'lot_id']).itertuples(index=False)}
+    del tenders_full
+
     flagged = {}          # lot -> first week's score (global record, dedup)
     scored_lonely = {}    # lot -> ever scored while open (base-rate pool)
     week_flags = {}       # cutoff -> [(lot, score, cpv3, nuts1)] for target sim
     sub_picks = {s: {} for s in subs}
     sub_market = {s: set() for s in subs}
-    cfg, n_run = None, 0
+    cfg, n_run, gate = None, 0, None
     for D in cutoffs:
+        # Drop last week's gate BEFORE this week's rewind, calibration and
+        # training run. It holds the sidecar matrices and seven per-lot object
+        # arrays (~350 MB); left bound to the name it would stay alive until
+        # `world.gate()` below had finished building its replacement, so the
+        # two coexisted at the exact moment the calibration matrices were also
+        # up. Nothing outside one iteration reads it. doc/MEMORY_BUDGET.md.
+        gate = None
         world.rewind(D)
         n_lots = world.data.groupby(sb.KEY).ngroups
         if n_lots < MIN_TRAIN_LOTS:
@@ -240,19 +267,23 @@ def replay(data_dir, step_days, sub_ids):
               f'{len(open_t)} open, {n_flagged} flagged',
               flush=True, file=sys.stderr)
 
+    # Keep whatever tier 3 had to embed. Without this the same words are
+    # re-embedded on every replay and the ONNX model is loaded to do it --
+    # ~650 MB resident for the rest of the process. A run that reports misses
+    # here wants `python embed_vocab.py` before the next one.
+    if rel._SYN is not None:
+        if rel._SYN.misses:
+            print(f'[rewind_all] tier 3 embedded {rel._SYN.misses} uncached '
+                  f'words (the model was loaded for them) — run '
+                  f'`python embed_vocab.py` to keep the next replay off it',
+                  flush=True, file=sys.stderr)
+        rel._SYN.save()
+
     return {'flagged': flagged, 'scored': scored_lonely, 'sub_picks': sub_picks,
             'sub_market': sub_market, 'outcome': outcome, 'subs': subs,
             'awards_full': awards_full, 'gate_dir': str(world.work),
             'step_days': step_days, 'n_cutoffs': n_run,
-            # call publication + deadline per lot, for the own-win fairness
-            # split: a win whose call closed before the firm had a single
-            # published reference was never judged at all (profile None)
-            'lot_dates': {
-                (r.procedure_id, r.lot_id):
-                    (str(r.publication_date or ''),
-                     str(getattr(r, 'deadline_date', '') or ''))
-                for r in tenders_full.drop_duplicates(
-                    subset=['procedure_id', 'lot_id']).itertuples(index=False)},
+            'lot_dates': lot_dates,
             'week_flags': week_flags, 'winners': winner_map(awards_full)}
 
 
