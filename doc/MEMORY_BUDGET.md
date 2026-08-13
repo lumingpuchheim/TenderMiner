@@ -11,11 +11,13 @@ runs in the same checkout against the same store:
 
 | | peak |
 |---|---|
-| before | 2911 MB |
-| after | 1443 MB |
+| before | 2943 MB |
+| after | 1436 MB |
 
-(Two runs of the after-code measured 1432 and 1443 MB; the spread is
-allocator noise, not a live-set difference.)
+(Measured against master at phase 4a, both sides in the same worktree.
+Repeated runs of the after-code landed at 1432/1436/1443 MB; the spread is
+allocator noise, not a live-set difference. Phase 4a moved neither number:
+the selection is not where the memory was.)
 
 The replay documents are **byte-identical** — same 18,891 lot rows, same
 picks, same own-win rows. That equality is the acceptance test for everything
@@ -173,7 +175,7 @@ count. Roughly 2× today's store adds ~1 GB.
 at this size, so it also carries allocator fragmentation. It is the right
 number to size a VM with and the wrong number to read as a live set.
 
-**So: 4 GB fits, with about 2.3 GB of headroom** at 1443 MB, and it now
+**So: 4 GB fits, with about 2.3 GB of headroom** at 1436 MB, and it now
 survives the store roughly doubling. Before these changes the same box had
 ~850 MB of headroom and would not have survived one year of growth. Run
 `python embed_vocab.py --check` before a replay on a memory-tight box: it
