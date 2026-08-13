@@ -92,6 +92,43 @@ Three things this table does not say, and should not be read as saying:
 - **The embed stage is 1.9 GB of the cycle's 3.0 GB.** What to do about that
   is below — the obvious answer was tried and does not work.
 
+### One open of the model, for both jobs that need it
+
+**Opening the model costs ~1.2 GB whether it is then handed 278 tender texts
+or one word.** The expense is the opening. There are exactly two jobs that
+need it, and nothing else in the system does — scoring, selection, the gate
+and the reports all read numbers already on disk:
+
+1. **lot texts**, once a week, in the cycle's embed stage;
+2. **single words**, for the synonym fallback in evidence tier 3, when
+   neither an exact nor a typo-tolerant match hits.
+
+Job 2 used to open the model on its own, twice over: during **delivery** the
+moment a keyword met a word no tender had used before, and again in the next
+replay that met one. Delivery is the worst possible place for a surprise
+gigabyte — that stage is writing customer reports, and on a 4 GB machine the
+failure is not a worse report but no report.
+
+`loop.py` now runs both jobs in one open and releases the model afterwards
+(in a `finally`, so grading, training and delivery never inherit it).
+Measured with **both** jobs given real work — 278 lots missing from the
+sidecar, 500 words removed from the vocabulary cache:
+
+| | before | after |
+| --- | --- | --- |
+| times the model is opened | 2 (embed, then delivery) | **1** |
+| delivery | 2,334 MB | **1,721 MB** |
+| peak anonymous | 2,958 MB | 2,924 MB |
+| the word job itself | a fresh 1.2 GB open | **9 s**, no open |
+
+The vocabulary scan over 24k lots costs ~35 s a week, paid even on weeks with
+no new words. The operator's call, 2026-08-13: worth it.
+
+What this does *not* do is lower the peak — that is the lot embedding, and
+the words ride inside the same open. Its value is the rest of the week:
+delivery stops risking a spike, and the replay drops from 2,287 MB to about
+1,436 MB without anyone having to remember `embed_vocab.py`.
+
 ### The subprocess that did not help — tried 2026-08-13, reverted
 
 Running the embed stage as its own process (the shape `loop.py` already uses

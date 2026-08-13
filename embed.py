@@ -268,9 +268,10 @@ def ensure_embeddings(data_dir, tenders):
         rate = done / (time.time() - t0)
         print(f'[embed] {done}/{len(todo)} lots ({done / len(todo):.0%}, '
               f'~{(len(todo) - done) / rate / 60:.0f} min left)', flush=True)
-    # Nothing downstream in the cycle embeds anything, and the session is the
-    # biggest single thing in the process — see unload_model.
-    unload_model()
+    # Deliberately does NOT unload here. The caller decides, because the
+    # weekly cycle has a second job for the open model straight after this one
+    # — the single words of `embed_vocab.top_up` — and opening the model is
+    # the ~1.2 GB, not using it. `loop.py` unloads once both are done.
     return len(todo)
 
 

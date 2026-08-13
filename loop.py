@@ -1526,11 +1526,30 @@ def _run_cycle(paths, args):
     print(f'[store] {len(tenders)} tender rows, {len(awards)} award rows, '
           f'{data.groupby(sb.KEY).ngroups} labeled lots ({n_dropped} reporting errors dropped)')
 
+    # ONE open of the embedding model, for both jobs that need it.
+    #
+    # Opening it costs ~1.2 GB whether it is then handed 278 tender texts or a
+    # single word — the expense is the opening. There are exactly two jobs:
+    # the lot texts (here), and the individual words that evidence tier 3
+    # falls back on when neither an exact nor a typo-tolerant match hits.
+    # Scoring, selection and the reports never open it; they read numbers off
+    # the sidecar.
+    #
+    # Left apart, the second job opened it again on its own later — in
+    # delivery, mid-report, for a handful of words a new week had never seen,
+    # and again in the next replay. Doing it here while the model is already
+    # open costs nothing extra and leaves the rest of the week clean.
+    import embed
     try:
-        import embed
         embed.ensure_embeddings(paths.data, tenders)
+        import embed_vocab
+        embed_vocab.top_up(paths.data)
     except Exception as e:  # nothing reads the sidecar until RELEVANCE.md phase 3; never fail a cycle over it
         print(f'[embed] sidecar update failed: {e}')
+    finally:
+        # Whatever happened above, the model does not travel into grading,
+        # training and delivery — none of them embed anything.
+        embed.unload_model()
 
     new_grades = grade(paths, tenders, aw, args)
     record = track_record(paths, args)

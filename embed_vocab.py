@@ -133,22 +133,56 @@ def main():
     #
     # Fail fast rather than wait, like the replay (heavy_lock, property 4):
     # this is manual, cheap to repeat, and its operator is watching.
+    #
+    # `top_up` is the same work without this lock, because its caller (the
+    # weekly cycle) already holds it. Nothing in this file locks twice.
     try:
         with heavy_lock.held(args.data_dir, 'the vocabulary backfill'):
-            t0 = time.time()
-            for a in range(0, len(missing), BATCH):
-                syn._embed(missing[a:a + BATCH])
-                print(f'[vocab] embedded '
-                      f'{min(a + BATCH, len(missing))}/{len(missing)}',
-                      flush=True)
-            syn.save()
-            print(f'[vocab] {len(missing)} words embedded in '
-                  f'{time.time() - t0:.0f}s; '
-                  f'cache now {len(syn)} words at {syn.vec_path}')
+            _embed_missing(syn, missing)
     except heavy_lock.Busy as e:
         print(f'[vocab] {e}', file=sys.stderr)
         return 2
     return 0
+
+
+def _embed_missing(syn, missing, log=print):
+    t0 = time.time()
+    for a in range(0, len(missing), BATCH):
+        syn._embed(missing[a:a + BATCH])
+        log(f'[vocab] embedded {min(a + BATCH, len(missing))}/{len(missing)}')
+    syn.save()
+    log(f'[vocab] {len(missing)} words embedded in {time.time() - t0:.0f}s; '
+        f'cache now {len(syn)} words at {syn.vec_path}')
+    return len(missing)
+
+
+def top_up(data_dir, progress=True, log=print):
+    """Embed the words the store has and the cache lacks — for the cycle.
+
+    Called from `loop.py` immediately after the lots are embedded, and that
+    timing is the whole point. **Opening the model costs ~1.2 GB whether it is
+    then handed 278 tender texts or one word.** The cycle already opens it for
+    the lots; the words tier 3 falls back on ride along in the same open.
+
+    Left to itself the model is opened up to three times a week for the same
+    1.2 GB: once here for the lots, again during delivery the moment a keyword
+    has to be compared against a word nobody has written before, and a third
+    time in the next replay that meets one. Delivery is the expensive place
+    for it to happen — that is the stage writing customer reports, and on a
+    4 GB machine a surprise gigabyte there is how a Monday ends with no report
+    rather than with a worse one.
+
+    Takes no lock: the cycle holds it already (see `main`). Returns the number
+    of words embedded, and never raises for lack of work.
+    """
+    syn = ev.SynonymTier(Path(data_dir) / 'embeddings' / CACHE)
+    vocab, _ = store_vocabulary(data_dir, progress=progress)
+    missing = sorted(w for w in vocab if w not in syn)
+    if not missing:
+        log('[vocab] cache is current — no words to embed')
+        return 0
+    log(f'[vocab] {len(missing)} new words, embedded while the model is open')
+    return _embed_missing(syn, missing, log)
 
 
 if __name__ == '__main__':
