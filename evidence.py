@@ -1441,27 +1441,112 @@ def convicts(title, ev):
 
 class SynonymTier:
     """Word-level embedding matcher with a persistent vocabulary cache —
-    each unique word is embedded once, ever."""
+    each unique word is embedded once, ever.
+
+    **The cache is memory-mapped**, which is why it is a plain `.npy` matrix
+    plus a `_words.json` list rather than one compressed `.npz`: a run reads
+    a few thousand of the ~93k rows, and `np.load` cannot mmap a compressed
+    archive, so the old format paid 273 MB of RSS to answer a handful of
+    lookups. It was the second-largest allocation in `rewind_all.py` — see
+    `doc/MEMORY_BUDGET.md`. The `.npz` still loads (unconverted checkouts,
+    and the format this repo shipped before 2026-08-13); `embed_vocab.py`
+    is what converts it, and `save()` only ever writes the new pair.
+
+    Words embedded in this process live in `extra` until `save()` merges
+    them in. **`misses` is the number that had to be embedded**, and in a
+    replay it is the number to watch: any miss at all means the ONNX model
+    was loaded for it (~650 MB resident, for the rest of the process), so a
+    non-zero count says the vocabulary wants another `embed_vocab.py` pass.
+    """
 
     def __init__(self, cache_path):
         self.cache_path = Path(cache_path)
-        self.vecs = {}
-        if self.cache_path.exists():
+        stem = self.cache_path.with_suffix('')
+        self.vec_path = stem.with_suffix('.npy')
+        self.words_path = stem.with_name(stem.name + '_words.json')
+        self.base = None      # (N, DIM) float32, mmap'd — never fully resident
+        self.index = {}       # word -> row of self.base, in row order
+        self.extra = {}       # word -> vector, embedded this process
+        self.misses = 0
+        if self.vec_path.exists() and self.words_path.exists():
+            self.base = np.load(self.vec_path, mmap_mode='r')
+            self.index = {w: i for i, w in enumerate(
+                json.loads(self.words_path.read_text(encoding='utf-8')))}
+        elif self.cache_path.exists():
             d = np.load(self.cache_path, allow_pickle=True)
-            self.vecs = dict(zip(d['words'].tolist(), d['vecs']))
+            self.base = d['vecs']
+            self.index = {w: i for i, w in enumerate(d['words'].tolist())}
+
+    def __len__(self):
+        return len(self.index) + len(self.extra)
+
+    def __contains__(self, word):
+        return word in self.index or word in self.extra
+
+    def _vec(self, word):
+        i = self.index.get(word)
+        return self.extra[word] if i is None else self.base[i]
 
     def _embed(self, words):
-        todo = [w for w in words if w not in self.vecs]
+        todo = [w for w in dict.fromkeys(words) if w not in self]
         if todo:
             from embed import embed_texts
+            self.misses += len(todo)
             for w, v in zip(todo, embed_texts(todo)):
-                self.vecs[w] = v
-        return np.stack([self.vecs[w] for w in words])
+                self.extra[w] = v
+        # np.asarray copies the mmap'd rows out; only these rows are paged in
+        return np.stack([np.asarray(self._vec(w)) for w in words])
 
     def save(self):
-        words = list(self.vecs)
-        np.savez_compressed(self.cache_path, words=np.array(words),
-                            vecs=np.stack([self.vecs[w] for w in words]))
+        """Merge `extra` into the cache on disk, as `.npy` + `_words.json`.
+
+        Written to temporary files and renamed, so a reader that opens the
+        cache mid-write sees the previous complete version rather than a
+        truncated matrix. The copy runs in chunks through a memory-mapped
+        output: saving must not itself materialise the matrix this class
+        exists to keep out of RSS.
+        """
+        if not self.extra and self.vec_path.exists():
+            # nothing new AND already in the mapped format: rewriting would
+            # only invalidate a file other readers hold open. A cache still in
+            # the legacy `.npz` falls through — converting it is a save with
+            # nothing new by definition.
+            return
+        words = list(self.index) + list(self.extra)
+        if not words:
+            return      # no cache and nothing embedded — nothing to write
+        dim = (self.base.shape[1] if self.base is not None
+               else len(next(iter(self.extra.values()))))
+        self.vec_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_v = self.vec_path.with_name(self.vec_path.name + '.partial')
+        out = np.lib.format.open_memmap(tmp_v, mode='w+', dtype=np.float32,
+                                        shape=(len(words), dim))
+        n = len(self.index)
+        for a in range(0, n, 4096):
+            b = min(a + 4096, n)
+            out[a:b] = self.base[a:b]
+        for j, w in enumerate(self.extra, start=n):
+            out[j] = self.extra[w]
+        out.flush()
+        del out
+        # Windows will not replace a file this process still has mapped
+        self.base = None
+        try:
+            tmp_v.replace(self.vec_path)
+        except OSError as e:
+            # another process (a scheduled loop.py) holds the mapping; the
+            # words we embedded are lost, the run's results are not
+            print(f'[synonym] cache not saved ({e}); '
+                  f'{len(self.extra)} new words will be embedded again')
+            tmp_v.unlink(missing_ok=True)
+            self.base = np.load(self.vec_path, mmap_mode='r')
+            return
+        tmp_w = self.words_path.with_name(self.words_path.name + '.partial')
+        tmp_w.write_text(json.dumps(words), encoding='utf-8')
+        tmp_w.replace(self.words_path)
+        self.base = np.load(self.vec_path, mmap_mode='r')
+        self.index = {w: i for i, w in enumerate(words)}
+        self.extra = {}
 
     def __call__(self, toks, keywords):
         if not toks or not keywords:

@@ -170,7 +170,10 @@ class World:
         program (the statistic skips it, the single-moment rewinds stop with
         advice), never the engine's.
         """
-        r = run_calibration(str(self.work))
+        # hand over the frames this world already holds rather than let the
+        # calibration read the same two parquets a second time
+        r = run_calibration(str(self.work), tenders=self.tenders,
+                            awards=self.awards)
         (self.work / TRUST_NAME).write_text(json.dumps(
             {'baseline': r['baseline'], 'cut': r['trust_cut'],
              'codes': {k: {'n': v['n'], 'cohesion': v['cohesion'],
