@@ -15,7 +15,7 @@ Three parts, and only one of them needs to be awake:
 | part | needs | uptime |
 | --- | --- | --- |
 | the app (`app.py`) | 15 MB idle (measured) | **24/7** — a customer clicks at 21:00 on a Sunday |
-| the cycle (`loop.py` weekly) | **6.1 GB peak, 28 min** in the container (measured 2026-08-13, §0a) | Mondays 08:15 |
+| the cycle (`loop.py` weekly) | **2.9 GB peak, ~28 min** in the container — was 6.1 GB before the embed fixes (measured 2026-08-13, §0a) | Mondays 08:15 |
 | the public website | none — static files, zero forms, zero backend ([`LAUNCH.md`](LAUNCH.md) §4.1) | n/a, static host |
 
 State that must live on the machine: `data/raw` 1.3 GB (irreplaceable —
@@ -43,7 +43,7 @@ the `anon` line of `memory.stat`.
 | **embeddings sidecar** | **6,071 MB** | ~2 min |
 | download + store rebuild | 1,019 MB | 13 min (TED at 0.2–0.5 MB/s) |
 | store load (parquet → frames) | 596 MB | 20 s |
-| grading, training, delivery, simulation | **not yet measured** | 13 min |
+| grading, training, delivery, simulation | 2,420–3,033 MB — the model stayed resident behind them | 13 min |
 
 **The peak is one default, not a hardware floor.** [`embed.py`](../embed.py)
 calls `embed_texts()` with `batch_size=64`, and `prep_text` truncates every
