@@ -15,13 +15,63 @@ Three parts, and only one of them needs to be awake:
 | part | needs | uptime |
 | --- | --- | --- |
 | the app (`app.py`) | 15 MB idle (measured) | **24/7** — a customer clicks at 21:00 on a Sunday |
-| the cycle (`loop.py` weekly) | CPU/RAM for CatBoost + embeddings, ~3 min/week in the container (measured) | Mondays 08:15 |
+| the cycle (`loop.py` weekly) | **6.1 GB peak, 28 min** in the container (measured 2026-08-13, §0a) | Mondays 08:15 |
 | the public website | none — static files, zero forms, zero backend ([`LAUNCH.md`](LAUNCH.md) §4.1) | n/a, static host |
 
 State that must live on the machine: `data/raw` 1.3 GB (irreplaceable —
 TED only serves recent packages), the database 111 MB (irreplaceable — what we
 promised customers), embeddings 513 MB + store 23 MB + models (all recomputed
 by the cycle). **≈2 GB, growing ~90 MB/week** with the raw archive.
+
+## 0a. What the cycle actually costs — measured 2026-08-13
+
+One real `loop.py run --last 7d`, in the container, against a Docker volume
+seeded from the true state, on the full 44,780-file archive. **The RAM figure
+that mattered was wrong until this was run**, so the method is written down
+with it.
+
+**Read anonymous memory, not the container's charge.** cgroup v2 bills a
+container for every file page it touches, so `memory.current` and
+`memory.peak` include page cache — which the kernel reclaims under pressure
+and which is therefore *not* a hardware requirement. The uncapped cycle
+reported a 7,091 MB peak that way, and 5,500 MB of it was cache: it fell to
+1,553 MB the moment the process exited. The number to size a machine on is
+the `anon` line of `memory.stat`.
+
+| stage | peak anonymous | wall clock |
+| --- | --- | --- |
+| **embeddings sidecar** | **6,071 MB** | ~2 min |
+| download + store rebuild | 1,019 MB | 13 min (TED at 0.2–0.5 MB/s) |
+| store load (parquet → frames) | 596 MB | 20 s |
+| grading, training, delivery, simulation | **not yet measured** | 13 min |
+
+**The peak is one default, not a hardware floor.** [`embed.py`](../embed.py)
+calls `embed_texts()` with `batch_size=64`, and `prep_text` truncates every
+lot to 2,000 characters — so 64 maximum-length sequences are in flight at
+once. Same 278 lots, same model, same output:
+
+| `batch_size` | peak anonymous |
+| --- | --- |
+| 64 (default) | 6,071 MB |
+| 16 | 2,380 MB |
+| 8 | 1,672 MB |
+
+Two things that look like levers and are not:
+
+- **Cores do not change it.** 2 cores peaked at 1,517 MB against 8 cores'
+  1,501 MB. A smaller VPS costs nothing here, a bigger one buys nothing.
+- **ONNX reads the *host's* core count, not the container's.** On a 2-core
+  box it still starts 8 threads and prints
+  `pthread_setaffinity_np failed … Specify the number of threads explicitly`
+  once per thread. Noise, not a fault — but set the thread count explicitly
+  on a small machine.
+
+**Still unmeasured, and it blocks the purchase:** everything after the embed
+stage. Both capped runs were OOM-killed inside it (at 3 GB and at 6 GB), so
+grading, CatBoost training, delivery and the simulation have no anon figure
+at all — and delivery is not obviously cheap, taking 733 s and writing 5,568
+simulated picks. One complete capped cycle at a lower `batch_size` settles
+it.
 
 ## 1. Decisions made here, so they stop being re-litigated
 
@@ -86,7 +136,7 @@ the page shows a visible gap until it is set. Original list, for the record:
 | decision | blocks | note |
 | --- | --- | --- |
 | **SMTP provider** | №3, and therefore printing letters | now the long pole |
-| **VPS provider & size** | everything in §3 | measured guidance: 2 CPU / 4 GB / 40 GB is comfortable; cycle ran in 2.9 min on 8 CPU / 8 GB |
+| **VPS provider & size** | everything in §3 | **4 GB is not enough as the code stands** — the cycle was OOM-killed under a 3 GB cap, which is what a 4 GB box has left after the OS and the always-on app. It peaks at 6.1 GB, all of it `batch_size=64` in the embed stage (§0a); at 8 or 16 the stage fits a 4 GB machine, but the stages after it are still unmeasured. Disk is the easy axis: 2.1 GB of state against 40 GB. Cores barely matter — 2 is fine |
 | **Windows task cutover** | — | DONE 2026-08-11: the scheduler container runs the weekly cycle and the Windows task is disabled ([`RUNBOOK.md`](RUNBOOK.md) §1c) |
 | ~~domain~~ | ~~letters only~~ | **DECIDED 2026-08-11: `murara.eu`** (registered at Infomaniak). `www.murara.eu` is the public site, `app.murara.eu` the token surface. Brand is **Murara**; TenderMining stays the repository and system name |
 
