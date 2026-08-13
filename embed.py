@@ -15,6 +15,7 @@ Usage:
 """
 
 import argparse
+import gc
 import hashlib
 import json
 import os
@@ -82,9 +83,46 @@ def text_hash(text):
 _model = None
 
 
-def embed_texts(texts, batch_size=64):
+def unload_model():
+    """Drop the embedding session and hand its arenas back.
+
+    The model is the single largest thing the cycle holds, and it is needed for
+    about five minutes of a twenty-minute run. Caching it in a module global is
+    right *within* the embed stage — reloading per chunk would be absurd — but
+    it used to stay resident through grading, training, delivery and the
+    simulation too, none of which embed anything. That held the floor at
+    2.4 GB and pushed delivery past a 3 GB budget (doc/HOSTING.md 0a).
+
+    Safe to call at any point: `embed_texts` reloads lazily, at a cost of about
+    three seconds, so a later caller is slower rather than broken.
+    """
+    global _model
+    if _model is None:
+        return
+    _model = None
+    gc.collect()
+
+
+def embed_texts(texts, batch_size=16):
     """L2-normalised float32 vectors, one per text. Model is loaded lazily so
-    importing this module stays free for callers that only read the sidecar."""
+    importing this module stays free for callers that only read the sidecar.
+
+    `batch_size` is a memory dial, not a speed one. `prep_text` truncates every
+    lot to 2,000 characters, so a batch is that many *full-length* sequences in
+    flight at once and the activations dominate the process. Measured in the
+    container on 278 real lots (doc/HOSTING.md 0a):
+
+        batch  peak RSS   throughput
+           64   4,913 MB    0.7 lots/s
+           16   2,149 MB    0.7 lots/s
+            8   2,064 MB    0.9 lots/s
+
+    Throughput is flat because the model, not the batching, is the bottleneck —
+    so the old default of 64 bought nothing and cost 2.8 GB. It is what made
+    the weekly cycle need more RAM than a 4 GB VPS has: the cycle was
+    OOM-killed inside this call under a 3 GB cap. Below 16 the curve flattens,
+    so 16 is the knee rather than the floor.
+    """
     global _model
     if _model is None:
         from fastembed import TextEmbedding
@@ -230,6 +268,9 @@ def ensure_embeddings(data_dir, tenders):
         rate = done / (time.time() - t0)
         print(f'[embed] {done}/{len(todo)} lots ({done / len(todo):.0%}, '
               f'~{(len(todo) - done) / rate / 60:.0f} min left)', flush=True)
+    # Nothing downstream in the cycle embeds anything, and the session is the
+    # biggest single thing in the process — see unload_model.
+    unload_model()
     return len(todo)
 
 
