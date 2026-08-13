@@ -36,11 +36,18 @@ correct, not a bug.
   It *could* run weekly; there is currently no reason to spend that, since
   the figure moves quarterly at best and the page prints the document's
   date.
-- **Forecast quality over the whole store** (run of 2026-08-11, 5,994
-  checkable lots): precision 17% (CI 15–20%), recall 31% (CI 28–35%), base
-  rate 9%, 1.83× chance. Per CPV3 (internal targeting only, never public):
-  452 at 2.01×, 453 at 1.34×, 454 at 1.18×, 450 and 451 **below chance** —
-  no lift number in their letters.
+- **Forecast quality over the whole store** (runs of 2026-08-11 and
+  2026-08-13, 5,994 checkable lots): precision 17% (CI 15–20%), recall 31%
+  (CI 28–35%), base rate 9%, 1.83× chance. Per CPV3 (internal targeting only,
+  never public): 452 at 2.01×, 453 at 1.34×, 454 at 1.18×, 450 and 451
+  **below chance** — no lift number in their letters.
+
+  The two runs agree to the digit across every cell of both tables. That is
+  the receipt that `REFACTOR.md` phase 4a (the selection extraction) left the
+  lot-level path alone: the statistic is computed from flagged and scored
+  lots, which have no subscription in them. It is also evidence that the
+  store has not moved since 2026-08-10, so the two runs are a clean A/B —
+  the trap phase 3 fell into once and documented.
 
 ## 3. What remains before the figure is live
 
@@ -67,7 +74,9 @@ correct, not a bug.
 - The Impressum text (`TM_IMPRESSUM`), `info@murara.eu` receiving mail,
   and the Resend sending domain — blocking the first letter.
 - The VPS is unchosen; [`HOSTING.md`](HOSTING.md) has the comparison.
-- `REFACTOR.md` phase 4 (`select.py` / `render.py`) is now the next
-  refactor due, and it will **change the backtest's measured numbers**
-  (it deletes the drifted copy of the selection loop — defect 1). Land it
-  alone, rerun the replay, and explain the delta when it happens.
+- `REFACTOR.md` phase 4b (`render.py`) is the next refactor due. Phase 4a
+  (the selection, now `selection.py` — not `select.py`, which collides with
+  the standard library) landed 2026-08-13: the global figure above is
+  unchanged, the per-subscription pick lists are not, because the rewind used
+  to impose a 14-day deadline horizon that six of the eight live
+  subscriptions never promised.

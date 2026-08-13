@@ -1,6 +1,6 @@
 # REFACTOR — separating the two questions, and giving subscriptions a home
 
-Status (2026-08-12):
+Status (2026-08-13):
 
 | phase | what | state |
 | --- | --- | --- |
@@ -9,7 +9,8 @@ Status (2026-08-12):
 | 3 | `GateConfig`, stamped on every delivery | **done** 2026-08-07 |
 | 2 | subscriptions and ledgers move to SQLite | **done** 2026-08-08 |
 | 5 | `asof.py`, the one rewind engine + the program renames | **done** 2026-08-12 |
-| 4 | `select.py`, then `render.py` | specified, **next due** |
+| 4a | `selection.py`, the one selection | **done** 2026-08-13 |
+| 4b | `render.py` | specified, **next due** |
 
 Phases are build order in time, never a scope cut (vocabulary of
 [`ONLINE_LEARNING.md`](ONLINE_LEARNING.md) and
@@ -18,7 +19,7 @@ twice, both times deliberately: 3 before 2 because the ledger could not say
 which rules produced a pick, while the storage problems were ones the system
 would have rather than had; 5 before 4 because 5 is behaviour-preserving
 (receipt: byte-identity) while 4 changes the backtest's measured numbers (it
-fixes defect 1) and must land alone.
+fixes defect 1) and had to land alone — which it did, as 4a.
 
 Nothing here changes what the system decides — every phase is a
 behaviour-preserving move, and the one place where behaviour *did* change
@@ -34,30 +35,34 @@ relevance gate, [`relevance.py`](../relevance.py) /
 separated already — `judge()` never sees the score, the model never sees the
 profile. The tangles were one layer up, and there were two of them: the
 **composer** (the code that slices a market, asks both questions, ranks,
-caps, renders and records lives in one 250-line function, with a drifted
-copy in the all-lots rewind — still open, phase 4), and the **rewind
-machinery** (three programs each materialised their own past — closed,
+caps, renders and records lived in one 250-line function, with a drifted
+copy in the all-lots rewind — the selection half is closed, phase 4a; the
+rendering half is phase 4b), and the **rewind machinery** (three programs
+each materialised their own past — closed,
 phase 5). This document names the seams, records the defects the tangles
 produced, and gave subscription state a real home before the first paying
 customer arrives (phase 2).
 
 ## The tangle, precisely
 
-[`loop.deliver()`](../loop.py) does four jobs in one function body:
+[`loop.deliver()`](../loop.py) did four jobs in one function body — steps 1
+to 3 now live in [`selection.py`](../selection.py) (phase 4a) and step 4 is
+what phase 4b is for:
 
 1. resolve the subscription and filter this cycle's scored lots to its slice
 2. run the relevance gate over the slice
 3. rank and tier by the competition score, cap by `max_picks`
 4. render two HTML documents and append delivery-ledger rows
 
-The proof that this is the defect and not a style preference:
+The proof that this was the defect and not a style preference:
 [`rewind_all.py`](../rewind_all.py) (backtest.py before the phase-5 renames)
-contains the same algorithm written a second time — slice filter,
+contained the same algorithm written a second time — slice filter,
 `rel.judge`, sort by score, `flag`, `[:MAX_PICKS]` — and the two copies
-**already disagree** (see defect 1). The backtest therefore does not measure
+**already disagreed** (see defect 1). The backtest therefore did not measure
 the selection logic that ships. [`rewind_report.py`](../rewind_report.py)
-(replay.py) makes a third, partial copy and monkeypatches `loop.now_utc` to
-borrow the rest.
+(replay.py) made a third, partial copy and monkeypatches `loop.now_utc` to
+borrow the rest. All of it is gone as of phase 4a; step 4 below (the render)
+is what is left.
 
 This problem was already solved once, one layer down: `evidence._sweep` and
 the runtime ladder share `relevance._evidence_verdict` precisely so that "the
@@ -71,13 +76,22 @@ here.
 | `subscriptions.py` ✅ | field validation, as-of resolution, market filter | loop, rewind_all, rewind_report, preview_report, explain_verdict, feedback |
 | `relevance.py` ✅ config | the verdict only; config passed in (a `Verdict` object is still open) | composer, explain_verdict, evidence harnesses |
 | `asof.py` ✅ | the materialised past: filtered store, calibration inside it, pre-cutoff refs and champion | rewind_all, rewind_win, rewind_report |
-| `select.py` | slice → gate → rank → cap → `SliceResult(picks, borderline, market)`. No I/O, no HTML, ~40 lines | loop, rewind_all, rewind_report |
+| `selection.py` ✅ | slice → gate → rank → cap → `SliceResult(market, ranked, picks, borderline, judged)`. No I/O, no HTML | loop, rewind_all |
 | `render.py` | `SliceResult` → report HTML, annex HTML, delivery rows | loop, preview_report |
 
-`deliver()` then reads: for each sub → `select.for_sub(...)` →
+`deliver()` then reads: for each sub → `selection.for_sub(...)` →
 `render.report(...)` → append ledger. The all-lots rewind calls
-`select.for_sub` and measures the shipped selection by construction, which
+`selection.for_sub` and measures the shipped selection by construction, which
 is the whole point.
+
+**The module is `selection.py`, not `select.py`.** `select` is a
+standard-library module, and a `select.py` at the repository root shadows it
+for the whole process — `import subprocess` then dies inside `selectors.py`
+with `module 'select' has no attribute 'select'`. Receipt, in the image that
+actually runs the cycle: with the file named `select.py`,
+`docker run tendermining:latest python -c "import subprocess"` fails, i.e.
+the scheduler would not have started. The name in this document was wrong,
+not the design.
 
 Two smaller cuts in the same direction:
 
@@ -362,19 +376,63 @@ lexicon caches moving underneath — re-running the OLD code reproduced the
 "new" numbers exactly. On a live system, an equivalence test is only evidence
 if both arms see the same data.
 
-## Phase 4 — `select.py`, then `render.py` (next due)
+## Phase 4a — `selection.py`, the one selection (done, 2026-08-13)
 
-The extraction described under **The seam**, in that order, deleting
-`rewind_all.py`'s and `rewind_report.py`'s copies of the selection loop as
-each lands. This is the phase that makes the all-lots rewind trustworthy; it
-comes after the others because it is worth doing on top of a validated
-subscription model, an explicit gate config and a shared rewind engine, not
-underneath them.
+The extraction described under **The seam**, deleting every copy of the
+selection loop as it landed. This is the phase that makes the all-lots rewind
+trustworthy; it comes after the others because it is worth doing on top of a
+validated subscription model, an explicit gate config and a shared rewind
+engine, not underneath them.
 
-**It is not behaviour-preserving for the rewind statistic** — deleting the
-drifted copy fixes defect 1, so the measured forecast numbers will change.
-Land it alone, rerun the replay, and explain the delta; never bury it in a
-refactor diff.
+### The duplication this phase removed
+
+Four copies of slice → gate → rank → cap:
+
+1. `loop.deliver()` — the one that ships;
+2. `rewind_all.replay()` — the one that *measures* the one that ships, and
+   had drifted from it (defect 1);
+3. `rewind_report.py`'s `--scan` — sorted pool, NUTS `startswith`,
+   `rel.judge`, break at five;
+4. `rewind_report.py`'s render path, which already borrowed `loop.deliver`
+   wholesale by monkeypatching the clock, and so needed no change.
+
+### What is behaviour-preserving, and what is not
+
+**Delivery: preserved, and the receipt is byte equality.** All five
+subscriptions with a tryout render — `beck`, `brueckenbau-demo`,
+`gokser-fubodentechnik`, `n3bau`, `yg-baustoffe` — produce identical report
+and annex HTML before and after, clock frozen to the day the before-copies
+were taken. (The copies were rendered on Linux and the after-copies on
+Windows, so the diff is `--strip-trailing-cr`; nothing else differs.)
+
+**The rewind: deliberately not.** The old copy applied a fixed 14-day
+deadline horizon and a fixed cap of five picks to every subscription. The
+shipped selection reads both off the subscription line — and **six of the
+eight live subscriptions promise no deadline horizon at all**
+(`min_deadline_days` = 0; only `brueckenbau-demo` and `jebsen-blitzschutz`
+promise 14). The backtest was therefore holding six customers to a promise
+they had never been given, and reporting the result as their number. The cap
+is a no-op: every live subscription is at the default five.
+
+What this does **not** touch is the global forecast statistic — precision,
+recall, base rate, lift, and the per-CPV3 table. Those are computed from
+`flagged` and `scored`, which are per-lot and have no subscription in them.
+Any movement there would be a bug in this phase, not a finding.
+
+### The name
+
+`selection.py`, not `select.py` as this document specified — see the boxed
+note under **The seam**. The stdlib collision is not a style objection: the
+scheduler's image cannot `import subprocess` with a `select.py` at the
+repository root.
+
+## Phase 4b — `render.py` (next due)
+
+`SliceResult` → report HTML, annex HTML, delivery rows. `deliver()` is still
+~200 lines of HTML assembly with the selection lifted out of it; the annex,
+the receipts block and the borderline band are three renderers sharing one
+function body. Behaviour-preserving, with the same byte-equality receipt
+phase 4a used.
 
 ## Phase 5 — `asof.py`, the one rewind engine (done, 2026-08-12)
 

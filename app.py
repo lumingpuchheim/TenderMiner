@@ -137,14 +137,49 @@ def get_root(ctx):
          beantworten wir unter <a href="mailto:{esc(CONTACT)}">{esc(CONTACT)}</a>.</p>""")
 
 
-# The operator's legal identity (§ 5 TMG). Read from the environment so the
-# real name and address never have to be committed to a public repository —
-# and so an unset value is VISIBLY unset on the page rather than silently
-# faked. Set TM_IMPRESSUM (HTML-escaped lines, | separated) on the host.
+# The operator's legal identity (§ 5 TMG), in ONE place: the public page at
+# `site/impressum/index.html`, which is the copy the law actually requires to
+# exist. This page reads that one rather than keeping a second.
+#
+# It used to read only TM_IMPRESSUM, on the reasoning that the identity should
+# never have to be committed to a public repository. That reasoning expired the
+# day the site page was filled in — an Impressum is published information by
+# definition — and it left the two copies free to disagree, which they promptly
+# did: the site carried the real Anbieterkennzeichnung while this page still
+# served "[Noch nicht eingetragen]". A customer clicking Impressum in the app
+# got the unfilled one. `tests/test_site_files.py` is what caught it.
+#
+# TM_IMPRESSUM still wins where it is set, for a deployment that would rather
+# keep the identity out of the repository: HTML-escaped lines, | separated.
+# With neither source, the gap stays VISIBLE rather than silently faked.
+SITE_IMPRESSUM = Path(__file__).resolve().parent / 'site' / 'impressum' / 'index.html'
+
+
 def _impressum_lines():
     import os
     raw = os.environ.get('TM_IMPRESSUM', '')
-    return [l.strip() for l in raw.split('|') if l.strip()]
+    if raw.strip():
+        return [l.strip() for l in raw.split('|') if l.strip()]
+    return _site_impressum_lines()
+
+
+def _site_impressum_lines():
+    """The Diensteanbieter block of the public page, as plain text lines.
+
+    Deliberately narrow: the one block that names the provider, not the whole
+    page. Anything unreadable or unrecognised returns nothing at all, so a
+    renamed heading shows the visible gap instead of a half-page of markup.
+    """
+    try:
+        doc = SITE_IMPRESSUM.read_text(encoding='utf-8')
+    except OSError:
+        return []
+    block = re.search(r'<h2>\s*Diensteanbieter\s*</h2>\s*<p>(.*?)</p>', doc, re.S)
+    if not block:
+        return []
+    return [html.unescape(re.sub(r'<[^>]+>', '', line)).strip()
+            for line in re.split(r'<br\s*/?>', block.group(1))
+            if line.strip()]
 
 
 def get_impressum(ctx):

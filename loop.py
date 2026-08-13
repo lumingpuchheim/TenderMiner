@@ -35,6 +35,7 @@ import pandas as pd
 
 import config
 import ledger
+import selection
 import single_bidder as sb
 import subscriptions
 
@@ -756,18 +757,10 @@ def predict_open(paths, tenders, roles, aw, args):
 
 # --------------------------------------------------- step 4b: deliver to subs
 
-def _lot_key(row):
-    """The lot's identity — the key of every per-lot side table in deliver().
-
-    Deliberately not `id(row)`: object identity is only stable while the row
-    object itself stays alive, so a side table keyed that way survives on the
-    accident that `latest` holds the rows for the whole loop. Copy, re-read or
-    regenerate a row anywhere in between and the lookup silently returns
-    another lot's verdict — i.e. the wrong "warum Ihr Geschäft" next to a
-    customer's pick. `latest` is keyed by this pair already, so it is unique
-    per delivery pass by construction.
-    """
-    return row['procedure_id'], row['lot_id']
+# The lot's identity — the key of every per-lot side table in deliver(), and
+# of selection.py's `judged`, which is where it now lives: the two must agree
+# or a verdict lands next to the wrong customer's pick.
+_lot_key = selection.lot_key
 
 
 def _gate_stamp(profile, scores):
@@ -949,8 +942,7 @@ def deliver(paths, scored, args):
         gate = None
     n_rows = 0
     for sub in subs:
-        min_days = subscriptions.min_days(sub)
-        profile, judged, borderline = None, {}, []
+        profile = None
         if gate is not None and rel.wants_gate(sub):
             try:
                 profile = rel.build_profile(gate, sub)
@@ -964,29 +956,17 @@ def deliver(paths, scored, args):
             except Exception as e:
                 print(f"[deliver] {sub['sub_id']}: profile error ({e}) — "
                       f'delivering ungated')
-        # gate the widest candidate set (deadline ignored — the annex needs a
-        # verdict for short-deadline lots too); near-misses render separately
-        cand = [r for r in latest.values() if subscriptions.matches(sub, r, today, 0)]
-        if profile:
-            kept = []
-            for r in cand:
-                ok, near, t_score, c_score, why, c_hard = rel.judge(gate, profile, r)
-                judged[_lot_key(r)] = (t_score, c_score, why, c_hard)
-                if ok:
-                    kept.append(r)
-                elif near:
-                    borderline.append(r)
-            cand = kept
-        rows = sorted((r for r in cand
-                       if subscriptions.matches(sub, r, today, min_days)),
-                      key=lambda r: -r['score'])
+        # slice -> gate -> rank -> cap, in selection.py because the all-lots
+        # rewind runs the same four steps and must run THESE (REFACTOR.md
+        # phase 4). The gate sees the widest candidate set — deadline ignored,
+        # since the annex needs a verdict for short-deadline lots too — and
+        # near-misses render separately.
+        sel = selection.for_sub(sub, latest.values(), today, gate=gate,
+                                profile=profile)
+        cand, judged, borderline = sel.market, sel.judged, sel.borderline
+        rows, top = sel.ranked, sel.picks
         n_high = max(1, round(len(rows) * args.tier_high))
         n_med = max(1, round(len(rows) * args.tier_medium))
-        # ONE bar (RELEVANCE.md decision 2026-08-05): passing the gate means
-        # recommendable — a pick just needs the competition flag on top;
-        # max_picks caps the list, and zero picks is a message
-        max_picks = subscriptions.max_picks(sub)
-        top = [r for r in rows if r.get('flag')][:max_picks]
 
         def tender_cell(r):
             title = escape(clean_cell(r.get('title') or f"Los {r['lot_id']}", 70))
