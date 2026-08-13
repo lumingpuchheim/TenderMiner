@@ -98,12 +98,22 @@ class LegalTextsMatchTheApp(unittest.TestCase):
             self.assertIn(clause, site, f'missing from site: {clause}')
             self.assertIn(clause, served, f'missing from app: {clause}')
 
-    def test_both_impressums_are_visibly_unfilled(self):
+    def test_both_impressums_say_the_same_thing(self):
         """Better an obvious gap than a plausible invention — and if one gets
-        filled in, the other must not be forgotten."""
+        filled in, the other must not be forgotten.
+
+        It was forgotten once: the site page got the real Anbieterkennzeichnung
+        while the app still served "[Noch nicht eingetragen]", so a customer
+        clicking Impressum in the app got the unfilled one. The app now reads
+        the site page instead of keeping a second copy, and the two assertions
+        below are the two halves of that: same filled/unfilled state, and —
+        when filled — the same provider named on both.
+        """
         site = text_of(SITE / 'impressum' / 'index.html')
         served = self._app_text(app.get_impressum)
         self.assertEqual('§ 5 TMG' in site, '§ 5 TMG' in served)
+        for line in app._site_impressum_lines():
+            self.assertIn(line, served, f'named on the site, missing from the app: {line}')
 
 
 class Files(unittest.TestCase):

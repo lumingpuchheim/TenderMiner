@@ -212,9 +212,12 @@ HOSTING.md §2's six blockers, all landed:
   running container: `"POST /t/NB9hJZ80… HTTP/1.1" 200`. The server is
   threading now, too.
 - **Rate limit** (§3): 30 token lookups/IP/min, checked before `resolve`.
-- **Legal**: full Art. 14 Datenschutzerklärung; Impressum renders
-  `TM_IMPRESSUM` (identity stays out of the public repo) with a visible gap
-  when unset.
+- **Legal**: full Art. 14 Datenschutzerklärung; the Impressum reads the
+  provider block of `site/impressum/index.html`, so the served page and the
+  public one are one copy and cannot drift (they did once — the site was
+  filled in and the app was not). `TM_IMPRESSUM` still overrides, for a
+  deployment keeping the identity out of the repository; with neither, the
+  gap stays visible.
 - **TLS edge**: `docker/Caddyfile` + compose `edge` profile — real domain via
   `TM_DOMAIN` with auto-certificates, self-signed on a bare IP until then.
 
