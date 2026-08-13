@@ -122,10 +122,13 @@ the page shows a visible gap until it is set. Original list, for the record:
    three SSH commands by hand.
 8. **Backups** (§1's plan). Two jobs to write: the nightly export line in
    [`docker/crontab`](../docker/crontab), the laptop's weekly pull task.
+   Specified in [`OPERATIONS.md`](OPERATIONS.md) §3.
 9. **Silent-failure alerting.** On the laptop a broken Monday gets noticed;
    on a server nobody is looking. `/healthz` already reports the cycle's age
    in days — a free uptime service pinging it, alerting when age > 8 days,
-   is the whole build.
+   is the whole build. Specified in [`OPERATIONS.md`](OPERATIONS.md) §1,
+   which also makes `/healthz` answer 503 on staleness so a status-code
+   pinger suffices.
 10. **The big-append edge.** One `ledger.append` above ~25,000 rows holds the
     write lock past the app's 5 s patience (extrapolated from the
     measurements in §1). Normal weeks append hundreds; a backfill can cross
