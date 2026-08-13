@@ -76,7 +76,26 @@ correct, not a bug.
 - The VPS is unchosen; [`HOSTING.md`](HOSTING.md) has the comparison.
 - `REFACTOR.md` phase 4b (`render.py`) is the next refactor due. Phase 4a
   (the selection, now `selection.py` — not `select.py`, which collides with
-  the standard library) landed 2026-08-13: the global figure above is
-  unchanged, the per-subscription pick lists are not, because the rewind used
-  to impose a 14-day deadline horizon that six of the eight live
-  subscriptions never promised.
+  the standard library) landed 2026-08-13. **Measured**, both replays over
+  the same store, same 46 cutoffs, same 19,148 lots — pre-refactor code at
+  `946dc26` against master:
+
+  | | picks |
+  | --- | --- |
+  | before | 48 |
+  | after | **72** |
+  | kept | 44 |
+  | added | 28 |
+  | displaced | 4 |
+
+  The global forecast figure did not move at all (it is computed from flagged
+  lots and has no subscription in it). The picks did, and the reason is
+  legible in one row: **`jebsen-blitzschutz` is identical, 3 of 3.** It is
+  the only live subscription with `min_deadline_days=14`. Every subscription
+  that gained picks has `min_deadline_days=0` — the rewind's own copy of the
+  selection applied a 14-day deadline horizon to all of them, and 28 tenders
+  they were entitled to see were being hidden by a rule they never agreed to.
+
+  The 4 displaced picks are not lost coverage: with the horizon gone, more
+  candidates qualify each week and `max_picks=5` now chooses the top five out
+  of the honest candidate set rather than out of a truncated one.
