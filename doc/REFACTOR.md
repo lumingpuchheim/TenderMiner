@@ -37,7 +37,7 @@ profile. The tangles were one layer up, and there were two of them: the
 **composer** (the code that slices a market, asks both questions, ranks,
 caps, renders and records lived in one 250-line function, with a drifted
 copy in the all-lots rewind — the selection half is closed, phase 4a; the
-rendering half is phase 4b), and the **rewind machinery** (three programs
+rendering half is phase 4b, closed), and the **rewind machinery** (three programs
 each materialised their own past — closed,
 phase 5). This document names the seams, records the defects the tangles
 produced, and gave subscription state a real home before the first paying
@@ -77,7 +77,7 @@ here.
 | `relevance.py` ✅ config | the verdict only; config passed in (a `Verdict` object is still open) | composer, explain_verdict, evidence harnesses |
 | `asof.py` ✅ | the materialised past: filtered store, calibration inside it, pre-cutoff refs and champion | rewind_all, rewind_win, rewind_report |
 | `selection.py` ✅ | slice → gate → rank → cap → `SliceResult(market, ranked, picks, borderline, judged)`. No I/O, no HTML | loop, rewind_all |
-| `render.py` | `SliceResult` → report HTML, annex HTML, delivery rows | loop, preview_report |
+| `render.py` ✅ | `SliceResult` → report HTML, annex HTML, delivery rows. No I/O — the caller writes | loop (and so preview_report, rewind_report through it) |
 
 `deliver()` then reads: for each sub → `selection.for_sub(...)` →
 `render.report(...)` → append ledger. The all-lots rewind calls
@@ -426,13 +426,32 @@ note under **The seam**. The stdlib collision is not a style objection: the
 scheduler's image cannot `import subprocess` with a `select.py` at the
 repository root.
 
-## Phase 4b — `render.py` (next due)
+## Phase 4b — `render.py` (done, 2026-08-14)
 
-`SliceResult` → report HTML, annex HTML, delivery rows. `deliver()` is still
-~200 lines of HTML assembly with the selection lifted out of it; the annex,
-the receipts block and the borderline band are three renderers sharing one
-function body. Behaviour-preserving, with the same byte-equality receipt
-phase 4a used.
+`SliceResult` → report HTML, annex HTML, delivery rows.
+[`render.py`](../render.py) now owns all three; `deliver()` keeps the
+dispatch and the writing and **fell from 247 lines to 99**.
+
+Moved with the renderers that use them, because nothing else did: the HTML
+helpers (`clean_cell`, `date_de`, `html_page`, `table_html`), the delivery-row
+`gate_stamp`, and `receipt_html`. `loop.py` re-exports the four helpers its
+operator report still calls, so no other caller moved.
+
+**The receipt.** Every live subscription's report and annex rendered through
+`preview_report.py` before and after and compared by SHA-256:
+
+    13 files before, 13 after
+    IDENTICAL — every report byte-for-byte unchanged
+
+Nothing about a customer's documents changed, which is the only acceptable
+outcome for a refactor of the thing they receive.
+
+**What the split bought.** The three renderers are now reachable without a
+store, a model or a database: `tests/test_render.py` is 21 tests over the
+"no picks and no receipts means no report" rule (decision 2026-08-06), the
+haystack that must never be quoted (2026-08-05), the delivery-row dedup, the
+borderline band, the receipt cap, and escaping. Before the split, testing any
+of that meant running a cycle.
 
 ## Phase 5 — `asof.py`, the one rewind engine (done, 2026-08-12)
 

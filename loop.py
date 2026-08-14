@@ -36,6 +36,7 @@ import pandas as pd
 import config
 import heavy_lock
 import ledger
+import render
 import selection
 import single_bidder as sb
 import subscriptions
@@ -79,49 +80,6 @@ def read_jsonl(path):
     if not p.exists():
         return []
     return [json.loads(line) for line in p.read_text(encoding='utf-8').splitlines() if line.strip()]
-
-
-def clean_cell(v, width):
-    """Markdown-table-safe cell: collapse all whitespace (newlines break table
-    rows), replace pipes (they split cells), truncate."""
-    return ' '.join(str(v).split()).replace('|', '/')[:width]
-
-
-# Customer artifacts are HTML (SUBSCRIPTIONS.md decision 2026-08-05):
-# self-contained, inline <style>, e-mail-body-ready.
-HTML_STYLE = '''
- body { font-family:-apple-system,"Segoe UI",Roboto,sans-serif; color:#111827;
-        max-width:880px; margin:24px auto; padding:0 16px; line-height:1.5; }
- h1 { font-size:20px; } h2 { font-size:15px; margin:26px 0 8px; }
- table { border-collapse:collapse; width:100%; font-size:13.5px; }
- th,td { text-align:left; padding:7px 9px; border-bottom:1px solid #e5e7eb; vertical-align:top; }
- th { color:#6b7280; font-weight:600; }
- a { color:#2563eb; text-decoration:none; }
- ul { padding-left:20px; } li { margin:4px 0; }
- .ok { color:#15803d; font-weight:700; } .miss { color:#b91c1c; font-weight:700; }
- .muted { color:#6b7280; font-size:12.5px; }
- td.v-green { background:#dcfce7; color:#166534; white-space:nowrap; }
- td.v-yellow { background:#fef9c3; color:#854d0e; white-space:nowrap; }
- td.v-red { background:#fee2e2; color:#991b1b; white-space:nowrap; }
-'''
-
-
-def date_de(iso):
-    """'2026-08-31' -> '31.08.2026'; anything unparseable -> em dash."""
-    m = re.fullmatch(r'(\d{4})-(\d{2})-(\d{2})', str(iso)[:10])
-    return f'{m.group(3)}.{m.group(2)}.{m.group(1)}' if m else '—'
-
-
-def html_page(title, body_parts):
-    return ('<!doctype html><html><head><meta charset="utf-8">\n'
-            f'<title>{escape(title)}</title>\n<style>{HTML_STYLE}</style></head>\n<body>\n'
-            + '\n'.join(body_parts) + '\n</body></html>\n')
-
-
-def table_html(headers, body_rows):
-    head = ''.join(f'<th>{h}</th>' for h in headers)
-    return (f'<table><thead><tr>{head}</tr></thead><tbody>'
-            + ''.join(body_rows) + '</tbody></table>')
 
 
 def stamp(v):
@@ -762,28 +720,14 @@ def predict_open(paths, tenders, roles, aw, args):
 # of selection.py's `judged`, which is where it now lives: the two must agree
 # or a verdict lands next to the wrong customer's pick.
 _lot_key = selection.lot_key
-
-
-def _gate_stamp(profile, scores):
-    """Delivery-row stamps for gated subscriptions (RELEVANCE.md phase 3);
-    empty for ungated ones so their rows stay byte-identical to before.
-
-    `gate_config` (REFACTOR.md phase 3) is the fingerprint of the rules that
-    judged this lot. Without it a pick delivered under the embedding ladder
-    and one delivered under the evidence gate are indistinguishable in the
-    ledger, so a customer's retrospective silently pools two different
-    decision procedures. The competition model was always stamped; the gate
-    that decided the lot was the customer's business at all was not.
-    """
-    if not profile or scores is None:
-        return {}
-    from embed import MODEL_TAG
-    text, code = scores[0], scores[1]
-    cfg = profile.get('config')
-    return {'relevance_score': text, 'code_relevance': code,
-            'profile_version': profile['version'], 'embed_model_tag': MODEL_TAG,
-            **({'gate_config': cfg.fingerprint, 'gate_mode': cfg.mode}
-               if cfg is not None else {})}
+# the HTML helpers moved to render.py with the renderers that use
+# them (REFACTOR.md phase 4b); the operator report below still calls
+# them, so they are imported rather than re-implemented
+clean_cell = render.clean_cell
+date_de = render.date_de
+html_page = render.html_page
+table_html = render.table_html
+receipt_html = render.receipt_html
 
 
 def record_gate_config(paths, config):
@@ -807,67 +751,6 @@ def record_gate_config(paths, config):
                     **config.as_dict()}])
     print(f'[deliver] new gate configuration recorded: {config.describe()}')
     return True
-
-
-MAX_RECEIPTS = 15  # itemized reviewed picks shown per report; the rest is counted
-
-def receipt_html(grades_recent, sub_deliveries, pred_info, kind='pick'):
-    """Receipts before rates (SUBSCRIPTIONS.md): one line per delivered pick
-    (or, kind='avoid', per warning) whose outcome has arrived — what we said,
-    the bids that came, TED link as proof. Misses render exactly like hits;
-    a warning is right when the lot ended contested. Returns an HTML block."""
-    grade_by_lot = {(g['procedure_id'], g['lot_id']): g for g in grades_recent}
-    by_lot = {}
-    for d in sorted(sub_deliveries, key=lambda d: str(d['ts'])):
-        by_lot.setdefault((d['procedure_id'], d['lot_id']), []).append(d)
-    items = []
-    for lot, ds in by_lot.items():
-        g = grade_by_lot.get(lot)
-        if g is None:
-            continue
-        before = [d for d in ds if str(d['ts'])[:10] <= str(g['award_pub'])[:10]]
-        d = (before or ds)[-1]
-        if d.get('kind', 'pick') == kind:
-            items.append((d, g))
-    if not items:
-        # no graded outcome yet -> no section at all (decision 2026-08-06);
-        # the retrospective appears once the first Zuschlag is published
-        return ''
-    items.sort(key=lambda ig: str(ig[1]['award_pub']), reverse=True)
-    lis = []
-    for d, g in items[:MAX_RECEIPTS]:
-        info = pred_info.get((g['procedure_id'], g['lot_id']), {})
-        title = escape(clean_cell(d.get('title') or info.get('title')
-                                  or f"Los {g['lot_id']}", 60))
-        buyer = d.get('buyer_name') or info.get('buyer_name')
-        n = g.get('n_tenders')
-        outcome = (f"{int(n)} Angebot{'e' if n != 1 else ''}" if n is not None
-                   else ('0–1 Angebote' if g['label'] else 'mehr als 1 Angebot'))
-        right = (not g['label']) if kind == 'avoid' else bool(g['label'])
-        if kind == 'avoid':
-            verdict = ('umkämpft wie gewarnt — Angebotskosten gespart' if right
-                       else 'am Ende doch ruhig — diese Warnung hat Sie eine '
-                            'Chance gekostet')
-            said = 'Warnung'
-        else:
-            verdict = 'kaum Wettbewerb' if right else 'doch umkämpft'
-            said = 'Empfehlung'
-        nr = g.get('award_publication_number')
-        link = (f' · <a href="https://ted.europa.eu/de/notice/-/detail/{escape(str(nr))}">'
-                f'TED {escape(str(nr))}</a>' if nr else '')
-        mark = ('<span class="ok">✓</span>' if right else '<span class="miss">✗</span>')
-        buyer_s = f' ({escape(clean_cell(buyer, 40))})' if buyer else ''
-        lis.append(f"<li>{mark} {said}, {date_de(g['award_pub'])} — {title}{buyer_s}: "
-                   f'<b>{escape(outcome)}</b> — {escape(verdict)}{link}</li>')
-    if len(items) > MAX_RECEIPTS:
-        lis.append(f'<li class="muted">…und {len(items) - MAX_RECEIPTS} weitere '
-                   f"bewertete {'Warnungen' if kind == 'avoid' else 'Empfehlungen'} "
-                   'in Ihrem Lieferprotokoll.</li>')
-    out = '<ul>' + ''.join(lis) + '</ul>'
-    if kind == 'avoid':
-        n_right = sum(1 for d, g in items if not g['label'])
-        out += f'<p>Bisher trafen {n_right} von {len(items)} Warnungen zu.</p>'
-    return out
 
 
 def learn_references(paths, tenders, awards, args):
@@ -964,174 +847,23 @@ def deliver(paths, scored, args):
         # near-misses render separately.
         sel = selection.for_sub(sub, latest.values(), today, gate=gate,
                                 profile=profile)
-        cand, judged, borderline = sel.market, sel.judged, sel.borderline
-        rows, top = sel.ranked, sel.picks
-        n_high = max(1, round(len(rows) * args.tier_high))
-        n_med = max(1, round(len(rows) * args.tier_medium))
-
-        def tender_cell(r):
-            title = escape(clean_cell(r.get('title') or f"Los {r['lot_id']}", 70))
-            nr = r.get('publication_number')
-            return (f'<a href="https://ted.europa.eu/de/notice/-/detail/{escape(str(nr))}">'
-                    f'{title}</a>' if nr else title)
-
-        def buyer_cell(r):
-            return escape(clean_cell(r.get('buyer_name') or '', 40))
-
-        name = sub.get('name', sub['sub_id'])
-        market = subscriptions.describe_market(sub)
-        if profile:
-            n_refs = len(sub.get('profile_refs') or [])
-            n_texts = len(sub.get('profile_texts') or [])
-            market += (', gefiltert auf Ihr Profil ('
-                       + ' + '.join([f'{n_refs} gewonnene Ausschreibungen'] * (n_refs > 0)
-                                    + [f'{n_texts} Beschreibung(en)'] * (n_texts > 0))
-                       + ')')
-        # the report never cites how many lots we checked or matched — the
-        # size of our haystack is our business, not the customer's (decision
-        # 2026-08-05); the product is the short list itself
-        # Report copy (decision 2026-08-06): the customer reads exactly two
-        # things — is there a recommendation this week, and how did the
-        # previous recommendations end. No product prose, no market
-        # statistics, no warnings list, no annex mention.
-        body = [f'<h1>{escape(name)} — TenderMining Wochenbericht — {date_de(today.isoformat())}</h1>',
-                f'<p class="muted">Ihr Markt: {escape(market)}.</p>',
-                '<h2>Empfehlungen dieser Woche</h2>']
-        if not top:
-            body += ['<p><b>Diese Woche keine Empfehlung.</b> Keine offene '
-                     'Ausschreibung passte diese Woche eindeutig zu Ihrem Betrieb '
-                     'und versprach zugleich so wenig Wettbewerb, dass sie Ihr '
-                     'Angebotsbudget wert wäre.</p>']
-        else:
-            lead = ('Diese Ausschreibung passt zu Ihrem Betrieb und verspricht'
-                    if len(top) == 1 else
-                    f'Diese {len(top)} Ausschreibungen passen zu Ihrem Betrieb '
-                    'und versprechen')
-            body += [f'<p>{lead} wenig Wettbewerb. Der Titel führt zur '
-                     'offiziellen Bekanntmachung; beachten Sie die Frist.</p>']
-
-        def why_mine_cell(r):
-            """Plain-language reason a pick is the customer's business — words
-            instead of the (internal) score, so a marginal case is judgeable
-            at a glance."""
-            why = (judged.get(_lot_key(r)) or (None, None, None))[2]
-            if not why:
-                return ''
-            kind, detail = why
-            if kind == 'ref' and detail:
-                return escape(f'ähnelt Ihrem Auftrag „{clean_cell(detail, 50)}“')
-            if kind == 'ref':
-                return 'ähnelt Ihrem Profil'
-            if kind == 'evidence':
-                # phase 8: quote the trade words actually found in the notice
-                return escape(f'nennt {clean_cell(detail, 50)}')
-            return escape(f'CPV-Code passt: {clean_cell(detail, 50)}')
-
-        deliveries, pick_trs = [], []
-        for i, r in enumerate(top):
-            tier = 'HIGH' if i < n_high else ('MEDIUM' if i < n_high + n_med else 'LOW')
-            why_cells = (f'<td>{why_mine_cell(r)}</td>' if profile else '')
-            pick_trs.append(f"<tr><td>{tender_cell(r)}</td>"
-                            f"<td>{date_de(r.get('deadline_date'))}</td>"
-                            f'<td>{buyer_cell(r)}</td>'
-                            f'{why_cells}'
-                            f"<td>{escape(', '.join((r.get('why_lonely') or [])[:2]))}</td></tr>")
-            if (sub['sub_id'], r['procedure_id'], r['lot_id'], ts[:10]) not in already:
-                deliveries.append({
-                    'ts': ts, 'sub_id': sub['sub_id'], 'sub_version': sub.get('version', 1),
-                    'procedure_id': r['procedure_id'], 'lot_id': r['lot_id'],
-                    'notice_id': r.get('notice_id'), 'model': r['model'],
-                    'score': r['score'], 'slice_rank': i + 1,
-                    'slice_size': len(rows), 'slice_tier': tier,
-                    'publication_number': r.get('publication_number'),
-                    'buyer_name': r.get('buyer_name'), 'title': r.get('title'),
-                    'kind': 'pick',
-                    **_gate_stamp(profile, judged.get(_lot_key(r))),
-                })
-        if pick_trs:
-            headers = ['Ausschreibung', 'Frist', 'Auftraggeber']
-            if profile:
-                headers.append('warum Ihr Geschäft')
-            headers.append('warum wir wenige Bieter erwarten')
-            body += [table_html(headers, pick_trs)]
-        receipts = receipt_html(grades_recent, by_sub.get(sub['sub_id'], []),
-                                pred_info)
-        if receipts:
-            body += ['<h2>Ihre Empfehlungen im Rückblick</h2>', receipts]
-        elif top:
-            # picks but no graded outcome yet: state the accountability
-            # promise instead of silence (decision 2026-08-06)
-            body += ['<h2>Ihre Empfehlungen im Rückblick</h2>',
-                     '<p>Ihre Empfehlungen stehen oben — jede wird dokumentiert, '
-                     'und ihr Ergebnis wird hier bewertet, sobald der Zuschlag '
-                     'veröffentlicht ist.</p>']
-        # the warnings list is gone (decision 2026-08-06): the customer should
-        # avoid MOST of the market, so naming five lots was noise; no
-        # kind:"avoid" delivery rows are written any more (the ledger records
-        # what the customer saw). Historical avoid rows stay and are excluded
-        # from the pick receipts by receipt_html's kind filter.
-        # the annex: every open tender in the slice (deadline filter ignored —
-        # a candidate with 10 days left still deserves its verdict), so the
-        # customer can check THEIR candidates, not just ours; `cand` is already
-        # relevance-gated when the subscription has a profile
-        annex_rows = sorted(cand, key=lambda r: -r['score'])
-        n_crowd = max(1, round(len(annex_rows) * args.top_slice))
-        verdicts = {}
-        for rank, r in enumerate(annex_rows):
-            if r.get('flag'):
-                verdicts[_lot_key(r)] = ('v-green', 'wenige Bieter erwartet',
-                                         (r.get('why_lonely') or [])[:2])
-            elif rank >= len(annex_rows) - n_crowd:
-                verdicts[_lot_key(r)] = ('v-red', 'viele Bieter erwartet',
-                                         (r.get('why_crowded') or [])[:2])
-            else:
-                verdicts[_lot_key(r)] = ('v-yellow', 'durchschnittliche Chancen', [])
-        # the annex file is still written per date but the report does not
-        # mention it (decision 2026-08-06) — it is the operator's lookup when
-        # a customer asks about a specific tender, not a customer surface
-        annex_name = f'annex_{today.isoformat()}.html'
-        annex_trs = []
-        for r in sorted(annex_rows, key=lambda r: str(r.get('deadline_date'))):
-            cls, verdict, why = verdicts[_lot_key(r)]
-            annex_trs.append(f'<tr><td>{tender_cell(r)}</td>'
-                             f"<td>{date_de(r.get('deadline_date'))}</td>"
-                             f'<td>{buyer_cell(r)}</td>'
-                             f'<td class="{cls}">{verdict}</td>'
-                             f"<td>{escape(', '.join(why))}</td></tr>")
-        annex_body = [f'<h1>{escape(name)} — Marktübersicht — {date_de(today.isoformat())}</h1>',
-                      f'<p>Alle {len(annex_rows)} offenen Ausschreibungen in Ihrem '
-                      f'Markt ({escape(market)}), sortiert nach Frist. Schlagen Sie '
-                      'jede Ausschreibung nach, die Sie erwägen; das Urteil stammt '
-                      'aus demselben Modell wie Ihre wöchentlichen Empfehlungen und '
-                      'wird in Ihrem Bericht überprüft.</p>',
-                      table_html(['Ausschreibung', 'Frist', 'Auftraggeber', 'Urteil',
-                                  'warum'], annex_trs)]
-        if borderline:
-            # the borderline band (RELEVANCE.md): near-misses just under the
-            # profile gate stay visible, so a miscalibrated gate is discovered
-            # by reading, not by silence
-            near_trs = [f'<tr><td>{tender_cell(r)}</td>'
-                        f"<td>{date_de(r.get('deadline_date'))}</td>"
-                        f'<td>{buyer_cell(r)}</td></tr>'
-                        for r in sorted(borderline,
-                                        key=lambda r: str(r.get('deadline_date')))]
-            annex_body += ['<h2>Knapp aussortiert</h2>',
-                           f'<p>Diese {len(borderline)} Ausschreibungen lagen knapp '
-                           'unter der Ähnlichkeitsschwelle zu Ihrem Profil und wurden '
-                           'deshalb nicht in Ihren Markt aufgenommen. Ist eine davon '
-                           'doch Ihr Geschäft? Antworten Sie mit der TED-Nummer — '
-                           'Ihr Profil lernt daraus.</p>',
-                           table_html(['Ausschreibung', 'Frist', 'Auftraggeber'],
-                                      near_trs)]
+        # render.py turns the SliceResult into the two documents and the
+        # delivery rows (REFACTOR.md phase 4b). This loop keeps only the
+        # dispatch and the writing: everything above is "what does this
+        # customer get", everything below is "where does it go".
+        receipts = render.receipt_html(grades_recent,
+                                       by_sub.get(sub['sub_id'], []), pred_info)
+        page, deliveries = render.customer_report(
+            sub, sel, today=today, profile=profile, receipts=receipts,
+            tier_high=args.tier_high, tier_medium=args.tier_medium,
+            ts=ts, already=already)
+        annex_name, annex = render.market_annex(
+            sub, sel, today=today, profile=profile, top_slice=args.top_slice)
         out = paths.reports / 'subscriptions' / sub['sub_id'] / f'report_{today.isoformat()}.html'
         out.parent.mkdir(parents=True, exist_ok=True)
-        (out.parent / annex_name).write_text(
-            html_page(f'{name} — Marktübersicht {date_de(today.isoformat())}', annex_body),
-            encoding='utf-8')
-        if top or receipts:
-            out.write_text(
-                html_page(f'{name} — TenderMining Wochenbericht {date_de(today.isoformat())}', body),
-                encoding='utf-8')
+        (out.parent / annex_name).write_text(annex, encoding='utf-8')
+        if page is not None:
+            out.write_text(page, encoding='utf-8')
         else:
             # nothing to recommend and nothing graded to look back on -> no
             # report this cycle (decision 2026-08-06); the annex above is
@@ -1140,8 +872,8 @@ def deliver(paths, scored, args):
                   f'no report written')
         ledger.append(paths.deliveries_home, 'deliveries', deliveries)
         n_rows += len(deliveries)
-        print(f"[deliver] {sub['sub_id']}: {len(top)} lots delivered "
-              f'({len(rows)} matched, {len(deliveries)} new delivery rows)')
+        print(f"[deliver] {sub['sub_id']}: {len(sel.picks)} lots delivered "
+              f'({len(sel.ranked)} matched, {len(deliveries)} new delivery rows)')
     return n_rows
 
 

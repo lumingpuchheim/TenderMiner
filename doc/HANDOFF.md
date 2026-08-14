@@ -74,7 +74,10 @@ correct, not a bug.
 - The Impressum text (`TM_IMPRESSUM`), `info@murara.eu` receiving mail,
   and the Resend sending domain — blocking the first letter.
 - The VPS is unchosen; [`HOSTING.md`](HOSTING.md) has the comparison.
-- `REFACTOR.md` phase 4b (`render.py`) is the next refactor due. Phase 4a
+- `REFACTOR.md` phase 4b (`render.py`) landed 2026-08-14 — `deliver()` is a
+  99-line dispatcher, every customer document byte-for-byte unchanged (13
+  files, SHA-256), and the three renderers have 21 tests that need no store.
+  **No refactor phase is now open.** Phase 4a
   (the selection, now `selection.py` — not `select.py`, which collides with
   the standard library) landed 2026-08-13. **Measured**, both replays over
   the same store, same 46 cutoffs, same 19,148 lots — pre-refactor code at
