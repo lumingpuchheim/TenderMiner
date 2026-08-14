@@ -167,6 +167,16 @@ ssh "$TARGET" "cd $DIR && TM_TAG=$TAG docker compose --profile scheduler up -d -
 # skipping it on a store-less machine crashes at the first parquet read.
 # The re-download it implies is pennies — bulk.py skips complete packages.
 #
+# The calibration at the end is a RECEIPT, not configuration. The gate the
+# server actually runs ships IN the image: calibrate.py's committed artifacts
+# (trusted_codes_<tag>.json, calibration_<tag>.md, repo root) — so a fresh
+# server is correctly calibrated from its first cycle, before this receipt
+# exists. This run re-derives them from the server's own archive into /data
+# (cwd — calibrate.py writes relative), where the RUNBOOK's "recalibrate
+# after a big backfill" review can diff them against the committed pair.
+# Promoting a change is a git commit, never live drift on a server. The
+# embed.py --labels before it builds the labels sidecar only calibrate needs.
+#
 # Measured 2026-08-14 on a 4-vCore OVH VPS: the download half is ~12 min for
 # 25 months (114,570 notices, 1.78M scanned). bulk.py checkpoints per month
 # and skips complete ones, so a bootstrap re-run does not re-transfer.
@@ -174,7 +184,9 @@ BACKFILL_FROM="${TM_BACKFILL_FROM:-20240801}"
 say "seeding the archive from $BACKFILL_FROM (detached; this is hours of work)"
 ssh "$TARGET" "mkdir -p $STATE/logs && cd $DIR && TM_TAG=$TAG nohup docker compose run --rm -T tm \
   sh -c 'python bulk.py --from $BACKFILL_FROM --to \$(date +%Y%m%d) --country DEU --cpv 45 \
-      && python loop.py run --last 7d' \
+      && python loop.py run --last 7d \
+      && python embed.py --labels \
+      && cd /data && python /app/calibrate.py' \
   > $STATE/logs/backfill.log 2>&1 & echo '  backfill pid on server:' \$!"
 
 say "done. From here on, push to master = deploy."
@@ -182,9 +194,15 @@ cat <<SUMMARY
 
   Still manual, by design:
     * secrets into the server's .env when they exist (RESEND_API_KEY,
-      TM_IMPRESSUM):   ssh $TARGET   then edit $DIR/.env
+      TM_IMPRESSUM; RESTIC_* turns on the off-site backup):
+        ssh $TARGET   then edit $DIR/.env
     * the provider's daily backup checkbox (doc/OPERATIONS.md 3, layer 1)
+    * an uptime pinger on /healthz (doc/OPERATIONS.md 1)
+    * customers: subscriptions are data, not code — enter them through
+      subscriptions.py or no report has an audience
     * DNS + TM_DOMAIN, the day the domain decision lands
+    * host care, once, as root: unattended-upgrades (a container does not
+      patch its host)
 
   Backfill: ssh $TARGET "tail -f $STATE/logs/backfill.log"
   Health:   ssh $TARGET "curl -s localhost:8000/healthz"
