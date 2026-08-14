@@ -630,13 +630,34 @@ stale; the ruling on each is recorded rather than the item silently deleted.
   to serve stale. Nothing parses it. Kept here as a reminder that a
   speculated fix in an open-items list is a guess, not a plan.
 - **Circular imports papered over with function-level imports — HALF
-  RESOLVED.** `loop` ↔ `feedback` is no longer a cycle: `feedback` stopped
-  importing `loop` (phases 1-2 gave it `subscriptions`/`ledger` to import
-  instead, which was the point). Still cyclic today: `relevance` ↔
-  `evidence` and `relevance` ↔ `feedback`, papered over in the same
-  function-level way. Unchanged expectation, now with the phase named:
-  phase 4 (`select.py`/`render.py`) is the layering that should dissolve
-  them; if it lands and they persist, then they earn their own work.
+  RESOLVED, and the rest now earns its own work.** `loop` ↔ `feedback` is no
+  longer a cycle: `feedback` stopped importing `loop` (phases 1-2 gave it
+  `subscriptions`/`ledger` to import instead, which was the point).
+
+  This item said phase 4 was the layering that should dissolve the other two,
+  and that "if it lands and they persist, then they earn their own work".
+  **Phase 4 landed on 2026-08-14 and they persist** — re-checked against the
+  code that day:
+
+  | cycle | papered over at |
+  | --- | --- |
+  | `relevance` → `evidence` | relevance.py 610, 702, 711, 797 |
+  | `evidence` → `relevance` | evidence.py 1773, 1901, 2090 |
+  | `relevance` → `feedback` | relevance.py 503, 507 |
+  | `feedback` → `relevance` | feedback.py 182, 288 |
+
+  Phase 4 did not touch them because it was never on that axis: it split
+  `loop.deliver` downward into `selection` and `render`, and both of those
+  came out clean — `render` imports only `selection` and `subscriptions` at
+  module level and nothing at function level; `selection` imports
+  `subscriptions`, with one function-level `relevance` (the gate it calls,
+  not a cycle). The `relevance`/`evidence`/`feedback` knot is one layer
+  further down and needs its own phase, scoped on its own terms.
+
+  Not scheduled here, because nothing is currently blocked by it: the
+  function-level imports work, and the cost is legibility rather than
+  behaviour. What would promote it: a third module joining the knot, or a
+  change that has to be made in two of them at once.
 - **Profile growth is still unbounded — OPEN, and gated on a receipt, not on
   a phase.** This item used to wait for "the subscription repository once
   phase 2 lands"; phase 2 landed and the cap rightly did not, because
