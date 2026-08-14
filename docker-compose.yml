@@ -85,9 +85,15 @@ services:
     # generation carry on inside the cycle. So: restart hard, and let /healthz
     # be what says whether it came back.
     restart: always
+    # This asks "is the process serving", nothing more — so 503 counts as
+    # healthy here. /healthz's 200-vs-503 semantics (stale cycle, full disk)
+    # belong to the uptime pinger and the deploy gate; if Docker read them too,
+    # every fresh deployment would sit "unhealthy" until its first cycle, and a
+    # full disk would look like a crashed app. http.client, not urllib: it
+    # reports status codes instead of raising on them.
     healthcheck:
       test: ["CMD", "python", "-c",
-             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz').read()"]
+             "import http.client; c=http.client.HTTPConnection('127.0.0.1',8000,timeout=4); c.request('GET','/healthz'); exit(0 if c.getresponse().status in (200,503) else 1)"]
       interval: 30s
       timeout: 5s
       retries: 3
