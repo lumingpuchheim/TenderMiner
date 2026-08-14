@@ -113,10 +113,16 @@ REMOTE
 
 # Prove the boundary before trusting it: the key must run `status`, and must
 # be refused anything that is not one of the three commands.
+#
+# -F /dev/null matters: the operator's ~/.ssh/config may (should) hold their
+# personal key for this host, and with it in play ssh authenticates as the
+# operator — proving nothing about the CI key. Found live on 2026-08-14: the
+# first verification "failed" because it had silently logged in as a human.
 say "verifying the forced command"
-ssh -i "$TMP/deploy_key" -o IdentitiesOnly=yes "$TARGET" status \
+ci_ssh() { ssh -F /dev/null -i "$TMP/deploy_key" -o IdentitiesOnly=yes "$@"; }
+ci_ssh "$TARGET" status \
     || die "the CI key could not run 'status' — forced command broken"
-if ssh -i "$TMP/deploy_key" -o IdentitiesOnly=yes "$TARGET" 'id' 2>/dev/null; then
+if ci_ssh "$TARGET" 'id' 2>/dev/null; then
     die "the CI key executed an arbitrary command — forced command NOT in effect"
 fi
 say "forced command verified: status works, arbitrary commands refused"
