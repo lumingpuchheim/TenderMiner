@@ -33,6 +33,7 @@ import argparse
 import html
 import json
 import re
+import shutil
 import time
 from collections import defaultdict, deque
 from datetime import datetime, timezone
@@ -248,14 +249,35 @@ def get_datenschutz(ctx):
          turnusmäßig gelöscht.</p>""")
 
 
+# What this endpoint turns red at — doc/OPERATIONS.md 1. Both numbers are read
+# from outside by a status-code pinger and from inside by the deploy gate of
+# OPERATIONS.md 2, which is the point of putting the semantics here: "healthy"
+# must not mean two different things to the two of them.
+MAX_CYCLE_AGE_DAYS = 8       # weekly cycle, so 8 tolerates exactly one late Monday
+MIN_FREE_BYTES = 2 * 1024**3  # state grows ~90 MB/week — 2 GB is weeks of warning
+
+
 def get_healthz(ctx):
-    """200 plus how fresh the cycle's data is. Deliberately text/plain: this
-    one is read by a restart policy and by a person on a phone, not by a
-    customer."""
+    """200 when the cycle is recent and `/data` has room, 503 otherwise.
+    Deliberately text/plain: this one is read by a restart policy, by a dumb
+    status-code pinger and by a person on a phone, not by a customer.
+
+    Unknown reads as red — for the age and for the disk. Two consequences,
+    both wanted: a fresh deployment answers 503 until it has run one cycle
+    (OPERATIONS.md 4 step 5), and a container that cannot see its state
+    directory fails the deploy gate instead of sailing through it, which is
+    the single most likely way a new image is broken.
+    """
     stamp, age = _freshness(ctx['data_dir'])
-    body = (f'ok\ncycle_last_success={stamp or "unknown"}\n'
-            f'cycle_age_days={age if age is not None else "unknown"}\n')
-    return '200 OK', 'text/plain; charset=utf-8', body
+    free = _free_bytes(ctx['data_dir'])
+    ok = (age is not None and age <= MAX_CYCLE_AGE_DAYS
+          and free is not None and free >= MIN_FREE_BYTES)
+    body = (f'{"ok" if ok else "degraded"}\n'
+            f'cycle_last_success={stamp or "unknown"}\n'
+            f'cycle_age_days={age if age is not None else "unknown"}\n'
+            f'disk_free_mb={free // 1024**2 if free is not None else "unknown"}\n')
+    return (('200 OK' if ok else '503 Service Unavailable'),
+            'text/plain; charset=utf-8', body)
 
 
 def get_robots(ctx):
@@ -276,6 +298,16 @@ def _freshness(data_dir):
         return stamp, (datetime.now(timezone.utc) - d).days
     except Exception:                                          # noqa: BLE001
         return None, None
+
+
+def _free_bytes(data_dir):
+    """Free space on the state directory, or None when it cannot be read. In a
+    container that second case means the mount is not there — which is a health
+    failure, not a detail, so it reads as unknown and unknown reads as red."""
+    try:
+        return shutil.disk_usage(data_dir).free
+    except Exception:                                          # noqa: BLE001
+        return None
 
 
 # -------------------------------------------------------- the token routes

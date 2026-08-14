@@ -8,10 +8,13 @@ directly, which is what a real request reduces to anyway.
 No real data: every test builds its own temporary directory.
 """
 
+import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -83,21 +86,74 @@ class PublicPages(Base):
         self.assertTrue(headers['Content-Type'].startswith('text/plain'))
         self.assertIn('Disallow: /', body)
 
-    def test_healthz_reports_unknown_freshness_without_a_cycle(self):
-        """A fresh deployment has no checkpoint. Health must still answer —
-        one that raises when the data is missing is worse than one that
-        admits it does not know."""
+    # /healthz carries the health *semantics*, not just the numbers: the same
+    # 200/503 is read by the external pinger and by the deploy gate
+    # (doc/OPERATIONS.md 1 and 2). These tests are what stop the two drifting.
+
+    def _checkpoint(self, days_ago):
+        """A loop checkpoint whose last success was `days_ago` days ago."""
+        logs = self.dir / 'logs'
+        logs.mkdir(exist_ok=True)
+        stamp = (datetime.now(timezone.utc)
+                 - timedelta(days=days_ago)).strftime('%Y%m%d')
+        (logs / 'loop_checkpoint.json').write_text(
+            json.dumps({'last_success_to': stamp}), encoding='utf-8')
+        return stamp
+
+    def _disk(self, free_bytes):
+        """Pin the free-space reading. The real one is the test machine's, and
+        a health check that goes green or red with whoever's laptop is running
+        the suite is not a test."""
+        patch = mock.patch.object(app, '_free_bytes', lambda _d: free_bytes)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_healthz_is_green_when_the_cycle_is_recent_and_the_disk_has_room(self):
+        stamp = self._checkpoint(days_ago=2)
+        self._disk(50 * 1024**3)
         status, _, body = request(self.dir, '/healthz')
         self.assertEqual(status, '200 OK')
-        self.assertIn('cycle_last_success=unknown', body)
+        self.assertIn(f'cycle_last_success={stamp}', body)
+        self.assertIn('cycle_age_days=2', body)
 
-    def test_healthz_reports_the_cycles_last_success(self):
-        logs = self.dir / 'logs'
-        logs.mkdir()
-        (logs / 'loop_checkpoint.json').write_text(
-            '{"last_success_to": "20260810"}', encoding='utf-8')
-        _, _, body = request(self.dir, '/healthz')
-        self.assertIn('cycle_last_success=20260810', body)
+    def test_healthz_tolerates_exactly_one_late_monday(self):
+        """8 days is the boundary and it is deliberate: a cycle that slipped a
+        day must not page the operator, a cycle that missed a week must."""
+        self._checkpoint(days_ago=8)
+        self._disk(50 * 1024**3)
+        status, _, _ = request(self.dir, '/healthz')
+        self.assertEqual(status, '200 OK')
+
+        self._checkpoint(days_ago=9)
+        status, _, _ = request(self.dir, '/healthz')
+        self.assertEqual(status, '503 Service Unavailable')
+
+    def test_healthz_is_red_without_a_cycle_but_still_answers(self):
+        """A fresh deployment has no checkpoint. Unknown reads as red on
+        purpose (OPERATIONS.md 1) — but the endpoint must still answer, since
+        one that raises when the data is missing is worse than one that admits
+        it does not know."""
+        self._disk(50 * 1024**3)
+        status, _, body = request(self.dir, '/healthz')
+        self.assertEqual(status, '503 Service Unavailable')
+        self.assertIn('cycle_last_success=unknown', body)
+        self.assertIn('cycle_age_days=unknown', body)
+
+    def test_healthz_is_red_when_the_disk_is_nearly_full(self):
+        self._checkpoint(days_ago=1)
+        self._disk(1 * 1024**3)                      # under the 2 GB floor
+        status, _, body = request(self.dir, '/healthz')
+        self.assertEqual(status, '503 Service Unavailable')
+        self.assertIn('disk_free_mb=1024', body)
+
+    def test_healthz_is_red_when_the_state_directory_cannot_be_read(self):
+        """What a missing /data mount looks like from inside the container —
+        the failure the deploy gate exists to catch."""
+        self._checkpoint(days_ago=1)
+        self._disk(None)
+        status, _, body = request(self.dir, '/healthz')
+        self.assertEqual(status, '503 Service Unavailable')
+        self.assertIn('disk_free_mb=unknown', body)
 
     def test_unknown_path_is_404(self):
         status, _, _ = request(self.dir, '/admin')
