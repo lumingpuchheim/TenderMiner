@@ -291,6 +291,56 @@ class Idempotence(TempHome):
         seqs = [r['seq'] for r in con.execute('SELECT seq FROM delivery ORDER BY seq')]
         self.assertEqual(seqs, list(range(1, 6)))
 
+    def test_a_backfill_sized_append_lets_other_writers_in_between_chunks(self):
+        """HOSTING.md §3 №10: one append above ~25k rows used to hold the write
+        lock past the app's 5 s patience — a customer's click failing because a
+        backfill is running. The append now commits in chunks; the proof is a
+        second writer with 200 ms of patience succeeding while the big append
+        is mid-flight. The probe writes real rows through the real insert path,
+        so success means the lock was truly free, not merely polled."""
+        from unittest import mock
+
+        real_connect = db.connect
+        probes = []
+
+        class Chunky:
+            """ledger.append's connection, with eyes on commit()."""
+            def __init__(self, con):
+                self._con = con
+
+            def __getattr__(self, name):
+                return getattr(self._con, name)
+
+            def commit(self):
+                self._con.commit()
+                # Between chunks now. A writer with almost no patience must
+                # get in — this raises 'database is locked' if the lock is
+                # still held, failing the test.
+                other = real_connect(self.home_)
+                other.execute('PRAGMA busy_timeout=200')
+                db.insert(other, 'delivery',
+                          delivery_row(lot=f'PROBE-{len(probes)}'))
+                other.commit()
+                other.close()
+                probes.append(1)
+
+        def spying_connect(home, create=True):
+            proxy = Chunky(real_connect(home, create))
+            proxy.home_ = home
+            return proxy
+
+        big = [delivery_row(lot=f'BIG-{i}') for i in range(10)]
+        with mock.patch.object(ledger, 'APPEND_CHUNK', 3), \
+             mock.patch.object(db, 'connect', spying_connect):
+            self.assertEqual(ledger.append(self.home, 'deliveries', big), 10)
+
+        self.assertEqual(len(probes), 4)          # ceil(10/3) commits
+        lots = {r['lot_id'] for r in ledger.read(self.home, 'deliveries')}
+        self.assertTrue({f'BIG-{i}' for i in range(10)} <= lots)
+        self.assertTrue({f'PROBE-{i}' for i in range(4)} <= lots)
+        # Idempotence must survive the chunk boundaries too.
+        self.assertEqual(ledger.append(self.home, 'deliveries', big), 0)
+
 
 class Guards(TempHome):
     def test_subscription_file_ahead_of_database_raises(self):

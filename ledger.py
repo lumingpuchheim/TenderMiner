@@ -105,6 +105,17 @@ def _assert_not_stale(con, home, name, table, n_db):
             f'in (it is idempotent), or remove the stale file.')
 
 
+# One commit's worth of rows. The write lock is held from first insert to
+# commit, and the app waits 5 s for it (HOSTING.md §1: 0.96 s per 5,000 rows,
+# so ~25,000 rows is where a customer's click starts failing). Normal weeks
+# append hundreds and commit once, exactly as before; a backfill-sized append
+# becomes several commits, each briefly. The trade is explicit: a reader
+# between chunks sees the first chunks without the last — the same partial
+# state a crash mid-append always could leave, since every consumer dedups on
+# the natural key rather than trusting an append to be atomic.
+APPEND_CHUNK = 5_000
+
+
 def append(home, name, rows):
     """Append rows. Returns the number actually written — a row that collides
     with the table's natural key is skipped, which is how re-running a cycle
@@ -122,8 +133,10 @@ def append(home, name, rows):
         return len(rows)
     table = _spec(name)[1]
     con = db.connect(home)
-    n = sum(db.insert(con, table, r) for r in rows)
-    con.commit()
+    n = 0
+    for i in range(0, len(rows), APPEND_CHUNK):
+        n += sum(db.insert(con, table, r) for r in rows[i:i + APPEND_CHUNK])
+        con.commit()
     return n
 
 
