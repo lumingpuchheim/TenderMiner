@@ -162,6 +162,11 @@ ssh "$TARGET" "cd $DIR && TM_TAG=$TAG docker compose --profile scheduler up -d -
 # detached on the server under the same heavy-job lock as the Monday cycle,
 # and this script does not wait for it. Progress: tail the log below.
 #
+# The cycle deliberately does NOT --skip-download: the store parquets are
+# rebuilt by features.py INSIDE the loop's download stage (loop.py), so
+# skipping it on a store-less machine crashes at the first parquet read.
+# The re-download it implies is pennies — bulk.py skips complete packages.
+#
 # Measured 2026-08-14 on a 4-vCore OVH VPS: the download half is ~12 min for
 # 25 months (114,570 notices, 1.78M scanned). bulk.py checkpoints per month
 # and skips complete ones, so a bootstrap re-run does not re-transfer.
@@ -169,7 +174,7 @@ BACKFILL_FROM="${TM_BACKFILL_FROM:-20240801}"
 say "seeding the archive from $BACKFILL_FROM (detached; this is hours of work)"
 ssh "$TARGET" "mkdir -p $STATE/logs && cd $DIR && TM_TAG=$TAG nohup docker compose run --rm -T tm \
   sh -c 'python bulk.py --from $BACKFILL_FROM --to \$(date +%Y%m%d) --country DEU --cpv 45 \
-      && python loop.py run --last 7d --skip-download' \
+      && python loop.py run --last 7d' \
   > $STATE/logs/backfill.log 2>&1 & echo '  backfill pid on server:' \$!"
 
 say "done. From here on, push to master = deploy."
