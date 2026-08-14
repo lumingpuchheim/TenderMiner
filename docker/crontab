@@ -52,4 +52,11 @@ PYTHONUNBUFFERED=1
 # m  h  dom mon dow  user  command
   15 8  *   *   1    tm    /app/docker/weekly.sh >> /data/logs/cron.log 2>&1
 
+# The nightly backup (OPERATIONS.md 3): export always, off-site push when
+# restic is configured, Sunday self-verification. 02:30 keeps clear of the
+# Monday 08:15 cycle by six hours — the export reads the database the app and
+# cycle write, and WAL means readers never block, but a backup and a cycle
+# racing for disk bandwidth on the same box is still worth six hours of space.
+  30 2  *   *   *    tm    /app/docker/nightly.sh >> /data/logs/cron.log 2>&1
+
 # A cron.d file that does not end in a newline is silently ignored. This is it.

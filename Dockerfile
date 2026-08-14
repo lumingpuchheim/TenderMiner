@@ -17,8 +17,11 @@ FROM python:3.13-slim-bookworm
 # cron: only the `scheduler` service runs it (docker-compose.yml), but it lives
 # in the same image so the thing that fires the cycle and the thing that runs it
 # can never be two different builds.
+# restic: the nightly off-site backup (docker/nightly.sh, OPERATIONS.md 3
+# layer 2) — client-side encryption is the reason it is a binary here and not
+# a provider feature.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libgomp1 tzdata cron \
+ && apt-get install -y --no-install-recommends libgomp1 tzdata cron restic \
  && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1 \
@@ -75,7 +78,7 @@ RUN useradd --create-home --uid 1000 tm \
 # The exec bit is set here rather than relied on from the build context: the
 # checkout is on Windows, which does not carry one.
 RUN install -m 0644 -o root -g root /app/docker/crontab /etc/cron.d/tendermining \
- && chmod 0755 /app/docker/weekly.sh
+ && chmod 0755 /app/docker/weekly.sh /app/docker/nightly.sh
 
 USER tm
 

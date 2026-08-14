@@ -28,6 +28,13 @@ services:
       # never an in-place mutation (embed.py). Flipping it here flips it for
       # the whole cycle, which is the only way it should ever be flipped.
       EMBED_MODEL: ${EMBED_MODEL:-jina-v2-base-de}
+      # The nightly off-site backup (docker/nightly.sh). Empty until the
+      # operator fills .env — the backup then says so every night rather than
+      # failing quietly.
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:-}
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
     volumes:
       # THE state directory. Defaults to ./data — today's behaviour, so a
       # container started in the checkout finds exactly what the laptop
@@ -64,7 +71,17 @@ services:
     # has, and a job's stdout goes to the mail spool, which no container has
     # either. Run that way the service looks perfectly healthy and reports
     # nothing, ever. See the comment in docker/crontab.
-    command: ["sh", "-c", "cron -L 2 && exec tail -F /data/logs/cron.log"]
+    #
+    # The env dump: cron hands its jobs a bare environment, so the secrets
+    # compose read from .env (RESTIC_*, AWS_*) would never reach nightly.sh.
+    # They are written once at container start to a file only `tm` can read,
+    # and nightly.sh sources it. The file lives under /data so it never lands
+    # in an image layer; it is rewritten on every recreate, so a rotated .env
+    # value takes effect at the next deploy.
+    # `export -p`, not `env`: it emits shell-quoted lines, so a password with
+    # a space survives the round trip into nightly.sh's `.`.
+    command: ["sh", "-c",
+              "umask 077 && { export -p | grep -E '^export (RESTIC_|AWS_)' || true; } > /data/.cron-env && chown tm:tm /data/.cron-env && cron -L 2 && exec tail -F /data/logs/cron.log"]
     restart: unless-stopped
 
   # The customer-facing app (doc/APP.md). Same image, same /data — it reads the
@@ -80,7 +97,14 @@ services:
     extends: tm
     command: ["python", "app.py", "--port", "8000"]
     ports:
-      - "${TM_APP_PORT:-8000}:8000"
+      # Loopback by default, and that default is load-bearing: Docker writes
+      # its own iptables rules AHEAD of any host firewall, so a bare
+      # "8000:8000" is the whole internet, whatever ufw says. The app's spec
+      # forbids it facing the internet directly (APP.md 9) — TLS terminates in
+      # the edge service, which reaches the app over the compose network and
+      # needs no host port at all. Set TM_APP_BIND=0.0.0.0 only on a machine
+      # where exposing plain HTTP is the deliberate point.
+      - "${TM_APP_BIND:-127.0.0.1}:${TM_APP_PORT:-8000}:8000"
     # APP.md 9: app down = forms fail visibly, while picks, grading and report
     # generation carry on inside the cycle. So: restart hard, and let /healthz
     # be what says whether it came back.
