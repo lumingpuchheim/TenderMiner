@@ -13,7 +13,12 @@ name: tendermining
 services:
   tm:
     build: .
-    image: tendermining:latest
+    # On the laptop this is `latest` and `docker compose build` fills it. On the
+    # server every deploy is an immutable git-SHA tag and TM_TAG selects which
+    # one runs — that indirection is the whole rollback mechanism
+    # (doc/OPERATIONS.md 2, docker/deploy.sh). Never retag an existing tag: the
+    # artifact that served yesterday has to still exist, unchanged, to go back to.
+    image: tendermining:${TM_TAG:-latest}
     init: true                       # so Ctrl-C reaches python, not PID 1
     environment:
       # Which day the container thinks it is; the download window and the

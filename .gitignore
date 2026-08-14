@@ -10,6 +10,11 @@ site/gewerke/
 site/sitemap.xml
 *.zip
 
+# The server's environment file — holds the Resend key and the restic password
+# (.env.example is the committed template, doc/OPERATIONS.md 4 step 4). Compose
+# picks .env up automatically, which is exactly why it must never be committable.
+.env
+
 # Python
 __pycache__/
 *.pyc

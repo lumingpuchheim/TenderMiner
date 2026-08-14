@@ -9,6 +9,11 @@ data/
 models/
 catboost_info/
 
+# Secrets. Compose passes the server's .env in as environment at RUN time; a
+# copy baked into a layer would ship the Resend key to anyone who can pull or
+# untar the image, and would survive every later rotation of that key.
+.env
+
 # History and tooling
 .git/
 .gitignore

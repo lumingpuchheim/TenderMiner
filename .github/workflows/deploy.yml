@@ -1,0 +1,88 @@
+# Push to master -> the server builds, proves and switches. doc/OPERATIONS.md 2.
+#
+# This workflow is deliberately thin: it opens one SSH connection and lets the
+# server do the work. The image is NOT built here and pushed to a registry —
+# building on the machine that runs it needs no registry, no registry
+# credentials, and no ~1 GB transfer per deploy, and the dependency layer is
+# already cached there, so a code-only change rebuilds in seconds.
+#
+# The key this uses can run three commands and nothing else; the boundary is the
+# forced command in the server's authorized_keys (docker/deploy-ssh.sh).
+#
+# Secrets to set at Settings -> Secrets and variables -> Actions:
+#   DEPLOY_SSH_KEY      private half of the CI-only keypair (no passphrase)
+#   DEPLOY_HOST         the VPS address
+#   DEPLOY_USER         the deploy account, e.g. debian
+#   DEPLOY_KNOWN_HOSTS  output of: ssh-keyscan -t ed25519 <host>
+#
+# Host and user are secrets rather than plain values only because this
+# repository is public and there is no reason to publish the address.
+
+name: deploy
+
+on:
+  push:
+    branches: [master]
+  # So a rollback, or a redeploy after fixing something on the server, does not
+  # need an empty commit. Run it from the Actions tab.
+  workflow_dispatch:
+    inputs:
+      command:
+        description: 'deploy | rollback | status'
+        default: deploy
+        required: true
+
+# One deploy at a time, and never cancel one halfway: a cancelled run can leave
+# the switch half-done, which is the one state the rollback path does not model.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30          # a cold build is minutes; 30 means "wedged"
+    steps:
+      # A repository whose bootstrap has not run yet has no secrets, and a red
+      # deploy on every push to a not-yet-hosted project is noise that trains
+      # people to ignore red. Green-skip until docker/bootstrap.sh has been run.
+      - name: Check the deploy is configured
+        id: cfg
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          if [ -n "$HOST" ]; then
+            echo "configured=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "DEPLOY_* secrets are not set — no server is wired up yet."
+            echo "Run docker/bootstrap.sh against the server to create them."
+          fi
+
+      - name: Install the deploy key
+        if: steps.cfg.outputs.configured == 'yes'
+        env:
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # Pinned host key, not StrictHostKeyChecking=no: without it the first
+          # connection trusts whatever answers, which is the whole attack.
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Run the deploy on the server
+        if: steps.cfg.outputs.configured == 'yes'
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+          COMMAND: ${{ inputs.command || 'deploy' }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes \
+              "$USER@$HOST" "$COMMAND"
+
+      # The step above exits non-zero when the gate refuses the new image
+      # (OPERATIONS.md 2 step 3), which turns this run red while the old
+      # container keeps serving. A red deploy is an incident report, not an
+      # outage — the message from deploy.sh is in the log above.

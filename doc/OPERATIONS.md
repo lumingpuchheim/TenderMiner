@@ -84,7 +84,10 @@ image, the previous image stays on disk, and traffic switches only after
 the new build has proven itself. Rolling back is switching the pointer
 back.**
 
-Concretely, on this machine (a deploy script to write, ~40 lines):
+Concretely, on this machine (**built 2026-08-14**: [`docker/deploy.sh`](../docker/deploy.sh),
+driven on push by [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)
+through the forced-command key of [`docker/deploy-ssh.sh`](../docker/deploy-ssh.sh);
+a new server is wired up once by [`docker/bootstrap.sh`](../docker/bootstrap.sh)):
 
 1. **Build under a unique tag.** `docker build -t murara/app:<git-sha>`.
    A build failure changes nothing: the running container is untouched —
@@ -226,11 +229,16 @@ drills and the deploy gate — not to nines.
 
 ## 7. Order of work
 
-1. The `/healthz` 503 rule (small; testable on the laptop by aging the
-   checkpoint file; both the pinger and the deploy gate depend on it).
-2. The deploy script of §2 — tagged build, health-gated switch,
-   `rollback` — testable end-to-end in Docker on the laptop, including a
-   deliberately broken image that must fail to switch.
+1. ~~The `/healthz` 503 rule~~ **DONE 2026-08-14** (app.py; red on stale
+   cycle, low disk, or an unreadable state directory — unknown reads as red).
+2. ~~The deploy script of §2~~ **DONE 2026-08-14**, plus what §4 steps 1–2
+   assumed would stay manual: `docker/bootstrap.sh` wires a fresh server into
+   the push-to-deploy loop in one run, and re-running it is the key-rotation
+   procedure. One nuance vs. the spec above: the gate does not require a green
+   `/healthz` (a stale cycle would then block deploying the fix for the stale
+   cycle, and a first deploy could never switch) — it requires the part the
+   image is responsible for: the app answers and can read `/data`. Staleness
+   stays the pinger's question.
 3. The nightly export + restic line in `docker/crontab`, against a real
    bucket; then the weekly `restic check`.
 4. The pinger, once there is a public endpoint to ping.
