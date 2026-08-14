@@ -19,6 +19,10 @@
 #     then shredded locally; nothing of it remains on this machine)
 #   * the first deploy live, proven by the same health gate every later push
 #     will pass through, and the scheduler running on the same image
+#   * the archive seeding itself, detached: two years of DEU construction
+#     from TED's monthly packages (TM_BACKFILL_FROM overrides the 2024-08
+#     start), then one offline cycle building store, embeddings and the
+#     first champion — watch it with: tail -f <state>/logs/backfill.log
 #
 # Idempotent: re-running is safe and is also the key-rotation procedure — each
 # run mints a fresh deploy key, replaces the authorized_keys line and updates
@@ -149,6 +153,25 @@ TAG="$(ssh "$TARGET" "cat $STATE/deploy/current")"
 say "starting the scheduler on the proven image ($TAG)"
 ssh "$TARGET" "cd $DIR && TM_TAG=$TAG docker compose --profile scheduler up -d --no-build scheduler"
 
+# ------------------------------------------- 5. seed the archive, detached
+
+# A fresh server owns its own data (operator decision 2026-08-14: nothing is
+# copied from a laptop): two years of the production scope from TED's monthly
+# packages, then one offline cycle to build the store, embeddings and first
+# champion from it. Hours of work — the embedding dominates — so it runs
+# detached on the server under the same heavy-job lock as the Monday cycle,
+# and this script does not wait for it. Progress: tail the log below.
+#
+# Measured 2026-08-14 on a 4-vCore OVH VPS: the download half is ~12 min for
+# 25 months (114,570 notices, 1.78M scanned). bulk.py checkpoints per month
+# and skips complete ones, so a bootstrap re-run does not re-transfer.
+BACKFILL_FROM="${TM_BACKFILL_FROM:-20240801}"
+say "seeding the archive from $BACKFILL_FROM (detached; this is hours of work)"
+ssh "$TARGET" "mkdir -p $STATE/logs && cd $DIR && TM_TAG=$TAG nohup docker compose run --rm -T tm \
+  sh -c 'python bulk.py --from $BACKFILL_FROM --to \$(date +%Y%m%d) --country DEU --cpv 45 \
+      && python loop.py run --last 7d --skip-download' \
+  > $STATE/logs/backfill.log 2>&1 & echo '  backfill pid on server:' \$!"
+
 say "done. From here on, push to master = deploy."
 cat <<SUMMARY
 
@@ -158,7 +181,8 @@ cat <<SUMMARY
     * the provider's daily backup checkbox (doc/OPERATIONS.md 3, layer 1)
     * DNS + TM_DOMAIN, the day the domain decision lands
 
+  Backfill: ssh $TARGET "tail -f $STATE/logs/backfill.log"
   Health:   ssh $TARGET "curl -s localhost:8000/healthz"
-            (red until the first cycle has run — OPERATIONS.md 4 step 5)
+            (red until the backfill's cycle finishes — OPERATIONS.md 4 step 5)
   Status:   gh workflow run deploy -f command=status   (or push to master)
 SUMMARY
