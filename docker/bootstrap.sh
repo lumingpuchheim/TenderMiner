@@ -53,6 +53,13 @@ DIR="$(basename "$REPO_URL" .git)"
 STATE="/home/$DUSER/tm-state"        # no sudo needed, outside the checkout
                                      # a deploy hard-resets
 
+# The domains are part of the deployment, not of a machine (operator decision
+# 2026-08-15: the domain is settled, servers come and go). A fresh server gets
+# them in .env and starts the edge; the one thing that stays manual is
+# pointing the DNS records at the new IP — printed at the end.
+APP_DOMAIN="${TM_APP_DOMAIN:-app.murara.eu}"
+WWW_DOMAIN="${TM_WWW_DOMAIN:-www.murara.eu}"
+
 command -v gh >/dev/null || die "gh (GitHub CLI) is not installed — it is what \
 sets the Action's secrets. https://cli.github.com"
 gh auth status >/dev/null 2>&1 || die "gh is not logged in: run  gh auth login"
@@ -60,7 +67,7 @@ gh auth status >/dev/null 2>&1 || die "gh is not logged in: run  gh auth login"
 # ------------------------------------------------- 1. the server, prepared
 
 say "checking the server ($TARGET) and preparing the checkout"
-ssh "$TARGET" "REPO_URL='$REPO_URL' DIR='$DIR' STATE='$STATE' bash -s" <<'REMOTE'
+ssh "$TARGET" "REPO_URL='$REPO_URL' DIR='$DIR' STATE='$STATE' APP_DOMAIN='$APP_DOMAIN' WWW_DOMAIN='$WWW_DOMAIN' bash -s" <<'REMOTE'
 set -eu
 command -v git >/dev/null 2>&1 \
     || { echo "git is missing. Run on the server:  sudo apt install -y git"; exit 1; }
@@ -78,17 +85,32 @@ else
     echo "checkout created: $DIR at $(git -C "$DIR" rev-parse --short HEAD)"
 fi
 
-mkdir -p "$STATE"
+# /public before any container starts: the edge bind-mounts it, and a mount
+# whose directory Docker has to invent arrives owned by root — after which
+# the cycle (uid 1000) cannot write a single trade page into it.
+mkdir -p "$STATE" "$STATE/public" "$STATE/logs"
 cd "$DIR"
 # Started, never overwritten: a re-run must not wipe the Resend key an
 # operator already typed in.
 [ -f .env ] || cp .env.example .env
-if grep -q '^TM_STATE=' .env; then
-    sed -i "s|^TM_STATE=.*|TM_STATE=$STATE|" .env
-else
-    printf 'TM_STATE=%s\n' "$STATE" >> .env
-fi
-echo "state directory: $STATE (written into .env)"
+set_env() {
+    # Fill a key only when absent or empty — an operator's explicit value
+    # survives every re-run. (A deliberately empty value does NOT survive;
+    # to run without a domain, export TM_APP_DOMAIN/TM_WWW_DOMAIN when
+    # invoking bootstrap instead of blanking the line afterwards.)
+    if grep -q "^$1=..*" .env; then
+        return
+    elif grep -q "^$1=" .env; then
+        sed -i "s|^$1=.*|$1=$2|" .env
+    else
+        printf '%s=%s\n' "$1" "$2" >> .env
+    fi
+}
+sed -i "s|^TM_STATE=.*|TM_STATE=$STATE|" .env
+grep -q '^TM_STATE=' .env || printf 'TM_STATE=%s\n' "$STATE" >> .env
+set_env TM_DOMAIN "$APP_DOMAIN"
+set_env TM_WWW_DOMAIN "$WWW_DOMAIN"
+echo "state directory: $STATE; domains: $(grep -E '^TM_(WWW_)?DOMAIN=' .env | tr '\n' ' ')"
 REMOTE
 
 # ------------------------------------- 2. the CI key, minted and locked down
@@ -150,8 +172,11 @@ ssh "$TARGET" "cd $DIR && bash docker/deploy.sh" \
     || die "first deploy failed — the message above is deploy.sh's"
 
 TAG="$(ssh "$TARGET" "cat $STATE/deploy/current")"
-say "starting the scheduler on the proven image ($TAG)"
-ssh "$TARGET" "cd $DIR && TM_TAG=$TAG docker compose --profile scheduler up -d --no-build scheduler"
+say "starting the scheduler and the edge on the proven image ($TAG)"
+ssh "$TARGET" "cd $DIR && TM_TAG=$TAG docker compose --profile scheduler --profile edge up -d --no-build scheduler edge"
+# The edge comes up before DNS points here — deliberately. Caddy retries
+# certificate issuance with backoff until the operator flips the records to
+# this IP (TTL 300, OPERATIONS.md 4 step 3), then heals itself unattended.
 
 # ------------------------------------------- 5. seed the archive, detached
 
@@ -200,7 +225,10 @@ cat <<SUMMARY
     * an uptime pinger on /healthz (doc/OPERATIONS.md 1)
     * customers: subscriptions are data, not code — enter them through
       subscriptions.py or no report has an audience
-    * DNS + TM_DOMAIN, the day the domain decision lands
+    * DNS: point these records at THIS server in the Infomaniak console —
+        A/AAAA  app  -> $HOST        A/AAAA  www  -> $HOST
+      (TTL 300; on a server move this flip is the whole cutover, and the
+      edge heals its certificates by itself once the records arrive)
     * host care, once, as root: unattended-upgrades (a container does not
       patch its host)
 
