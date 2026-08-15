@@ -140,9 +140,13 @@ services:
       - "443:443"
     environment:
       TM_DOMAIN: ${TM_DOMAIN:-}
+      TM_WWW_DOMAIN: ${TM_WWW_DOMAIN:-}
     volumes:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data          # certificates survive the container
+      # The public site, written by the weekly cycle (render step), served
+      # here as plain files. Read-only: Caddy is a waiter, never a writer.
+      - ${TM_STATE:-./data}/public:/srv/public:ro
     restart: always
 
 volumes:

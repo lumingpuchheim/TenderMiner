@@ -162,6 +162,15 @@ switch_to() {
         services+=(scheduler)
         say "scheduler is running; it will be recreated on $tag too"
     fi
+    # The edge rides deploys the same way: its image is caddy:2, not ours, but
+    # its CONFIG (docker/Caddyfile, mounts) arrives through git — recreating it
+    # here is what makes a Caddyfile change deploy itself instead of waiting
+    # for a hand-restart nobody remembers.
+    if [ -n "$(docker compose --profile edge ps -q edge 2>/dev/null)" ]; then
+        profiles+=(--profile edge)
+        services+=(edge)
+        say "edge is running; it will be recreated for the new config too"
+    fi
     TM_TAG="$tag" docker compose "${profiles[@]}" up -d --no-build "${services[@]}" \
         || die "compose refused to start $tag — the old containers may be down; \
 run 'bash docker/deploy.sh rollback'"

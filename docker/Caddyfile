@@ -19,3 +19,20 @@
 	# where those decisions live: app.py.
 	reverse_proxy app:8000
 }
+
+# The public site (operator decision 2026-08-15: served from this box rather
+# than a separate static host — the weekly cycle writes /data/public and Caddy
+# serves it, so the trade pages are live the moment they regenerate, no
+# publish step). LAUNCH.md §4.1's properties are kept: static files, zero
+# forms, zero backend — the app container is not involved, and unlike the app
+# block above this one is public-by-design: indexable, no tokens anywhere.
+#
+# Guarded like the app block: unset TM_WWW_DOMAIN (the laptop; a bare-IP
+# test server) collapses this to a loopback-only plain-HTTP site, so Caddy is
+# never left retrying certificates for a name whose DNS points elsewhere.
+{$TM_WWW_DOMAIN:http://localhost:8099} {
+	encode gzip
+	header Strict-Transport-Security "max-age=2592000"
+	root * /srv/public
+	file_server
+}
