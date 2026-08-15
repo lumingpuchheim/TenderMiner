@@ -11,6 +11,8 @@
 #
 # What it leaves behind:
 #   * the repository cloned on the server (or fast-forwarded, if re-run)
+#   * the host hardened (docker/harden.sh): SSH keys only, password locked,
+#     fail2ban, ufw with 22/80/443 open, unattended-upgrades
 #   * the state directory, and a .env started from .env.example pointing at it
 #   * a CI-only SSH keypair whose public half is locked to deploy-ssh.sh by a
 #     forced command — the key can deploy, roll back and report status, and
@@ -112,6 +114,23 @@ set_env TM_DOMAIN "$APP_DOMAIN"
 set_env TM_WWW_DOMAIN "$WWW_DOMAIN"
 echo "state directory: $STATE; domains: $(grep -E '^TM_(WWW_)?DOMAIN=' .env | tr '\n' ' ')"
 REMOTE
+
+# ------------------------------------------------ 1b. the host, hardened
+
+# docker/harden.sh: keys-only SSH, locked password, fail2ban, ufw (22/80/443),
+# unattended-upgrades. Idempotent, needs root. Found necessary 2026-08-15: the
+# provider image ships with password login effectively on and no firewall, and
+# the deploy user is root-equivalent (docker group + NOPASSWD sudo), so a
+# guessed password would have been the whole machine. Where sudo wants a
+# password (not the OVH image), it says so and the operator runs it by hand.
+say "hardening the host (sshd, fail2ban, ufw, unattended-upgrades)"
+if ssh "$TARGET" "sudo -n true" 2>/dev/null; then
+    ssh "$TARGET" "cd $DIR && sudo -n bash docker/harden.sh $DUSER" \
+        || die "harden.sh failed — the message above is its own"
+else
+    say "sudo needs a password on $TARGET; run once, as root:"
+    say "    ssh $TARGET   then   sudo bash $DIR/docker/harden.sh $DUSER"
+fi
 
 # ------------------------------------- 2. the CI key, minted and locked down
 
@@ -229,8 +248,9 @@ cat <<SUMMARY
         A/AAAA  app  -> $HOST        A/AAAA  www  -> $HOST
       (TTL 300; on a server move this flip is the whole cutover, and the
       edge heals its certificates by itself once the records arrive)
-    * host care, once, as root: unattended-upgrades (a container does not
-      patch its host)
+    * a reboot when harden.sh reported one pending (containers restart by
+      themselves); and the OVH network firewall in the panel if you want a
+      second layer in front of ufw
 
   Backfill: ssh $TARGET "tail -f $STATE/logs/backfill.log"
   Health:   ssh $TARGET "curl -s localhost:8000/healthz"

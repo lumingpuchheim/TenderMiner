@@ -208,6 +208,17 @@ is for the worse case.
 Tokens in printed letters survive all of this: they live in the database,
 not on the machine.
 
+**The host itself** (added 2026-08-15, after an audit of the first server
+found SSH password login effectively on — cloud-init's drop-in outranked
+the `no` in `sshd_config` — the deploy user with a password, no firewall,
+no fail2ban, and ~5,000 guessing attempts a day): `bootstrap.sh` now runs
+[`docker/harden.sh`](../docker/harden.sh) as its step 1b. Keys-only SSH,
+root login off, the deploy user's password locked, fail2ban on the sshd
+jail, ufw with only 22/80/443 open, unattended-upgrades. Idempotent, so it
+is also the "did the box drift?" check: `sudo bash docker/harden.sh`. The
+deploy user stays root-equivalent (docker group + passwordless sudo) by
+design — the point is that only a key reaches it.
+
 ## 5. What is deliberately not built
 
 No second server, no load balancer, no automatic failover, no Postgres
