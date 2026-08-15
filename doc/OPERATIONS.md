@@ -198,10 +198,12 @@ is for the worse case.
 3. Point DNS at the new IP. **Prerequisite, one setting, do it now:**
    `app.murara.eu` TTL at 300 s — a 24 h TTL discovered on the day of the
    fire adds a day to the half-day.
-4. Re-enter the secrets from the operator's password manager (`TM_*`,
-   Resend key, restic password). They live in the environment, never in
-   git — the full list belongs in a committed `.env.example` (to write,
-   §6).
+4. Re-arm the secrets from the operator's password manager: the spec is
+   [`SECRETS.md`](SECRETS.md) — `bash docker/secrets.sh sync` (to build)
+   pulls each key from the manager and writes it into the server's `.env`
+   over SSH; until then, `ssh` in and edit `.env` by hand. They live in
+   the environment, never in git; the full list is
+   [`.env.example`](../.env.example).
 5. Run the cycle once by hand; `/healthz` goes green; the pinger confirms
    from outside.
 
