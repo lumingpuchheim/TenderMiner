@@ -178,7 +178,8 @@ cycle recomputes all of them from `raw` + the database
 any machine, `db.py --migrate`, run one cycle against it in Docker. This
 is what the [`HOSTING.md`](HOSTING.md) §0a measurement already did once
 from a local copy; the drill repeats it from the bucket on purpose and
-notes the date in [`RUNBOOK.md`](RUNBOOK.md).
+notes the date in [`RUNBOOK.md`](RUNBOOK.md). Specified step by step,
+with preconditions and what gets written down, in [`DRILL.md`](DRILL.md).
 
 ## 4. The dead-machine runbook — RTO half a working day
 
