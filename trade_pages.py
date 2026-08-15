@@ -113,8 +113,10 @@ def figures(lots, sel, covered, mature):
     med = float(aw.median()) if len(aw) else None
     zero = int((mat.n_tenders == 0).sum())
     one = int((mat.n_tenders == 1).sum())
-    closed = float((mat.result_code == 'selec-n').mean()) \
-        if 'result_code' in mat.columns else None
+    # "Closed without award" (`clos-nw`) is deliberately not on the page: to
+    # a reader it means the same as "kein Angebot", and the difference (bids
+    # came in, buyer still awarded nobody) needs a paragraph to explain and
+    # is a handful of lots. It stays in `market.py trade` for the operator.
     # How competition is spread, in buckets a contractor thinks in. This is
     # the page's real content: "9 % have at most one bidder" is a headline,
     # but the shape underneath is what tells him whether his market is a
@@ -134,7 +136,6 @@ def figures(lots, sel, covered, mature):
         'low_bid': (zero + one) / len(mat),
         'zero': zero, 'one': one,
         'median_bidders': float(mat.n_tenders.median()),
-        'closed': closed,
         'months': n_months,
         'dist': dist,
     }
@@ -300,10 +301,6 @@ def page(name, slug, f, fc=None):
         fig(f'{100 * f["low_bid"]:.0f} %', 'höchstens ein Angebot'),
         fig(f'{money_de(f["year_scope"])} €', 'Volumen pro Jahr, überschlägig'),
     ])
-    closed = ''
-    if f['closed'] is not None:
-        closed = (f'<p>Ohne Zuschlag beendet: '
-                  f'{100 * f["closed"]:.0f} % der ausgewerteten Lose.</p>')
     return (
         f'<!doctype html>\n<html lang="de">\n<head>\n'
         f'<meta charset="utf-8">\n'
@@ -331,11 +328,7 @@ def page(name, slug, f, fc=None):
         f'<h2>Wie viele bieten mit?</h2>\n'
         f'<p>Im Mittel bewerben sich {f["median_bidders"]:.0f} Bieter auf ein '
         f'Los dieses Gewerks. So verteilt sich das:</p>\n'
-        f'{dist_table(f["dist"], f["n_awarded"])}\n'
-        f'<p>Auf {f["zero"]} der {f["n_awarded"]} ausgewerteten Lose ging gar '
-        f'kein Angebot ein, auf {f["one"]} genau eines — zusammen '
-        f'{100 * f["low_bid"]:.0f} %.</p>\n'
-        f'{closed}\n\n'
+        f'{dist_table(f["dist"], f["n_awarded"])}\n\n'
         f'{forecast_section(fc)}\n\n'
         f'<h2>Woher die Zahlen kommen</h2>\n'
         f'<p>Quelle ist <em>Tenders Electronic Daily</em> (TED), das '

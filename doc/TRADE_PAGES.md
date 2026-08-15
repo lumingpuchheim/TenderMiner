@@ -36,7 +36,7 @@ safely, a padded one does not (§5).
 | --- | --- | --- |
 | headline | „Öffentliche Ausschreibungen für **<Gewerk>**" | — |
 | lede | one sentence: what this page is (market figures for this trade, from the official EU procurement record) | — |
-| figures | lots per month · median award · rough €/year in scope · 0/1-bid share **with its denominator** · share closed without any award | `market.py trade` |
+| figures | lots per month · median award · rough €/year in scope · 0/1-bid share **with its denominator** · bidder distribution. Not the "closed without award" share: to a reader it means the same as "kein Angebot", and the difference is too small and too subtle to explain on the page (operator decision 2026-08-15) | `market.py trade` |
 | method | 3–4 sentences: source is TED, a trade is matched on the lot title by a maintained word list, only lots with a published award count toward the bid share, results appear ~90 days after the deadline so recent months are excluded | — |
 | freshness | „Stand: <Monat> <Jahr>, berechnet über <n> vollständig erfasste Monate" | `market.coverage` |
 | CTA | the same offer as the main page: send your firm name, we look up what you won and what matched this week | `site/index.html` |

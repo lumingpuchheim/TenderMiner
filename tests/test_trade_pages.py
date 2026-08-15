@@ -158,9 +158,9 @@ class GeneratedOutput(unittest.TestCase):
         figure — and a market page with no date silently ages into a lie."""
         for p in self.pages:
             html = p.read_text(encoding='utf-8')
+            # the table caption is the one place the denominator lives now;
+            # the prose sentences that repeated it were dropped 2026-08-15
             self.assertRegex(html, r'über \d+ ausgewertete Lose',
-                             p.parent.name)
-            self.assertRegex(html, r'der \d+ ausgewerteten Lose',
                              p.parent.name)
             self.assertIn('Stand:', html)
             self.assertIn('vollständig erfasste Monate', html)
