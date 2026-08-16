@@ -381,5 +381,18 @@ class HiddenPage(Home):
             os.environ.pop('TM_MODELS_DIR', None)
 
 
+class ComposeForwardsTheKey(unittest.TestCase):
+    """A .env line reaches the app container only through docker-compose.yml's
+    environment block. Found 2026-08-16: the key was in .env.example and the
+    route in app.py, and the server still had no page."""
+
+    def test_docker_compose_forwards_tm_experiments_key(self):
+        root = Path(__file__).resolve().parent.parent
+        compose = (root / 'docker-compose.yml').read_text(encoding='utf-8')
+        self.assertIn('TM_EXPERIMENTS_KEY: ${TM_EXPERIMENTS_KEY:-}', compose)
+        example = (root / '.env.example').read_text(encoding='utf-8')
+        self.assertIn('TM_EXPERIMENTS_KEY=', example)
+
+
 if __name__ == '__main__':
     unittest.main()

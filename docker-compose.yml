@@ -35,6 +35,11 @@ services:
       RESTIC_PASSWORD: ${RESTIC_PASSWORD:-}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      # The operator's A/B overview page (doc/EXPERIMENTS.md §9). A .env line
+      # reaches the container ONLY through this block — without it the app
+      # has no key and /experiments/<key> does not exist (found 2026-08-16).
+      # Empty stays empty: the route is then absent, by design.
+      TM_EXPERIMENTS_KEY: ${TM_EXPERIMENTS_KEY:-}
     volumes:
       # THE state directory. Defaults to ./data — today's behaviour, so a
       # container started in the checkout finds exactly what the laptop
