@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import download
 import loop
+import util
 
 
 class ScratchWorldSweep(unittest.TestCase):
@@ -32,7 +33,7 @@ class ScratchWorldSweep(unittest.TestCase):
         self.world = self.root / 'asof' / 'all' / 'store'
         self.world.mkdir(parents=True)
         (self.world / 'tenders.parquet').write_bytes(b'x' * 1024)
-        self.paths = loop.Paths(self.root, self.root / 'models')
+        self.paths = util.Paths(self.root, self.root / 'models')
 
     def _age(self, days, world='asof'):
         when = time.time() - days * 86400

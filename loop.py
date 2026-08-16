@@ -20,8 +20,6 @@ write a markdown report.
 from __future__ import annotations
 
 import argparse
-import json
-import re
 import shutil
 import subprocess
 import time
@@ -41,91 +39,12 @@ import render
 import selection
 import single_bidder as sb
 import subscriptions
+import util
 
 REPO = Path(__file__).resolve().parent
 
 SECTOR = {'450': 'general construction', '451': 'site preparation', '452': 'civil engineering',
           '453': 'building installation', '454': 'finishing trades'}
-
-
-# ------------------------------------------------------------------ small utils
-
-def parse_window(spec):
-    """'7d' / '2w' / '3m' -> timedelta (months approximated as 30 days)."""
-    m = re.fullmatch(r'(\d+)([dwm])', spec.strip().lower())
-    if not m:
-        raise SystemExit(f"--last '{spec}' is not of the form 7d / 2w / 3m")
-    n, unit = int(m.group(1)), m.group(2)
-    return timedelta(days=n * {'d': 1, 'w': 7, 'm': 30}[unit])
-
-
-def now_utc():
-    return datetime.now(timezone.utc)
-
-
-def read_json(path, default):
-    p = Path(path)
-    if not p.exists():
-        return default
-    return json.loads(p.read_text(encoding='utf-8'))
-
-
-def write_json(path, obj):
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(obj, indent=2, default=str), encoding='utf-8')
-
-
-def read_jsonl(path):
-    p = Path(path)
-    if not p.exists():
-        return []
-    return [json.loads(line) for line in p.read_text(encoding='utf-8').splitlines() if line.strip()]
-
-
-def stamp(v):
-    """NaN/NaT -> None so ledger rows carry JSON null, never 'nan' strings."""
-    try:
-        return None if pd.isna(v) else v
-    except (TypeError, ValueError):
-        return v
-
-
-def append_jsonl(path, rows):
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    with p.open('a', encoding='utf-8') as f:
-        for r in rows:
-            f.write(json.dumps(r, default=str) + '\n')
-
-
-class Paths:
-    """All on-disk locations, rooted at --data-dir / --models-dir (parameters,
-    like every window in this program)."""
-
-    def __init__(self, data_dir, models_dir):
-        self.data = Path(data_dir)
-        self.xml = self.data / 'raw' / 'xml'
-        self.store_tenders = self.data / 'store' / 'tenders.parquet'
-        self.store_awards = self.data / 'store' / 'awards.parquet'
-        # the HOME whose storage holds the cycle's own record — predictions
-        # and grades. A directory, not two files (ledger.py owns the format);
-        # rewind_report.py points it at its as-of sandbox.
-        self.ledger_home = self.data
-        # the HOME whose storage holds the delivery record and the gate-config
-        # registry — a directory, not a file (ledger.py owns the format).
-        # tryout/replay point this at a sandbox.
-        self.deliveries_home = self.data
-        # the DIRECTORY subscriptions live in, not the file: the storage
-        # format belongs to subscriptions.py (tryout/replay point this at a
-        # sandbox dir instead)
-        self.subs_home = self.data
-        self.checkpoint = self.data / 'logs' / 'loop_checkpoint.json'
-        self.drift = self.data / 'logs' / 'drift_latest.json'
-        self.reports = self.data / 'reports'
-        self.models = Path(models_dir)
-        self.registry = self.models / 'registry.jsonl'
-        self.current = self.models / 'CURRENT'
 
 
 # ------------------------------------------------------------- step 1: download
@@ -134,8 +53,8 @@ def download(paths, args, checkpoint):
     """bulk.py fetches the window's packages; features.py rebuilds the store
     parquets from the ENTIRE raw archive (full rebuild == growing store, since
     the archive only grows; bulk.py skips already-processed packages itself)."""
-    today = now_utc().date()
-    requested_from = today - parse_window(args.last)
+    today = util.now_utc().date()
+    requested_from = today - util.parse_window(args.last)
     last_to = checkpoint.get('last_success_to')
     effective_from = requested_from
     if last_to:
@@ -181,12 +100,12 @@ def grade(paths, tenders, aw, args, plan=None):
     for r in tenders[sb.KEY + ['cpv_main', 'place_nuts3']].itertuples():
         lot_meta[(r.procedure_id, r.lot_id)] = {
             'cpv3': str(r.cpv_main)[:3] if pd.notna(r.cpv_main) else None,
-            'place_nuts3': stamp(r.place_nuts3),
+            'place_nuts3': util.stamp(r.place_nuts3),
         }
 
     labeled = {(r.procedure_id, r.lot_id):
                (int(r.label), str(r.publication_date),
-                stamp(getattr(r, 'publication_number', None)),
+                util.stamp(getattr(r, 'publication_number', None)),
                 int(r.n_tenders))
                for r in aw.itertuples()}
     # only lots whose award has published can be graded, so only their
@@ -202,7 +121,7 @@ def grade(paths, tenders, aw, args, plan=None):
             exp, labeled, lot_meta,
             {lot: rows for lot, rows in by_lot.items()
              if any(lot not in arm_already.get(a.id, set()) for a in exp.arms)},
-            args.threshold, now_utc().isoformat(timespec='seconds'))
+            args.threshold, util.now_utc().isoformat(timespec='seconds'))
         arm_rows = [r for r in arm_rows
                     if (r['procedure_id'], r['lot_id']) not in arm_already.get(r['arm'], set())]
         n_arm = ledger.append(paths.ledger_home, 'arm_grades', arm_rows)
@@ -233,7 +152,7 @@ def grade(paths, tenders, aw, args, plan=None):
         last = (before or rows)[-1]
         flag = bool(last['score'] >= last.get('threshold', args.threshold))
         new_grades.append({
-            'graded_at': now_utc().isoformat(timespec='seconds'),
+            'graded_at': util.now_utc().isoformat(timespec='seconds'),
             'procedure_id': lot[0], 'lot_id': lot[1],
             'label': label, 'n_tenders': n_tenders, 'award_pub': award_pub,
             'award_publication_number': award_pub_nr,
@@ -333,7 +252,7 @@ def track_record(paths, args):
     grades = ledger.read(paths.ledger_home, 'grades')
     if not grades:
         return None
-    cutoff = (now_utc() - parse_window(args.track_window)).date().isoformat()
+    cutoff = (util.now_utc() - util.parse_window(args.track_window)).date().isoformat()
     recent = [g for g in grades if str(g['award_pub'])[:10] >= cutoff]
     if not recent:
         return None
@@ -384,7 +303,7 @@ def current_champion(paths, arm=None):
     if not pointer.exists():
         return None
     model_id = pointer.read_text(encoding='utf-8').strip()
-    meta = read_json(paths.models / model_id / 'meta.json', None)
+    meta = util.read_json(paths.models / model_id / 'meta.json', None)
     return {'model_id': model_id, 'meta': meta}
 
 
@@ -430,7 +349,7 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint, arm=None, plan=None
         return None, gate
 
     pub = pd.to_datetime(data['publication_date'])
-    val_threshold = pub.max() - parse_window(args.val_window)
+    val_threshold = pub.max() - util.parse_window(args.val_window)
     split = sb.temporal_split(data, X, threshold=val_threshold)
     gate['val_threshold'] = str(val_threshold.date())
     gate['n_val_lots'] = split.n_test_lots
@@ -473,7 +392,7 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint, arm=None, plan=None
             gate['checks']['shuffled_label'] = (
                 f'skipped ({n_pos_val} positive val lots < {args.min_shuffle_positives} — '
                 'too few for a reliable null)')
-        elif not last_shuffled or (now_utc().date() - datetime.strptime(last_shuffled, '%Y-%m-%d').date()).days >= 30:
+        elif not last_shuffled or (util.now_utc().date() - datetime.strptime(last_shuffled, '%Y-%m-%d').date()).days >= 30:
             prs = []
             for seed in (42, 43, 44):
                 mapping = sb.permuted_lot_labels(data, mask=split.is_train, seed=seed)
@@ -491,7 +410,7 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint, arm=None, plan=None
             else:
                 gate['checks']['shuffled_label'] = (
                     f'passed (median PR-AUC {pr_shuf:.3f} < bound {bound:.3f}, base {base:.3f})')
-                checkpoint['last_shuffled_check'] = now_utc().date().isoformat()
+                checkpoint['last_shuffled_check'] = util.now_utc().date().isoformat()
         else:
             gate['checks']['shuffled_label'] = f'skipped (last run {last_shuffled})'
 
@@ -553,13 +472,13 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint, arm=None, plan=None
             gate['warnings'].append(
                 f"candidate val PR-AUC {val_metrics['pr_auc']:.4f} < champion {champ_pr:.4f} — champion kept")
 
-    model_id = 'm' + now_utc().strftime('%Y-%m-%d-%H%M%S') + (arm.suffix if arm else '')
+    model_id = 'm' + util.now_utc().strftime('%Y-%m-%d-%H%M%S') + (arm.suffix if arm else '')
     mdir = paths.models / model_id
     mdir.mkdir(parents=True, exist_ok=True)
     deploy.save_model(str(mdir / 'model.cbm'))
     meta = {
         'model_id': model_id,
-        'trained_at': now_utc().isoformat(timespec='seconds'),
+        'trained_at': util.now_utc().isoformat(timespec='seconds'),
         'n_train_rows': len(data),
         'n_train_lots': int(data.groupby(sb.KEY).ngroups),
         'features': features, 'n_features': len(features),
@@ -576,8 +495,8 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint, arm=None, plan=None
     if arm:
         meta.update({'experiment': plan.experiment.id, 'arm': arm.id, 'label': arm.label,
                      'guard_exempt': list(arm.guard_exempt), 'catboost': dict(arm.catboost)})
-    write_json(mdir / 'meta.json', meta)
-    append_jsonl(paths.registry, [{'model_id': model_id, 'promoted': promote,
+    util.write_json(mdir / 'meta.json', meta)
+    util.append_jsonl(paths.registry, [{'model_id': model_id, 'promoted': promote,
                                    'val_pr_auc': meta['val_pr_auc'],
                                    'val_top_hit': meta['val_top_hit'],
                                    'val_top_lift': meta['val_top_lift'],
@@ -726,7 +645,7 @@ def predict_open(paths, tenders, roles, aw, args, arm=None, plan=None):
     model.load_model(str(paths.models / champ['model_id'] / 'model.cbm'))
 
     open_t = sb.open_tenders(tenders, aw)
-    today = now_utc().date().isoformat()
+    today = util.now_utc().date().isoformat()
     deadline = pd.to_datetime(open_t.get('deadline_date'), errors='coerce')
     open_t = open_t[(deadline.isna()) | (deadline.dt.date.astype(str) >= today)]
     if open_t.empty:
@@ -772,7 +691,7 @@ def predict_open(paths, tenders, roles, aw, args, arm=None, plan=None):
     tiers = np.where(ranks < n_high, 'HIGH', np.where(ranks < n_high + n_med, 'MEDIUM', 'LOW'))
 
     seen = ledger.prediction_keys(paths.ledger_home)
-    ts = now_utc().isoformat(timespec='seconds')
+    ts = util.now_utc().isoformat(timespec='seconds')
     scored, rows = [], []
     for (idx, t), score, tier, w_l, w_c in zip(open_t.iterrows(), scores, tiers,
                                                why_lonely, why_crowded):
@@ -788,12 +707,12 @@ def predict_open(paths, tenders, roles, aw, args, arm=None, plan=None):
             # slicing keys + audit link + rendering columns, stamped at write
             # time (SUBSCRIPTIONS.md) — rendering columns never feed features
             'cpv3': str(cpv)[:3] if pd.notna(cpv) else None,
-            'cpv_main': stamp(cpv),  # full code for the relevance code channel
-            'place_nuts3': stamp(t.get('place_nuts3')),
-            'publication_number': stamp(t.get('publication_number')),
-            'buyer_name': stamp(t.get('buyer_name')),
-            'est_value_lot': stamp(t.get('est_value_lot')),
-            'title': stamp(t.get('title')),
+            'cpv_main': util.stamp(cpv),  # full code for the relevance code channel
+            'place_nuts3': util.stamp(t.get('place_nuts3')),
+            'publication_number': util.stamp(t.get('publication_number')),
+            'buyer_name': util.stamp(t.get('buyer_name')),
+            'est_value_lot': util.stamp(t.get('est_value_lot')),
+            'title': util.stamp(t.get('title')),
             'why_lonely': w_l, 'why_crowded': w_c,
         }
         if arm:
@@ -844,7 +763,7 @@ def record_gate_config(paths, config):
         return False
     ledger.append(home, 'gate_configs',
                   [{'fingerprint': config.fingerprint,
-                    'first_seen': now_utc().isoformat(timespec='seconds'),
+                    'first_seen': util.now_utc().isoformat(timespec='seconds'),
                     **config.as_dict()}])
     print(f'[deliver] new gate configuration recorded: {config.describe()}')
     return True
@@ -860,7 +779,7 @@ def learn_references(paths, tenders, awards, args):
     fails a cycle — a feedback problem is not a delivery problem."""
     try:
         import feedback
-        today = now_utc().date().isoformat()
+        today = util.now_utc().date().isoformat()
         subs = subscriptions.load(paths.subs_home, today)
         if not subs:
             return []
@@ -881,7 +800,7 @@ def deliver(paths, scored, args):
     lots per subscription, re-rank and re-tier WITHIN the slice, write the
     customer's report, append delivery-ledger rows (the frozen record of what
     this customer actually saw). Never a model call, never a store join."""
-    today = now_utc().date()
+    today = util.now_utc().date()
     subs = subscriptions.load(paths.subs_home, today.isoformat())
     if not subs:
         print('[deliver] no active subscriptions — skipped')
@@ -898,12 +817,12 @@ def deliver(paths, scored, args):
     by_sub = {}
     for d in past:
         by_sub.setdefault(d['sub_id'], []).append(d)
-    cutoff = (now_utc() - parse_window(args.track_window)).date().isoformat()
+    cutoff = (util.now_utc() - util.parse_window(args.track_window)).date().isoformat()
     grades_recent = [g for g in ledger.read(paths.ledger_home, 'grades')
                      if str(g['award_pub'])[:10] >= cutoff]
     # receipt fallback for delivery rows written before title/buyer were stamped
     pred_info = ledger.prediction_titles(paths.ledger_home)
-    ts = now_utc().isoformat(timespec='seconds')
+    ts = util.now_utc().isoformat(timespec='seconds')
     # relevance gate (RELEVANCE.md phase 3): loaded once per cycle, only when a
     # subscription asks for it; unavailable sidecars degrade to ungated delivery
     # with a loud line, never a failed cycle
@@ -1068,7 +987,7 @@ def drift_monitors(paths, tenders, aw, scores_now, args):
     Recent = the trailing --drift-window; each monitor skips itself (and says
     so) when either side has too few rows to mean anything."""
     checks, warnings = {}, []
-    cutoff = now_utc() - parse_window(args.drift_window)
+    cutoff = util.now_utc() - util.parse_window(args.drift_window)
 
     def result(name, status, detail):
         checks[name] = f'{status} ({detail})'
@@ -1135,7 +1054,7 @@ def drift_monitors(paths, tenders, aw, scores_now, args):
     # score-distribution drift: this cycle's scores vs the trailing month of
     # ledger scores (before this run) — a shifted histogram means the open-lot
     # population or the champion's view of it moved
-    ledger_cut = (now_utc() - timedelta(days=35)).isoformat(timespec='seconds')
+    ledger_cut = (util.now_utc() - timedelta(days=35)).isoformat(timespec='seconds')
     # the trailing window is a WHERE clause, not a filter over the whole ledger.
     # This runs AFTER predict_open has appended, so the window now includes this
     # cycle's own rows -- which it did not when the caller snapshotted the file
@@ -1266,7 +1185,7 @@ def report(paths, tenders, args, record, gate, drift, model_id, n_graded, n_pred
     info = {}
     for t in tenders.itertuples():
         info[(t.procedure_id, t.lot_id)] = t
-    lines = [f'# TenderMining weekly report — {now_utc().date().isoformat()}', '']
+    lines = [f'# TenderMining weekly report — {util.now_utc().date().isoformat()}', '']
     if record and record.get('top'):
         t = record['top']
         lines += ['## Verified track record (rank-based — the product view)', '',
@@ -1326,7 +1245,7 @@ def report(paths, tenders, args, record, gate, drift, model_id, n_graded, n_pred
         lines += [f'- {tl}' for tl in trial_lines]
 
     paths.reports.mkdir(parents=True, exist_ok=True)
-    out = paths.reports / f'report_{now_utc().date().isoformat()}.md'
+    out = paths.reports / f'report_{util.now_utc().date().isoformat()}.md'
     out.write_text('\n'.join(lines) + '\n', encoding='utf-8')
     print(f'[report] {out}')
     return out
@@ -1335,7 +1254,7 @@ def report(paths, tenders, args, record, gate, drift, model_id, n_graded, n_pred
 # ----------------------------------------------------------------------- main
 
 def cmd_run(args):
-    paths = Paths(args.data_dir, args.models_dir)
+    paths = util.Paths(args.data_dir, args.models_dir)
     # The cycle WAITS for the heavy-job lock rather than failing on it: a
     # replay someone started at 08:10 is over in minutes, while a skipped
     # Monday is a week with no delivery. The wait is bounded — heavy_lock
@@ -1356,7 +1275,7 @@ def _run_cycle(paths, args):
     # is the one every delivery row of this cycle will carry.
     import relevance as rel
     print(f'[config] gate: {rel.DEFAULT_CONFIG.describe()}')
-    checkpoint = read_json(paths.checkpoint, {})
+    checkpoint = util.read_json(paths.checkpoint, {})
 
     if args.skip_download:
         print('[download] skipped (--skip-download)')
@@ -1399,7 +1318,7 @@ def _run_cycle(paths, args):
     # trains and scores once per arm; only the delivering arm's outputs go on
     # to the monitors, the report, delivery and the simulation. With none it
     # is the single implicit arm — exactly the cycle as it always was.
-    plan = experiments.plan(paths.ledger_home, now_utc().date().isoformat())
+    plan = experiments.plan(paths.ledger_home, util.now_utc().date().isoformat())
     if plan.is_trial:
         print(f'[experiment] {plan.experiment.id}: arms '
               + ', '.join(f'{a.label}{" (delivering)" if plan.is_delivering(a) else " (shadow)"}'
@@ -1419,12 +1338,12 @@ def _run_cycle(paths, args):
                 model_id, gate, rows, scores_now, scored = mid, g, r_, s_, sc_
     drift = drift_monitors(paths, tenders, aw, scores_now, args)
     # persisted so the dashboard can show the monitors (SUBSCRIPTIONS.md phase 5)
-    write_json(paths.drift, {'at': now_utc().isoformat(timespec='seconds'), **drift})
+    util.write_json(paths.drift, {'at': util.now_utc().isoformat(timespec='seconds'), **drift})
     trial_lines = []
     if plan.is_trial:
         row = experiments.state(paths.ledger_home)[plan.experiment.id]
         v, _ = experiments.read_verdict(paths.ledger_home, paths.models, plan.experiment,
-                                        row, now_utc().date().isoformat())
+                                        row, util.now_utc().date().isoformat())
         trial_lines.append(experiments.status_line(plan.experiment, v))
         print(f'[experiment] {trial_lines[-1]}')
     report(paths, tenders, args, record, gate, drift, model_id, len(new_grades), len(rows),
@@ -1467,10 +1386,10 @@ def _run_cycle(paths, args):
 
     prune_caches(paths)
 
-    checkpoint['last_success_at'] = now_utc().isoformat(timespec='seconds')
+    checkpoint['last_success_at'] = util.now_utc().isoformat(timespec='seconds')
     if date_to:
         checkpoint['last_success_to'] = date_to
-    write_json(paths.checkpoint, checkpoint)
+    util.write_json(paths.checkpoint, checkpoint)
     print('[done]')
 
 

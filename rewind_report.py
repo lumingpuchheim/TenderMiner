@@ -47,6 +47,7 @@ import relevance as rel
 import selection
 import single_bidder as sb
 import subscriptions
+import util
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -56,8 +57,8 @@ FLAG_THRESHOLD = 0.5  # mirrors the loop's --threshold default
 
 def freeze_clock(day):
     """deliver() reads the clock; a replay must render 'today' = the cutoff."""
-    loop.now_utc = lambda: datetime(day.year, day.month, day.day, 8, 0,
-                                    tzinfo=timezone.utc)
+    util.now_utc = lambda: datetime(day.year, day.month, day.day, 8, 0,
+                                   tzinfo=timezone.utc)
 
 
 def main():
@@ -253,7 +254,7 @@ def main():
         shutil.rmtree(OUT)
     (OUT / 'ledger').mkdir(parents=True)
     subscriptions.write_sandbox(OUT, [replay_sub])
-    paths = loop.Paths(str(world.work), 'models')
+    paths = util.Paths(str(world.work), 'models')
     paths.subs_home = OUT
     # one sandbox home for every ledger this replay writes. OUT is recreated on
     # each run (rmtree above), so appending to an empty store is what the old

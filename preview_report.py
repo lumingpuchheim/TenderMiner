@@ -26,7 +26,8 @@ import config
 import ledger
 import loop
 import subscriptions
-from loop import Paths, read_jsonl
+from util import Paths, read_jsonl
+import util
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -47,7 +48,7 @@ def main():
                          '(awarded lots are always dropped)')
     args = ap.parse_args()
 
-    today = loop.now_utc().date()
+    today = util.now_utc().date()
     paths = Paths(args.data_dir, args.models_dir)
     base = subscriptions.one(paths.subs_home, today.isoformat(), args.sub)
     if base is None:

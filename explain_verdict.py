@@ -24,6 +24,7 @@ import loop
 import relevance as rel
 import subscriptions
 from calibrate import is_deep
+import util
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -117,7 +118,7 @@ def main():
     ap.add_argument('--data-dir', default=config.data_root())
     args = ap.parse_args()
 
-    today = loop.now_utc().date().isoformat()
+    today = util.now_utc().date().isoformat()
     sub = subscriptions.one(args.data_dir, today, args.sub)
     if sub is None:
         sys.exit(f'[explain] no active subscription {args.sub!r}')

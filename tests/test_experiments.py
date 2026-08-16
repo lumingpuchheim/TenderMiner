@@ -31,6 +31,7 @@ import experiments as ex
 import ledger
 import loop
 import single_bidder as sb
+import util
 
 EXP = ex.DECLARED['cpv-additional-encoding']
 ARGS = argparse.Namespace(threshold=0.5, track_window='12w', top_slice=0.2,
@@ -79,7 +80,7 @@ class Home(unittest.TestCase):
         self.data.mkdir()
         self.models.mkdir()
         db.init(self.data)
-        self.paths = loop.Paths(self.data, self.models)
+        self.paths = util.Paths(self.data, self.models)
 
     def tearDown(self):
         import shutil
@@ -319,7 +320,7 @@ class ShadowModels(Home):
 
     def test_only_non_delivering_arms_models_are_shadows(self):
         ex.ensure_state(self.data, '2026-08-18')
-        loop.append_jsonl(self.models / 'registry.jsonl', [
+        util.append_jsonl(self.models / 'registry.jsonl', [
             {'model_id': 'm0', 'promoted': True},
             {'model_id': 'm1-onehot', 'arm': 'onehot', 'experiment': EXP.id},
             {'model_id': 'm1-ts', 'arm': 'ts', 'experiment': EXP.id},
