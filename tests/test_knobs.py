@@ -1,6 +1,6 @@
 """PARAMETERS.md 8: the knob protocol's two halves — propose, and block.
 
-The verdict ladder is the substance here, so it is tested against synthetic
+The verdict grid is the substance here, so it is tested against synthetic
 sweeps rather than a real one: a sweep that needs the embedding model is not
 a unit test, and the point of these cases is which verdict a shape of numbers
 earns.
@@ -140,14 +140,14 @@ class Weekly(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertIn('no live question', lines[0])
 
-    def test_with_nothing_filed_the_docket_supplies_the_questions(self):
+    def test_with_nothing_filed_the_queue_supplies_the_questions(self):
         """PARAMETERS.md 11: the program files its own — one per bucket,
-        the first tunable of the rotation, not yet measured."""
+        the first knob of the rotation, not yet measured."""
         lines = knobs.weekly(self.paths, '2026-08-16')
         self.assertEqual(len(lines), 1)
-        self.assertIn(knobs.TUNABLES[0].knob, lines[0])
+        self.assertIn(knobs.KNOBS[0].knob, lines[0])
         self.assertIn('not measured yet', lines[0])
-        self.assertIn('ladder', lines[0])
+        self.assertIn('grid', lines[0])
 
     def test_the_flat_streak_survives_between_cycles(self):
         rows = sweep(v0_50=(0.49, 400), v0_55=(0.50, 400), v0_60=(0.52, 400))

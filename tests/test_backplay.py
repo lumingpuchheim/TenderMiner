@@ -247,7 +247,7 @@ class VerifiableWithoutFilingAnything(unittest.TestCase):
         self.assertIn('synthetic', body)
         self.assertIn('REJECTED', body)     # the majority case
         self.assertIn('survives', body)     # the minority case
-        self.assertIn('docket: 1 live question', body)
+        self.assertIn('queue: 1 live question', body)
         self.assertIn('evidence stamp', body)
 
     def test_an_ad_hoc_question_is_valid_and_not_filed(self):

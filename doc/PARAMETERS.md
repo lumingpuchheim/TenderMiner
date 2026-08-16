@@ -8,23 +8,23 @@ model** — this file is that answer as a spec. Companion to
 [`EXPERIMENTS.md`](EXPERIMENTS.md) (forward shadow arms for the
 competitiveness model, in progress in another worktree — nothing here edits
 it; §6 says what to add there once it has merged) and
-[`RELEVANCE.md`](RELEVANCE.md) (the receipts every gate value cites).
+[`RELEVANCE.md`](RELEVANCE.md) (the result lines every gate value cites).
 
 ## 0. The rules
 
-1. **Every tunable belongs to exactly one bucket** — *gate* ("is this my
+1. **Every knob belongs to exactly one bucket** — *gate* ("is this my
    business"), *competitiveness* ("is this a low-contested tender"),
    *delivery* (what a customer sees of the two verdicts) or *monitoring*
    (when the system speaks up). The two models share no metric, no truth
    source and no cadence, so they never share a knob.
-2. **Every tunable is either FROZEN or LIVE.** Frozen: set once, moved only
+2. **Every knob is either FROZEN or LIVE.** Frozen: set once, moved only
    with a written reason, never "tuned". Live: has a benchmark, a receipt,
    and may move. The register (§2) is the list; a knob not in it is a bug in
    this file, not a knob.
 3. **One live knob per bucket at a time.** Google's layers, reduced to one
    operator: never move two knobs of the same bucket in the same week. Two
    knobs that must move together are one knob (a named configuration, as the
-   receipts already do with their letters H, K, …).
+   result lines already do with their letters H, K, …).
 4. **The stamp must be honest.** Everything that changes a gate verdict is in
    `GateConfig.fingerprint`; everything that changes a competitiveness score
    is resolvable from `model_id` via `meta.json`. A knob that can move a
@@ -38,7 +38,7 @@ it; §6 says what to add there once it has merged) and
    report file (memory: tools print to console). Amending it is part of the
    same commit that moves the value.
 
-## 1. Where the ~70 tunables live today
+## 1. Where the ~70 knobs_list live today
 
 | place | count | mechanism | stamped? |
 | --- | --- | --- | --- |
@@ -56,7 +56,7 @@ with three different ideas of "recorded". §2 puts them in one table.
 ## 2. The register
 
 Legend — **bucket**: G gate · C competitiveness · D delivery · M monitoring ·
-O operational (not a tunable, listed so nothing is missing). **status**:
+O operational (not a knob, listed so nothing is missing). **status**:
 FROZEN / LIVE / DEAD (inert under the current mode) / ROLLBACK (kept only so
 `GATE_MODE='embedding'` still runs). **stamped**: whether the value is
 recoverable from a ledger row written under it.
@@ -66,7 +66,7 @@ recoverable from a ledger row written under it.
 | knob | value | status | stamped | receipt |
 | --- | --- | --- | --- | --- |
 | `mode` (`GATE_MODE`, env) | `evidence` | FROZEN | fp | RELEVANCE.md phase 8, 2026-08-06 |
-| `evidence_nomination_min` | 2 | DEAD while `conviction_nominates` is on (docket run 2026-08-16, §11.5) | fp | phase 8e, K≥2 vs K≥3 receipt |
+| `evidence_nomination_min` | 2 | DEAD while `conviction_nominates` is on (queue run 2026-08-16, §11.5) | fp | phase 8e, K≥2 vs K≥3 receipt |
 | `conviction_nominates` (env) | on | FROZEN | fp | phase 8k, 79/126 |
 | `similarity_nominates` (env) | off | FROZEN | fp | phase 8i, four reasons |
 | `borderline_admit_p` | 0.0 | FROZEN (placeholder for an LLM reader) | fp | phase 8d |
@@ -160,12 +160,12 @@ Nothing to optimise; nothing to stamp.
 
 ### 2.7 The count that matters
 
-Of ~95 tunables (the first count of ~70 missed twenty env-driven switches in
+Of ~95 knobs_list (the first count of ~70 missed twenty env-driven switches in
 `evidence.py`; `RULES` is now the authority there), **LIVE: 4** —
 `min_code_hard`, `CONVICT_BODY_MIN` (gate); `--threshold`,
 `MULTIHOT_MIN_SUPPORT` (competitiveness) — plus per-customer overrides.
 ROLLBACK: 9. DEAD: 2 (`nomination_bar`; `evidence_nomination_min` since the
-docket's first run, §11.5). Everything else is frozen or operational.
+queue's first run, §11.5). Everything else is frozen or operational.
 That is the overview. Note that "LIVE" here is a *description* of what has
 been moved recently; under §8 a knob is LIVE only while a filed question is
 open, so at the time of writing all five are formally FROZEN until one is
@@ -229,7 +229,7 @@ variable in cron's environment; today nothing would say so. One line each.
 
 **4.4 `knobs.py` — the weekly proposal and the guard — done 2026-08-16.**
 A module of its own, as specified. `LIVE` holds hand-filed questions and is
-**empty**; since §11 the questions come from the docket, which the program
+**empty**; since §11 the questions come from the queue, which the program
 keeps itself (a hand-filed `Question` — id, knob, bucket, question, metric,
 benchmark blob, grid, current, opened, stop, its own `run` — still takes its
 bucket's slot). `weekly()` returns one
@@ -254,13 +254,13 @@ Three decisions taken while building it, all narrowing:
 
 `EXPECTED_GATE_FINGERPRINT` lives in `knobs.py` and `tests/test_parameters.py`
 reads it from there — one value to update in the ritual's commit, not two.
-`tests/test_knobs.py` covers the verdict ladder (clear winner up and down,
+`tests/test_knobs.py` covers the verdict grid (clear winner up and down,
 overlapping intervals are flat, thin denominators hold, a hard-bar breach is
 barred whatever recall it buys, the stop date wins, flat twice closes), the
 flat-streak surviving between cycles, a failing sweep never failing a cycle,
 and the guard in all three states.
 
-Not asked for: retiring the ROLLBACK ladder (cheap to keep, and it is the
+Not asked for: retiring the ROLLBACK grid (cheap to keep, and it is the
 tested rollback of a decision only ten days old); a generator for §2; a
 settings file; anything customer-facing.
 
@@ -290,7 +290,7 @@ model are a backfill of that writer, not a twin table.
 | unit of the register | assistant | one prose table, this file, kept by hand |
 | what counts as evidence | assistant, extends EXPERIMENTS.md §0 | backplay rejects, forward promotes |
 | gate knobs outside the fingerprint | assistant | fold into `GateConfig` (§4.1) |
-| ROLLBACK ladder | assistant | keep, mark, do not tune |
+| ROLLBACK grid | assistant | keep, mark, do not tune |
 | where the two-model split lives | assistant | the bucket column; no shared knob ever |
 
 ## 8. The protocol — how a knob moves, agreed 2026-08-16
@@ -300,7 +300,7 @@ myself"). So the value is never anyone's to pick: the software proposes from
 a grid, the operator answers yes / hold / roll back, the assistant session
 executes. Four rules.
 
-### 8.1 Status ladder — one step at a time, only these transitions
+### 8.1 Status grid — one step at a time, only these transitions
 
 ```
 FROZEN   --(question filed)---------------> LIVE
@@ -317,7 +317,7 @@ any      --(controlling switch off)-------> DEAD       (a fact, not a decision)
   interval) or "decided" (value chosen, numbers cited). A frozen value is
   not "tweaked"; it goes through LIVE again.
 - **DEAD** is whatever the controlling switch says; the register marks it.
-- **Retired** after 90 days on ROLLBACK unused — the ladder must not grow
+- **Retired** after 90 days on ROLLBACK unused — the grid must not grow
   forever. (Operator default; may be overruled per knob in the receipt.)
 
 ### 8.2 Drifting a knob — the move rule
@@ -534,7 +534,7 @@ silently shorter grid.
   reverting to the last recorded-good configuration is the second safe
   automatic move.
 
-## 11. The docket — the program files the questions, 2026-08-16
+## 11. The queue — the program files the questions, 2026-08-16
 
 §10 built the rejector and left `knobs.LIVE` empty: nothing was measured until
 someone filed a question by hand. The operator then set the expectation
@@ -543,48 +543,71 @@ am not to be asked for any hand-made value; I want to see which knobs are
 tried and which are rejected.* So the last hand-made input, the question
 itself, is now the software's.
 
-### 11.1 Tunables and ladders
+### 11.1 Knobs and grids
 
-`knobs.TUNABLES` lists the register's LIVE-eligible knobs (§2.7) with a
-program-owned **ladder** — `lo`, `hi`, `step` — not a value:
+Words used here, in plain terms: the **queue** is the list of knobs waiting
+their turn, one live per bucket; a **grid** is the values a knob may take
+and a **step** one of them; a **switch** is an on/off knob; **no effect** is
+the verdict when every value tried gives identical numbers; the **evidence
+version** (`stamp` in the ledger) names the benchmark, store and champion a
+measurement stood on; a **result line** (receipt) is what a closed question
+leaves behind; a **standing proposal** is a `move` nobody has acted on yet.
 
-| knob | ladder | bucket |
-| --- | --- | --- |
-| `relevance.DEFAULT_MIN_CODE_HARD` | 0.775 … 0.875, step 0.025 | gate |
-| `evidence.CONVICT_BODY_MIN` | 1 … 4, step 1 | gate |
+`knobs.KNOBS` lists every verdict-affecting rule the override lever reaches
+— **39 knobs** as of 2026-08-16: `relevance.CONVICTION_NOMINATES`,
+`SIMILARITY_NOMINATES`, `DEFAULT_MIN_CODE_HARD`, and 36 of the 37
+`evidence.RULES` (all but `CORE_TITLE_UNION`, a string) — each with a
+program-owned **grid**: for a number `lo`, `hi`, `step` (e.g.
+`DEFAULT_MIN_CODE_HARD` 0.775 … 0.875 by 0.025, `SYN_THRESHOLD` 0.70 … 0.90
+by 0.05, `CONVICT_BODY_MIN` 1 … 4); for a switch `(off, on)`. The list *is*
+the register of what the search covers; the order is the rotation order —
+the switch that decides the gate's shape (`CONVICTION_NOMINATES`) first,
+then the conviction rules, then the lexicon, then the dictionaries. Not
+listed: `EVIDENCE_NOMINATION_MIN` (§11.5), `NOMINATION_BAR` and
+`BORDERLINE_ADMIT_P` (dead / placeholder while their switches are off).
 
-(`relevance.EVIDENCE_NOMINATION_MIN`, 1 … 4, was the first entry and the
-first question; §11.5 says why it is no longer listed.)
-
-`current` is read from the module at run time, never stored — the docket
+`current` is read from the module at run time, never stored — the queue
 cannot disagree with the code, and after the operator accepts a step the
-question simply continues from the new rung. A constant that sits off its
-ladder raises, and `tests/test_docket.py` builds every real question so that
+question simply continues from the new step. A constant that sits off its
+grid raises, and `tests/test_queue.py` builds every real question so that
 is caught by the suite, not on a Monday.
 
-### 11.2 One live knob per bucket, rotating
+### 11.2 One live knob per bucket, rotating — one knob per night
 
-`knobs.docket()` keeps exactly one open question per bucket: the next knob in
+`knobs.queue()` keeps exactly one open question per bucket: the next knob in
 the bucket's rotation after the last one closed (wrapping), opened today, stop
 date `STOP_WEEKS = 8` out, id `auto:<knob>` (stable, so a rejection outlives
 one opening and expires on its own clock, §10.4). A hand-filed question in
-`LIVE` still takes its bucket's slot. State is `data/logs/knobs_docket.json`
-— open questions and the closed ones with their receipts.
+`LIVE` still takes its bucket's slot. State is `data/logs/knobs_queue.json`
+— open questions and the closed ones with their result lines.
 
-A docket question **closes itself** on §8.4's conditions — stop date reached;
-`flat` two cycles running; or every neighbour rejected, in which case the
-receipt reads *decided: every neighbour rejected, current stands* — and the
-next knob opens on the next cycle. Nothing else closes it; nothing promotes.
+**A queue question closes the night it is answered** (`close_if_answered`,
+2026-08-16 evening — the operator: "nothing is my own intuition, but an
+automatic systematic parameter search", so nothing waits for a Monday or a
+person): *no effect*; every neighbour rejected; a clear `move` (recorded as
+a **standing proposal**); `flat` with every neighbour measured or rejected;
+or the stop date. `hold` — a neighbour the harness could not measure — keeps
+it open. The next knob opens on the *next* run, so one knob per bucket per
+night; with 39 gate knobs and one bucket the rotation is ~5–6 weeks, then it
+starts again and re-measures only what the evidence version says moved.
 
-### 11.3 One pipeline: backplay measures, weekly reads
+A `move` closes the question because the search must go on; the proposal
+stays listed — Monday's report and `--show` print `PROPOSAL standing since
+<date>` until the constant actually moves (the three-file commit, §8.2), at
+which point the knob is simply re-measured from its new step next time round.
 
-A docket question has no `run` of its own. `backplay.py` measures it — the
+### 11.3 One pipeline: backplay measures and closes, Monday reads
+
+A queue question has no `run` of its own. `backplay.py` measures it — the
 current value first (a `role='current'` row) and then each neighbour under
 `TM_GATE_OVERRIDE` — and every `backplays` row now carries `metric`, `n`,
 `leakage` and the **evidence stamp** it stood on (benchmark blob, store files,
-champion fingerprint). `knobs.weekly()` reads the latest row per rung back as
-the sweep it used to be handed, applies the same verdict ladder, and prints
-the **ladder** in the line: `1 x | [2] 0.649 | 3 ok 0.612 | 4 .` — rejected,
+champion fingerprint). `knobs.judge_question()` reads the latest row per step
+back as the sweep it used to be handed and applies the same verdict ladder;
+`backplay.run` calls it the same night and closes what is answered,
+`knobs.weekly()` calls it on Monday for whatever is still open, adds the
+questions closed that week and the standing proposals, and prints
+the **grid** in the line: `1 x | [2] 0.649 | 3 ok 0.612 | 4 .` — rejected,
 current with its metric, survives with its metric, untried. The rejection a
 value carries is its *latest* measurement's: measured again and surviving
 lifts it before the 90 days are up.
@@ -595,13 +618,13 @@ question's last measurement stood on and re-measures only when it differs or
 the question is new; otherwise one line per question says what it stood on
 and when. Nightly rather than Sunday so a benchmark label read on Tuesday is
 measured Wednesday, not the following week. Cost when it does run: one judge
-run per rung, ~25 min each on the laptop, so ~75 min per question; the heavy
+run per step, ~25 min each on the laptop, so ~75 min per question; the heavy
 lock keeps it off the Monday cycle. `--force` re-measures regardless.
 
-**Seeing it:** `python backplay.py --show` prints the docket — per bucket the
-live knob, since when, its ladder with every rung marked, the proposal, the
-rejections with reasons and dates — then the closed questions with receipts,
-then the raw record. Monday's report carries the same ladder line under
+**Seeing it:** `python backplay.py --show` prints the queue — per bucket the
+live knob, since when, its grid with every step marked, the proposal, the
+rejections with reasons and dates — then the closed questions with result lines,
+then the raw record. Monday's report carries the same grid line under
 **Knobs**.
 
 ### 11.4 Two things found while wiring it, and one left out
@@ -615,19 +638,19 @@ then the raw record. Monday's report carries the same ladder line under
   path, not the sweep's replica verdict.
 - The sweep's `(committed)` row hard-coded `K>=2`; it now reads
   `rel.EVIDENCE_NOMINATION_MIN`, so an override of K is measured there too.
-- **`inert`** joined the verdict ladder: every measured rung identical to
+- **`no effect`** joined the verdict grid: every measured step identical to
   the last digit means the knob cannot move a verdict under the current
   switches — DEAD, not flat — and the question closes at once instead of
   holding the bucket two cycles to learn it twice.
-- **Competitiveness knobs are not on the docket.** `--threshold` and
+- **Competitiveness knobs are not on the queue.** `--threshold` and
   `MULTIHOT_MIN_SUPPORT` need the replay harness (33 min per cutoff set) *and*
   a lever that reaches them, which `TM_GATE_OVERRIDE` does not; listing them
   and measuring nothing would be the silent miss §10.1 refuses. When that
-  lever exists they are three lines in `TUNABLES`.
+  lever exists they are three lines in `KNOBS`.
 
 ### 11.5 The first run — receipt, 2026-08-16
 
-Laptop, sandbox copy of the store, `python backplay.py`; the docket opened
+Laptop, sandbox copy of the store, `python backplay.py`; the queue opened
 `relevance.EVIDENCE_NOMINATION_MIN` at 2, candidates 1 and 3; three
 `evidence.py --judge` runs of ~22 min each, `[benchmark]
 benchmark_relevance.jsonl blob 9e9e3f59076f cases 1752 seed 7`, 561 firms,
@@ -646,8 +669,8 @@ sixteen digits, so **K cannot change a verdict**. The reason is in
 the witness rule can only add nominations that then fail to convict. The
 register listed the knob as LIVE on the strength of the phase 8e receipt,
 which was measured before 8k. It is DEAD while that switch is on; the row in
-§2.1 says so, the knob left `TUNABLES`, and the `inert` verdict exists so the
-next such knob costs one run, not two cycles. The docket moved on to
+§2.1 says so, the knob left `KNOBS`, and the `no effect` verdict exists so the
+next such knob costs one run, not two cycles. The queue moved on to
 `DEFAULT_MIN_CODE_HARD` by itself.
 
 Two smaller findings from the same run, both fixed and tested: on Windows

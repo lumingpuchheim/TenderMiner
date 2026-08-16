@@ -39,19 +39,19 @@ report → **render every active customer** → **simulate every winner company*
   one commit — then re-run with `--skip-download`.
 - The report's **Knobs** section is a *proposal*, never an action: one line
   per live question (`move up` / `move down` / `flat` / `hold`) with the
-  knob's ladder — `1 x | [2] 0.649 | 3 ok 0.612 | 4 .` — rejected, current,
+  knob's grid — `1 x | [2] 0.649 | 3 ok 0.612 | 4 .` — rejected, current,
   survives, untried. The questions are the program's own (PARAMETERS.md §11):
-  one live knob per bucket, rotating through `knobs.TUNABLES`; nobody files
+  one live knob per bucket, rotating through `knobs.KNOBS`; nobody files
   or picks a value by hand.
 
 **The rejector is scheduled** — `docker/backplay.sh`, **nightly 04:00**, third
 line in `docker/crontab` beside the Monday cycle and the nightly backup. It
-measures each rung in its own subprocess under `TM_GATE_OVERRIDE` and may
+measures each step in its own subprocess under `TM_GATE_OVERRIDE` and may
 **reject** — never promote — and it re-measures only when the evidence moved
 (benchmark, store, champion fingerprint); most nights it prints what it stood
 on and exits. Monday's report then carries the result in its **Knobs**
-section, and `python backplay.py --show` prints the whole docket — ladders,
-rejections with reasons, closed questions with receipts — at any time.
+section, and `python backplay.py --show` prints the whole queue — grids,
+rejections with reasons, closed questions with result lines — at any time.
 
 To see it work without waiting for the night:
 
@@ -60,16 +60,16 @@ docker compose run --rm tm python backplay.py --self-check
 ```
 
 One second, synthetic numbers, no harness — it runs the real rejection rule
-and prints what it decided, then the rejections standing today, the docket's
+and prints what it decided, then the rejections standing today, the queue's
 live questions and the evidence stamp. It proves the wiring, not the science.
 
-To read the docket — what is live, what was tried, what was rejected and why:
+To read the queue — what is live, what was tried, what was rejected and why:
 
 ```
 docker compose run --rm tm python backplay.py --show
 ```
 
-For a real measurement of some other knob, outside the docket:
+For a real measurement of some other knob, outside the queue:
 
 ```
 docker compose run --rm tm python backplay.py --knob evidence.NOMINATION_BAR --grid 0.50,0.55,0.60 --current 0.55
@@ -307,7 +307,7 @@ answers your question; none of them touches the real ledgers or reports.
   also shows lots whose deadline has passed. The real subscription file is
   never modified — overrides live only in the sandbox.
 - **`explain_verdict.py`** prints the profile fingerprint (hard/soft labels), each
-  lot's pass path through the gate ladder, and its text→label projections.
+  lot's pass path through the gate grid, and its text→label projections.
   With no TED numbers it explains the profile references themselves — the
   sanity check that a profile reads as the customer's trade.
 - **`lexicon_receipt.py`** runs `benchmark_relevance.jsonl` through the real
@@ -372,7 +372,7 @@ committed output; nothing waits on them.
 | When | Run | Writes |
 | --- | --- | --- |
 | automatically each cycle | (inside `loop.py run`) | new lot vectors, `data/embeddings/<tag>/` |
-| after changing the embedding model; after a big backfill; else ~monthly | `python calibrate.py` | `calibration_<tag>.md`, `trusted_codes_<tag>.json` (committed receipts) |
+| after changing the embedding model; after a big backfill; else ~monthly | `python calibrate.py` | `calibration_<tag>.md`, `trusted_codes_<tag>.json` (committed result lines) |
 | curiosity / sales prep | `python calibrate.py --fingerprint "Firma GmbH"` | console only: the firm's named trades |
 
 **Reading the receipt** (`calibration_<tag>.md`): the configuration table's
@@ -399,12 +399,12 @@ the old one keeps serving:
 
 ```
 EMBED_MODEL=<new-tag> python embed.py --labels    # 1. full backfill, background-able
-EMBED_MODEL=<new-tag> python calibrate.py         # 2. receipts for the new tag
-# 3. compare receipts; if the new model wins:
+EMBED_MODEL=<new-tag> python calibrate.py         # 2. result lines for the new tag
+# 3. compare result lines; if the new model wins:
 #    - flip the default MODEL_TAG in embed.py
 #    - update the two DEFAULT_* thresholds in relevance.py from the new receipt
 #    - append new subscription versions for customers with explicit min_relevance
-#    - commit code + receipts together, push
+#    - commit code + result lines together, push
 ```
 
 New models must first be added to the `MODELS` registry in `embed.py`
@@ -429,7 +429,7 @@ template noise the corroboration cannot see.
 | `data/outreach/targets.csv` | cold-contact target list (§7) | **no — private** |
 | `data/ledger/*.jsonl` | predictions, grades, deliveries, simulations (append-only) | no |
 | `data/reports/…` | operator report, dashboard, customer HTML | no |
-| `calibration_<tag>.md`, `trusted_codes_<tag>.json` | study receipts | **yes** |
+| `calibration_<tag>.md`, `trusted_codes_<tag>.json` | study result lines | **yes** |
 | `cpv_2008_de.csv` | official CPV dictionary (German) | yes |
 | `embed.py` / `calibrate.py` / `relevance.py` / `loop.py` / `simulation.py` | the programs | yes |
 | `preview_report.py` / `explain_verdict.py` / `rewind_win.py` / `rewind_all.py` | the test tools (§3) | yes |

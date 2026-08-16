@@ -10,9 +10,9 @@
 # The usual night is one line per question and exit in a second — which is
 # how you know it is still wired in at all.
 #
-# Which questions: the docket (`knobs.docket()`), the program's own — one live
-# knob per bucket rotating through `knobs.TUNABLES`; nobody files one by hand.
-# `python backplay.py --show` prints the ladders, what was rejected and why.
+# Which questions: the queue (`knobs.queue()`), the program's own — one live
+# knob per bucket rotating through `knobs.KNOBS`; nobody files one by hand.
+# `python backplay.py --show` prints the grids, what was rejected and why.
 #
 # 04:00 keeps ninety minutes clear of the 02:30 backup, which is I/O-bound
 # where this is CPU-bound, and four hours clear of the Monday cycle. The job

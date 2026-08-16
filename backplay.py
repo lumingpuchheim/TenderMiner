@@ -4,10 +4,10 @@ The asymmetry this rests on: a wrong rejection costs an improvement nobody
 sees; a wrong promotion reaches customers. So this job may kill a candidate
 knob value on its own, at night, and may never move one into production.
 
-    python backplay.py                    # the docket: every live question's candidates
+    python backplay.py                    # the queue: every live question's candidates
     python backplay.py --force            # ...even if nothing moved since last time
     python backplay.py --self-check       # prove the wiring, one second, no harness
-    python backplay.py --show             # the docket: tried / rejected / survives, and history
+    python backplay.py --show             # the queue: tried / rejected / survives, and history
     python backplay.py --knob evidence.NOMINATION_BAR --grid 0.50,0.55,0.60 --current 0.55
 
 Scheduled: `docker/backplay.sh`, NIGHTLY 04:00 (docker/crontab). Nightly so a
@@ -17,8 +17,8 @@ files, champion fingerprint — and re-measures a question only when it did, or
 when the question is new. Most nights it prints one line per question saying
 what it stood on last time, and exits.
 
-Which questions: `knobs.docket()` — the program's own (PARAMETERS.md 11), one
-per bucket, rotating through `knobs.TUNABLES`; nobody files anything by hand.
+Which questions: `knobs.queue()` — the program's own (PARAMETERS.md 11), one
+per bucket, rotating through `knobs.KNOBS`; nobody files anything by hand.
 
 Per candidate: a SUBPROCESS with `TM_GATE_OVERRIDE` set to that value, so the
 measurement runs under the candidate's own gate configuration without anybody
@@ -220,7 +220,7 @@ def last_rows(paths, question_id, today=None):
 
 
 def measurements(paths, q, today=None):
-    """What `knobs.weekly()` reads for a docket question: the latest number
+    """What `knobs.weekly()` reads for a queue question: the latest number
     per grid value — current and candidates alike — as the sweep-shaped list
     `verdict()` expects. A row without a metric (an old-format row, a crash)
     is not a measurement."""
@@ -241,7 +241,7 @@ def run(paths, questions=None, today=None, harness=None, force=False):
     when the evidence stamp equals the one the last measurement of this
     question stood on, unless `force`."""
     today = today or util.now_utc().date().isoformat()
-    questions = knobs.docket(paths, today) if questions is None else questions
+    questions = knobs.queue(paths, today) if questions is None else questions
     stamp = evidence_stamp(paths)
     lines, rows = [], []
     for q in questions:
@@ -254,6 +254,7 @@ def run(paths, questions=None, today=None, harness=None, force=False):
             lines.append(f'[backplay] {q.knob}: nothing moved since '
                          f'{max(str(r["ts"])[:10] for r in had.values())} '
                          f'(benchmark, store, gate unchanged) — not re-measured')
+            lines += _settle(paths, q, today)
             continue
         try:
             base = measure(paths, q.current, use)
@@ -276,12 +277,29 @@ def run(paths, questions=None, today=None, harness=None, force=False):
             rows.append(_row(q, value, use, payload, cand, killed, reason, stamp, 'candidate'))
             lines.append(f'[backplay] {q.knob}={value}: '
                          f'{"REJECTED" if killed else "survives"} — {reason}; {_fmt(cand)}')
-    if rows:
-        ledger.append(paths.ledger_home, 'backplays', rows)
+        if rows:
+            ledger.append(paths.ledger_home, 'backplays', rows)
+            rows = []
+        lines += _settle(paths, q, today)
     if not questions:
         lines.append('[backplay] no live question — nothing to measure '
                      '(PARAMETERS.md 8.1 files one)')
     return lines
+
+
+def _settle(paths, q, today):
+    """Judge the question on what is now in the ledger and, for a queue
+    question, close it if it is answered — the queue advances tonight, and
+    the next knob is measured on the NEXT run (PARAMETERS.md 11.6)."""
+    try:
+        v, detail, results, killed = knobs.judge_question(paths, q, today)
+    except Exception as e:
+        return [f'[backplay] {q.knob}: verdict skipped ({e})']
+    line = f'[backplay] {q.knob}: {v} — {detail}; grid {knobs.grid_text(q, results, killed)}'
+    closed = knobs.close_if_answered(paths, q, v, detail, results, killed, today)
+    if closed:
+        line += f' — closed ({closed}); the next knob opens on the next run'
+    return [line]
 
 
 def _fmt(metrics):
@@ -294,27 +312,34 @@ def _fmt(metrics):
 
 
 def show(paths, today=None):
-    """The docket as a person reads it: per bucket the open question, its
-    ladder with every rung marked — current, rejected (why, when), survives
-    (metric), untried — then the closed questions with their receipts, then
+    """The queue as a person reads it: per bucket the open question, its
+    grid with every step marked — current, rejected (why, when), survives
+    (metric), untried — then the closed questions with their result lines, then
     the raw record, newest first."""
     today = today or util.now_utc().date().isoformat()
-    lines = [f'[docket] {today} — one live knob per bucket, rotating through '
-             f'{len(knobs.TUNABLES)} tunables (PARAMETERS.md 11)']
-    for q in knobs.docket(paths, today):
+    lines = [f'[queue] {today} — one live knob per bucket, rotating through '
+             f'{len(knobs.KNOBS)} knobs_list (PARAMETERS.md 11)']
+    for q in knobs.queue(paths, today):
         killed = rejected_values(paths, q.id, today)
         results = measurements(paths, q, today)
         v, detail = knobs.verdict(q, [r for r in results if r['value'] not in killed], today)
-        lines.append(f'[docket] {q.bucket}: {q.knob} live since {q.opened}, stop {q.stop}')
-        lines.append(f'[docket]   ladder {knobs.ladder_text(q, results, killed)}')
-        lines.append(f'[docket]   proposal: {v} — {detail}')
+        lines.append(f'[queue] {q.bucket}: {q.knob} live since {q.opened}, stop {q.stop}')
+        lines.append(f'[queue]   grid {knobs.grid_text(q, results, killed)}')
+        lines.append(f'[queue]   proposal: {v} — {detail}')
         for value, why in sorted(killed.items()):
-            lines.append(f'[docket]   rejected {value}: {why}')
-    state = knobs.read_docket(paths)
+            lines.append(f'[queue]   rejected {value}: {why}')
+    state = knobs.read_queue(paths)
+    for c in knobs.standing_proposals(paths):
+        lines.append(f'[queue] PROPOSAL standing since {c["closed"]}: {c["knob"]} '
+                     f'{c["verdict"]} — {c["receipt"]}')
+    done = {c['knob'] for c in state['closed']}
+    lines.append(f'[queue] rotation: {len(done)}/{len(knobs.KNOBS)} knobs have a result '
+                 f'this pass; next up: '
+                 + ', '.join(t.knob for t in knobs.KNOBS if t.knob not in done)[:200])
     if state['closed']:
-        lines.append('[docket] closed:')
+        lines.append('[queue] closed:')
         for c in state['closed'][-10:]:
-            lines.append(f'[docket]   {c["knob"]} {c["opened"]}..{c["closed"]} at '
+            lines.append(f'[queue]   {c["knob"]} {c["opened"]}..{c["closed"]} at '
                          f'{c["current"]}: {c["verdict"]} — {c["receipt"]}')
     rows = ledger.read(paths.ledger_home, 'backplays')
     if not rows:
@@ -405,8 +430,8 @@ def self_check(paths):
     live = rejected_values(paths, 'nomination-bar')
     lines.append(f'[self-check] rejections standing today for nomination-bar: '
                  f'{live or "none"}')
-    qs = knobs.docket(paths)
-    lines.append(f'[self-check] docket: {len(qs)} live question(s) — '
+    qs = knobs.queue(paths)
+    lines.append(f'[self-check] queue: {len(qs)} live question(s) — '
                  + ', '.join(f'{q.knob}@{q.current} candidates {q.neighbours()}' for q in qs))
     lines.append(f'[self-check] evidence stamp: {evidence_stamp(paths)}')
     lines.append('[self-check] cron runs this job nightly 04:00; it re-measures only when the stamp moved')
