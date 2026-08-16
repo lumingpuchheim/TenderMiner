@@ -1934,8 +1934,10 @@ def judge_run(data_dir, modes=('embedding', 'evidence'), volume=True):
                         'buyer_name': raw[k][4]}, config=cfg)
                     n_neg += 1
                     neg_pass += bool(ok)
-            for pi in (rng.choice(len(all_keys), VOL_PER_FIRM, replace=False)
-                       if volume else ()):
+            # the draw ALWAYS happens, so the negatives of the next firm are
+            # the same lots whether or not the volume sample is judged
+            vol_draw = rng.choice(len(all_keys), VOL_PER_FIRM, replace=False)
+            for pi in (vol_draw if volume else ()):
                 k = all_keys[pi]
                 ok, *_ = rel.judge(gate, profile, {
                     'procedure_id': k[0], 'lot_id': k[1],

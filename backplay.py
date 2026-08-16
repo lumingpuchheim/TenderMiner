@@ -95,7 +95,7 @@ def replay_harness(data_dir, out_path):
 HARNESSES = {'judge': judge_harness, 'replay': replay_harness}
 
 
-def measure(paths, value, harness='judge', knob=None, timeout=7200):
+def measure(paths, value, harness='judge', knob=None, timeout=10800):
     """Run one candidate under its own gate configuration. -> the payload dict.
 
     Raises on a non-zero exit: a harness that fell over measured nothing, and
