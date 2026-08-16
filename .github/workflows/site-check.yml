@@ -1,0 +1,44 @@
+# The public site's publish path, proved on Linux with a real Caddy — on
+# every push, every branch. doc/TRADE_PAGES.md 6.
+#
+# Why this exists: the operator's laptop is Windows, where a directory link
+# is a junction and `rename` cannot replace one — so the one property that
+# matters on the server (trade_pages.release repoints `current` atomically
+# and Caddy serves the new build, never an empty one) cannot be tested there.
+# The deploy workflow only fires on master, and by then it is live.
+#
+# Two things run: the trade-page unit tests (`Release` among them), and a
+# script that mounts a directory into caddy:2 the way the edge does, releases
+# into it twice from a python:3.13 container, and asserts what curl sees.
+
+name: site-check
+
+on:
+  push:
+    paths:
+      - 'trade_pages.py'
+      - 'market.py'
+      - 'evidence.py'
+      - 'config.py'
+      - 'site/**'
+      - 'tests/test_trade_pages.py'
+      - 'docker/Caddyfile'
+      - 'docker/site-check.sh'
+      - '.github/workflows/site-check.yml'
+  workflow_dispatch:
+
+jobs:
+  site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Unit tests for the trade pages, including release()
+        run: |
+          pip install --quiet pandas numpy ftfy
+          python -m unittest tests.test_trade_pages -v
+      - name: A real Caddy serves current/ across two releases and a dead build
+        run: bash docker/site-check.sh

@@ -140,12 +140,28 @@ So the split is by **source vs. output**, not by hand-written vs. generated:
 | | what | where |
 | --- | --- | --- |
 | source | `site/` — landing page, legal pages, `style.css`, `robots.txt` | committed, hand-edited |
-| output | `<data-dir>/public/` — the source copied in, plus `gewerke/` and `sitemap.xml` | gitignored, on the mounted volume, rebuilt weekly |
+| output | `<data-dir>/public/current/` — the source copied in, plus `gewerke/` and `sitemap.xml` | gitignored, on the mounted volume, rebuilt on every deploy and every Monday |
 
 `trade_pages.publish()` copies the hand-written half; `build()` adds the
-generated half. **Upload `<data-dir>/public/`**, never `site/`. The sitemap is
-generated rather than committed because it is the one file that has to know
-both halves.
+generated half. The edge serves **`<data-dir>/public/current/`**, never
+`site/`. The sitemap is generated rather than committed because it is the one
+file that has to know both halves.
+
+**How a rebuild reaches the visitor (operator decisions, 2026-08-15).**
+`current` is a symlink to the one complete build beside it
+(`public/site-XXXX/`). `trade_pages.release` writes a new build into a fresh
+directory, repoints `current` in a single rename, then deletes the directory
+it pointed at before — and any half-build a crash left. Nothing is kept: at
+rest `public/` holds `current` and one directory. A visitor sees the old site
+or the new one, never a half-written or empty one; if the build dies, the old
+site keeps serving. The edge bind-mounts `public/` itself and that directory
+is never deleted or recreated — the earlier `rmtree(out)` did exactly that,
+and a bind mount follows the inode, so the container would have gone on
+serving a deleted directory.
+
+Who runs the build: `docker/deploy.sh` after every proved image (so a page
+template change is live with the push), and the Monday cycle (so the figures
+follow the data). Same function, same output.
 
 *Receipt (2026-08-11):* built inside a container with `--read-only --tmpfs
 /tmp` against the mounted volume — 32 trade pages plus the five hand-written

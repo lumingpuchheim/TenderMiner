@@ -23,7 +23,7 @@ Three parts with three very different duties
 | --- | --- | --- |
 | the app | a customer clicks a token link at 21:00 on a Sunday | minutes, unattended |
 | the cycle | one successful run per week, Monday 08:15 | days — but **never a silently missed Monday** |
-| the public site | static, hosted elsewhere | not this machine's problem |
+| the public site | static files under `/data/public/current`, served by the edge; rebuilt by every deploy and every cycle (TRADE_PAGES.md 6) | as the edge — it is the same container |
 
 Targets, stated so they can be disagreed with:
 

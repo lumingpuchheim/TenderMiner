@@ -1,6 +1,6 @@
 """Murara's public site — doc/TRADE_PAGES.md.
 
-    python trade_pages.py                     # -> <data-dir>/public/
+    python trade_pages.py                     # -> <data-dir>/public/current/
     python trade_pages.py --dry-run           # who qualifies, writes nothing
     python trade_pages.py --replay run.json   # ... with the forecast section
 
@@ -15,8 +15,14 @@ exists to protect.
 `site/` is source — committed, hand-edited, and inside the code checkout,
 which in the container is the read-only image. The build therefore goes to
 `<data-dir>/public/`, on the mounted volume: nothing generated is committed,
-and nothing is written where the container would discard it. Upload
-`<data-dir>/public/`, never `site/`.
+and nothing is written where the container would discard it.
+
+**The served site is `<data-dir>/public/current/`**, a symlink to the one
+complete build beside it (`release`, below). The edge serves that path, so a
+rebuild is either not yet visible or entirely visible — never a half-written
+directory, never an empty one — and the previous build is deleted the moment
+the link has moved (operator, 2026-08-15: nothing is kept). `deploy.sh` runs
+this after every switch and the weekly cycle runs it every Monday.
 
 Murara is the customer-facing brand; TenderMining stays the internal system
 name, so nothing a visitor reads says TenderMining.
@@ -418,8 +424,113 @@ def publish(out, site=SITE):
         shutil.copy2(src, dst)
 
 
+CURRENT = 'current'          # <public>/current -> site-XXXX, what the edge serves
+BUILD_PREFIX = 'site-'       # <public>/site-XXXX, one complete site each
+
+
+def _point(link, target_name):
+    """Make `link` a symlink to its sibling `target_name`, atomically replacing
+    whatever `link` was before. A relative target, so the link resolves the
+    same on the host and inside the edge container that mounts the directory.
+
+    Windows without the symlink privilege gets a directory junction instead
+    (the operator's laptop); on the server it is a plain symlink."""
+    import os
+    tmp = link.with_name(link.name + '.tmp')
+    if tmp.is_symlink() or tmp.exists():
+        _unlink_link(tmp)
+    try:
+        tmp.symlink_to(target_name, target_is_directory=True)
+    except OSError:
+        if sys.platform != 'win32':
+            raise
+        import _winapi
+        _winapi.CreateJunction(str(link.parent / target_name), str(tmp))
+    # rename over the old link: one syscall, so a request in flight sees the
+    # old site or the new one, never neither. Windows cannot rename over a
+    # directory link at all; there (the laptop, no edge) it is unlink + rename.
+    try:
+        os.replace(tmp, link)
+    except OSError:
+        if sys.platform != 'win32':
+            raise
+        if link.is_symlink() or link.exists():
+            _unlink_link(link)
+        os.rename(tmp, link)
+
+
+def _unlink_link(p):
+    """Remove a symlink or junction, never what it points to."""
+    import os
+    try:
+        os.unlink(p)
+    except OSError:
+        os.rmdir(p)               # a Windows directory link
+
+
+def release(public, write, prefix=BUILD_PREFIX):
+    """Publish a new site under `public` without ever serving a partial one.
+
+    `write(dir)` fills a fresh, empty directory with the whole site. Then:
+
+      1. `public/current` is pointed at that directory (atomic rename);
+      2. the directory it pointed at before is deleted, and so is any other
+         `site-*` left by a build that died halfway;
+      3. anything else lying in `public/` — the flat layout that was served
+         before `current` existed — is swept, but only once a `current` was
+         already there when this started, so the edge that still serves the
+         flat files keeps them until it has been recreated to serve `current`.
+
+    At rest, `public/` holds `current` and the one directory it points to.
+    Nothing accumulates. If `write` raises, the new directory is removed and
+    `current` still points at the last complete site (operator, 2026-08-15).
+
+    The edge bind-mounts `public/` itself, never a child of it, and this
+    function never deletes or recreates `public/` — a bind mount follows the
+    inode, so removing and recreating the mounted directory (the old
+    `shutil.rmtree(out)`) leaves the container serving a deleted directory.
+
+    -> the path of the directory now served."""
+    import os
+    import tempfile
+    public = Path(public)
+    public.mkdir(parents=True, exist_ok=True)
+    link = public / CURRENT
+    had_current = link.is_symlink() or link.exists()
+    before = os.readlink(link) if link.is_symlink() else None
+
+    new = Path(tempfile.mkdtemp(prefix=prefix, dir=public))
+    new.chmod(0o755)                # mkdtemp gives 0700; the edge is another uid
+    try:
+        write(new)
+    except BaseException:
+        shutil.rmtree(new, ignore_errors=True)
+        raise
+    _point(link, new.name)
+
+    for entry in public.iterdir():
+        if entry == link or entry == new:
+            continue
+        if entry.name == CURRENT + '.tmp':
+            _unlink_link(entry)
+            continue
+        stale = entry.name.startswith(prefix) or (
+            entry.name == before if before else False)
+        if not stale and not had_current:
+            continue            # the flat layout, still being served: next time
+        if entry.is_symlink() or entry.is_junction():
+            _unlink_link(entry)
+        elif entry.is_file():
+            entry.unlink()
+        else:
+            shutil.rmtree(entry)
+    return new
+
+
 def build(data_dir, out=None, dry_run=False, site=SITE, replay=None):
-    """Build the whole site into `out` (default `<data-dir>/public`).
+    """Build the whole site and release it under `out` (default
+    `<data-dir>/public`) — see `release` for how; the served site is always
+    `<out>/current/`.
 
     `replay` is the path to a `rewind_all.py` document; without one the pages
     carry no forecast claim.
@@ -448,18 +559,21 @@ def build(data_dir, out=None, dry_run=False, site=SITE, replay=None):
     if dry_run:
         return built, skipped
 
-    if out.exists():
-        shutil.rmtree(out)   # a trade that fell below the floor must vanish
-    publish(out, site)
-    gew = out / 'gewerke'
-    gew.mkdir(parents=True)
-    for slug, text in pages.items():
-        (gew / slug).mkdir()
-        (gew / slug / 'index.html').write_text(text, encoding='utf-8')
-    (gew / 'index.html').write_text(index_page(built), encoding='utf-8')
-    # the sitemap can only be written here: it is the one file that has to
-    # know both halves, the hand-written pages and the generated ones
-    (out / 'sitemap.xml').write_text(sitemap(built), encoding='utf-8')
+    def write(root):
+        # a fresh directory every time, so a trade that fell below the floor
+        # simply is not written — nothing to delete
+        publish(root, site)
+        gew = root / 'gewerke'
+        gew.mkdir(parents=True)
+        for slug, text in pages.items():
+            (gew / slug).mkdir()
+            (gew / slug / 'index.html').write_text(text, encoding='utf-8')
+        (gew / 'index.html').write_text(index_page(built), encoding='utf-8')
+        # the sitemap can only be written here: it is the one file that has
+        # to know both halves, the hand-written pages and the generated ones
+        (root / 'sitemap.xml').write_text(sitemap(built), encoding='utf-8')
+
+    release(out, write)
     return built, skipped
 
 
@@ -470,7 +584,8 @@ def main():
     import config
     ap.add_argument('--data-dir', default=config.data_root())
     ap.add_argument('--out', default=None,
-                    help='built site (default: <data-dir>/public)')
+                    help='site root; the build lands in <out>/current/ '
+                         '(default: <data-dir>/public)')
     ap.add_argument('--dry-run', action='store_true',
                     help='report who qualifies, write nothing')
     ap.add_argument('--replay', default=None, metavar='PATH',
@@ -482,7 +597,7 @@ def main():
                            replay=args.replay)
     print(f'[trades] {len(built)} trade pages'
           + (' (dry run, nothing written)' if args.dry_run else
-             f'; site built -> {out}')
+             f'; site built -> {out / CURRENT}')
           + ('' if args.replay else '; no --replay, so no forecast section'))
     if skipped:
         print(f'[trades] {len(skipped)} below the floor of {MIN_AWARDED} '

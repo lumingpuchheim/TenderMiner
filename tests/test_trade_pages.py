@@ -264,5 +264,90 @@ class GeneratedOutput(unittest.TestCase):
             self.assertNotRegex(html, r'\d+ [kM] €', p.parent.name)
 
 
+class Release(unittest.TestCase):
+    """`release`: the served site is `public/current`, a link to the one
+    complete build beside it. Never partial, never empty, nothing kept
+    (operator, 2026-08-15). The edge bind-mounts `public/` itself, so
+    `public/` is never deleted or recreated — the old `rmtree(out)` left the
+    container serving a directory that no longer existed."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.public = Path(self.tmp.name) / 'public'
+        # a link is what the edge follows; a laptop without the privilege
+        # gets a junction, which is not a symlink — but on any host where the
+        # first release cannot make a link at all, none of this can be tested
+        try:
+            tp.release(self.public, lambda d: (d / 'index.html').write_text('0'))
+        except OSError as e:                     # pragma: no cover
+            self.skipTest(f'no symlink/junction here: {e}')
+
+    def served(self):
+        return (self.public / tp.CURRENT / 'index.html').read_text()
+
+    def builds(self):
+        return sorted(p.name for p in self.public.iterdir()
+                      if p.name.startswith(tp.BUILD_PREFIX))
+
+    def test_current_serves_the_latest_complete_build(self):
+        self.assertEqual(self.served(), '0')
+        tp.release(self.public, lambda d: (d / 'index.html').write_text('1'))
+        self.assertEqual(self.served(), '1')
+
+    def test_the_previous_build_is_deleted_and_nothing_accumulates(self):
+        for i in range(1, 4):
+            tp.release(self.public,
+                       lambda d, i=i: (d / 'index.html').write_text(str(i)))
+        self.assertEqual(len(self.builds()), 1)
+        names = sorted(p.name for p in self.public.iterdir())
+        self.assertEqual(names, sorted([tp.CURRENT, self.builds()[0]]))
+
+    def test_a_build_that_dies_leaves_the_last_site_untouched(self):
+        def die(d):
+            (d / 'index.html').write_text('half')
+            raise RuntimeError('store went away')
+        with self.assertRaises(RuntimeError):
+            tp.release(self.public, die)
+        self.assertEqual(self.served(), '0')
+        self.assertEqual(len(self.builds()), 1)     # the half build is gone
+
+    def test_a_leftover_from_a_crash_is_swept_by_the_next_release(self):
+        (self.public / (tp.BUILD_PREFIX + 'orphan')).mkdir()
+        tp.release(self.public, lambda d: (d / 'index.html').write_text('1'))
+        self.assertEqual(len(self.builds()), 1)
+        self.assertEqual(self.served(), '1')
+
+    def test_the_directory_the_edge_mounts_is_never_recreated(self):
+        import os
+        ino = os.stat(self.public).st_ino
+        tp.release(self.public, lambda d: (d / 'index.html').write_text('1'))
+        self.assertEqual(os.stat(self.public).st_ino, ino)
+
+    def test_the_link_is_relative_so_it_resolves_inside_the_container(self):
+        import os
+        link = self.public / tp.CURRENT
+        if not link.is_symlink():
+            self.skipTest('junction, not a symlink')
+        self.assertFalse(Path(os.readlink(link)).is_absolute())
+
+    def test_a_flat_legacy_layout_is_kept_once_then_swept(self):
+        """Migration from the pre-`current` layout: the old edge still serves
+        the flat files until it is recreated, so the first release leaves
+        them; the second one — the edge now on `current` — removes them."""
+        pub = Path(self.tmp.name) / 'legacy'
+        pub.mkdir()
+        (pub / 'index.html').write_text('flat')
+        (pub / 'gewerke').mkdir()
+        (pub / 'gewerke' / 'index.html').write_text('flat')
+        tp.release(pub, lambda d: (d / 'index.html').write_text('1'))
+        self.assertTrue((pub / 'index.html').exists())
+        self.assertTrue((pub / 'gewerke' / 'index.html').exists())
+        tp.release(pub, lambda d: (d / 'index.html').write_text('2'))
+        self.assertFalse((pub / 'index.html').exists())
+        self.assertFalse((pub / 'gewerke').exists())
+        self.assertEqual((pub / tp.CURRENT / 'index.html').read_text(), '2')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

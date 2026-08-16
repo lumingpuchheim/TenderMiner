@@ -1313,7 +1313,10 @@ def _run_cycle(paths, args):
     # under. This is also why the generated pages are not committed.
     #
     # Non-fatal by the same rule the dashboard gets: a week-stale market page
-    # is acceptable, a missing customer report is not. Nothing uploads here.
+    # is acceptable, a missing customer report is not. Nothing uploads here:
+    # the edge serves `<data>/public/current` directly, and `release` swaps it
+    # all-or-nothing. A page-TEMPLATE change does not wait for Monday either —
+    # docker/deploy.sh runs the same build after every deploy.
     if not args.skip_trade_pages:
         try:
             import trade_pages

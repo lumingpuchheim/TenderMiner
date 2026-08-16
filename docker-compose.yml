@@ -144,8 +144,9 @@ services:
     volumes:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data          # certificates survive the container
-      # The public site, written by the weekly cycle (render step), served
-      # here as plain files. Read-only: Caddy is a waiter, never a writer.
+      # The public site, written by every deploy and every weekly cycle,
+      # served here as plain files (the Caddyfile serves `current/` inside
+      # it — see there). Read-only: Caddy is a waiter, never a writer.
       - ${TM_STATE:-./data}/public:/srv/public:ro
     restart: always
 

@@ -176,6 +176,37 @@ switch_to() {
 run 'bash docker/deploy.sh rollback'"
 }
 
+# ----------------------------------------------------------- the public site
+#
+# www.murara.eu is files under $STATE/public, not part of the image, because
+# they are computed from the database — which only the server has. So a
+# push that changes a page template used to change nothing a visitor sees
+# until the next Monday cycle rebuilt them (operator, 2026-08-15: "I thought a
+# git push rebuilds the image and the website gets updated"). Now the deploy
+# rebuilds them with the image it has just proved, exactly as the cycle does.
+#
+# Before the switch, not after: the edge is recreated in switch_to, and it
+# serves $STATE/public/current — building first means that link exists the
+# moment the new edge starts. trade_pages.release makes the rebuild
+# all-or-nothing (a new directory, one link rename, old directory removed).
+#
+# Non-fatal, by the same rule loop.py applies: the image is proved and the
+# code is what this deploy is for; a page-build failure keeps the previous
+# site serving and is retried by the cycle. It says so loudly, though.
+build_site() {
+    local tag="$1"
+    say "building the public site with $IMAGE:$tag -> $STATE/public/current"
+    if docker run --rm \
+        -e "TZ=${TM_TZ:-Europe/Bucharest}" \
+        -v "$STATE:/data" \
+        "$IMAGE:$tag" python trade_pages.py; then
+        say "site built"
+    else
+        say "WARNING: site build failed — the previous site keeps serving;"
+        say "         the Monday cycle will rebuild it. Deploy continues."
+    fi
+}
+
 record() {
     mkdir -p "$BOOK"
     [ -f "$BOOK/current" ] && cp "$BOOK/current" "$BOOK/previous" || true
@@ -219,6 +250,7 @@ cmd_deploy() {
     docker build -t "$IMAGE:$tag" . || die "build failed — nothing switched"
 
     probe "$tag"
+    build_site "$tag"
     switch_to "$tag"
     record "$tag"
     prune
@@ -234,6 +266,12 @@ cmd_rollback() {
         || die "image $IMAGE:$tag is gone (pruned?) — nothing to roll back to"
     say "rolling back to $tag — no rebuild, this is the artifact that served before"
     probe "$tag"
+    # No site rebuild here, on purpose: an image from before 2026-08-15 builds
+    # the site by deleting and recreating $STATE/public — the directory the
+    # edge mounts — which leaves the edge serving nothing. The site keeps the
+    # pages of the tag being rolled back from; the next deploy or Monday cycle
+    # regenerates them. (Rolling the SCHEDULER back to such an image has the
+    # same hazard on Monday — roll forward instead where you can.)
     switch_to "$tag"
     # Swap the pointers rather than appending: rolling back twice returns to
     # where you were, which is what an operator under pressure expects.

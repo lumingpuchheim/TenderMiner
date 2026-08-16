@@ -21,11 +21,18 @@
 }
 
 # The public site (operator decision 2026-08-15: served from this box rather
-# than a separate static host — the weekly cycle writes /data/public and Caddy
-# serves it, so the trade pages are live the moment they regenerate, no
-# publish step). LAUNCH.md §4.1's properties are kept: static files, zero
-# forms, zero backend — the app container is not involved, and unlike the app
-# block above this one is public-by-design: indexable, no tokens anywhere.
+# than a separate static host — every deploy and every weekly cycle write
+# /data/public and Caddy serves it, so the trade pages are live the moment
+# they regenerate, no publish step). LAUNCH.md §4.1's properties are kept:
+# static files, zero forms, zero backend — the app container is not involved,
+# and unlike the app block above this one is public-by-design: indexable, no
+# tokens anywhere.
+#
+# The root is /srv/public/current, a symlink the builder repoints atomically
+# at the one complete build beside it (trade_pages.release). Serving `current`
+# rather than /srv/public is what makes a rebuild all-or-nothing from here:
+# the mount is /srv/public and is never deleted, the link flips in one
+# rename, and the previous build is removed once the link has moved.
 #
 # Guarded like the app block: unset TM_WWW_DOMAIN (the laptop; a bare-IP
 # test server) collapses this to a loopback-only plain-HTTP site, so Caddy is
@@ -33,6 +40,6 @@
 {$TM_WWW_DOMAIN:http://localhost:8099} {
 	encode gzip
 	header Strict-Transport-Security "max-age=2592000"
-	root * /srv/public
+	root * /srv/public/current
 	file_server
 }
