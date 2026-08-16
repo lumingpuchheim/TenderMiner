@@ -32,6 +32,7 @@ import ledger
 import loop
 import single_bidder as sb
 import util
+import grading
 
 EXP = ex.DECLARED['cpv-additional-encoding']
 ARGS = argparse.Namespace(threshold=0.5, track_window='12w', top_slice=0.2,
@@ -167,19 +168,19 @@ class ArmGrading(Home):
 
     def test_one_row_per_arm_and_lot_and_a_second_run_adds_none(self):
         with contextlib.redirect_stdout(io.StringIO()):
-            loop.grade(self.paths, self.tenders, self.aw, ARGS, self.plan)
+            grading.grade(self.paths, self.tenders, self.aw, ARGS, self.plan)
         by = ex.rows_by_arm(self.data, EXP.id)
         self.assertEqual({a: sorted(r['procedure_id'] for r in rows) for a, rows in by.items()},
                          {'onehot': ['p1', 'p2'], 'ts': ['p1', 'p2', 'p3']})
         r = next(r for r in by['onehot'] if r['procedure_id'] == 'p1')
         self.assertEqual((r['label'], r['flag'], r['score'], r['model']), (1, True, 0.8, 'm1-onehot'))
         with contextlib.redirect_stdout(io.StringIO()):
-            loop.grade(self.paths, self.tenders, self.aw, ARGS, self.plan)
+            grading.grade(self.paths, self.tenders, self.aw, ARGS, self.plan)
         self.assertEqual(sum(len(v) for v in ex.rows_by_arm(self.data, EXP.id).values()), 5)
 
     def test_customer_record_is_the_delivering_arms_prediction(self):
         with contextlib.redirect_stdout(io.StringIO()):
-            loop.grade(self.paths, self.tenders, self.aw, ARGS, self.plan)
+            grading.grade(self.paths, self.tenders, self.aw, ARGS, self.plan)
         grades = {g['procedure_id']: g for g in ledger.read(self.data, 'grades')}
         # p1: the ts row was appended LAST on the same lot, but onehot delivers
         self.assertEqual(grades['p1']['model'], 'm1-onehot')
@@ -191,7 +192,7 @@ class ArmGrading(Home):
 
     def test_paired_restriction(self):
         with contextlib.redirect_stdout(io.StringIO()):
-            loop.grade(self.paths, self.tenders, self.aw, ARGS, self.plan)
+            grading.grade(self.paths, self.tenders, self.aw, ARGS, self.plan)
         pr, common = ex.paired(ex.rows_by_arm(self.data, EXP.id), ['onehot', 'ts'])
         self.assertEqual(sorted(p for p, _ in common), ['p1', 'p2'])
         self.assertEqual(len(pr['ts']), 2)      # p3 is in neither comparison
@@ -336,7 +337,7 @@ class ZeroOpen(Home):
         ledger.append(self.data, 'predictions', [pred('p1', 'L1', 'm0', 0.6, '2026-08-01T06:00:00')])
         tenders, aw = frames([('p1', 'L1')], [('p1', 'L1', 1, '2026-09-20')])
         with contextlib.redirect_stdout(io.StringIO()):
-            g_none = loop.grade(self.paths, tenders, aw, ARGS)
+            g_none = grading.grade(self.paths, tenders, aw, ARGS)
         self.assertEqual(len(g_none), 1)
         self.assertEqual(ledger.read(self.data, 'arm_grades'), [])
         p = ex.plan(self.data, '2026-08-01')      # before opened: no trial

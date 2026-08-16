@@ -169,7 +169,7 @@ def state(data_dir):
 
 def delivering_map(data_dir):
     """{experiment id: delivering arm} for every state row, open or closed —
-    what loop.grade uses to tell a delivering arm's prediction from a
+    what grading.grade uses to tell a delivering arm's prediction from a
     shadow's on the same lot, during and after a trial."""
     return {i: r['delivering'] for i, r in state(data_dir).items()}
 
@@ -348,7 +348,7 @@ def latest_candidate(models_dir, arm_id):
 def arm_grade_rows(exp, labeled, lot_meta, by_lot, threshold, now_iso):
     """Rows for the `arm_grades` ledger: per arm, per awarded lot the arm had
     predicted, the arm's LAST prediction before the award — the same rule
-    loop.grade applies for the delivering arm's record.
+    grading.grade applies for the delivering arm's record.
 
     labeled: {(procedure_id, lot_id): (label, award_pub, award_pub_nr, n_tenders)}
     by_lot: {(procedure_id, lot_id): [prediction rows]} — rows carry
@@ -412,11 +412,11 @@ def paired(by_arm, arm_ids):
 
 
 def arm_stats(rows):
-    """flag_stats plus the top-tier precision — loop's functions, reused."""
-    import loop
+    """flag_stats plus the top-tier precision — grading's functions, reused."""
+    import grading
     if not rows:
         return None
-    fs = loop.flag_stats(rows)
+    fs = grading.flag_stats(rows)
     high = [r for r in rows if r.get('tier') == 'HIGH']
     fs['high_n'] = len(high)
     fs['high_precision'] = (sum(r['label'] for r in high) / len(high)) if high else None

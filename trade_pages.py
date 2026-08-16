@@ -194,7 +194,7 @@ def load_replay(path):
 def forecast_for(receipt, lots, sel):
     """-> (stats, generated) for this trade's slice of the replay, or None.
 
-    `stats` is `loop.flag_stats`' dict — the SAME function the weekly report
+    `stats` is `grading.flag_stats`' dict — the SAME function the weekly report
     and the backtest's own table use. That sharing is deliberate: until live
     awards accumulate, the replayed number is the one quoted, and it must be
     the same statistic rather than a second implementation that agrees by
@@ -212,7 +212,7 @@ def forecast_for(receipt, lots, sel):
             and (r['procedure_id'], r['lot_id']) in keys]
     if not rows:
         return None
-    from loop import flag_stats           # lazy: pulls the ML stack
+    from grading import flag_stats        # lazy: pulls the ML stack
     return flag_stats(rows), receipt.get('generated', '?')
 
 

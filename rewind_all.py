@@ -59,6 +59,7 @@ import subscriptions
 from selection import lot_key
 from calibrate import WorldTooThin
 from embed import MODEL_TAG
+import grading
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -325,7 +326,7 @@ def flag_matrix(payload):
     view is where a customer's actual question lives — "if I act on every
     alarm, what do I get, and what do I miss?"
 
-    Scored with loop.flag_stats, the same function the weekly report uses, so
+    Scored with grading.flag_stats, the same function the weekly report uses, so
     the replayed number and the live number are comparable statistics rather
     than two implementations that happen to agree. Population: every tender
     examined while open whose award has since published. Alarms are deduped
@@ -333,7 +334,7 @@ def flag_matrix(payload):
     """
     rows = [{'flag': r['flag'], 'label': int(r['n_tenders'] <= 1)}
             for r in payload['lots'] if r['n_tenders'] is not None]
-    f = loop.flag_stats(rows)
+    f = grading.flag_stats(rows)
     if not f:
         return ['## The flag: forecast precision and recall', '',
                 'No examined tender has a published result yet.', '']

@@ -102,7 +102,7 @@ class Slicing(unittest.TestCase):
         """Shared with the weekly report and the backtest deliberately: the
         replayed number is the one quoted until live awards accumulate, so it
         must be the same statistic, not a second implementation."""
-        from loop import flag_stats
+        from grading import flag_stats
         rec = receipt([('p1', 'L1', True, 1), ('p1', 'L2', False, 0)])
         st, _ = slice_of(rec, [('p1', 'L1'), ('p1', 'L2')])
         self.assertEqual(st, flag_stats([{'flag': True, 'label': 1},
