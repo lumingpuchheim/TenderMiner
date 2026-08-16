@@ -47,6 +47,12 @@ REPO = Path(__file__).resolve().parent
 
 MIN_LABELLED = 20        # labelled disagreements before a challenger can be ready
 HARD_BAR = knobs.HARD_BAR
+# The live guardrail (PARAMETERS.md 14): each cycle this many DELIVERED lots
+# join the blind reading list, so the champion's own wrong-trade share on
+# live lots is measured directly, not only relative to a challenger. Small,
+# because every one is a lot the operator reads by hand.
+GUARD_SAMPLE = 10
+MIN_GUARD = 30           # read delivered lots before the guardrail line quotes a rate
 
 
 # ------------------------------------------------------------- the subprocess
@@ -130,9 +136,16 @@ def run(paths, scored, today=None):
     """Judge this cycle's scored lots under the champion and every standing
     proposal; record disagreements. Returns the lines the report carries."""
     today = today or util.now_utc().date().isoformat()
+    try:
+        queued = guard_sample(paths, today)
+    except Exception as e:                      # the guardrail must not fail a cycle
+        queued = 0
+        print(f'[shadow] guard sample skipped ({e})')
     props = challengers(paths, today)
     if not props:
-        return ['- shadow: no standing proposal — nothing to judge beside the champion']
+        return (['- shadow: no standing proposal — nothing to judge beside the champion'
+                 + (f'; {queued} delivered lots queued for reading' if queued else '')]
+                + guardrail_lines(paths))
     lines, rows = [], []
     with tempfile.TemporaryDirectory() as tmp:
         lots = Path(tmp) / 'lots.json'
@@ -181,7 +194,7 @@ def run(paths, scored, today=None):
                          + (' — read them: python shadow.py --label' if n_diff else ''))
     if rows:
         ledger.append(paths.ledger_home, 'gate_shadows', rows)
-    return lines
+    return lines + guardrail_lines(paths)
 
 
 # ---------------------------------------------------------------- the verdict
@@ -260,6 +273,96 @@ def status_lines(paths, today=None):
     return lines
 
 
+# ------------------------------------------------------------ the guardrail
+
+def guard_sample(paths, today=None, n=GUARD_SAMPLE):
+    """Queue up to `n` delivered lots (kind `pick`, newest first, not yet
+    queued or read) as `role='guard'` rows in gate_shadows. They enter the
+    same blind reading list as the disagreements and look the same there —
+    the reader cannot tell a guard lot from a disagreement, which is what
+    keeps both readings honest. Their reading is the champion's live
+    wrong-trade rate (PARAMETERS.md 14)."""
+    today = today or util.now_utc().date().isoformat()
+    have = {(r['sub_id'], r['procedure_id'], r['lot_id'])
+            for r in ledger.read(paths.ledger_home, 'gate_shadows')}
+    labels = _labels(paths)
+    picked, rows = 0, []
+    delivered = [d for d in ledger.read(paths.deliveries_home, 'deliveries')
+                 if d.get('kind', 'pick') == 'pick']
+    for d in sorted(delivered, key=lambda d: str(d.get('ts')), reverse=True):
+        key = (d['sub_id'], d['procedure_id'], d['lot_id'])
+        if key in have or key in labels:
+            continue
+        have.add(key)
+        rows.append({'ts': util.now_utc().isoformat(timespec='seconds'), 'cycle': today,
+                     'knob': '', 'value': '', 'role': 'guard',
+                     'champion_fp': d.get('gate_config'), 'challenger_fp': None,
+                     'sub_id': d['sub_id'], 'sub_name': d.get('sub_name') or d['sub_id'],
+                     'procedure_id': d['procedure_id'], 'lot_id': d['lot_id'],
+                     'champion': 'in', 'challenger': None,
+                     'title': d.get('title'), 'buyer_name': d.get('buyer_name'),
+                     'cpv_main': d.get('cpv_main'), 'desc': '',
+                     'publication_number': d.get('publication_number'),
+                     'delivered_ts': d.get('ts')})
+        picked += 1
+        if picked >= n:
+            break
+    if rows:
+        ledger.append(paths.ledger_home, 'gate_shadows', rows)
+    return picked
+
+
+def guardrail(paths):
+    """(status, detail, stats): the champion's wrong-trade share among the
+    delivered lots the operator has read. `bar breached` is red in the
+    report and names the revert target — the gate configuration recorded
+    before the current one — but the switch stays the operator's (§8.3)."""
+    labels = _labels(paths)
+    guards = [r for r in ledger.read(paths.ledger_home, 'gate_shadows') if r.get('role') == 'guard']
+    n = wrong = 0
+    for r in guards:
+        exp = labels.get((r['sub_id'], r['procedure_id'], r['lot_id']))
+        if exp in ('in', 'out'):
+            n += 1
+            wrong += exp == 'out'
+    stats = {'queued': len(guards), 'read': n, 'wrong': wrong,
+             'leakage': (wrong / n) if n else None}
+    if n == 0:
+        return ('no reading yet',
+                f'{len(guards)} delivered lots queued for reading — python shadow.py --label', stats)
+    lo, hi = grading.wilson(wrong, n)
+    rate = (f'{wrong / n * 100:.1f}% wrong-trade among {n} delivered lots read '
+            f'(interval {lo * 100:.1f}-{hi * 100:.1f}%, bar {HARD_BAR * 100:.1f}%)')
+    if n >= MIN_GUARD and wrong / n > HARD_BAR:
+        return ('bar breached', rate + ' — ' + _revert_target(paths), stats)
+    if n < MIN_GUARD:
+        return ('collecting', rate + f'; {MIN_GUARD - n} more to read before it counts', stats)
+    return ('within the bar', rate, stats)
+
+
+def _revert_target(paths):
+    """The gate configuration recorded before the current one — what a
+    revert would go back to. Named, not applied."""
+    try:
+        rows = ledger.read(paths.deliveries_home, 'gate_configs')
+    except Exception:
+        rows = []
+    seen = list(dict.fromkeys(r.get('fingerprint') for r in rows))
+    if len(seen) < 2:
+        return 'no earlier gate configuration recorded to revert to'
+    prev = seen[-2]
+    when = next((str(r.get('first_seen') or r.get('ts') or '')[:10]
+                 for r in rows if r.get('fingerprint') == prev), '?')
+    return (f'revert target: gate configuration {prev} (recorded {when}) - the switch '
+            f'is the operator\'s, PARAMETERS.md 8.3')
+
+
+def guardrail_lines(paths):
+    status, detail, _ = guardrail(paths)
+    mark = '** GATE GUARDRAIL BREACHED ** ' if status == 'bar breached' else ''
+    return [f'- {mark}gate guardrail: **{status}** — {detail}']
+
+
 # ------------------------------------------------------------- the labelling
 
 def unread(paths):
@@ -267,7 +370,8 @@ def unread(paths):
     WITHOUT the verdicts — the reader must not see them."""
     labels = _labels(paths)
     seen, out = set(), []
-    rows = [r for r in ledger.read(paths.ledger_home, 'gate_shadows') if r.get('role') == 'diff']
+    rows = [r for r in ledger.read(paths.ledger_home, 'gate_shadows')
+            if r.get('role') in ('diff', 'guard')]
     for r in sorted(rows, key=lambda r: str(r.get('ts')), reverse=True):
         key = (r['sub_id'], r['procedure_id'], r['lot_id'])
         if key in labels or key in seen:
@@ -323,8 +427,10 @@ def show(paths, today=None):
                          f'read {st["labelled"]} (challenger right {st["challenger_right"]}, '
                          f'champion right {st["champion_right"]}), challenger admits '
                          f'{st["admits"]}, wrong extra admissions {st["extra_wrong"]}')
+    status, detail, st = guardrail(paths)
+    lines.append(f'[shadow] guardrail: {status} — {detail}')
     n = len(unread(paths))
-    lines.append(f'[shadow] {n} disagreement(s) unread' + (' — python shadow.py --label' if n else ''))
+    lines.append(f'[shadow] {n} lot(s) unread' + (' — python shadow.py --label' if n else ''))
     return lines
 
 

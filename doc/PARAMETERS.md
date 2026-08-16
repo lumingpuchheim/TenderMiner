@@ -792,3 +792,38 @@ two hours there (store 2.6× the laptop's), so backplay now calls it with
 200-lots-per-firm volume sample that is 78 % of the calls and a number the
 rule never reads. Same seed, same recall and leakage, an eighth of the cost.
 
+## 14. The live guardrail — 2026-08-16
+
+§8.3 promised that leakage above 2.2 % on graded live lots turns the report
+line red; §10.5 said the auto-revert waits for that number. The number
+needed a truth source on *delivered* lots, and there was none: feedback
+tokens exist in the schema but no report mints them, and a customer's own
+later win is positive truth only. So the truth is the same blind reading as
+§12, and the sample is chosen so the reading stays honest:
+
+- **Every cycle queues `GUARD_SAMPLE = 10` delivered lots** (kind `pick`,
+  newest first, never the same lot twice) as `role='guard'` rows in
+  `gate_shadows`. In `shadow.py --label` they are indistinguishable from
+  disagreements — same fields, no verdicts — so the reader cannot favour
+  the champion on either.
+- **`shadow.guardrail()`**: wrong-trade share among the delivered lots read,
+  with its Wilson interval. `no reading yet` → `collecting` (fewer than
+  `MIN_GUARD = 30` read) → `within the bar` / **`bar breached`** — red in the
+  report (`** GATE GUARDRAIL BREACHED **`) and the line names the **revert
+  target**: the gate configuration recorded before the current one in the
+  `gate_configs` ledger, with its date.
+- **Not applied automatically.** §8.3: flipping the switch stays the
+  operator's. The revert is one command away and the line says which; an
+  automatic revert would put a value into production that no commit holds,
+  and the guard in `knobs.gate_guard` would then refuse to deliver under it
+  — the honest fingerprint and the automatic revert are in tension, and the
+  fingerprint wins. When the operator wants the automatic half, the shape
+  is: a recorded-good override file the cycle reads, stamped as its own
+  fingerprint and named in the register — a small change, deliberately not
+  made tonight.
+- Where: the guardrail line follows the shadow lines in Monday's report and
+  in `python shadow.py --show`.
+
+Reading load: ten delivered lots a week plus the disagreements. Thirty read
+before the rate counts, so the first verdict is about a month in.
+

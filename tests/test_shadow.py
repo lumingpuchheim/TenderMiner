@@ -200,5 +200,76 @@ class TheVerdict(Sandbox):
         self.assertIn('forward: **collecting**', report)
 
 
+class TheGuardrail(Sandbox):
+    """PARAMETERS.md 14: delivered lots join the blind reading; their reading
+    is the champion's live wrong-trade share."""
+
+    def _deliver(self, n, gate_config='7931c8e9cd', day='2026-08-10'):
+        ledger.append(self.paths.deliveries_home, 'deliveries', [
+            {'ts': f'{day}T05:00:0{i % 10}+00:00', 'sub_id': 'acme', 'sub_version': 1,
+             'procedure_id': f'd{i}', 'lot_id': 'LOT-0001', 'model': 'm', 'score': 0.7,
+             'kind': 'pick', 'title': f'Delivered {i}', 'buyer_name': 'Stadt Y',
+             'gate_config': gate_config} for i in range(n)])
+
+    def _read_guards(self, expects):
+        guards = [r for r in ledger.read(self.paths.ledger_home, 'gate_shadows') if r['role'] == 'guard']
+        ledger.append(self.paths.ledger_home, 'gate_labels', [
+            {'ts': f'2026-08-20T01:00:{i % 60:02d}+00:00', 'sub_id': g['sub_id'],
+             'procedure_id': g['procedure_id'], 'lot_id': g['lot_id'], 'expect': e, 'note': ''}
+            for i, (g, e) in enumerate(zip(guards, expects))])
+
+    def test_a_cycle_queues_a_sample_of_delivered_lots_at_most_guard_sample(self):
+        self._deliver(25)
+        with mock.patch.object(knobs, 'standing_proposals', lambda *a, **k: []):
+            lines = shadow.run(self.paths, [], today='2026-08-17')
+        guards = [r for r in ledger.read(self.paths.ledger_home, 'gate_shadows') if r['role'] == 'guard']
+        self.assertEqual(len(guards), shadow.GUARD_SAMPLE)
+        self.assertIn('10 delivered lots queued', lines[0])
+        self.assertIn('gate guardrail: **no reading yet**', lines[1])
+        # the next cycle queues the NEXT ten, never the same lot twice
+        with mock.patch.object(knobs, 'standing_proposals', lambda *a, **k: []):
+            shadow.run(self.paths, [], today='2026-08-24')
+        guards = [r for r in ledger.read(self.paths.ledger_home, 'gate_shadows') if r['role'] == 'guard']
+        self.assertEqual(len({g['procedure_id'] for g in guards}), 20)
+
+    def test_guard_lots_look_like_any_other_lot_in_the_reading_list(self):
+        self._deliver(3)
+        shadow.guard_sample(self.paths, '2026-08-17')
+        for d in shadow.unread(self.paths):
+            self.assertEqual(set(d), {'sub_id', 'sub_name', 'procedure_id', 'lot_id', 'title',
+                                      'buyer_name', 'cpv_main', 'desc', 'publication_number'})
+
+    def test_within_the_bar_and_breached(self):
+        self._deliver(40)
+        shadow.guard_sample(self.paths, '2026-08-17', n=40)
+        self._read_guards(['in'] * 40)
+        status, detail, st = shadow.guardrail(self.paths)
+        self.assertEqual(status, 'within the bar', detail)
+        self.assertEqual(st['read'], 40)
+        # a second reading of two lots as out: 2/40 = 5% > 2.2%
+        guards = [r for r in ledger.read(self.paths.ledger_home, 'gate_shadows') if r['role'] == 'guard']
+        ledger.append(self.paths.ledger_home, 'gate_labels', [
+            {'ts': '2026-08-21T00:00:00+00:00', 'sub_id': 'acme', 'procedure_id': g['procedure_id'],
+             'lot_id': g['lot_id'], 'expect': 'out', 'note': ''} for g in guards[:2]])
+        status, detail, _ = shadow.guardrail(self.paths)
+        self.assertEqual(status, 'bar breached', detail)
+        self.assertIn('BREACHED', shadow.guardrail_lines(self.paths)[0])
+        self.assertIn('no earlier gate configuration', detail)
+
+    def test_collecting_below_min_guard_even_if_the_rate_is_high(self):
+        self._deliver(10)
+        shadow.guard_sample(self.paths, '2026-08-17')
+        self._read_guards(['out'] * 3 + ['in'] * 7)
+        status, detail, _ = shadow.guardrail(self.paths)
+        self.assertEqual(status, 'collecting')
+        self.assertIn('20 more to read', detail)
+
+    def test_the_revert_target_is_the_configuration_recorded_before_the_current(self):
+        ledger.append(self.paths.deliveries_home, 'gate_configs', [
+            {'fingerprint': 'old0000000', 'first_seen': '2026-08-01T00:00:00+00:00', 'mode': 'evidence'},
+            {'fingerprint': '7931c8e9cd', 'first_seen': '2026-08-16T00:00:00+00:00', 'mode': 'evidence'}])
+        self.assertIn('old0000000 (recorded 2026-08-01)', shadow._revert_target(self.paths))
+
+
 if __name__ == '__main__':
     unittest.main()
