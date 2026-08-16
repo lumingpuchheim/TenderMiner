@@ -354,7 +354,13 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint):
     A failed trust check BLOCKS PROMOTION and keeps the champion — it never
     aborts the cycle (ONLINE_LEARNING.md: "blocks keep the champion and
     notify; nothing fails silently")."""
-    X, cat_cols, num_cols, _ = sb.build_features(data, roles, list_frame=tenders)
+    # the multi-hot vocabulary is fitted once, on the full tenders frame, and
+    # travels with the candidate (meta.json) so predict_open scores with the
+    # columns the model was trained on — not with whatever the archive holds
+    # the week it scores (doc/EXPERIMENTS.md §3)
+    multihot = sb.fit_multihot(tenders, roles)
+    X, cat_cols, num_cols, _ = sb.build_features(data, roles, list_frame=tenders,
+                                                 multihot=multihot)
     features = cat_cols + num_cols
     gate = {'val_window': args.val_window, 'checks': {}, 'warnings': [], 'failures': []}
 
@@ -433,7 +439,8 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint):
 
     # tripwire: computability on open lots (production dry-run)
     open_t = sb.open_tenders(tenders, aw)
-    X_open, cats_o, nums_o, _ = sb.build_features(open_t, roles, list_frame=tenders)
+    X_open, cats_o, nums_o, _ = sb.build_features(open_t, roles, list_frame=tenders,
+                                                  multihot=multihot)
     if cats_o + nums_o != features:
         gate['failures'].append('computability: feature set differs for open lots — a feature depends on the future')
     else:
@@ -499,6 +506,7 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint):
         'n_train_lots': int(data.groupby(sb.KEY).ngroups),
         'features': features, 'n_features': len(features),
         'max_cardinality': int(card.max()),
+        'multihot': multihot,
         'val_pr_auc': None if val_metrics is None else val_metrics['pr_auc'],
         'val_roc_auc': None if val_metrics is None else val_metrics['roc_auc'],
         'val_top_hit': None if val_metrics is None else val_metrics.get('top_slice_hit'),
@@ -648,7 +656,12 @@ def predict_open(paths, tenders, roles, aw, args):
     if open_t.empty:
         print('[predict] no open lots')
         return [], np.array([]), []
-    X_open, cats_open, _, _ = sb.build_features(open_t, roles, list_frame=tenders)
+    # the champion's own multi-hot vocabulary: the columns it was trained on.
+    # A champion from before the vocabulary existed has none; the default fit
+    # is then the best guess and the schema check below still decides.
+    multihot = (champ.get('meta') or {}).get('multihot')
+    X_open, cats_open, _, _ = sb.build_features(open_t, roles, list_frame=tenders,
+                                                multihot=multihot)
     if list(X_open.columns) != list(model.feature_names_):
         # Reachable only when learn() could not promote a candidate (a trust
         # check blocked it) across a feature change: the champion predates the

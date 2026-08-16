@@ -73,6 +73,37 @@ guard passes with 890 of a permitted 1024 — but the headroom is thin, and it i
 `cpv_additional` that will spend it first (see below). Regenerate with
 `python cpv_depth_receipt.py`.
 
+### List columns are multi-hot, never a combination string (2026-08-16)
+
+The headroom ran out on the production server: on its full archive
+`cpv_additional__cpv4` reached **1,767** combinations, the guard refused every
+candidate, and the cycle delivered nothing (`doc/EXPERIMENTS.md` §1). The
+combinations were the problem, never the values — `selection_criteria_types` is 32
+criterion types in 2,102 combinations, `cpv_additional` 1,514 codes in 5,325.
+
+So every **list**-typed column (`cpv_additional`, `selection_criteria_types`,
+`exclusion_grounds`, `procurement_additional_types`, `funding_programs`,
+`procedure_languages`, `change_reasons`, `quality_flags`) is now encoded
+**multi-hot**: one numeric 0/1 column per value — per level for the hierarchical
+`cpv_additional` (`cpv_additional__cpv4__has_4521`), flat for the rest
+(`selection_criteria_types__has_slc-abil-facil-res`) — plus `…__n_rare` (values
+outside the vocabulary) and `…__n` (distinct values, 0 for an empty list, so "no
+additional codes" is a value of its own). No categorical column remains for them,
+so rule 4 holds structurally, whatever the archive grows to.
+
+The **vocabulary** — values present in ≥ `MULTIHOT_MIN_SUPPORT = 30` distinct lots —
+is fitted by `single_bidder.fit_multihot` on the **full tenders frame** (the
+`list_frame` every caller already passes), never on the labeled or the open subset
+alone; no label is consulted. `loop.learn` stores it in the candidate's `meta.json`
+(`multihot`) and `loop.predict_open` rebuilds the open lots' columns from the
+champion's stored vocabulary, so a model scores with the columns it was trained on
+weeks later, whatever codes have appeared since (they land in `n_rare`).
+
+Measured on the laptop store (2026-08-16, 6,683 labeled lots of 24,023): 312
+features, of which 239 multi-hot; largest remaining categorical
+`place_nuts3__nuts3` 367 (523 for `cpv_main__cpv8` on all tenders) — scalar codes with
+a bounded range. All four trust checks pass; tests in `tests/test_multihot.py`.
+
 ## CPV depth (decision 2026-08-06)
 
 `cpv_main` is expanded to its **full 8 digits**; `cpv_additional` stays at 4. The two

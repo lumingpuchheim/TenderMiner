@@ -93,11 +93,6 @@ def _as_list(v):
     return [v]
 
 
-def _join_codes(v):
-    vals = sorted({str(x) for x in _as_list(v)})
-    return '|'.join(vals) if vals else NA
-
-
 def _cat_str(v):
     if v is None or (isinstance(v, float) and np.isnan(v)):
         return NA
@@ -117,12 +112,13 @@ def _hier_levels(col):
         # dates. Receipt: python cpv_depth_receipt.py
         return [('cpv3', 3), ('cpv4', 4), ('cpv6', 6), ('cpv8', 8)]
     if 'cpv' in col:
-        # cpv_additional stays shallow and MUST: it is a list column, joined
-        # into one combination string per level, so its cardinality explodes
-        # with depth — 632 categories at cpv4 but 1048 at cpv5, over
-        # one_hot_max_size=1024, where CatBoost silently switches to CTR target
-        # statistics (leakage rule 4). The guard would fire; deepening this
-        # column needs a different encoding first, not a bigger cap.
+        # cpv_additional stays shallow. It is a list column; since 2026-08-16
+        # it is encoded multi-hot per level (one 0/1 column per code, see
+        # fit_multihot / _apply_multihot) instead of one combination string per
+        # level — the combination string had 1,767 distinct values at cpv4 on
+        # the server, over one_hot_max_size=1024, and the leakage-rule-4 guard
+        # rightly refused every candidate (doc/EXPERIMENTS.md §1). Depth stays
+        # at cpv4: deeper levels multiply the vocabulary for no measured gain.
         return [('cpv2', 2), ('cpv3', 3), ('cpv4', 4)]
     if 'nuts' in col:
         return [('nuts1', 3), ('nuts2', 4), ('nuts3', 5)]
@@ -131,22 +127,124 @@ def _hier_levels(col):
     return None
 
 
-def build_features(df, roles, list_frame=None):
+MULTIHOT_MIN_SUPPORT = 30  # a code needs this many distinct lots to get its own 0/1 column
+
+
+def _is_list_col(frame, col):
+    return col in frame.columns and frame[col].map(
+        lambda v: isinstance(v, (list, np.ndarray))).any()
+
+
+def _multihot_levels(roles, frame):
+    """The columns encoded multi-hot and their levels: every LIST column whose
+    role is categorical (one level, the full value) or hierarchical with a
+    known scheme (one level per truncation depth). A list never becomes a
+    combination string: 32 criterion types made 2,102 combinations, 1,514
+    additional CPV codes made 5,325 — the combinations are what outgrew the
+    one-hot cap, the values themselves never do. Non-list columns are
+    untouched: one value per row is one-hot safe as it is."""
+    out = {}
+    for col, role in roles.items():
+        if not _is_list_col(frame, col):
+            continue
+        if role == 'categorical':
+            out[col] = [(None, None)]
+        elif role == 'hierarchical' and _hier_levels(col) is not None:
+            out[col] = _hier_levels(col)
+    return out
+
+
+def _codes_at(values, n):
+    """The distinct codes of one list value, truncated to n digits (None: whole)."""
+    return {str(x)[:n] if n else str(x) for x in _as_list(values)}
+
+
+def _level_key(lname):
+    return lname if lname is not None else '*'
+
+
+def _colname(col, lname, tail):
+    return f'{col}__{lname}__{tail}' if lname is not None else f'{col}__{tail}'
+
+
+def fit_multihot(frame, roles, min_support=MULTIHOT_MIN_SUPPORT):
+    """The multi-hot vocabulary: per list column and level, the values present
+    in at least `min_support` distinct lots of `frame`, sorted.
+
+    Fit on the FULL tenders frame (the same `list_frame` build_features takes),
+    never on the labeled subset or the open subset alone: both are then
+    transformed with the same columns. No label is consulted, so this is not
+    target leakage — it is a fact about the notice population, like a role.
+
+    The result is plain JSON (dict of dict of list) so loop.learn can store it
+    in the champion's meta.json and loop.predict_open can rebuild the very
+    same columns weeks later, whatever the archive has grown to since.
+    Flat categorical lists use the level key '*'.
+    """
+    vocab = {}
+    lots = frame.drop_duplicates(subset=KEY) if all(k in frame.columns for k in KEY) else frame
+    for col, levels in _multihot_levels(roles, frame).items():
+        vocab[col] = {}
+        for lname, n in levels:
+            counts = {}
+            for v in lots[col]:
+                for code in _codes_at(v, n):
+                    counts[code] = counts.get(code, 0) + 1
+            vocab[col][_level_key(lname)] = sorted(
+                c for c, k in counts.items() if k >= min_support)
+    return {'min_support': int(min_support), 'vocab': vocab}
+
+
+def _apply_multihot(df, col, levels, vocab):
+    """Numeric columns for one list column: per level, has_<value> for every
+    vocabulary value, n_rare (values outside the vocabulary), n (distinct
+    values, 0 for an empty list — so 'no additional codes' is a value of its
+    own, not a row of zeros that looks like 'only rare codes'). Returns one
+    DataFrame block, built in a single piece (hundreds of columns inserted one
+    by one fragment the frame and pandas says so on every insert)."""
+    block = {}
+    for lname, n in levels:
+        codes_at = df[col].map(lambda vs, n=n: _codes_at(vs, n))
+        known = vocab.get(_level_key(lname), [])
+        known_set = set(known)
+        for code in known:
+            block[_colname(col, lname, f'has_{code}')] = codes_at.map(
+                lambda s, code=code: int(code in s))
+        block[_colname(col, lname, 'n_rare')] = codes_at.map(
+            lambda s: sum(1 for c in s if c not in known_set))
+        block[_colname(col, lname, 'n')] = codes_at.map(len)
+    return pd.DataFrame(block, index=df.index, dtype='int64')
+
+
+def build_features(df, roles, list_frame=None, multihot=None):
     """Mechanical role-driven feature build (leakage rule 2).
 
-    list_frame: frame used to detect list-typed columns — pass the FULL tenders
-    frame so any subset (e.g. open lots) transforms identically.
+    list_frame: frame used to detect list-typed columns (which are encoded
+    multi-hot, see fit_multihot) — pass the FULL tenders frame so any subset
+    (e.g. open lots) transforms identically.
+    multihot: the vocabulary from fit_multihot; None fits it on list_frame,
+    which gives identical columns to every caller passing the same frame.
+    A stored champion passes its own (meta.json) so scoring uses the columns
+    it was trained on, whatever the archive holds today.
     Returns (X, cat_cols, num_cols, excluded).
     """
     if list_frame is None:
         list_frame = df
-    is_list = {c: list_frame[c].map(lambda v: isinstance(v, (list, np.ndarray))).any()
-               for c in list_frame.columns}
+    if multihot is None:
+        multihot = fit_multihot(list_frame, roles)
+    multi = _multihot_levels(roles, list_frame)
     X = pd.DataFrame(index=df.index)
-    cats, nums, excl = [], [], []
+    cats, nums, excl, blocks = [], [], [], []
     for col, role in roles.items():
         s = df[col]
-        if role == 'numeric':
+        if col in multi:
+            # a LIST column, categorical or hierarchical: multi-hot numeric
+            # 0/1 flags per value (per level), never one combination string
+            # — no categorical column, so leakage rule 4 holds structurally
+            block = _apply_multihot(df, col, multi[col], multihot['vocab'].get(col, {}))
+            blocks.append(block)
+            nums += list(block.columns)
+        elif role == 'numeric':
             X[col] = pd.to_numeric(s, errors='coerce')
             nums.append(col)
         elif role == 'bool':
@@ -155,7 +253,7 @@ def build_features(df, roles, list_frame=None):
                            else str(bool(v)))
             cats.append(col)
         elif role == 'categorical':
-            X[col] = s.map(_join_codes) if is_list[col] else s.map(_cat_str)
+            X[col] = s.map(_cat_str)
             cats.append(col)
         elif role == 'hierarchical':
             levels = _hier_levels(col)
@@ -164,11 +262,8 @@ def build_features(df, roles, list_frame=None):
                 continue
             for lname, n in levels:
                 new = f'{col}__{lname}'
-                if is_list[col]:
-                    X[new] = s.map(lambda v, n=n: '|'.join(sorted({str(x)[:n] for x in _as_list(v)})) or NA)
-                else:
-                    X[new] = s.map(lambda v, n=n: NA if v is None or (isinstance(v, float) and np.isnan(v))
-                                   else str(v)[:n])
+                X[new] = s.map(lambda v, n=n: NA if v is None or (isinstance(v, float) and np.isnan(v))
+                               else str(v)[:n])
                 cats.append(new)
         elif role == 'date':
             if col == 'publication_date':
@@ -178,6 +273,10 @@ def build_features(df, roles, list_frame=None):
         else:
             excl.append((col, role or 'MISSING'))
     assert 'buyer_name' in [c for c, _ in excl], 'buyer_name must be excluded (rule 4)'
+    if blocks:
+        # the multi-hot blocks go to the end, in role order; the column
+        # order is deterministic either way, which is all CatBoost needs
+        X = pd.concat([X] + blocks, axis=1)
     return X, cats, nums, excl
 
 

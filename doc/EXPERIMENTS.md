@@ -30,19 +30,24 @@ when the picture is clear; the operator decides.**
 
 ## 1. The question
 
-`cpv_additional` is a list of extra CPV codes per lot. Today it becomes three
-categorical columns — `cpv_additional__cpv2/3/4` — each holding the *combination
-string* of the lot's codes truncated to 2/3/4 digits (`single_bidder._hier_levels`,
-`build_features`). The cpv4 combination has 1,767 distinct values on the server,
-above `ONE_HOT_MAX_SIZE = 1024`, so `assert_pure_one_hot` refuses every
-candidate and the server has produced **no model since bootstrap** (brief §3).
+`cpv_additional` is a list of extra CPV codes per lot. Until 2026-08-16 it became
+three categorical columns — `cpv_additional__cpv2/3/4` — each holding the
+*combination string* of the lot's codes truncated to 2/3/4 digits. The cpv4
+combination reached 1,767 distinct values on the server, above
+`ONE_HOT_MAX_SIZE = 1024`, so `assert_pure_one_hot` refused every candidate and
+the server produced **no model since bootstrap** (brief §3).
 
-Two honest encodings; the operator wants both tried on real predictions:
+**Built 2026-08-16, ahead of the experiment (operator: "use onehot as default so
+that there is a prediction at all"):** every list column is now encoded
+multi-hot by default — `single_bidder.fit_multihot` / `build_features`,
+`TRAINING.md` "List columns are multi-hot". The server predicts again with the
+`onehot` encoding. The experiment therefore asks whether the *other* honest
+encoding would have been better, on real predictions:
 
 | arm id | label (verbatim in every output) | what the model sees for the additional codes |
 | --- | --- | --- |
-| `onehot` | **one hot** | one 0/1 numeric column per distinct code, multi-hot, at cpv2/cpv3/cpv4; rare codes folded into a count (§3) |
-| `ts` | **target statistics** | the three combination columns exactly as today; CatBoost's ordered target statistics (CTR) for them, because the guard is told they may exceed the cap (§3) |
+| `onehot` | **one hot** | the default build: one 0/1 numeric column per distinct code, multi-hot, at cpv2/cpv3/cpv4; rare codes folded into a count (§3) |
+| `ts` | **target statistics** | `feature_build='cpv_additional_combination'`: the three combination columns as before 2026-08-16, and CatBoost's ordered target statistics (CTR) for them, because the guard is told they may exceed the cap (§3). Every *other* list column stays multi-hot in both arms. |
 
 Not an arm: raising the cap to 4096. Everything else — data, temporal split,
 seed, class weights, all other features, tripwires, threshold, promotion
@@ -97,22 +102,26 @@ champion stays, so the cycle is never left without a model.
 
 ## 3. The two feature builds, concretely
 
-Both start from today's `build_features(df, roles, list_frame)`. An arm's
-`feature_build` runs **after** the role-driven build and **before** the guard.
+Both start from today's `build_features(df, roles, list_frame, multihot)`, whose
+default already is the multi-hot encoding below (built 2026-08-16). An arm's
+`feature_build` names a variation of it.
 
-**`default` (arm `ts`).** Nothing changes in the frame. `assert_pure_one_hot`
+**`cpv_additional_combination` (arm `ts`).** `build_features` is told to leave
+`cpv_additional` out of the multi-hot set and emit the three combination
+columns `cpv_additional__cpv2/3/4` as categoricals, exactly as before
+2026-08-16 (one small switch in `_multihot_levels`). `assert_pure_one_hot`
 gains `exempt=()`: exempt columns are left out of the `max()` but still
 reported, so the gate check reads
-`pure_one_hot: passed (max cardinality 412; CTR columns: cpv_additional__cpv4 1767, cpv_additional__cpv3 …)`.
+`pure_one_hot: passed (max cardinality 367; CTR columns: cpv_additional__cpv4 1767, cpv_additional__cpv3 …)`.
 `one_hot_max_size` stays 1024, so CatBoost uses one-hot for every column
 under the cap and ordered target statistics for the exempt ones above it —
 the switch is CatBoost's own, per column, and the guard now *says* which
 columns took it instead of refusing. Arm overrides:
+`feature_build='cpv_additional_combination'`,
 `guard_exempt=('cpv_additional__cpv2', 'cpv_additional__cpv3', 'cpv_additional__cpv4')`.
 
-**`cpv_additional_multihot` (arm `onehot`).** Drops the three combination
-columns from `cat_cols` and adds numeric columns per level `L ∈ {cpv2, cpv3, cpv4}`
-(digits 2/3/4 of each code in the list):
+**`default` (arm `onehot`) — built.** No combination column; numeric columns
+per level `L ∈ {cpv2, cpv3, cpv4}` (digits 2/3/4 of each code in the list):
 
 - `cpv_additional__L__has_<code>` = 1 if `<code>` is among the lot's codes at
   that level, else 0 — for every code in the level's **vocabulary**;
@@ -122,22 +131,28 @@ columns from `cat_cols` and adds numeric columns per level `L ∈ {cpv2, cpv3, c
   list is empty), so "no additional codes" is a value, not a row of zeros
   that looks like "only rare codes".
 
-The **vocabulary** per level is the set of codes present in at least
-`MIN_SUPPORT = 30` distinct training **lots** (grouped by `sb.KEY`, not rows),
-sorted. It is fixed on the training frame and returned as the build's state:
+The same shape applies to every other list column (`selection_criteria_types`,
+`exclusion_grounds`, …), flat: `<col>__has_<value>`, `<col>__n_rare`, `<col>__n`.
+Both arms share those; only `cpv_additional` differs.
+
+The **vocabulary** per column and level is the set of values present in at
+least `MULTIHOT_MIN_SUPPORT = 30` distinct **lots** (grouped by `sb.KEY`, not
+rows) of the full tenders frame, sorted (`sb.fit_multihot`). It is stored in
+`meta.json` as `multihot`:
 
 ```json
-"feature_state": {"cpv_additional_multihot": {
-    "min_support": 30,
-    "vocab": {"cpv2": ["09", "31", …], "cpv3": [...], "cpv4": ["4521", "4523", …]}}}
+"multihot": {"min_support": 30,
+             "vocab": {"cpv_additional": {"cpv2": ["09", "31", …], "cpv3": [...], "cpv4": ["4521", …]},
+                       "selection_criteria_types": {"*": ["slc-abil-facil-res", …]}, …}}
 ```
 
 `learn` stores it in the arm's `meta.json`; `predict` rebuilds the open lots'
-columns **from the stored state**, never from the open frame — that is what
-makes the computability tripwire ("feature set differs for open lots") hold
-and what makes week 6's columns equal week 1's. Expected width: a few hundred
-columns; the guard is unaffected because these are numeric. `default` has
-empty state.
+columns **from the stored vocabulary**, never from the open frame — that is
+what makes the computability tripwire ("feature set differs for open lots")
+hold and what makes week 6's columns equal week 1's. Measured width on the
+laptop store: 312 features, 239 of them multi-hot; the guard is unaffected
+because these are numeric. The `ts` arm's `meta.json` carries the same
+`multihot` minus the `cpv_additional` entry.
 
 ## 4. Where things live for this experiment
 
@@ -145,7 +160,7 @@ empty state.
 | --- | --- |
 | the declaration (id, question, arms, opened, deadline, `default_delivering`) | `experiments.py`, checked in (§7) |
 | state: status, delivering arm, decision | table `experiment`, one row, through `ledger.py` |
-| models | `models/m<ts>-onehot/`, `models/m<ts>-ts/`; `meta.json` gains `experiment`, `arm`, `label`, `feature_build`, `feature_state`, `guard_exempt`; `models/registry.jsonl` rows gain `arm` |
+| models | `models/m<ts>-onehot/`, `models/m<ts>-ts/`; `meta.json` gains `experiment`, `arm`, `label`, `feature_build`, `guard_exempt` (it already carries `multihot`); `models/registry.jsonl` rows gain `arm` |
 | champion pointers | `models/arms/onehot/CURRENT`, `models/arms/ts/CURRENT`; `models/CURRENT` = the delivering arm's |
 | predictions | table `prediction`, unchanged — UNIQUE `(procedure_id, lot_id, notice_id, model)` already separates the arms |
 | customer track record | table `grade`, unchanged — delivering arm only |
@@ -230,8 +245,8 @@ EXPERIMENTS = [
         question='Which encoding of the additional-CPV codes sorts 0/1-bidder '
                  'lots from the rest better, on real predictions?',
         opened='2026-08-18', deadline='2026-11-30',
-        arms=[Arm('onehot', 'one hot', feature_build='cpv_additional_multihot'),
-              Arm('ts', 'target statistics', feature_build='default',
+        arms=[Arm('onehot', 'one hot', feature_build='default'),
+              Arm('ts', 'target statistics', feature_build='cpv_additional_combination',
                   guard_exempt=('cpv_additional__cpv2', 'cpv_additional__cpv3',
                                 'cpv_additional__cpv4'))],
         default_delivering='onehot',
@@ -240,7 +255,7 @@ EXPERIMENTS = [
 ```
 
 An `Arm` has `id`, `label`, `feature_build` (a registered name — `default`,
-`cpv_additional_multihot`), `catboost` (dict forwarded to `sb.make_model`,
+`cpv_additional_combination`), `catboost` (dict forwarded to `sb.make_model`,
 empty here), `guard_exempt` (columns `assert_pure_one_hot` leaves out of the
 max). That is the entire override surface; nothing else about training can
 differ between arms, by construction.
@@ -357,13 +372,15 @@ ledger holds); the relevance kind.
 - `app.py`: no key → 404; key → 200 and the labels "one hot" / "target
   statistics" appear verbatim.
 
-For the real arms, one end-to-end on a small fixture: `cpv_additional_multihot`
-builds the §3 columns, `n_rare` counts codes under support, the vocabulary
-round-trips through `feature_state` and reproduces identical columns on an
-open frame that contains an unseen code; `assert_pure_one_hot(exempt=…)`
-passes with the cpv4 column above the cap and reports it as a CTR column;
-both arms train on a 300-lot fixture, write predictions with distinct model
-ids on the same lots, and `models/CURRENT` equals the onehot champion.
+For the real arms: the `default` (multi-hot) build is already covered by
+`tests/test_multihot.py` (columns, `n_rare`, vocabulary round-trip through
+JSON, identical columns on an open frame with an unseen code, guard passing,
+CatBoost training and scoring). Still to write: `cpv_additional_combination`
+emits the three combination categoricals and nothing multi-hot for that
+column; `assert_pure_one_hot(exempt=…)` passes with the cpv4 column above the
+cap and reports it as a CTR column; both arms train on a 300-lot fixture,
+write predictions with distinct model ids on the same lots, and
+`models/CURRENT` equals the onehot champion.
 
 ## 13. Decisions taken in this session
 
