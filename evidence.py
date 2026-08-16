@@ -2142,10 +2142,13 @@ def judge_sweep(data_dir, limit=None):
         for c, t in hard_fails:
             print(f"    FAIL(hard) [{c['expect']}] {t[:56]!r} "
                   f"({c['note'][:36]})")
-    return rows
+    # The denominators, returned rather than only printed: a rate without one
+    # cannot carry an interval, and PARAMETERS.md 10's rejection rule compares
+    # intervals. `n_pos` is recall's, `n_neg` leakage's, `n_vol` volume's.
+    return rows, {'n_pos': len(pos_obs), 'n_neg': len(neg_obs), 'n_vol': len(vol_obs)}
 
 
-def write_judge_json(path, rows):
+def write_judge_json(path, rows, counts=None):
     """`--judge`'s table as one JSON document, for a machine — PARAMETERS.md 10.
 
     The table stays on stdout for a person; this is the same numbers keyed by
@@ -2159,6 +2162,9 @@ def write_judge_json(path, rows):
         'gate_fingerprint': rel.DEFAULT_CONFIG.fingerprint,
         'rules_fingerprint': rules_fingerprint(),
         'override': util.gate_override(),
+        # the denominators every rate here rests on — recall's is n_pos,
+        # leakage's n_neg, volume's n_vol
+        'counts': counts or {},
         'configurations': [
             {'name': name, 'hard19': b19, 'benchmark': ball,
              'recall': recall, 'leakage': leakage, 'volume': volume,
@@ -2281,9 +2287,9 @@ def main():
         judge_sweep(args.data_dir, args.limit)
         return
     if args.judge:
-        rows = judge_run(args.data_dir)
+        rows, counts = judge_run(args.data_dir)
         if args.out:
-            write_judge_json(args.out, rows)
+            write_judge_json(args.out, rows, counts)
         return
     if args.keywords:
         from calibrate import lot_codes
