@@ -328,6 +328,25 @@ class Measure(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 backplay.measure(self.paths, 0.60, 'judge', knob='NOMINATION_BAR')
 
+    def test_a_harness_printing_utf8_titles_is_read_on_any_platform(self):
+        """Found on the first real run on Windows: `text=True` decoded the
+        judge's German lot titles as cp1252 and the reader thread died on a
+        byte cp1252 does not define. A REAL subprocess here, not a mock —
+        the decoding is the thing under test."""
+        stub = Path(self.tmp.name) / 'harness.py'
+        stub.write_text(
+            'import sys, pathlib\n'
+            "sys.stdout.buffer.write('D\\u00fcsseldorf \\u0090 Stra\\u00dfe\\n'.encode('utf-8'))\n"
+            "pathlib.Path(sys.argv[-1]).write_text('{\"kind\": \"judge\"}', encoding='utf-8')\n",
+            encoding='utf-8')
+        import threading
+        thread_errors = []
+        with mock.patch.dict(backplay.HARNESSES,
+                             {'stub': lambda d, out: [sys.executable, str(stub), str(out)]}),              mock.patch.object(threading, 'excepthook', lambda a: thread_errors.append(a)):
+            payload = backplay.measure(self.paths, 0.60, 'stub', knob='NOMINATION_BAR')
+        self.assertEqual(payload['kind'], 'judge')
+        self.assertEqual(thread_errors, [], 'the reader thread died decoding stdout')
+
     def test_no_live_question_measures_nothing(self):
         lines = backplay.run(self.paths, [], '2026-08-16')
         self.assertEqual(len(lines), 1)

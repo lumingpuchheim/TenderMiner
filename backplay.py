@@ -103,8 +103,12 @@ def measure(paths, value, harness='judge', knob=None, timeout=7200):
         env = dict(os.environ)
         if knob is not None:
             env['TM_GATE_OVERRIDE'] = json.dumps({knob: value})
+        # utf-8 explicitly: the judge prints lot titles, and on Windows
+        # `text=True` alone would decode them as cp1252 and crash the reader
+        # thread eleven kilobytes in (found on the first real run).
         proc = subprocess.run(build(paths.data, out), env=env, timeout=timeout,
-                              capture_output=True, text=True)
+                              capture_output=True, encoding='utf-8',
+                              errors='replace')
         if proc.returncode != 0:
             tail = (proc.stderr or proc.stdout or '').strip().splitlines()[-3:]
             raise RuntimeError(f'{harness} exited {proc.returncode}: '
