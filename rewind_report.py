@@ -49,6 +49,7 @@ import single_bidder as sb
 import subscriptions
 import util
 import predicting
+import delivering
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -272,7 +273,7 @@ def main():
 
     # ---- report #1: the prediction, rendered at D ---------------------------
     freeze_clock(D.date())
-    loop.deliver(paths, scored, render_args)
+    delivering.deliver(paths, scored, render_args)
     rep1 = paths.reports / 'subscriptions' / sub_id / f'report_{D.date()}.html'
 
     # ---- grades from the outcomes published between D and the check date ----
@@ -298,7 +299,7 @@ def main():
     # ---- report #2: the check, rendered at the check date -------------------
     # empty scored: this render is about the Rückblick, not a new market view
     freeze_clock(D2.date())
-    loop.deliver(paths, [], render_args)
+    delivering.deliver(paths, [], render_args)
     rep2 = paths.reports / 'subscriptions' / sub_id / f'report_{D2.date()}.html'
 
     print()

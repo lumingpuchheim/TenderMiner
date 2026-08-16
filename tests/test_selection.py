@@ -4,7 +4,7 @@
     python tests/test_selection.py                   # or directly
 
 `selection.for_sub` is the one copy of slice -> gate -> rank -> cap
-(REFACTOR.md phase 4a). It is called by `loop.deliver`, which ships, and by
+(REFACTOR.md phase 4a). It is called by `delivering.deliver`, which ships, and by
 `rewind_all.replay`, which measures — so these assertions are what makes the
 backtest's number a statement about the shipped system rather than about a
 replica of it.

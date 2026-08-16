@@ -8,7 +8,7 @@ in the deployed image: `docker run tendermining:latest python -c "import
 subprocess"` with this file named `select.py` fails, i.e. the scheduler
 would not start at all.)
 
-`loop.deliver` decides what a customer sees this week; `rewind_all.replay`
+`delivering.deliver` decides what a customer sees this week; `rewind_all.replay`
 measures how good those decisions were. Until this module existed they were
 two implementations of the same four steps, and they had already drifted
 (REFACTOR.md defect 1) — so the backtest measured a selection that never

@@ -254,7 +254,7 @@ def replay(data_dir, step_days, sub_ids):
                 continue
             # The shipped selection, not a replica of it (REFACTOR.md phase 4):
             # slice, gate, deadline, rank and cap all come from selection.py,
-            # which is what loop.deliver runs on Monday. This is the whole
+            # which is what delivering.deliver runs on Monday. This is the whole
             # point of the measurement — the drifted second copy that used to
             # live here is what defect 1 was.
             sel = selection.for_sub(subs[s], candidates, D.date(),

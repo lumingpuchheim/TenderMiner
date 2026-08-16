@@ -3,8 +3,8 @@
 REFACTOR.md phase 1. Before this module the answers to three questions were
 folklore, re-derived wherever they were needed:
 
-  * **Which version speaks on date D?** Implemented six times (loop.deliver,
-    loop.learn_references, tryout, explain, replay, feedback) — same rule,
+  * **Which version speaks on date D?** Implemented six times (delivering.deliver,
+    delivering.learn_references, tryout, explain, replay, feedback) — same rule,
     six spellings.
   * **Is this lot in the customer's market?** Implemented twice, in
     `loop._matches` and inline in `backtest.replay` — and they DRIFTED: one

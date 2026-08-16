@@ -2,7 +2,7 @@
 
 REFACTOR.md phase 4b. Before the split these were unreachable without running
 a cycle: the report, the annex and the receipts were one 200-line function
-body inside `loop.deliver`. Each test below is a promise made to a customer
+body inside `delivering.deliver`. Each test below is a promise made to a customer
 in SUBSCRIPTIONS.md or a decision recorded there, and none of them needed a
 store, a model or a database to write.
 """

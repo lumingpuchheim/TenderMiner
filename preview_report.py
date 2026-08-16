@@ -29,6 +29,7 @@ import subscriptions
 from util import Paths, read_jsonl
 import util
 import training
+import delivering
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -110,7 +111,7 @@ def main():
     render_args = argparse.Namespace(track_window='12w', top_slice=0.2,
                                      tier_high=0.10, tier_medium=0.20,
                                      min_slice_grades=25)
-    loop.deliver(paths, scored, render_args)
+    delivering.deliver(paths, scored, render_args)
 
     by_key = {(r['procedure_id'], r['lot_id']): r for r in scored}
     rows = ledger.read(paths.deliveries_home, 'deliveries')
