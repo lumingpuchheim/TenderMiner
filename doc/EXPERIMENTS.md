@@ -19,6 +19,14 @@ when the picture is clear; the operator decides.**
 - No historical replay, no backtest, as evidence (operator, 2026-08-16:
   "simulation may cheat"). Only a prediction in the ledger *before* the award
   published is graded.
+- **Backplay may reject, only forward may promote**
+  ([`PARAMETERS.md`](PARAMETERS.md) §0.5, agreed the same day). The line
+  above governs *evidence for a winner*; it does not oblige us to shadow an
+  arm we already know is hopeless. `asof.World` / `rewind_all.py` may kill a
+  candidate arm, or rank a coarse grid, before it earns a shadow slot —
+  never crown one. What `asof.py` cannot rule out is the arm having been
+  designed after seeing those outcomes, which is exactly why a rejection is
+  safe there and a promotion is not.
 - The software never switches a model on its own. It computes, flags "ready",
   waits. The deadline is a backstop that turns the flag red, not a trigger.
 - Exactly one arm feeds customers (the **delivering** arm); the other is a
@@ -210,6 +218,15 @@ arm_grade (experiment, arm, procedure_id, lot_id, model, ts, score, threshold,
 A frozen record like every other ledger — written once when the award
 publishes, never recomputed from a rebuilt store; idempotent by the UNIQUE
 key. Read and written through `ledger.py` (`'arm_grades'`).
+
+**This is also the per-(lot, model) grading** [`PARAMETERS.md`](PARAMETERS.md)
+§3 asks for, and the reason that file does not specify a second one. `grade`
+scores one model per lot — the champion of the day — while 3,942 lots in the
+store already carry predictions from two or more models, whose verdicts
+nobody has ever computed. The shape above is exactly what answers that: drop
+`experiment`/`arm` and it is (lot, model) → correct. When a use appears for
+those historical pairs, extend this table's writer to backfill them; do not
+write a twin.
 
 **Paired.** The comparison uses only lots present in `arm_grade` for **both**
 arms. An arm that missed a Monday is not compared on lots the other saw
