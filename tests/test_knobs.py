@@ -135,10 +135,19 @@ class Weekly(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.paths = util.Paths(self.tmp.name, Path(self.tmp.name) / 'models')
 
-    def test_no_live_question_is_one_quiet_line(self):
-        lines = knobs.weekly(self.paths, '2026-08-16')
+    def test_no_question_at_all_is_one_quiet_line(self):
+        lines = knobs.weekly(self.paths, '2026-08-16', [])
         self.assertEqual(len(lines), 1)
         self.assertIn('no live question', lines[0])
+
+    def test_with_nothing_filed_the_docket_supplies_the_questions(self):
+        """PARAMETERS.md 11: the program files its own — one per bucket,
+        the first tunable of the rotation, not yet measured."""
+        lines = knobs.weekly(self.paths, '2026-08-16')
+        self.assertEqual(len(lines), 1)
+        self.assertIn(knobs.TUNABLES[0].knob, lines[0])
+        self.assertIn('not measured yet', lines[0])
+        self.assertIn('ladder', lines[0])
 
     def test_the_flat_streak_survives_between_cycles(self):
         rows = sweep(v0_50=(0.49, 400), v0_55=(0.50, 400), v0_60=(0.52, 400))

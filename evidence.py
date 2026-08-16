@@ -1937,14 +1937,23 @@ def judge_run(data_dir):
                 n_vol += 1
                 vol_pass += bool(ok)
         results[mode] = {'benchmark': bench, 'recall': hits / n_pos,
-                         'leakage': neg_pass / n_neg, 'volume': vol_pass / n_vol}
+                         'leakage': neg_pass / n_neg, 'volume': vol_pass / n_vol,
+                         'n_pos': n_pos, 'n_neg': n_neg, 'n_vol': n_vol}
         print(f'[judge-run] {mode:9s}: benchmark {bench}, '
               f'recall {hits / n_pos:.1%} ({hits}/{n_pos}), '
               f'leakage {neg_pass / n_neg:.1%} ({n_neg} negatives), '
               f'volume {vol_pass / n_vol:.1%}', flush=True)
     if rel._SYN is not None:
         rel._SYN.save()
-    return results
+    # The shape `write_judge_json` reads — one configuration row per mode, the
+    # shipped mode marked "(committed)" so `backplay.judge_read` finds it —
+    # and the denominators the rates rest on (same lots under both modes).
+    committed = rel.DEFAULT_CONFIG.mode
+    rows = [(f'{mode} gate' + (' (committed)' if mode == committed else ''),
+             None, r['benchmark'], [], r['recall'], r['leakage'], r['volume'])
+            for mode, r in results.items()]
+    counts = {k: results[committed][k] for k in ('n_pos', 'n_neg', 'n_vol')}
+    return rows, counts
 
 
 # the grid: the task's 0.40-0.65 ladder plus 0.70 — the old (bugged) value,
@@ -2116,9 +2125,12 @@ def judge_sweep(data_dir, limit=None):
                                       any_ev_convicts=True)))
     # phase 8d: the committed configuration — witness rule + deterministic
     # band admit at BORDERLINE_ADMIT_P (rule-only rows above stay at p=0)
-    rows.append(row(f'evidence + K>=2 + band p={rel.BORDERLINE_ADMIT_P}'
-                    ' (committed)',
-                    lambda o: verdict(o, rel.NOMINATION_BAR, kmin=2,
+    # K is the module's live value, not a literal, so a TM_GATE_OVERRIDE of
+    # EVIDENCE_NOMINATION_MIN measures the candidate here (PARAMETERS.md 11)
+    rows.append(row(f'evidence + K>={rel.EVIDENCE_NOMINATION_MIN} + band '
+                    f'p={rel.BORDERLINE_ADMIT_P} (committed)',
+                    lambda o: verdict(o, rel.NOMINATION_BAR,
+                                      kmin=rel.EVIDENCE_NOMINATION_MIN,
                                       band_p=rel.BORDERLINE_ADMIT_P)))
     # phase 8b: the witness grid at the committed bar; K=1/all-tiers is
     # the rejected evidence-nominates variant, kept as the anchor

@@ -38,39 +38,45 @@ report → **render every active customer** → **simulate every winner company*
   constant, receipt comment, register row, `knobs.EXPECTED_GATE_FINGERPRINT`,
   one commit — then re-run with `--skip-download`.
 - The report's **Knobs** section is a *proposal*, never an action: one line
-  per live question (`move up` / `move down` / `flat` / `hold`). Today there
-  is no live question, so it reads "every knob frozen". Filing one is a
-  commit that adds a `Question` to `knobs.py` (§8.1).
+  per live question (`move up` / `move down` / `flat` / `hold`) with the
+  knob's ladder — `1 x | [2] 0.649 | 3 ok 0.612 | 4 .` — rejected, current,
+  survives, untried. The questions are the program's own (PARAMETERS.md §11):
+  one live knob per bucket, rotating through `knobs.TUNABLES`; nobody files
+  or picks a value by hand.
 
-**The rejector is scheduled** — `docker/backplay.sh`, **Sunday 04:00**, third
+**The rejector is scheduled** — `docker/backplay.sh`, **nightly 04:00**, third
 line in `docker/crontab` beside the Monday cycle and the nightly backup. It
-measures each candidate value in its own subprocess under `TM_GATE_OVERRIDE`
-and may **reject** — never promote. Monday's report then carries the result in
-its **Knobs** section, so nothing has to be read out of a log.
+measures each rung in its own subprocess under `TM_GATE_OVERRIDE` and may
+**reject** — never promote — and it re-measures only when the evidence moved
+(benchmark, store, champion fingerprint); most nights it prints what it stood
+on and exits. Monday's report then carries the result in its **Knobs**
+section, and `python backplay.py --show` prints the whole docket — ladders,
+rejections with reasons, closed questions with receipts — at any time.
 
-With no filed question — the usual state — it exits in a second and says so in
-`/data/logs/cron.log`. That is deliberate: a job that is loud about doing
-nothing is how you know it is still wired in.
-
-To see it work without waiting for Sunday:
+To see it work without waiting for the night:
 
 ```
 docker compose run --rm tm python backplay.py --self-check
 ```
 
 One second, synthetic numbers, no harness — it runs the real rejection rule
-and prints what it decided, then the rejections standing today and how many
-questions are filed. It proves the wiring, not the science.
+and prints what it decided, then the rejections standing today, the docket's
+live questions and the evidence stamp. It proves the wiring, not the science.
 
-For a real measurement on real data, without filing anything:
+To read the docket — what is live, what was tried, what was rejected and why:
+
+```
+docker compose run --rm tm python backplay.py --show
+```
+
+For a real measurement of some other knob, outside the docket:
 
 ```
 docker compose run --rm tm python backplay.py --knob evidence.NOMINATION_BAR --grid 0.50,0.55,0.60 --current 0.55
 ```
 
-That runs the gate harness once per neighbouring value (minutes each) under
-that value's own override, applies the rule, and writes real rows. `python
-backplay.py --show` prints what has been rejected and what has aged out.
+That runs the gate harness once per neighbouring value (~25 minutes each)
+under that value's own override, applies the rule, and writes real rows.
 Rejections expire after 90 days and return as candidates — deliberate: a value
 killed in one market is not dead forever.
 

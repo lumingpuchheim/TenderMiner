@@ -227,10 +227,11 @@ dependencies, and recomputing would answer a different question). Purpose: the t
 variable in cron's environment; today nothing would say so. One line each.
 
 **4.4 `knobs.py` — the weekly proposal and the guard — done 2026-08-16.**
-A module of its own, as specified. `LIVE` holds the filed questions and is
-**empty**: a knob is LIVE only while a question is open, and filing one is a
-commit that adds a `Question` (id, knob, bucket, question, metric, benchmark
-blob, grid, current, opened, stop, and its own `run`). `weekly()` returns one
+A module of its own, as specified. `LIVE` holds hand-filed questions and is
+**empty**; since §11 the questions come from the docket, which the program
+keeps itself (a hand-filed `Question` — id, knob, bucket, question, metric,
+benchmark blob, grid, current, opened, stop, its own `run` — still takes its
+bucket's slot). `weekly()` returns one
 line per live question — `move up` / `move down` / `flat` /
 `hold (underpowered)` / `stop date reached` — with the detail, the weeks
 live and the stop date; `loop.py` prints them and `report.py` carries them
@@ -455,11 +456,11 @@ interpreter — which is exactly the limitation §4.1 accepted when it made
 
 ### 10.2 The job
 
-`backplay.py`, **Sunday 04:00** via `docker/backplay.sh` and the third line of
+`backplay.py`, via `docker/backplay.sh` and the third line of
 `docker/crontab`, under the heavy lock so it never meets the Monday cycle
-halfway. Sunday rather than nightly because the evidence changes weekly at
-best; four hours before the cycle so Monday's report carries fresh
-rejections.
+halfway. First scheduled Sunday 04:00 (the evidence changes weekly at best);
+since §11.3 **nightly** 04:00 with a change detector, which spends the same
+CPU and answers a day after the evidence moved instead of a week.
 
     python backplay.py            # every filed question's candidates
     python backplay.py --self-check   # the rule and the wiring, one second
@@ -531,3 +532,88 @@ silently shorter grid.
   which is the forward channel, not this one. When that number exists weekly,
   reverting to the last recorded-good configuration is the second safe
   automatic move.
+
+## 11. The docket — the program files the questions, 2026-08-16
+
+§10 built the rejector and left `knobs.LIVE` empty: nothing was measured until
+someone filed a question by hand. The operator then set the expectation
+plainly — *automatic replay; the parameters are controlled by the program; I
+am not to be asked for any hand-made value; I want to see which knobs are
+tried and which are rejected.* So the last hand-made input, the question
+itself, is now the software's.
+
+### 11.1 Tunables and ladders
+
+`knobs.TUNABLES` lists the register's LIVE-eligible knobs (§2.7) with a
+program-owned **ladder** — `lo`, `hi`, `step` — not a value:
+
+| knob | ladder | bucket |
+| --- | --- | --- |
+| `relevance.EVIDENCE_NOMINATION_MIN` | 1 … 4, step 1 | gate |
+| `relevance.DEFAULT_MIN_CODE_HARD` | 0.775 … 0.875, step 0.025 | gate |
+| `evidence.CONVICT_BODY_MIN` | 1 … 4, step 1 | gate |
+
+`current` is read from the module at run time, never stored — the docket
+cannot disagree with the code, and after the operator accepts a step the
+question simply continues from the new rung. A constant that sits off its
+ladder raises, and `tests/test_docket.py` builds every real question so that
+is caught by the suite, not on a Monday.
+
+### 11.2 One live knob per bucket, rotating
+
+`knobs.docket()` keeps exactly one open question per bucket: the next knob in
+the bucket's rotation after the last one closed (wrapping), opened today, stop
+date `STOP_WEEKS = 8` out, id `auto:<knob>` (stable, so a rejection outlives
+one opening and expires on its own clock, §10.4). A hand-filed question in
+`LIVE` still takes its bucket's slot. State is `data/logs/knobs_docket.json`
+— open questions and the closed ones with their receipts.
+
+A docket question **closes itself** on §8.4's conditions — stop date reached;
+`flat` two cycles running; or every neighbour rejected, in which case the
+receipt reads *decided: every neighbour rejected, current stands* — and the
+next knob opens on the next cycle. Nothing else closes it; nothing promotes.
+
+### 11.3 One pipeline: backplay measures, weekly reads
+
+A docket question has no `run` of its own. `backplay.py` measures it — the
+current value first (a `role='current'` row) and then each neighbour under
+`TM_GATE_OVERRIDE` — and every `backplays` row now carries `metric`, `n`,
+`leakage` and the **evidence stamp** it stood on (benchmark blob, store files,
+champion fingerprint). `knobs.weekly()` reads the latest row per rung back as
+the sweep it used to be handed, applies the same verdict ladder, and prints
+the **ladder** in the line: `1 x | [2] 0.649 | 3 ok 0.612 | 4 .` — rejected,
+current with its metric, survives with its metric, untried. The rejection a
+value carries is its *latest* measurement's: measured again and surviving
+lifts it before the 90 days are up.
+
+**Cadence: nightly 04:00, measuring only what moved.** The evidence changes
+weekly at best (§10.5), so the job compares the stamp with the one each
+question's last measurement stood on and re-measures only when it differs or
+the question is new; otherwise one line per question says what it stood on
+and when. Nightly rather than Sunday so a benchmark label read on Tuesday is
+measured Wednesday, not the following week. Cost when it does run: one judge
+run per rung, ~25 min each on the laptop, so ~75 min per question; the heavy
+lock keeps it off the Monday cycle. `--force` re-measures regardless.
+
+**Seeing it:** `python backplay.py --show` prints the docket — per bucket the
+live knob, since when, its ladder with every rung marked, the proposal, the
+rejections with reasons and dates — then the closed questions with receipts,
+then the raw record. Monday's report carries the same ladder line under
+**Knobs**.
+
+### 11.4 Two things found while wiring it, and one left out
+
+- **`evidence.py --judge --out` had never produced a document.** `judge_run`
+  returned a per-mode dict and `write_judge_json` expected the sweep's tuple
+  rows; the first real run crashed after 25 minutes of measuring. It now
+  returns two configuration rows — `evidence gate (committed)` and `embedding
+  gate` — with the denominators, and `backplay.judge_read` finds the committed
+  one. The candidate is measured through the **real** `relevance.judge()`
+  path, not the sweep's replica verdict.
+- The sweep's `(committed)` row hard-coded `K>=2`; it now reads
+  `rel.EVIDENCE_NOMINATION_MIN`, so an override of K is measured there too.
+- **Competitiveness knobs are not on the docket.** `--threshold` and
+  `MULTIHOT_MIN_SUPPORT` need the replay harness (33 min per cutoff set) *and*
+  a lever that reaches them, which `TM_GATE_OVERRIDE` does not; listing them
+  and measuring nothing would be the silent miss §10.1 refuses. When that
+  lever exists they are three lines in `TUNABLES`.

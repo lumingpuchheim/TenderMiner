@@ -4,14 +4,21 @@ The asymmetry this rests on: a wrong rejection costs an improvement nobody
 sees; a wrong promotion reaches customers. So this job may kill a candidate
 knob value on its own, at night, and may never move one into production.
 
-    python backplay.py                    # every filed question's candidates
+    python backplay.py                    # the docket: every live question's candidates
+    python backplay.py --force            # ...even if nothing moved since last time
     python backplay.py --self-check       # prove the wiring, one second, no harness
-    python backplay.py --show             # what has been rejected, and what expired
+    python backplay.py --show             # the docket: tried / rejected / survives, and history
     python backplay.py --knob evidence.NOMINATION_BAR --grid 0.50,0.55,0.60 --current 0.55
 
-Scheduled: `docker/backplay.sh`, Sunday 04:00 (docker/crontab), so Monday's
-report carries fresh rejections. With no filed question it exits in a second
-and says so — which is how you know it is still wired in.
+Scheduled: `docker/backplay.sh`, NIGHTLY 04:00 (docker/crontab). Nightly so a
+new benchmark label or a Monday store is measured the next night; not wasteful
+because the job first asks whether the evidence moved — benchmark blob, store
+files, champion fingerprint — and re-measures a question only when it did, or
+when the question is new. Most nights it prints one line per question saying
+what it stood on last time, and exits.
+
+Which questions: `knobs.docket()` — the program's own (PARAMETERS.md 11), one
+per bucket, rotating through `knobs.TUNABLES`; nobody files anything by hand.
 
 Per candidate: a SUBPROCESS with `TM_GATE_OVERRIDE` set to that value, so the
 measurement runs under the candidate's own gate configuration without anybody
@@ -143,51 +150,128 @@ def rejects(current, candidate, hard_bar=knobs.HARD_BAR):
 
 
 def rejected_values(paths, question_id, today=None):
-    """{value: reason} still standing today — what `knobs` must not propose."""
+    """{value: reason} still standing today — what `knobs` must not propose.
+    The LATEST measurement of a value decides: a rejection stands until it
+    expires or until the value is measured again and survives."""
+    out = {}
+    for value, row in last_rows(paths, question_id, today).items():
+        if row.get('rejected'):
+            out[value] = f"{row.get('reason', 'rejected')} ({str(row['ts'])[:10]})"
+    return out
+
+
+def evidence_stamp(paths):
+    """What a measurement stands on: benchmark blob, the store files, the
+    champion's fingerprint. Equal stamps mean a re-run would reproduce the
+    same numbers, so the nightly job does not spend the CPU (§11.3)."""
+    import hashlib
+    bits = []
+    bench = REPO / 'benchmark_relevance.jsonl'
+    if bench.exists():
+        raw = bench.read_bytes()
+        bits.append('bench ' + hashlib.sha1(b'blob %d\0' % len(raw) + raw).hexdigest()[:12])
+    for p in (paths.store_tenders, paths.store_awards):
+        try:
+            st = p.stat()
+            bits.append(f'{p.name} {st.st_size}/{int(st.st_mtime)}')
+        except OSError:
+            bits.append(f'{p.name} -')
+    bits.append('gate ' + knobs.EXPECTED_GATE_FINGERPRINT)
+    return ' '.join(bits)
+
+
+def _summary(metrics):
+    """One measurement list -> the numbers a ledger row carries. The first
+    measurement's (the judge has one; a replay's per-cutoff list is kept in
+    `n_measurements` and the rejection reason)."""
+    if not metrics:
+        return {'metric': None, 'n': None, 'leakage': None}
+    m = metrics[0]
+    return {'metric': m.get('metric'), 'n': m.get('n'), 'leakage': m.get('leakage')}
+
+
+def _row(q, value, use, payload, metrics, rejected, reason, stamp, role):
+    return {
+        'ts': util.now_utc().isoformat(timespec='seconds'),
+        'question': q.id, 'knob': q.knob, 'value': value, 'harness': use,
+        'gate_fingerprint': payload.get('gate_fingerprint'),
+        'benchmark': q.benchmark, 'stamp': stamp, 'role': role,
+        'rejected': bool(rejected), 'reason': reason,
+        'n_measurements': len(metrics), **_summary(metrics),
+    }
+
+
+def last_rows(paths, question_id, today=None):
+    """{value: latest row} for this question, inside the TTL horizon."""
     today = today or util.now_utc().date().isoformat()
     horizon = (date.fromisoformat(today) - timedelta(days=REJECTION_TTL_DAYS)).isoformat()
     out = {}
     for row in ledger.read(paths.ledger_home, 'backplays'):
-        if row.get('question') != question_id or not row.get('rejected'):
+        if row.get('question') != question_id or str(row.get('ts'))[:10] < horizon:
             continue
-        if str(row.get('ts'))[:10] < horizon:
-            continue                       # expired: measure it again
-        out[row['value']] = f"{row.get('reason', 'rejected')} ({str(row['ts'])[:10]})"
+        prev = out.get(row['value'])
+        if prev is None or str(prev.get('ts')) <= str(row.get('ts')):
+            out[row['value']] = row
     return out
 
 
-def run(paths, questions=None, today=None, harness=None):
-    """Measure every live question's candidates and record the verdicts."""
-    questions = knobs.LIVE if questions is None else questions
+def measurements(paths, q, today=None):
+    """What `knobs.weekly()` reads for a docket question: the latest number
+    per grid value — current and candidates alike — as the sweep-shaped list
+    `verdict()` expects. A row without a metric (an old-format row, a crash)
+    is not a measurement."""
+    out = []
+    for value, row in last_rows(paths, q.id, today).items():
+        if row.get('metric') is None or row.get('n') is None:
+            continue
+        out.append({'value': value, 'metric': row['metric'], 'n': row['n'],
+                    'leakage': row.get('leakage')})
+    return out
+
+
+def run(paths, questions=None, today=None, harness=None, force=False):
+    """Measure every live question's candidates and record the verdicts.
+
+    Per question: the current value first (the baseline row, `role='current'`),
+    then each neighbour under its override. Skipped — with a line saying so —
+    when the evidence stamp equals the one the last measurement of this
+    question stood on, unless `force`."""
     today = today or util.now_utc().date().isoformat()
+    questions = knobs.docket(paths, today) if questions is None else questions
+    stamp = evidence_stamp(paths)
     lines, rows = [], []
     for q in questions:
         use = harness or getattr(q, 'harness', None) or 'judge'
+        read = getattr(q, 'read', None) or judge_read
+        had = last_rows(paths, q.id, today)
+        stood_on = {r.get('stamp') for r in had.values()}
+        wanted = {q.current, *q.neighbours()}
+        if not force and stood_on == {stamp} and wanted <= set(had):
+            lines.append(f'[backplay] {q.knob}: nothing moved since '
+                         f'{max(str(r["ts"])[:10] for r in had.values())} '
+                         f'(benchmark, store, gate unchanged) — not re-measured')
+            continue
         try:
             base = measure(paths, q.current, use)
         except Exception as e:
             lines.append(f'[backplay] {q.knob}: baseline failed ({e}) — nothing rejected')
             continue
-        cur_metrics = q.read(base) if getattr(q, 'read', None) else []
+        cur_metrics = read(base)
+        rows.append(_row(q, q.current, use, base, cur_metrics, False, 'current value',
+                         stamp, 'current'))
+        lines.append(f'[backplay] {q.knob}={q.current} (current): '
+                     + _fmt(cur_metrics))
         for value in q.neighbours():
             try:
                 payload = measure(paths, value, use, knob=q.knob.split('.')[-1])
             except Exception as e:
                 lines.append(f'[backplay] {q.knob}={value}: harness failed ({e}) — not rejected')
                 continue
-            cand = q.read(payload) if getattr(q, 'read', None) else []
+            cand = read(payload)
             killed, reason = rejects(cur_metrics, cand)
-            rows.append({
-                'ts': util.now_utc().isoformat(timespec='seconds'),
-                'question': q.id, 'knob': q.knob, 'value': value,
-                'harness': use,
-                'gate_fingerprint': payload.get('gate_fingerprint'),
-                'benchmark': q.benchmark,
-                'rejected': bool(killed), 'reason': reason,
-                'n_measurements': len(cand),
-            })
+            rows.append(_row(q, value, use, payload, cand, killed, reason, stamp, 'candidate'))
             lines.append(f'[backplay] {q.knob}={value}: '
-                         f'{"REJECTED" if killed else "survives"} — {reason}')
+                         f'{"REJECTED" if killed else "survives"} — {reason}; {_fmt(cand)}')
     if rows:
         ledger.append(paths.ledger_home, 'backplays', rows)
     if not questions:
@@ -196,19 +280,53 @@ def run(paths, questions=None, today=None, harness=None):
     return lines
 
 
+def _fmt(metrics):
+    if not metrics:
+        return 'no measurement'
+    m = metrics[0]
+    leak = f', leakage {m["leakage"] * 100:.1f}%' if m.get('leakage') is not None else ''
+    more = f' (+{len(metrics) - 1} more)' if len(metrics) > 1 else ''
+    return f'metric {m["metric"]:.3f} on {m["n"]}{leak}{more}'
+
+
 def show(paths, today=None):
+    """The docket as a person reads it: per bucket the open question, its
+    ladder with every rung marked — current, rejected (why, when), survives
+    (metric), untried — then the closed questions with their receipts, then
+    the raw record, newest first."""
     today = today or util.now_utc().date().isoformat()
+    lines = [f'[docket] {today} — one live knob per bucket, rotating through '
+             f'{len(knobs.TUNABLES)} tunables (PARAMETERS.md 11)']
+    for q in knobs.docket(paths, today):
+        killed = rejected_values(paths, q.id, today)
+        results = measurements(paths, q, today)
+        v, detail = knobs.verdict(q, [r for r in results if r['value'] not in killed], today)
+        lines.append(f'[docket] {q.bucket}: {q.knob} live since {q.opened}, stop {q.stop}')
+        lines.append(f'[docket]   ladder {knobs.ladder_text(q, results, killed)}')
+        lines.append(f'[docket]   proposal: {v} — {detail}')
+        for value, why in sorted(killed.items()):
+            lines.append(f'[docket]   rejected {value}: {why}')
+    state = knobs.read_docket(paths)
+    if state['closed']:
+        lines.append('[docket] closed:')
+        for c in state['closed'][-10:]:
+            lines.append(f'[docket]   {c["knob"]} {c["opened"]}..{c["closed"]} at '
+                         f'{c["current"]}: {c["verdict"]} — {c["receipt"]}')
     rows = ledger.read(paths.ledger_home, 'backplays')
     if not rows:
-        return ['[backplay] nothing measured yet']
-    lines = []
+        lines.append('[backplay] nothing measured yet')
+        return lines
+    lines.append('[backplay] record, newest first:')
     for r in sorted(rows, key=lambda r: str(r.get('ts')), reverse=True)[:40]:
         live = r['value'] in rejected_values(paths, r.get('question'), today)
         mark = 'REJECTED' if r.get('rejected') else 'survives'
+        if r.get('role') == 'current':
+            mark = 'current'
         if r.get('rejected') and not live:
             mark = 'rejected (EXPIRED)'
+        num = (f'metric {r["metric"]:.3f} n {r["n"]}' if r.get('metric') is not None else '')
         lines.append(f'{str(r["ts"])[:10]}  {r.get("knob")}={r.get("value")}  '
-                     f'{mark:18s} {r.get("reason", "")}')
+                     f'{mark:18s} {num}  {r.get("reason", "")}')
     return lines
 
 
@@ -283,8 +401,11 @@ def self_check(paths):
     live = rejected_values(paths, 'nomination-bar')
     lines.append(f'[self-check] rejections standing today for nomination-bar: '
                  f'{live or "none"}')
-    lines.append(f'[self-check] filed questions: {len(knobs.LIVE)} '
-                 f'(cron runs this job Sunday 04:00 either way)')
+    qs = knobs.docket(paths)
+    lines.append(f'[self-check] docket: {len(qs)} live question(s) — '
+                 + ', '.join(f'{q.knob}@{q.current} candidates {q.neighbours()}' for q in qs))
+    lines.append(f'[self-check] evidence stamp: {evidence_stamp(paths)}')
+    lines.append('[self-check] cron runs this job nightly 04:00; it re-measures only when the stamp moved')
     return lines
 
 
@@ -302,6 +423,8 @@ def main():
     ap.add_argument('--grid', help='with --knob: comma-separated values, in order')
     ap.add_argument('--current', help='with --knob: the value in the code today')
     ap.add_argument('--harness', choices=sorted(HARNESSES), default=None)
+    ap.add_argument('--force', action='store_true',
+                    help='measure even if nothing moved since the last run')
     args = ap.parse_args()
     paths = util.Paths(args.data_dir, args.models_dir)
     if args.self_check:
@@ -327,7 +450,7 @@ def main():
     # weekly cycle must never meet one halfway. Waiting is right here — this
     # is a night job with nowhere to be.
     with heavy_lock.held(paths.data, 'backplay', wait=7200):
-        for line in run(paths, harness=args.harness):
+        for line in run(paths, harness=args.harness, force=args.force):
             print(line)
 
 

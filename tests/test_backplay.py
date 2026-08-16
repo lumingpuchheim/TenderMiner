@@ -216,7 +216,7 @@ class Scheduled(unittest.TestCase):
                if 'backplay.sh' in l and not l.lstrip().startswith('#')]
         self.assertEqual(len(job), 1, 'exactly one backplay cron line')
         fields = job[0].split()
-        self.assertEqual(fields[:5], ['0', '4', '*', '*', '0'], 'Sunday 04:00')
+        self.assertEqual(fields[:5], ['0', '4', '*', '*', '*'], 'nightly 04:00')
         self.assertEqual(fields[5], 'tm', 'runs as tm, like the other jobs')
         self.assertIn('cron.log', job[0], 'a job whose output goes nowhere is silent')
 
@@ -247,7 +247,8 @@ class VerifiableWithoutFilingAnything(unittest.TestCase):
         self.assertIn('synthetic', body)
         self.assertIn('REJECTED', body)     # the majority case
         self.assertIn('survives', body)     # the minority case
-        self.assertIn('filed questions: 0', body)
+        self.assertIn('docket: 1 live question', body)
+        self.assertIn('evidence stamp', body)
 
     def test_an_ad_hoc_question_is_valid_and_not_filed(self):
         q = backplay._ad_hoc('evidence.NOMINATION_BAR', '0.50,0.55,0.60', '0.55')
@@ -273,6 +274,22 @@ class VerifiableWithoutFilingAnything(unittest.TestCase):
 
     def test_judge_read_is_empty_when_the_row_is_absent(self):
         self.assertEqual(backplay.judge_read({'configurations': []}), [])
+
+    def test_the_judge_document_round_trips_from_judge_runs_rows(self):
+        """PARAMETERS.md 11.4: `--judge --out` had never written a document —
+        judge_run's rows and write_judge_json's expectation disagreed. This
+        pins the shape judge_run now returns to what judge_read reads."""
+        import evidence
+        rows = [('evidence gate (committed)', None, '1492/1752', [], 0.649, 0.022, 0.053),
+                ('embedding gate', None, '1350/1752', [], 0.443, 0.018, 0.047)]
+        counts = {'n_pos': 2698, 'n_neg': 28050, 'n_vol': 112200}
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / 'j.json'
+            with mock.patch('builtins.print'):
+                doc = evidence.write_judge_json(out, rows, counts)
+            self.assertEqual(json.loads(out.read_text(encoding='utf-8'))['counts'], counts)
+        self.assertEqual(backplay.judge_read(doc),
+                         [{'metric': 0.649, 'n': 2698, 'leakage': 0.022}])
 
 
 class Measure(unittest.TestCase):
