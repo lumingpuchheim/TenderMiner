@@ -73,11 +73,14 @@ class HonestFingerprint(unittest.TestCase):
         self.assertIn(f'rules={cfg.rules_fingerprint}', cfg.describe())
 
     def test_the_recorded_default_fingerprint(self):
-        """PARAMETERS.md 2.2 records the default as 7931c8e9cd. If this fails
-        somebody moved a knob: update the constant's receipt, the register
-        row and this value in the same commit — or revert (rule 8.2)."""
+        """The register's value lives in `knobs.EXPECTED_GATE_FINGERPRINT` —
+        one constant, read here and by the cycle's gate guard. If this fails
+        somebody moved a knob: update the constant's receipt, the register row
+        and that value in the same commit — or revert (rule 8.2)."""
+        import knobs
         cfg = rel.GateConfig()
         self.assertEqual(cfg.rules_fingerprint, 'a62e07fda4')
+        self.assertEqual(cfg.fingerprint, knobs.EXPECTED_GATE_FINGERPRINT)
         self.assertEqual(cfg.fingerprint, '7931c8e9cd')
 
 

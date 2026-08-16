@@ -43,6 +43,7 @@ import experiments
 import grading
 import heavy_lock
 import housekeeping
+import knobs
 import predicting
 import report
 import single_bidder as sb
@@ -179,10 +180,21 @@ def _run_cycle(paths, args):
                                         row, util.now_utc().date().isoformat())
         trial_lines.append(experiments.status_line(plan.experiment, v))
         print(f'[experiment] {trial_lines[-1]}')
+    # The knob protocol's two halves (PARAMETERS.md 8.3). Proposing is one
+    # line per live question, printed and carried into the report; blocking is
+    # the gate guard, and it skips DELIVERY only — this week's grading,
+    # training and predictions are already written and are not lost to it.
+    knob_lines = knobs.weekly(paths)
+    for line in knob_lines:
+        print(f'[knobs] {line.lstrip("- ")}')
+    gate_ok, guard_lines = knobs.gate_guard(paths)
+    for line in guard_lines:
+        print(line)
     report.report(paths, tenders, args, record, gate, drift_checks, model_id, len(new_grades), len(rows),
-           trial_lines=trial_lines)
-    delivering.learn_references(paths, tenders, awards, args)
-    delivering.deliver(paths, scored, args)
+           trial_lines=trial_lines, knob_lines=knob_lines + guard_lines)
+    if gate_ok:
+        delivering.learn_references(paths, tenders, awards, args)
+        delivering.deliver(paths, scored, args)
     import simulation
     simulation.simulate(paths.data, scored, tenders, aw,
                         max_picks=args.sim_max_picks,

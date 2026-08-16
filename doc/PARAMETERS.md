@@ -226,14 +226,37 @@ were last served under — the app image does not carry the gate's
 dependencies, and recomputing would answer a different question). Purpose: the three env-driven knobs can be flipped by a stray
 variable in cron's environment; today nothing would say so. One line each.
 
-**4.4 `knobs.py` — the weekly proposal (§8.3), not built yet.** A module of
-its own, never a section of `loop.py` (§9): reads the LIVE knobs from a small
-declaration in code, runs the sweep at the neighbouring grid values on the
-frozen benchmark, and returns one line per live knob — `move up / move down /
-flat / hold (underpowered)` — with the interval and the question's stop
-date. `loop.py` calls it in one line and prints what comes back. Sequenced
-after the `ab-arms-spec` worktree merges and after §9's split, so it lands
-in a `report.py` that exists.
+**4.4 `knobs.py` — the weekly proposal and the guard — done 2026-08-16.**
+A module of its own, as specified. `LIVE` holds the filed questions and is
+**empty**: a knob is LIVE only while a question is open, and filing one is a
+commit that adds a `Question` (id, knob, bucket, question, metric, benchmark
+blob, grid, current, opened, stop, and its own `run`). `weekly()` returns one
+line per live question — `move up` / `move down` / `flat` /
+`hold (underpowered)` / `stop date reached` — with the detail, the weeks
+live and the stop date; `loop.py` prints them and `report.py` carries them
+under a **Knobs** heading. `gate_guard()` is §8.3's blocking half.
+
+Three decisions taken while building it, all narrowing:
+
+- **No general sweep engine.** A question supplies its own `run`; the two
+  harnesses that exist (`evidence.py --sweep`, `--judge`) already measure the
+  gate on the frozen benchmark, and inventing a third mechanism before a real
+  question exists would be a guess about what that question needs.
+- **The guard skips delivery only.** Grading, training and prediction have
+  already run and been written when it fires, so a mismatch costs a week's
+  customer reports, never a week's data.
+- **The guard's message is a diff, not two hashes.** `record_gate_config`
+  stored the whole configuration, so when the register's fingerprint was
+  recorded by an earlier cycle the message names the knobs that differ
+  (`evidence.SYN_THRESHOLD: 0.8 -> 0.99`).
+
+`EXPECTED_GATE_FINGERPRINT` lives in `knobs.py` and `tests/test_parameters.py`
+reads it from there — one value to update in the ritual's commit, not two.
+`tests/test_knobs.py` covers the verdict ladder (clear winner up and down,
+overlapping intervals are flat, thin denominators hold, a hard-bar breach is
+barred whatever recall it buys, the stop date wins, flat twice closes), the
+flat-streak surviving between cycles, a failing sweep never failing a cycle,
+and the guard in all three states.
 
 Not asked for: retiring the ROLLBACK ladder (cheap to keep, and it is the
 tested rollback of a decision only ten days old); a generator for §2; a

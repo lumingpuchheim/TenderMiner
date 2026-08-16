@@ -27,6 +27,20 @@ report → **render every active customer** → **simulate every winner company*
   inside the cycle. If the sidecar is somehow broken, the cycle prints
   `[deliver] relevance gate unavailable … delivering ungated` and continues;
   fix at leisure, nothing is lost.
+- **`[knobs] GATE MISMATCH` stops delivery on purpose**
+  ([`PARAMETERS.md`](PARAMETERS.md) §8.3). It means the gate configuration
+  this run resolved to is not the one the register records — an edited
+  constant, or a stray environment variable in the shell that launched the
+  cycle (twenty of the evidence rules are env-driven). The message names the
+  knobs that differ. Grading, training and this week's predictions have
+  already been written and are not lost; only the customer reports are
+  skipped. Fix by restoring the value, or by making the move properly —
+  constant, receipt comment, register row, `knobs.EXPECTED_GATE_FINGERPRINT`,
+  one commit — then re-run with `--skip-download`.
+- The report's **Knobs** section is a *proposal*, never an action: one line
+  per live question (`move up` / `move down` / `flat` / `hold`). Today there
+  is no live question, so it reads "every knob frozen". Filing one is a
+  commit that adds a `Question` to `knobs.py` (§8.1).
 
 Re-run a cycle without re-downloading (e.g. after editing a subscription):
 

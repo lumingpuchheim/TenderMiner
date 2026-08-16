@@ -34,6 +34,14 @@ judged, git keeps the value.
 question, metric, benchmark by blob hash, grid, stop date. Without one a
 knob stays FROZEN whatever anyone thinks of its value.
 
+**Proposal (weekly line)** — what `knobs.py` prints in the report for a live
+question: `move up`, `move down`, `flat`, `hold (underpowered)` or `stop date
+reached`. A proposal is not an action — no code moves a value.
+
+**Guard (gate guard)** — the check that refuses to deliver when the gate
+configuration a run resolved to is not the one the register records. It is
+what an edited constant without the ritual looks like from outside.
+
 **Rules (evidence rules)** — the `evidence.py` constants that decide which
 words are witnesses and what convicts; `evidence.RULES` names them and the
 gate fingerprint snapshots their values (`rules=<hash>` in `describe()`).

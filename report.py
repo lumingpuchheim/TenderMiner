@@ -110,7 +110,7 @@ def flag_view_lines(record, args):
 
 
 def report(paths, tenders, args, record, gate, drift, model_id, n_graded, n_predicted,
-           trial_lines=()):
+           trial_lines=(), knob_lines=()):
     latest_model = ledger.prediction_latest_per_lot(
         paths.ledger_home,
         exclude_models=experiments.shadow_models(paths.models, paths.ledger_home))
@@ -177,6 +177,12 @@ def report(paths, tenders, args, record, gate, drift, model_id, n_graded, n_pred
     if trial_lines:
         lines += ['', '## Experiments (doc/EXPERIMENTS.md)', '']
         lines += [f'- {tl}' for tl in trial_lines]
+    if knob_lines:
+        # PARAMETERS.md 8.3: the software proposes, the operator decides among
+        # what it proposed. The line is a proposal even when it reads like an
+        # instruction — nothing here has moved a value.
+        lines += ['', '## Knobs (doc/PARAMETERS.md §8)', '']
+        lines += [kl if kl.startswith('-') else f'- {kl}' for kl in knob_lines]
 
     paths.reports.mkdir(parents=True, exist_ok=True)
     out = paths.reports / f'report_{util.now_utc().date().isoformat()}.md'
