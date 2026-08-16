@@ -71,6 +71,13 @@ except ImportError:                    # Windows: the operator's laptop
             return False
 
 NAME = 'heavy.lock'
+# A job the lock HOLDER starts as a subprocess (backplay runs the replay and
+# the judge under its own lock, PARAMETERS.md 10-13) must not fail "Busy" on
+# its parent's lock. The holder sets this in the child's environment; `held`
+# then yields without locking. Only ever set by a holder for its children —
+# a person exporting it by hand would defeat the lock, so its value is the
+# holder's pid and the line says so.
+INHERITED_ENV = 'TM_HEAVY_LOCK_HELD'
 
 
 class Busy(RuntimeError):
@@ -89,6 +96,11 @@ def held(data_dir, what, wait=0, poll=5.0, log=print):
     Raises `Busy` rather than blocking forever — see property 3 above.
     """
     lock = path_for(data_dir)
+    inherited = os.environ.get(INHERITED_ENV)
+    if inherited and inherited != str(os.getpid()):      # a CHILD of the holder, not the holder itself
+        log(f'[lock] {what} runs under the lock held by pid {inherited}')
+        yield lock
+        return
     lock.parent.mkdir(parents=True, exist_ok=True)
     fh = open(lock, 'a+')              # never truncate: another holder has it open
     try:
@@ -109,7 +121,11 @@ def held(data_dir, what, wait=0, poll=5.0, log=print):
             time.sleep(min(poll, max(0.0, deadline - time.monotonic())))
         fh.write(f'{what} pid {os.getpid()}\n')
         fh.flush()
-        yield lock
+        os.environ[INHERITED_ENV] = str(os.getpid())      # children inherit the lock
+        try:
+            yield lock
+        finally:
+            os.environ.pop(INHERITED_ENV, None)
     finally:
         # Closing the descriptor releases the lock; doing it explicitly keeps
         # the release visible rather than leaving it to the garbage collector.

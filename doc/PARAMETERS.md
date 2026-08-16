@@ -787,6 +787,14 @@ the queue has a second bucket.
   any other, and the forward evidence for a competitiveness knob is an
   EXPERIMENTS.md arm — the queue's proposal is the reason to open one.
 
+Two more things the first real replay-under-backplay showed: `rewind_all.py`
+takes the heavy lock itself with `wait=0`, and backplay already holds it —
+so every replay would have failed "Busy" at once. A job the holder starts
+now inherits the lock (`heavy_lock.INHERITED_ENV`, the holder's pid in the
+child's environment; the holder itself and any stranger are refused as
+before). And the proof on the sandbox: `THRESHOLD=0.55`, 11 cutoffs, one
+measurement per week, pooled precision 0.225 over 476 flagged graded lots.
+
 Also from the server's first night (§11.5): the whole `--judge` run overran
 two hours there (store 2.6× the laptop's), so backplay now calls it with
 `--modes evidence --no-volume` — the committed mode only, and without the

@@ -32,6 +32,24 @@ class Excludes(unittest.TestCase):
             # saying so is indistinguishable from one that hung.
             self.assertLess(time.monotonic() - t0, 1.0)
 
+    def test_a_child_of_the_holder_runs_under_the_parents_lock(self):
+        """backplay holds the lock and starts the replay as a subprocess
+        (PARAMETERS.md 13); the child must not fail Busy on its parent's
+        lock — while an unrelated process still must."""
+        code = ('import sys; sys.path.insert(0, %r); import heavy_lock; '
+                'f = heavy_lock.held(%r, "child"); f.__enter__(); print("ok")'
+                % (str(REPO), self.dir))
+        with heavy_lock.held(self.dir, 'parent'):
+            child = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True)
+            self.assertEqual(child.stdout.strip().splitlines()[-1], 'ok', child.stderr)
+            env = {k: v for k, v in os.environ.items() if k != heavy_lock.INHERITED_ENV}
+            stranger = subprocess.run([sys.executable, '-c', code], capture_output=True,
+                                      text=True, env=env)
+            self.assertNotEqual(stranger.returncode, 0)
+            self.assertIn('Busy', stranger.stderr)
+        # the holder's own environment is clean again after the block
+        self.assertNotIn(heavy_lock.INHERITED_ENV, os.environ)
+
     def test_lock_is_free_again_after_the_block(self):
         with heavy_lock.held(self.dir, 'first'):
             pass
