@@ -281,14 +281,15 @@ def queue(paths, today=None, knobs_list=None, filed=None):
     return questions
 
 
-def close_question(paths, q, verdict_, detail, today):
+def close_question(paths, q, verdict_, detail, today, proposed=None):
     """Write the receipt into the queue and free the bucket. The next call
-    to `queue()` opens the next knob of the rotation."""
+    to `queue()` opens the next knob of the rotation. `proposed` is the value
+    a `move` names — what the forward channel (shadow.py) then judges."""
     state = read_queue(paths)
     if state['open'].get(q.bucket, {}).get('knob') != q.knob:
         return False                       # not open here: nothing to close, no duplicate row
     state['closed'].append({'knob': q.knob, 'bucket': q.bucket, 'opened': q.opened,
-                            'closed': today, 'current': q.current,
+                            'closed': today, 'current': q.current, 'proposed': proposed,
                             'verdict': verdict_, 'receipt': detail})
     del state['open'][q.bucket]
     util.write_json(_queue_path(paths), state)
@@ -432,17 +433,27 @@ def close_if_answered(paths, q, v, detail, results, killed, today):
         return None
     measured = {r['value'] for r in results} | set(killed)
     answered = all(n in measured for n in q.neighbours())
+    proposed = None
     if v in ('stop date reached', 'no effect'):
         v_close = v
     elif q.neighbours() and all(n in killed for n in q.neighbours()):
         v_close = 'every neighbour rejected — current stands'
     elif v.startswith('move ') and answered:
         v_close = f'proposal: {v}'
+        proposed = proposed_value(q, detail)
     elif v == 'flat' and answered:
         v_close = 'flat — current stands'
     else:
         return None
-    return v_close if close_question(paths, q, v_close, detail, today) else None
+    return v_close if close_question(paths, q, v_close, detail, today, proposed) else None
+
+
+def proposed_value(q, detail):
+    """The grid value a `move` detail names (`2 -> 3: ...`), as the grid's
+    own object — so a float proposal stays a float and a switch a bool."""
+    head = detail.split(':', 1)[0]
+    text = head.split('->', 1)[1].strip() if '->' in head else ''
+    return next((v for v in q.grid if str(v) == text), None)
 
 
 def standing_proposals(paths, knobs_list=None):
@@ -506,10 +517,12 @@ def weekly(paths, today=None, questions=None):
         for c in closed:
             lines.append(f'- closed this week: {c["knob"]} at {c["current"]} — '
                          f'{c["verdict"]} ({c["receipt"]})')
+        import shadow            # lazy: shadow imports this module (PARAMETERS.md 12)
         for c in standing_proposals(paths):
+            status, detail, _ = shadow.verdict(paths, c['knob'], c.get('proposed'), today)
             lines.append(f'- PROPOSAL standing since {c["closed"]}: {c["knob"]} '
-                         f'{c["verdict"]} — {c["receipt"]} (accept = the three-file commit, '
-                         f'PARAMETERS.md 8.2)')
+                         f'{c["current"]} -> {c.get("proposed")} ({c["receipt"]}); '
+                         f'forward: **{status}** — {detail}')
     return lines
 
 

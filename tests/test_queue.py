@@ -214,7 +214,9 @@ class BackplayMeasuresTheQueue(Sandbox):
         with self._measure(table):
             backplay.run(self.paths, self.queue()[:1], today='2026-08-16')
         report = '\n'.join(knobs.weekly(self.paths, '2026-08-17'))
-        self.assertIn('PROPOSAL standing since 2026-08-16: mod.A proposal: move up', report)
+        self.assertIn('PROPOSAL standing since 2026-08-16: mod.A 2 -> 3', report)
+        self.assertIn('forward: **no cycle yet**', report)
+        self.assertEqual(knobs.standing_proposals(self.paths, KNOBS)[0]['proposed'], 3)
         # the operator accepts: the constant moves — the proposal is no longer standing
         with mock.patch.dict(CURRENT, {'mod.A': 3}):
             self.assertEqual(knobs.standing_proposals(self.paths, KNOBS), [])

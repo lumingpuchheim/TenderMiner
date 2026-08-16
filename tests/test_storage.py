@@ -441,6 +441,18 @@ class AppendOnly(TempHome):
             'gate_fingerprint': 'abc1234567', 'benchmark': 'def4567890',
             'rejected': True, 'reason': 'leaks above 2.2% on 3/4 measurements',
             'n_measurements': 4}])
+        # the gate's forward channel (doc/PARAMETERS.md §12): a disagreement
+        # between champion and challenger on a live lot, and the operator's
+        # blind reading of it — both frozen records
+        ledger.append(self.home, 'gate_shadows', [{
+            'ts': '2026-08-17T00:00:00+00:00', 'cycle': '2026-08-17',
+            'knob': 'relevance.DEFAULT_MIN_CODE_HARD', 'value': 0.85,
+            'challenger_fp': 'aaa1234567', 'champion_fp': '7931c8e9cd', 'role': 'diff',
+            'sub_id': 'acme', 'procedure_id': 'p-1', 'lot_id': 'LOT-0001',
+            'champion': 'in', 'challenger': 'out', 'title': 'Estricharbeiten'}])
+        ledger.append(self.home, 'gate_labels', [{
+            'ts': '2026-08-18T00:00:00+00:00', 'sub_id': 'acme',
+            'procedure_id': 'p-1', 'lot_id': 'LOT-0001', 'expect': 'in', 'note': ''}])
 
     def test_every_ledger_table_has_a_row_to_test_against(self):
         """Guards the test above: an empty table would make it vacuous."""

@@ -53,7 +53,20 @@ on and exits. Monday's report then carries the result in its **Knobs**
 section, and `python backplay.py --show` prints the whole queue — grids,
 rejections with reasons, closed questions with result lines — at any time.
 
-To see it work without waiting for the night:
+**A proposal's forward evidence** — `shadow.py`, PARAMETERS.md §12 — comes
+from the Monday cycle itself: every standing proposal is judged beside the
+champion on that week's lots, and the disagreements wait for you to read them
+blind:
+
+```
+docker compose run --rm tm python shadow.py --label
+```
+
+`i` = this lot is that customer's business, `o` = it is not, `s` = skip. When
+enough are read the proposal line says `ready to promote`, `challenger loses`
+or `bar breached`; `python shadow.py --show` prints the numbers.
+
+To see the rejector work without waiting for the night:
 
 ```
 docker compose run --rm tm python backplay.py --self-check

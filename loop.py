@@ -184,8 +184,19 @@ def _run_cycle(paths, args):
     # line per live question, printed and carried into the report; blocking is
     # the gate guard, and it skips DELIVERY only — this week's grading,
     # training and predictions are already written and are not lost to it.
-    knob_lines = knobs.weekly(paths)
-    for line in knob_lines:
+    # The gate's forward channel (PARAMETERS.md 12): every standing proposal
+    # judged beside the champion on this cycle's lots; disagreements recorded
+    # for the operator's blind reading. Before weekly(), so the proposal
+    # lines carry this cycle's shadow status.
+    import shadow
+    try:
+        shadow_lines = shadow.run(paths, scored)
+    except Exception as e:                    # never fails a cycle
+        shadow_lines = [f'- shadow: skipped ({e})']
+    for line in shadow_lines:
+        print(f'[shadow] {line.lstrip("- ")}')
+    knob_lines = knobs.weekly(paths) + shadow_lines
+    for line in knob_lines[:-len(shadow_lines) or None]:
         print(f'[knobs] {line.lstrip("- ")}')
     gate_ok, guard_lines = knobs.gate_guard(paths)
     for line in guard_lines:

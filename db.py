@@ -395,6 +395,45 @@ CREATE TABLE IF NOT EXISTS backplay (
 CREATE INDEX IF NOT EXISTS ix_backplay_seq ON backplay (seq);
 CREATE INDEX IF NOT EXISTS ix_backplay_q ON backplay (question, ts);
 
+-- The gate's FORWARD channel (doc/PARAMETERS.md §12): every cycle, each
+-- standing proposal is judged beside the champion on the same live lots per
+-- subscription; a row per DISAGREEMENT (role 'diff') and one per (cycle,
+-- challenger) with the counts (role 'summary'). Frozen like every ledger.
+CREATE TABLE IF NOT EXISTS gate_shadow (
+    ts               TEXT NOT NULL,
+    cycle            TEXT NOT NULL,     -- the cycle date
+    knob             TEXT NOT NULL,
+    value            TEXT NOT NULL,     -- the challenger's value, as text
+    challenger_fp    TEXT,
+    champion_fp      TEXT,
+    role             TEXT NOT NULL,     -- diff | summary
+    sub_id           TEXT NOT NULL DEFAULT '',
+    procedure_id     TEXT NOT NULL DEFAULT '',
+    lot_id           TEXT NOT NULL DEFAULT '',
+    champion         TEXT,              -- in | near | out
+    challenger       TEXT,
+    seq              INTEGER NOT NULL,
+    raw              BLOB NOT NULL,
+    UNIQUE (cycle, knob, value, role, sub_id, procedure_id, lot_id)
+);
+CREATE INDEX IF NOT EXISTS ix_gate_shadow_seq ON gate_shadow (seq);
+
+-- The operator's blind reading of a disagreement: in or out for THIS
+-- customer's profile. Written by `shadow.py --label`; the truth the forward
+-- verdict rests on. Never says which configuration said what.
+CREATE TABLE IF NOT EXISTS gate_label (
+    ts               TEXT NOT NULL,
+    sub_id           TEXT NOT NULL,
+    procedure_id     TEXT NOT NULL,
+    lot_id           TEXT NOT NULL,
+    expect           TEXT NOT NULL,     -- in | out
+    note             TEXT,
+    seq              INTEGER NOT NULL,
+    raw              BLOB NOT NULL,
+    UNIQUE (sub_id, procedure_id, lot_id, ts)
+);
+CREATE INDEX IF NOT EXISTS ix_gate_label_seq ON gate_label (seq);
+
 -- Experiment state (doc/EXPERIMENTS.md §7). Owned by experiments.py. Mutable
 -- like `token`, deliberately NOT a ledger: the delivering arm and the closing
 -- decision are stamped in place. The declaration itself lives in code.
@@ -415,7 +454,7 @@ CREATE TABLE IF NOT EXISTS experiment (
 # erasable.
 LEDGER_TABLES = ('subscription_version', 'prediction', 'grade', 'delivery',
                  'learned_ref', 'gate_config', 'simulation', 'app_event',
-                 'arm_grade', 'backplay')
+                 'arm_grade', 'backplay', 'gate_shadow', 'gate_label')
 
 # The one deliberate SQLite-specific construct left (doc/STORAGE.md 6.2). The
 # RULE — a ledger row is never updated or deleted — is portable; only this
@@ -546,6 +585,8 @@ LEDGERS = {
     'app_events': ('ledger/app_events.jsonl', 'app_event'),
     'arm_grades': ('ledger/arm_grades.jsonl', 'arm_grade'),
     'backplays': ('ledger/backplays.jsonl', 'backplay'),
+    'gate_shadows': ('ledger/gate_shadows.jsonl', 'gate_shadow'),
+    'gate_labels': ('ledger/gate_labels.jsonl', 'gate_label'),
 }
 
 # Fields that are JSON arrays in the ledger and stay JSON text in a column.

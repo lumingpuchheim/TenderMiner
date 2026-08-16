@@ -679,3 +679,73 @@ the reader thread died at eleven kilobytes (`encoding='utf-8'` now); and the
 25-minute crash of §11.4. The rows stand in the sandbox's `backplays` ledger;
 the server's ledger is empty until the first night after deployment.
 
+## 12. The forward channel for the gate — `shadow.py`, 2026-08-16
+
+§3 promised the gate a promote channel — *shadow-judge every live lot with
+the challenger; the disagreements are the next labels* — and §8.2 said a
+value ships only after one cycle in shadow. Neither existed; the queue could
+propose, and nothing could turn a proposal into forward evidence. Built the
+same evening the operator said "go with 1".
+
+### 12.1 What runs, and when
+
+Every Monday, inside the cycle, before `knobs.weekly()`: for each **standing
+proposal** (a `move` the queue found, whose constant nobody has moved), the
+cycle's scored lots are judged twice per subscription — once under the
+champion, once under the proposal, each in its own subprocess under
+`TM_GATE_OVERRIDE` exactly as backplay measures. Where the two verdicts
+differ (in / near / out) a row goes to the `gate_shadows` ledger (`role
+'diff'`, with title, buyer, CPV, the description's first 500 characters and
+the profile it was judged for); the cycle's counts go in one `summary` row
+(judged, champion admits, challenger admits, disagreements). No standing
+proposal → one quiet line, no subprocess. First real run, 400-lot sample,
+7 subscriptions, 751 lot×profile judgments: `DEFAULT_MIN_CODE_HARD` 0.85
+disagreed nowhere; `CONVICTION_NOMINATES` off disagreed on 5.
+
+### 12.2 The reading is blind
+
+`python shadow.py --label` shows each unread disagreement — profile, title,
+buyer, CPV, text — and takes `i` / `o` / `s` / `q`. It never shows which
+configuration said what, so the labels cannot drift toward the champion (§3).
+Readings are `gate_labels` rows: (subscription, lot) → in / out. This is the
+one hand action left in the loop, and it is the truth channel, not a
+parameter: the operator reads lots (memory: relevance judgments by the
+operator, never by code); the software does everything else.
+
+### 12.3 The verdict, per challenger, computed on request
+
+From the diffs joined with the readings — `challenger right` when its verdict
+(`in` vs not) matches the reading, likewise `champion right` — and the
+**added leakage**: the challenger's extra admissions read as `out`, over
+everything it admits on live lots (`admits`, summed from the summaries).
+
+| status | rule |
+| --- | --- |
+| `no cycle yet` | no summary row |
+| `bar breached` | added leakage > 2.2 % — certain even with few read: every wrong admission is a fact, the unread ones can only add. **Proposal dropped.** |
+| `collecting` | fewer than `MIN_LABELLED = 20` read |
+| `ready to promote` | Wilson lower bound of challenger-right > 0.5 and not breached — the three-file commit is the operator's |
+| `challenger loses` | Wilson upper bound < 0.5. **Proposal dropped.** |
+| `undecided` | interval straddles 0.5 — keep reading |
+
+Dropped means `shadow.challengers()` no longer runs it and the proposal line
+says why. The forward channel therefore rejects on its own like backplay
+does, and *promotes* only in the sense §8.3 allows: it writes the receipt
+that makes the commit defensible.
+
+### 12.4 Where it shows
+
+Monday's report, under **Knobs**: one line per proposal — `PROPOSAL standing
+since D: knob a -> b (…); forward: **collecting** — 1 cycle, 5 disagreements,
+0 read (need 20) — python shadow.py --label` — and one line per challenger
+with this cycle's counts. `python shadow.py --show` prints the same with the
+numbers behind it. Ledgers: `gate_shadows`, `gate_labels` (db.py, append-only
+like every other).
+
+### 12.5 Not built
+
+Reading through the web app; using customer feedback verdicts as labels
+(sparse, and a customer's yes/no is a sanity check, never the verdict —
+§3); a gate A/B with the unit customer × lot (EXPERIMENTS.md §10 — this is
+its cheaper sibling: one champion, N challengers, no delivery ever switches).
+
