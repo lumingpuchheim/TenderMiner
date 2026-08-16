@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import download
-import loop
+import housekeeping
 import util
 
 
@@ -44,12 +44,12 @@ class ScratchWorldSweep(unittest.TestCase):
     def test_a_fresh_world_is_left_alone(self):
         """Age is the safety catch: a rewind runs for half an hour, and a
         sweep must not pull the floor out from under it."""
-        self.assertEqual(loop._prune_scratch_world(self.paths, 30), (0, 0))
+        self.assertEqual(housekeeping._prune_scratch_world(self.paths, 30), (0, 0))
         self.assertTrue((self.root / 'asof' / 'all').exists())
 
     def test_an_aged_world_is_swept(self):
         self._age(40)
-        n, freed = loop._prune_scratch_world(self.paths, 30)
+        n, freed = housekeeping._prune_scratch_world(self.paths, 30)
         self.assertEqual((n, freed), (1, 1024))
         self.assertFalse((self.root / 'asof' / 'all').exists())
 
@@ -61,7 +61,7 @@ class ScratchWorldSweep(unittest.TestCase):
         (other / 'tenders.parquet').write_bytes(b'y' * 2048)
         self._age(40)                       # ages asof/all AND asof/report
         os.utime(other / 'tenders.parquet', None)   # report is fresh again
-        n, freed = loop._prune_scratch_world(self.paths, 30)
+        n, freed = housekeeping._prune_scratch_world(self.paths, 30)
         self.assertEqual((n, freed), (1, 1024))
         self.assertFalse((self.root / 'asof' / 'all').exists())
         self.assertTrue((self.root / 'asof' / 'report').exists())
@@ -75,17 +75,17 @@ class ScratchWorldSweep(unittest.TestCase):
         (legacy / 'tenders.parquet').write_bytes(b'z' * 512)
         self._age(40, world='backtest_world')
         shutil.rmtree(self.root / 'asof')
-        n, freed = loop._prune_scratch_world(self.paths, 30)
+        n, freed = housekeeping._prune_scratch_world(self.paths, 30)
         self.assertEqual((n, freed), (1, 512))
         self.assertFalse((self.root / 'backtest_world').exists())
 
     def test_absent_world_is_not_an_error(self):
         shutil.rmtree(self.root / 'asof')
-        self.assertEqual(loop._prune_scratch_world(self.paths, 30), (0, 0))
+        self.assertEqual(housekeeping._prune_scratch_world(self.paths, 30), (0, 0))
 
     def test_prune_caches_never_raises(self):
         """A backup or housekeeping problem is not a delivery problem."""
-        self.assertEqual(loop.prune_caches(self.paths, 30), 0)
+        self.assertEqual(housekeeping.prune_caches(self.paths, 30), 0)
 
 
 class DiscoveryCacheSweep(unittest.TestCase):

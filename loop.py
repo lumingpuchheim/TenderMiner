@@ -32,8 +32,10 @@ import numpy as np
 import pandas as pd
 
 import config
+import drift
 import experiments
 import grading
+import housekeeping
 import heavy_lock
 import ledger
 import predicting
@@ -75,195 +77,6 @@ def download(paths, args, checkpoint):
         check=True)
     return date_to
 
-
-# ------------------------------------------------------- housekeeping
-
-def _prune_scratch_world(paths, max_age_days):
-    """Delete stale as-of scratch worlds once nothing in them has been
-    touched for `max_age_days`. -> (files, bytes).
-
-    The rewind programs rebuild these directories from the real store on
-    every run (`asof.py`) — a filtered copy of the parquet store plus a full
-    copy of the embeddings, entirely reconstructible, and nothing reads them
-    between runs. At 203.8 MB apiece they were the second largest thing
-    under `data/` after the notice archive. Swept per subdirectory: each
-    world under `data/asof/` ages on its own clock, so a fresh rewind never
-    protects a stale one. The three pre-phase-5 homes are swept by the same
-    rule until they stop existing on operator machines.
-
-    Age is the safety catch, not a policy: a rewind in progress has fresh
-    files, so a sweep cannot pull the floor out from under a half-hour run.
-    """
-    asof_root = paths.data / 'asof'
-    worlds = ([d for d in asof_root.iterdir() if d.is_dir()]
-              if asof_root.exists() else [])
-    worlds += [paths.data / n for n in ('backtest_world', 'playback_asof',
-                                        'replay_asof')]
-    n_total, freed_total = 0, 0
-    for world in worlds:
-        if not world.exists():
-            continue
-        files = [f for f in world.rglob('*') if f.is_file()]
-        if not files:
-            continue
-        newest = max(f.stat().st_mtime for f in files)
-        if newest >= time.time() - max_age_days * 86400:
-            continue
-        freed_total += sum(f.stat().st_size for f in files)
-        n_total += len(files)
-        shutil.rmtree(world, ignore_errors=True)
-    return n_total, freed_total
-
-
-def prune_caches(paths, max_age_days=30):
-    """Delete discovery caches older than `max_age_days`.
-
-    The TED search resume cache is keyed by a hash of the query, and a query
-    names a date window — so a cache is unresumable the day after its window
-    passes. Nothing removed them and the directory reached 1.13 GB across 1,132
-    dead scopes, all written within a fortnight. It is not the weekly cycle that
-    creates them (bulk.py borrows only helpers from download.py, never
-    search_all), but the cycle is the only thing that runs regularly, so it is
-    where the sweeping belongs.
-
-    Safe by construction: these are derived files. The notices are in the raw
-    archive and the parquet store, and the worst case is re-querying a scope
-    that happens to be repeated. Never fails a cycle.
-    """
-    try:
-        import download
-        n, freed = download.prune_discovery(max_age_days)
-        if n:
-            print(f'[prune] {n} stale discovery cache file(s), '
-                  f'freed {freed / 1e6:.1f} MB')
-        wn, wfreed = _prune_scratch_world(paths, max_age_days)
-        if wn:
-            print(f'[prune] as-of scratch worlds untouched for '
-                  f'{max_age_days}d, freed {wfreed / 1e6:.1f} MB ({wn} files)')
-        return n + wn
-    except Exception as e:
-        print(f'[prune] skipped ({e})')
-        return 0
-
-
-# ------------------------------------------------------------- drift monitors
-
-
-def _psi(hist, now, bins=10):
-    """Population stability index of `now` vs `hist`, on hist's quantile bins.
-    ~0 = same shape; >0.25 is the conventional 'population has shifted' mark."""
-    edges = np.unique(np.quantile(hist, np.linspace(0, 1, bins + 1)))
-    if len(edges) < 3:
-        return None  # hist scores nearly constant — no meaningful histogram
-    edges[0], edges[-1] = -np.inf, np.inf
-    p = np.histogram(hist, bins=edges)[0] / len(hist)
-    q = np.histogram(now, bins=edges)[0] / len(now)
-    p, q = np.clip(p, 1e-4, None), np.clip(q, 1e-4, None)
-    return float(np.sum((q - p) * np.log(q / p)))
-
-
-def drift_monitors(paths, tenders, aw, scores_now, args):
-    """The four every-cycle drift monitors from ONLINE_LEARNING.md — pure
-    reads that WARN in the report footer, never block promotion. They are what
-    says "the market moved" before the track record sours.
-
-    Recent = the trailing --drift-window; each monitor skips itself (and says
-    so) when either side has too few rows to mean anything."""
-    checks, warnings = {}, []
-    cutoff = util.now_utc() - util.parse_window(args.drift_window)
-
-    def result(name, status, detail):
-        checks[name] = f'{status} ({detail})'
-        if status == 'WARN':
-            warnings.append(f'{name}: {detail}')
-
-    # base-rate drift: single-bid rate of recently awarded lots vs the band of
-    # monthly rates over history (mean ± max(2σ, 0.02) across qualifying months)
-    award_pub = pd.to_datetime(aw['publication_date'], errors='coerce')
-    recent_mask = award_pub >= pd.Timestamp(cutoff.date())
-    hist_lots, recent_lots = aw[~recent_mask], aw[recent_mask]
-    monthly = hist_lots.groupby(award_pub[~recent_mask].dt.to_period('M'))['label'] \
-        .agg(['mean', 'size'])
-    monthly = monthly[monthly['size'] >= args.drift_min_lots]
-    if len(monthly) < 3 or len(recent_lots) < args.drift_min_lots:
-        result('base_rate', 'skipped',
-               f'{len(monthly)} qualifying months, {len(recent_lots)} recent awards — too little history')
-    else:
-        mid, half = monthly['mean'].mean(), max(2 * monthly['mean'].std(), 0.02)
-        rate = recent_lots['label'].mean()
-        detail = (f'single-bid rate {rate:.3f} vs historical band '
-                  f'{mid - half:.3f}..{mid + half:.3f} over {len(monthly)} months')
-        result('base_rate', 'ok' if mid - half <= rate <= mid + half else 'WARN', detail)
-
-    # missingness drift: a notice field's null-rate jumping means the source
-    # schema changed under us — compare recent notices vs all earlier ones
-    tender_pub = pd.to_datetime(tenders['publication_date'], errors='coerce')
-    t_recent = tenders[tender_pub >= pd.Timestamp(cutoff.date())]
-    t_hist = tenders[tender_pub < pd.Timestamp(cutoff.date())]
-    if len(t_recent) < args.drift_min_lots or len(t_hist) < args.drift_min_lots:
-        result('missingness', 'skipped',
-               f'{len(t_recent)} recent / {len(t_hist)} historical notices — too few rows')
-    else:
-        jumps = (t_recent.isna().mean() - t_hist.isna().mean()).abs().sort_values(ascending=False)
-        moved = jumps[jumps > args.missing_jump]
-        if moved.empty:
-            result('missingness', 'ok',
-                   f'max null-rate change {jumps.iloc[0]:.2f} ({jumps.index[0]}), '
-                   f'threshold {args.missing_jump:.2f}')
-        else:
-            top = ', '.join(f'{c} {t_hist[c].isna().mean():.2f}->{t_recent[c].isna().mean():.2f}'
-                            for c in moved.index[:4])
-            result('missingness', 'WARN', f'{len(moved)} column(s) jumped: {top}')
-
-    # award-latency drift: median tender→award gap shifting stretches (or
-    # shortens) how long predictions stay ungraded — the report should say so
-    first_pub = tender_pub.groupby([tenders[k] for k in sb.KEY]).min() \
-        .rename('first_pub').reset_index()
-    joined = aw[sb.KEY].assign(award_pub=award_pub.to_numpy()) \
-        .merge(first_pub, on=sb.KEY, how='left')
-    gap_days = (joined['award_pub'] - joined['first_pub']).dt.days
-    g_recent = gap_days[recent_mask.to_numpy()].dropna()
-    g_hist = gap_days[~recent_mask.to_numpy()].dropna()
-    if len(g_recent) < args.drift_min_lots or len(g_hist) < args.drift_min_lots:
-        result('award_latency', 'skipped',
-               f'{len(g_recent)} recent / {len(g_hist)} historical gaps — too few awards')
-    else:
-        med_r, med_h = float(g_recent.median()), float(g_hist.median())
-        # material = a shift a human would call one: ≥14 days AND ≥25% of the norm
-        material = max(14.0, 0.25 * med_h)
-        detail = f'median gap {med_r:.0f}d recently vs {med_h:.0f}d historically'
-        result('award_latency', 'WARN' if abs(med_r - med_h) >= material else 'ok', detail)
-
-    # score-distribution drift: this cycle's scores vs the trailing month of
-    # ledger scores (before this run) — a shifted histogram means the open-lot
-    # population or the champion's view of it moved
-    ledger_cut = (util.now_utc() - timedelta(days=35)).isoformat(timespec='seconds')
-    # the trailing window is a WHERE clause, not a filter over the whole ledger.
-    # This runs AFTER predict_open has appended, so the window now includes this
-    # cycle's own rows -- which it did not when the caller snapshotted the file
-    # beforehand. Excluded explicitly, so the comparison stays "this cycle
-    # against the month before it".
-    hist_scores = np.array([
-        s for s in ledger.prediction_scores_since(
-            paths.ledger_home, ledger_cut,
-            exclude_models=experiments.shadow_models(paths.models, paths.ledger_home))])
-    if len(scores_now) and len(hist_scores) > len(scores_now):
-        hist_scores = hist_scores[:-len(scores_now)]
-    if len(scores_now) < args.drift_min_lots or len(hist_scores) < args.drift_min_lots:
-        result('score_distribution', 'skipped',
-               f'{len(scores_now)} scores this cycle / {len(hist_scores)} in trailing month — too few')
-    else:
-        psi = _psi(hist_scores, np.asarray(scores_now))
-        if psi is None:
-            result('score_distribution', 'skipped', 'trailing-month scores nearly constant')
-        else:
-            result('score_distribution', 'WARN' if psi >= args.psi_warn else 'ok',
-                   f'PSI {psi:.3f} vs trailing month ({len(hist_scores)} ledger scores), '
-                   f'warn at {args.psi_warn:.2f}')
-
-    for name, status in checks.items():
-        print(f'[drift] {name}: {status}')
-    return {'checks': checks, 'warnings': warnings}
 
 
 # --------------------------------------------------------------- step 5: report
@@ -519,9 +332,10 @@ def _run_cycle(paths, args):
             r_, s_, sc_ = predicting.predict_open(paths, tenders, roles, aw, args, arm=arm, plan=plan)
             if plan.is_delivering(arm):
                 model_id, gate, rows, scores_now, scored = mid, g, r_, s_, sc_
-    drift = drift_monitors(paths, tenders, aw, scores_now, args)
+    drift_checks = drift.drift_monitors(paths, tenders, aw, scores_now, args)
     # persisted so the dashboard can show the monitors (SUBSCRIPTIONS.md phase 5)
-    util.write_json(paths.drift, {'at': util.now_utc().isoformat(timespec='seconds'), **drift})
+    util.write_json(paths.drift,
+                    {'at': util.now_utc().isoformat(timespec='seconds'), **drift_checks})
     trial_lines = []
     if plan.is_trial:
         row = experiments.state(paths.ledger_home)[plan.experiment.id]
@@ -529,7 +343,7 @@ def _run_cycle(paths, args):
                                         row, util.now_utc().date().isoformat())
         trial_lines.append(experiments.status_line(plan.experiment, v))
         print(f'[experiment] {trial_lines[-1]}')
-    report(paths, tenders, args, record, gate, drift, model_id, len(new_grades), len(rows),
+    report(paths, tenders, args, record, gate, drift_checks, model_id, len(new_grades), len(rows),
            trial_lines=trial_lines)
     delivering.learn_references(paths, tenders, awards, args)
     delivering.deliver(paths, scored, args)
@@ -567,7 +381,7 @@ def _run_cycle(paths, args):
         except Exception as e:                                 # noqa: BLE001
             print(f'[public] site build failed, cycle continues: {e!r}')
 
-    prune_caches(paths)
+    housekeeping.prune_caches(paths)
 
     checkpoint['last_success_at'] = util.now_utc().isoformat(timespec='seconds')
     if date_to:
