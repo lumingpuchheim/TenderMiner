@@ -213,35 +213,47 @@ def prediction_titles(home):
     return out
 
 
-def prediction_latest_per_lot(home):
+def prediction_latest_per_lot(home, exclude_models=()):
     """{(procedure_id, lot_id): last row appended} — the cycle report's view of
-    the open market."""
+    the open market. exclude_models: model ids to leave out — the shadow arms
+    of an A/B trial (doc/EXPERIMENTS.md §8), which score the same lots and
+    must not be what the report or a customer sees."""
     import db
     kind, path = storage(home, 'predictions')
     out = {}
+    skip = set(exclude_models)
     if kind == 'jsonl':
         for r in _read_file(path):
-            out[(r['procedure_id'], r['lot_id'])] = r   # last write wins
+            if r['model'] not in skip:
+                out[(r['procedure_id'], r['lot_id'])] = r   # last write wins
         return out
     con = db.connect(home, create=False)
     for r in con.execute('SELECT raw FROM prediction ORDER BY seq'):
         d = json.loads(db.unpack(r['raw']))
-        out[(d['procedure_id'], d['lot_id'])] = d
+        if d['model'] not in skip:
+            out[(d['procedure_id'], d['lot_id'])] = d
     return out
 
 
-def prediction_scores_since(home, cutoff_ts):
+def prediction_scores_since(home, cutoff_ts, exclude_models=()):
     """Scores appended on or after `cutoff_ts` (an ISO timestamp), for the
     score-distribution drift monitor. The monitor wants a trailing window, and
-    a window is a WHERE clause rather than a filter over everything."""
+    a window is a WHERE clause rather than a filter over everything.
+    exclude_models: shadow-arm model ids (see prediction_latest_per_lot)."""
     import db
     kind, path = storage(home, 'predictions')
+    skip = set(exclude_models)
     if kind == 'jsonl':
         return [r['score'] for r in _read_file(path)
-                if str(r.get('ts', '')) >= cutoff_ts]
+                if str(r.get('ts', '')) >= cutoff_ts and r['model'] not in skip]
     con = db.connect(home, create=False)
+    if not skip:
+        return [r['score'] for r in
+                con.execute('SELECT score FROM prediction WHERE ts >= ?', (cutoff_ts,))]
+    marks = ', '.join('?' * len(skip))
     return [r['score'] for r in
-            con.execute('SELECT score FROM prediction WHERE ts >= ?', (cutoff_ts,))]
+            con.execute(f'SELECT score FROM prediction WHERE ts >= ? '
+                        f'AND model NOT IN ({marks})', (cutoff_ts, *sorted(skip)))]
 
 
 def start(home):

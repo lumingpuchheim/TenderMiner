@@ -32,6 +32,7 @@ Two rules from the spec are enforced here rather than trusted:
 import argparse
 import html
 import json
+import os
 import re
 import shutil
 import time
@@ -626,6 +627,27 @@ def rate_limited(ctx):
                 status='429 Too Many Requests')
 
 
+def get_experiments(ctx):
+    """The operator's A/B overview (doc/EXPERIMENTS.md §9): open experiments
+    with their verdict line and per-arm tables, closed ones, the constants.
+    An UNLISTED URL, not authentication — the path segment is
+    TM_EXPERIMENTS_KEY; unset, the route does not exist. Read-only, GET only."""
+    import experiments
+    from datetime import date
+    stamp, _age = _freshness(ctx['data_dir'])
+    body = experiments.render_html(ctx['data_dir'], config.models_root(),
+                                   date.today().isoformat(), last_cycle=stamp)
+    return page('Experimente', body)
+
+
+EXPERIMENTS_KEY_VAR = 'TM_EXPERIMENTS_KEY'
+
+
+def _experiments_key():
+    k = os.environ.get(EXPERIMENTS_KEY_VAR, '').strip()
+    return k if len(k) >= 16 else None       # too short to be unlisted is not set
+
+
 def route(ctx, method, path, environ=None):
     """-> (status, content_type, body). The only place a request becomes a
     page, and the only place the GET/POST rule is enforced."""
@@ -635,6 +657,11 @@ def route(ctx, method, path, environ=None):
         return STATIC[path](ctx)
 
     parts = [p for p in path.split('/') if p]
+    key = _experiments_key()
+    if len(parts) == 2 and parts[0] == 'experiments' and key and parts[1] == key:
+        if method != 'GET':
+            return not_yet(ctx)
+        return get_experiments(ctx)
     if len(parts) == 2 and parts[0] in TOKEN_ROUTES:
         # the brake sits before resolve(), so enumeration attempts pay it too
         ip = (environ or {}).get('REMOTE_ADDR', '?')

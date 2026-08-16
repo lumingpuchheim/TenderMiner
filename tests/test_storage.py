@@ -426,6 +426,12 @@ class AppendOnly(TempHome):
         ledger.append(self.home, 'app_events', [{
             'ts': '2026-08-01T00:00:00+00:00', 'kind': 'signup',
             'sub_id': 'acme'}])
+        # arm_grades likewise (doc/EXPERIMENTS.md §6) — born in the database
+        ledger.append(self.home, 'arm_grades', [{
+            'experiment': 'x', 'arm': 'a', 'procedure_id': 'p-1', 'lot_id': 'LOT-0001',
+            'model': 'm-1-a', 'ts': '2026-08-01T00:00:00+00:00', 'score': 0.7,
+            'flag': True, 'label': 1, 'award_pub': '2026-08-20',
+            'graded_at': '2026-08-25T00:00:00+00:00'}])
 
     def test_every_ledger_table_has_a_row_to_test_against(self):
         """Guards the test above: an empty table would make it vacuous."""

@@ -3,7 +3,10 @@
 Written 2026-08-16 from the operator's questions in this session and the brief
 "One Hot vs Target Statistics". This is the **spec** for the first experiment
 and for `experiments.py`, which is exactly as general as that experiment
-needs and no more; nothing here is built yet except where a line says so.
+needs and no more. **Status: built 2026-08-16** — `experiments.py`, the two
+tables in `db.py`, the arm hooks in `loop.py`, the `/experiments/<key>` route
+in `app.py`, `tests/test_experiments.py` (19 tests) and `tests/test_multihot.py`
+(10). The trial opens on its declared Monday, 2026-08-18, by itself.
 Companions: [`ONLINE_LEARNING.md`](ONLINE_LEARNING.md) (the cycle the arms run
 in), [`TRAINING.md`](TRAINING.md) (leakage rules and tripwires every arm keeps),
 [`APP.md`](APP.md) (the web area the overview page joins).
@@ -273,6 +276,19 @@ declaration removed from code leaves its state row; the page marks it
 **Zero open experiments** — most of the year — costs nothing: the cycle runs
 one implicit arm `default` exactly as today, and `models/CURRENT` is the only
 pointer in play. That is also the exact behaviour after `close`.
+
+**One open experiment at a time.** Two open ones would need two delivering
+arms feeding one set of customers, which is not a thing; a second open state
+row makes the cycle refuse loudly (`experiments.open_experiment`) rather than
+half-run. A JSONL-only home (a rewind sandbox, a test directory) never gets a
+state row and never runs a trial — `ensure_state` does not create a database.
+
+**Shadows stay out of everything but their own record.** The report shortlist
+and the score-drift monitor read the predictions ledger; both are handed the
+set of shadow model ids (`experiments.shadow_models`: every registry row whose
+arm is not its experiment's delivering arm) and skip them. The customer track
+record (`grade`) keeps a stamped row only if its arm is that experiment's
+delivering arm — from the state table, so the rule outlives the trial.
 
 ## 8. What the cycle does per arm
 

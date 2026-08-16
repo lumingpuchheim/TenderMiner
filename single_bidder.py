@@ -129,13 +129,26 @@ def _hier_levels(col):
 
 MULTIHOT_MIN_SUPPORT = 30  # a code needs this many distinct lots to get its own 0/1 column
 
+# Named feature builds (doc/EXPERIMENTS.md §3). `default` is the build the
+# cycle runs; the others exist so an A/B arm can differ from it in exactly one
+# named way. `cpv_additional_combination`: the additional-CPV codes stay one
+# combination string per level (the pre-2026-08-16 encoding, the "target
+# statistics" arm) while every other list column is multi-hot as in `default`.
+FEATURE_BUILDS = ('default', 'cpv_additional_combination')
+
+
+def _check_build(feature_build):
+    if feature_build not in FEATURE_BUILDS:
+        raise ValueError(f'unknown feature_build {feature_build!r}; '
+                         f'known: {", ".join(FEATURE_BUILDS)}')
+
 
 def _is_list_col(frame, col):
     return col in frame.columns and frame[col].map(
         lambda v: isinstance(v, (list, np.ndarray))).any()
 
 
-def _multihot_levels(roles, frame):
+def _multihot_levels(roles, frame, feature_build='default'):
     """The columns encoded multi-hot and their levels: every LIST column whose
     role is categorical (one level, the full value) or hierarchical with a
     known scheme (one level per truncation depth). A list never becomes a
@@ -143,10 +156,13 @@ def _multihot_levels(roles, frame):
     additional CPV codes made 5,325 — the combinations are what outgrew the
     one-hot cap, the values themselves never do. Non-list columns are
     untouched: one value per row is one-hot safe as it is."""
+    _check_build(feature_build)
     out = {}
     for col, role in roles.items():
         if not _is_list_col(frame, col):
             continue
+        if feature_build == 'cpv_additional_combination' and col == 'cpv_additional':
+            continue  # stays a combination string per level (build_features)
         if role == 'categorical':
             out[col] = [(None, None)]
         elif role == 'hierarchical' and _hier_levels(col) is not None:
@@ -167,7 +183,7 @@ def _colname(col, lname, tail):
     return f'{col}__{lname}__{tail}' if lname is not None else f'{col}__{tail}'
 
 
-def fit_multihot(frame, roles, min_support=MULTIHOT_MIN_SUPPORT):
+def fit_multihot(frame, roles, min_support=MULTIHOT_MIN_SUPPORT, feature_build='default'):
     """The multi-hot vocabulary: per list column and level, the values present
     in at least `min_support` distinct lots of `frame`, sorted.
 
@@ -183,7 +199,7 @@ def fit_multihot(frame, roles, min_support=MULTIHOT_MIN_SUPPORT):
     """
     vocab = {}
     lots = frame.drop_duplicates(subset=KEY) if all(k in frame.columns for k in KEY) else frame
-    for col, levels in _multihot_levels(roles, frame).items():
+    for col, levels in _multihot_levels(roles, frame, feature_build).items():
         vocab[col] = {}
         for lname, n in levels:
             counts = {}
@@ -192,7 +208,8 @@ def fit_multihot(frame, roles, min_support=MULTIHOT_MIN_SUPPORT):
                     counts[code] = counts.get(code, 0) + 1
             vocab[col][_level_key(lname)] = sorted(
                 c for c, k in counts.items() if k >= min_support)
-    return {'min_support': int(min_support), 'vocab': vocab}
+    return {'min_support': int(min_support), 'vocab': vocab,
+            'feature_build': feature_build}
 
 
 def _apply_multihot(df, col, levels, vocab):
@@ -216,7 +233,7 @@ def _apply_multihot(df, col, levels, vocab):
     return pd.DataFrame(block, index=df.index, dtype='int64')
 
 
-def build_features(df, roles, list_frame=None, multihot=None):
+def build_features(df, roles, list_frame=None, multihot=None, feature_build='default'):
     """Mechanical role-driven feature build (leakage rule 2).
 
     list_frame: frame used to detect list-typed columns (which are encoded
@@ -226,13 +243,19 @@ def build_features(df, roles, list_frame=None, multihot=None):
     which gives identical columns to every caller passing the same frame.
     A stored champion passes its own (meta.json) so scoring uses the columns
     it was trained on, whatever the archive holds today.
+    feature_build: one of FEATURE_BUILDS; must match the vocabulary's.
     Returns (X, cat_cols, num_cols, excluded).
     """
     if list_frame is None:
         list_frame = df
     if multihot is None:
-        multihot = fit_multihot(list_frame, roles)
-    multi = _multihot_levels(roles, list_frame)
+        multihot = fit_multihot(list_frame, roles, feature_build=feature_build)
+    if multihot.get('feature_build', 'default') != feature_build:
+        raise ValueError(f'multihot vocabulary was fitted for feature_build '
+                         f'{multihot.get("feature_build", "default")!r}, '
+                         f'not {feature_build!r}')
+    multi = _multihot_levels(roles, list_frame, feature_build)
+    is_list = {c: _is_list_col(list_frame, c) for c in roles}
     X = pd.DataFrame(index=df.index)
     cats, nums, excl, blocks = [], [], [], []
     for col, role in roles.items():
@@ -262,8 +285,15 @@ def build_features(df, roles, list_frame=None, multihot=None):
                 continue
             for lname, n in levels:
                 new = f'{col}__{lname}'
-                X[new] = s.map(lambda v, n=n: NA if v is None or (isinstance(v, float) and np.isnan(v))
-                               else str(v)[:n])
+                if is_list[col]:
+                    # only under feature_build='cpv_additional_combination':
+                    # one combination string per level, the encoding the
+                    # rule-4 guard outgrew — kept as the "target statistics"
+                    # arm of doc/EXPERIMENTS.md, never the default
+                    X[new] = s.map(lambda v, n=n: '|'.join(sorted(_codes_at(v, n))) or NA)
+                else:
+                    X[new] = s.map(lambda v, n=n: NA if v is None or (isinstance(v, float) and np.isnan(v))
+                                   else str(v)[:n])
                 cats.append(new)
         elif role == 'date':
             if col == 'publication_date':
@@ -280,15 +310,31 @@ def build_features(df, roles, list_frame=None, multihot=None):
     return X, cats, nums, excl
 
 
-def assert_pure_one_hot(X, cat_cols, one_hot_max_size=ONE_HOT_MAX_SIZE):
+def assert_pure_one_hot(X, cat_cols, one_hot_max_size=ONE_HOT_MAX_SIZE, exempt=()):
     """Leakage rule 4 guard: every categorical must fit under one_hot_max_size,
     otherwise CatBoost silently switches that column to target statistics.
-    Returns the cardinality Series (descending) for display."""
+    Returns the cardinality Series (descending, ALL categoricals) for display.
+
+    exempt: columns allowed above the cap — the caller has decided, out loud,
+    that CatBoost's ordered target statistics are wanted for exactly those
+    (doc/EXPERIMENTS.md §3, the "target statistics" arm). They are left out of
+    the max but stay in the returned Series, so the gate check can name them:
+    `ctr_columns(card, exempt, cap)` gives the ones that will actually take it.
+    """
     card = pd.Series({c: X[c].nunique() for c in cat_cols}).sort_values(ascending=False)
-    assert card.max() <= one_hot_max_size, (
-        f'{card.idxmax()} has {card.max()} categories > one_hot_max_size='
-        f'{one_hot_max_size} -> CatBoost would use target statistics')
+    checked = card.drop(labels=[c for c in exempt if c in card.index])
+    if len(checked):
+        assert checked.max() <= one_hot_max_size, (
+            f'{checked.idxmax()} has {checked.max()} categories > one_hot_max_size='
+            f'{one_hot_max_size} -> CatBoost would use target statistics')
     return card
+
+
+def ctr_columns(card, exempt, one_hot_max_size=ONE_HOT_MAX_SIZE):
+    """{column: cardinality} of the exempt columns that DO exceed the cap —
+    the ones CatBoost will encode with target statistics."""
+    return {c: int(card[c]) for c in exempt
+            if c in card.index and card[c] > one_hot_max_size}
 
 
 # -------------------------------------------------------------- split / weights

@@ -34,6 +34,7 @@ import numpy as np
 import pandas as pd
 
 import config
+import experiments
 import heavy_lock
 import ledger
 import render
@@ -158,15 +159,23 @@ def download(paths, args, checkpoint):
 
 # ---------------------------------------------------------------- step 2: grade
 
-def grade(paths, tenders, aw, args):
+def grade(paths, tenders, aw, args, plan=None):
     """Grade ledger predictions for lots whose award has now been published.
     The headline grades the LAST prediction made before the award appeared.
     Each grade row is stamped with the slicing keys (cpv3 trade code,
     place_nuts3) and the award notice's TED publication number, at write time
     (SUBSCRIPTIONS.md: the ledger is the frozen record — a stamped row cannot
-    drift, a join against a rebuilt store can)."""
+    drift, a join against a rebuilt store can).
+
+    During a trial (plan.is_trial) the same step also writes the arm-vs-arm
+    record: one `arm_grades` row per arm per newly awarded lot the arm had
+    predicted (doc/EXPERIMENTS.md §6). `grades` itself keeps meaning "the
+    delivering arm" — it is what the customer track record is built from."""
     already = {(g['procedure_id'], g['lot_id'])
                for g in ledger.read(paths.ledger_home, 'grades')}
+    exp = plan.experiment if plan and plan.is_trial else None
+    arm_already = experiments.graded_lots(paths.ledger_home, exp.id) if exp else {}
+    delivering_of = experiments.delivering_map(paths.ledger_home)
 
     lot_meta = {}
     for r in tenders[sb.KEY + ['cpv_main', 'place_nuts3']].itertuples():
@@ -181,16 +190,45 @@ def grade(paths, tenders, aw, args):
                 int(r.n_tenders))
                for r in aw.itertuples()}
     # only lots whose award has published can be graded, so only their
-     # predictions are needed — a handful of the ledger, asked for by key
-    by_lot = ledger.predictions_by_lot(
-        paths.ledger_home, lots={k for k in labeled if k not in already})
+    # predictions are needed — a handful of the ledger, asked for by key
+    need = {k for k in labeled if k not in already}
+    if exp:
+        # plus the lots some arm has not graded yet — usually the same lots
+        for arm in exp.arms:
+            need |= {k for k in labeled if k not in arm_already.get(arm.id, set())}
+    by_lot = ledger.predictions_by_lot(paths.ledger_home, lots=need)
+    if exp:
+        arm_rows = experiments.arm_grade_rows(
+            exp, labeled, lot_meta,
+            {lot: rows for lot, rows in by_lot.items()
+             if any(lot not in arm_already.get(a.id, set()) for a in exp.arms)},
+            args.threshold, now_utc().isoformat(timespec='seconds'))
+        arm_rows = [r for r in arm_rows
+                    if (r['procedure_id'], r['lot_id']) not in arm_already.get(r['arm'], set())]
+        n_arm = ledger.append(paths.ledger_home, 'arm_grades', arm_rows)
+        by_arm = {}
+        for r in arm_rows:
+            by_arm[r['arm']] = by_arm.get(r['arm'], 0) + 1
+        print(f'[grade:{exp.id}] {n_arm} arm-graded rows ('
+              + ', '.join(f'{exp.label(a)} {by_arm.get(a, 0)}' for a in by_arm) + ')'
+              if n_arm else f'[grade:{exp.id}] no newly awarded lots any arm had scored')
     new_grades = []
     for lot, rows in by_lot.items():
         if lot in already or lot not in labeled:
             continue
         label, award_pub, award_pub_nr, n_tenders = labeled[lot]
         meta = lot_meta.get(lot, {})
-        rows = sorted(rows, key=lambda r: r['ts'])
+        # the customer track record is the DELIVERING arm's: a shadow arm's
+        # row on the same lot (same Monday, same ts) must never be "the last
+        # prediction". A stamped row counts iff its arm is (or was) that
+        # experiment's delivering arm — from the state table, which outlives
+        # the trial; rows without a stamp are from outside any trial.
+        rows = sorted((r for r in rows
+                       if not r.get('arm')
+                       or delivering_of.get(r.get('experiment')) == r.get('arm')),
+                      key=lambda r: r['ts'])
+        if not rows:
+            continue
         before = [r for r in rows if str(r['ts'])[:10] <= award_pub[:10]]
         last = (before or rows)[-1]
         flag = bool(last['score'] >= last.get('threshold', args.threshold))
@@ -339,38 +377,56 @@ def track_record(paths, args):
 
 # ------------------------------------------------------- step 3: learn + promote
 
-def current_champion(paths):
-    if not paths.current.exists():
+def current_champion(paths, arm=None):
+    """The champion: models/CURRENT, or the arm's own pointer during a trial
+    (doc/EXPERIMENTS.md §4 — each arm is gated against ITS OWN champion)."""
+    pointer = paths.current if arm is None else experiments.arm_current_path(paths.models, arm.id)
+    if not pointer.exists():
         return None
-    model_id = paths.current.read_text(encoding='utf-8').strip()
+    model_id = pointer.read_text(encoding='utf-8').strip()
     meta = read_json(paths.models / model_id / 'meta.json', None)
     return {'model_id': model_id, 'meta': meta}
 
 
-def learn(paths, tenders, roles, data, aw, args, checkpoint):
+def learn(paths, tenders, roles, data, aw, args, checkpoint, arm=None, plan=None):
     """Train a candidate on v1 notice-only features, run the trust checks, gate
     against the champion, persist to the registry. Returns (model_id, gate).
 
     A failed trust check BLOCKS PROMOTION and keeps the champion — it never
     aborts the cycle (ONLINE_LEARNING.md: "blocks keep the champion and
-    notify; nothing fails silently")."""
+    notify; nothing fails silently").
+
+    arm/plan (doc/EXPERIMENTS.md §8): during a trial this runs once per arm
+    with the arm's feature build, CatBoost overrides and guard exemptions,
+    gated against the arm's own champion; the delivering arm's promotion also
+    rewrites models/CURRENT. Without an arm it is exactly the single-arm cycle."""
+    feature_build = arm.feature_build if arm else 'default'
+    exempt = arm.guard_exempt if arm else ()
+    tag = f'[learn:{arm.id}]' if arm else '[learn]'
     # the multi-hot vocabulary is fitted once, on the full tenders frame, and
     # travels with the candidate (meta.json) so predict_open scores with the
     # columns the model was trained on — not with whatever the archive holds
     # the week it scores (doc/EXPERIMENTS.md §3)
-    multihot = sb.fit_multihot(tenders, roles)
+    multihot = sb.fit_multihot(tenders, roles, feature_build=feature_build)
     X, cat_cols, num_cols, _ = sb.build_features(data, roles, list_frame=tenders,
-                                                 multihot=multihot)
+                                                 multihot=multihot, feature_build=feature_build)
     features = cat_cols + num_cols
     gate = {'val_window': args.val_window, 'checks': {}, 'warnings': [], 'failures': []}
+    if arm:
+        gate['arm'] = arm.id
 
     try:
-        card = sb.assert_pure_one_hot(X, cat_cols)
-        gate['checks']['pure_one_hot'] = f'passed (max cardinality {int(card.max())})'
+        card = sb.assert_pure_one_hot(X, cat_cols, exempt=exempt)
+        ctr = sb.ctr_columns(card, exempt)
+        checked_max = int(card.drop(labels=[c for c in exempt if c in card.index]).max())
+        gate['checks']['pure_one_hot'] = (
+            f'passed (max cardinality {checked_max}'
+            + (f'; CTR columns: ' + ', '.join(f'{c} {n}' for c, n in ctr.items()) if ctr else '')
+            + ')')
     except AssertionError as e:
         # cannot train a trustworthy candidate at all — keep champion, skip training
         gate['failures'].append(f'pure_one_hot: {e}')
-        print(f'[learn] TRUST CHECK FAILED: {e} — no candidate this cycle, champion kept')
+        print(f'{tag} TRUST CHECK FAILED: {e} — no candidate this cycle, champion kept')
         return None, gate
 
     pub = pd.to_datetime(data['publication_date'])
@@ -380,6 +436,8 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint):
     gate['n_val_lots'] = split.n_test_lots
 
     overrides = {'iterations': args.iterations} if args.iterations else {}
+    if arm:
+        overrides.update(arm.overrides)
     small_val = split.n_test_lots < args.min_val_lots or len(set(split.yte)) < 2
     val_metrics = None
     if small_val:
@@ -440,7 +498,7 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint):
     # tripwire: computability on open lots (production dry-run)
     open_t = sb.open_tenders(tenders, aw)
     X_open, cats_o, nums_o, _ = sb.build_features(open_t, roles, list_frame=tenders,
-                                                  multihot=multihot)
+                                                  multihot=multihot, feature_build=feature_build)
     if cats_o + nums_o != features:
         gate['failures'].append('computability: feature set differs for open lots — a feature depends on the future')
     else:
@@ -453,7 +511,7 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint):
     deploy = sb.train(X, y, w, cat_cols, **overrides)
 
     # promotion: all trust checks passed AND match-or-beat the champion's val PR-AUC
-    champ = current_champion(paths)
+    champ = current_champion(paths, arm)
     # A champion trained on a different feature schema cannot score today's
     # build AT ALL (predict_open compares the column list), so comparing PR-AUC
     # to it decides nothing: the candidate is the only usable model. A feature
@@ -495,7 +553,7 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint):
             gate['warnings'].append(
                 f"candidate val PR-AUC {val_metrics['pr_auc']:.4f} < champion {champ_pr:.4f} — champion kept")
 
-    model_id = 'm' + now_utc().strftime('%Y-%m-%d-%H%M%S')
+    model_id = 'm' + now_utc().strftime('%Y-%m-%d-%H%M%S') + (arm.suffix if arm else '')
     mdir = paths.models / model_id
     mdir.mkdir(parents=True, exist_ok=True)
     deploy.save_model(str(mdir / 'model.cbm'))
@@ -507,6 +565,7 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint):
         'features': features, 'n_features': len(features),
         'max_cardinality': int(card.max()),
         'multihot': multihot,
+        'feature_build': feature_build,
         'val_pr_auc': None if val_metrics is None else val_metrics['pr_auc'],
         'val_roc_auc': None if val_metrics is None else val_metrics['roc_auc'],
         'val_top_hit': None if val_metrics is None else val_metrics.get('top_slice_hit'),
@@ -514,21 +573,32 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint):
         'gate': gate, 'promoted': promote,
         'threshold': args.threshold,
     }
+    if arm:
+        meta.update({'experiment': plan.experiment.id, 'arm': arm.id, 'label': arm.label,
+                     'guard_exempt': list(arm.guard_exempt), 'catboost': dict(arm.catboost)})
     write_json(mdir / 'meta.json', meta)
     append_jsonl(paths.registry, [{'model_id': model_id, 'promoted': promote,
                                    'val_pr_auc': meta['val_pr_auc'],
                                    'val_top_hit': meta['val_top_hit'],
                                    'val_top_lift': meta['val_top_lift'],
-                                   'trained_at': meta['trained_at']}])
+                                   'trained_at': meta['trained_at'],
+                                   **({'arm': arm.id, 'experiment': plan.experiment.id} if arm else {})}])
     if promote:
-        paths.current.parent.mkdir(parents=True, exist_ok=True)
-        paths.current.write_text(model_id + '\n', encoding='utf-8')
+        # the arm's own pointer during a trial; models/CURRENT only for the
+        # delivering arm — a shadow's promotion never reaches a customer
+        if arm:
+            ap = experiments.arm_current_path(paths.models, arm.id)
+            ap.parent.mkdir(parents=True, exist_ok=True)
+            ap.write_text(model_id + '\n', encoding='utf-8')
+        if arm is None or plan.is_delivering(arm):
+            paths.current.parent.mkdir(parents=True, exist_ok=True)
+            paths.current.write_text(model_id + '\n', encoding='utf-8')
     lift = f" | top-{args.top_slice:.0%} val hit {meta['val_top_hit']:.2f} (lift {meta['val_top_lift']:.1f}x)" \
         if meta['val_top_hit'] is not None else ''
-    print(f'[learn] candidate {model_id} '
+    print(f'{tag} candidate {model_id} '
           f"val PR-AUC {meta['val_pr_auc']}{lift} -> {'PROMOTED' if promote else 'champion kept'}")
     for wmsg in gate['warnings']:
-        print(f'[learn] warning: {wmsg}')
+        print(f'{tag} warning: {wmsg}')
     return model_id, gate
 
 
@@ -635,15 +705,21 @@ def explain_rows(model, X, cat_cols, k=3):
 
 # -------------------------------------------------------------- step 4: predict
 
-def predict_open(paths, tenders, roles, aw, args):
+def predict_open(paths, tenders, roles, aw, args, arm=None, plan=None):
     """Score every open lot with the champion; append new rows to the ledger.
     Returns (new_ledger_rows, all_scores_this_cycle, scored) — the full score
     array feeds the score-distribution drift monitor, and `scored` (one dict
     per open lot, ledger-row shaped, dedup or not) feeds the subscription
-    renderer even on cycles where dedup writes no new ledger rows."""
-    champ = current_champion(paths)
+    renderer even on cycles where dedup writes no new ledger rows.
+
+    arm/plan (doc/EXPERIMENTS.md §8): during a trial this runs once per arm
+    with the arm's own champion; every row is stamped with `experiment` and
+    `arm` so the arm-vs-arm grading can find it. Only the delivering arm's
+    return value reaches deliver(), the drift monitors and the simulation."""
+    tag = f'[predict:{arm.id}]' if arm else '[predict]'
+    champ = current_champion(paths, arm)
     if champ is None:
-        print('[predict] no champion model — nothing to score')
+        print(f'{tag} no champion model — nothing to score')
         return [], np.array([]), []
     from catboost import CatBoostClassifier
     model = CatBoostClassifier()
@@ -654,14 +730,17 @@ def predict_open(paths, tenders, roles, aw, args):
     deadline = pd.to_datetime(open_t.get('deadline_date'), errors='coerce')
     open_t = open_t[(deadline.isna()) | (deadline.dt.date.astype(str) >= today)]
     if open_t.empty:
-        print('[predict] no open lots')
+        print(f'{tag} no open lots')
         return [], np.array([]), []
-    # the champion's own multi-hot vocabulary: the columns it was trained on.
-    # A champion from before the vocabulary existed has none; the default fit
-    # is then the best guess and the schema check below still decides.
-    multihot = (champ.get('meta') or {}).get('multihot')
+    # the champion's own multi-hot vocabulary and feature build: the columns
+    # it was trained on. A champion from before the vocabulary existed has
+    # none; the default fit is then the best guess and the schema check below
+    # still decides.
+    meta = champ.get('meta') or {}
+    multihot = meta.get('multihot')
+    feature_build = meta.get('feature_build', 'default')
     X_open, cats_open, _, _ = sb.build_features(open_t, roles, list_frame=tenders,
-                                                multihot=multihot)
+                                                multihot=multihot, feature_build=feature_build)
     if list(X_open.columns) != list(model.feature_names_):
         # Reachable only when learn() could not promote a candidate (a trust
         # check blocked it) across a feature change: the champion predates the
@@ -671,7 +750,7 @@ def predict_open(paths, tenders, roles, aw, args):
         # the report and every subscription already state as an outcome.
         now = set(X_open.columns)
         had = set(model.feature_names_)
-        print(f'[predict] SCHEMA MISMATCH — champion {champ["model_id"]} was '
+        print(f'{tag} SCHEMA MISMATCH — champion {champ["model_id"]} was '
               f'trained on a different feature set, so it cannot score this '
               f'build. Not scoring this cycle. '
               f'new: {sorted(now - had) or "-"}; '
@@ -717,12 +796,17 @@ def predict_open(paths, tenders, roles, aw, args):
             'title': stamp(t.get('title')),
             'why_lonely': w_l, 'why_crowded': w_c,
         }
+        if arm:
+            # the arm-vs-arm grading finds an arm's rows by these two stamps;
+            # rows from before the experiment have none and never count
+            row['experiment'] = plan.experiment.id
+            row['arm'] = arm.id
         scored.append(row)
         key = (t['procedure_id'], t['lot_id'], t.get('notice_id'), champ['model_id'])
         if key not in seen:  # idempotent re-runs: same notice + same model scored once
             rows.append(row)
     ledger.append(paths.ledger_home, 'predictions', rows)
-    print(f'[predict] {len(rows)} new ledger rows ({len(open_t)} open rows scored, '
+    print(f'{tag} {len(rows)} new ledger rows ({len(open_t)} open rows scored, '
           f'model {champ["model_id"]})')
     return rows, scores, scored
 
@@ -1058,7 +1142,9 @@ def drift_monitors(paths, tenders, aw, scores_now, args):
     # beforehand. Excluded explicitly, so the comparison stays "this cycle
     # against the month before it".
     hist_scores = np.array([
-        s for s in ledger.prediction_scores_since(paths.ledger_home, ledger_cut)])
+        s for s in ledger.prediction_scores_since(
+            paths.ledger_home, ledger_cut,
+            exclude_models=experiments.shadow_models(paths.models, paths.ledger_home))])
     if len(scores_now) and len(hist_scores) > len(scores_now):
         hist_scores = hist_scores[:-len(scores_now)]
     if len(scores_now) < args.drift_min_lots or len(hist_scores) < args.drift_min_lots:
@@ -1170,8 +1256,11 @@ def flag_view_lines(record, args):
     return lines
 
 
-def report(paths, tenders, args, record, gate, drift, model_id, n_graded, n_predicted):
-    latest_model = ledger.prediction_latest_per_lot(paths.ledger_home)
+def report(paths, tenders, args, record, gate, drift, model_id, n_graded, n_predicted,
+           trial_lines=()):
+    latest_model = ledger.prediction_latest_per_lot(
+        paths.ledger_home,
+        exclude_models=experiments.shadow_models(paths.models, paths.ledger_home))
     open_rows = sorted(latest_model.values(), key=lambda r: -r['score'])
 
     info = {}
@@ -1232,6 +1321,9 @@ def report(paths, tenders, args, record, gate, drift, model_id, n_graded, n_pred
             lines.append(f'- drift {name}: {status}')
         for wmsg in drift['warnings']:
             lines.append(f'- DRIFT WARNING: {wmsg}')
+    if trial_lines:
+        lines += ['', '## Experiments (doc/EXPERIMENTS.md)', '']
+        lines += [f'- {tl}' for tl in trial_lines]
 
     paths.reports.mkdir(parents=True, exist_ok=True)
     out = paths.reports / f'report_{now_utc().date().isoformat()}.md'
@@ -1296,14 +1388,40 @@ def _run_cycle(paths, args):
         # training and delivery — none of them embed anything.
         embed.unload_model()
 
-    new_grades = grade(paths, tenders, aw, args)
+    # A/B arms (doc/EXPERIMENTS.md §8): with an open experiment the cycle
+    # trains and scores once per arm; only the delivering arm's outputs go on
+    # to the monitors, the report, delivery and the simulation. With none it
+    # is the single implicit arm — exactly the cycle as it always was.
+    plan = experiments.plan(paths.ledger_home, now_utc().date().isoformat())
+    if plan.is_trial:
+        print(f'[experiment] {plan.experiment.id}: arms '
+              + ', '.join(f'{a.label}{" (delivering)" if plan.is_delivering(a) else " (shadow)"}'
+                          for a in plan.arms))
+    new_grades = grade(paths, tenders, aw, args, plan)
     record = track_record(paths, args)
-    model_id, gate = learn(paths, tenders, roles, data, aw, args, checkpoint)
-    rows, scores_now, scored = predict_open(paths, tenders, roles, aw, args)
+    if not plan.is_trial:
+        model_id, gate = learn(paths, tenders, roles, data, aw, args, checkpoint)
+        rows, scores_now, scored = predict_open(paths, tenders, roles, aw, args)
+    else:
+        model_id = gate = None
+        rows, scores_now, scored = [], np.array([]), []
+        for arm in plan.arms:
+            mid, g = learn(paths, tenders, roles, data, aw, args, checkpoint, arm=arm, plan=plan)
+            r_, s_, sc_ = predict_open(paths, tenders, roles, aw, args, arm=arm, plan=plan)
+            if plan.is_delivering(arm):
+                model_id, gate, rows, scores_now, scored = mid, g, r_, s_, sc_
     drift = drift_monitors(paths, tenders, aw, scores_now, args)
     # persisted so the dashboard can show the monitors (SUBSCRIPTIONS.md phase 5)
     write_json(paths.drift, {'at': now_utc().isoformat(timespec='seconds'), **drift})
-    report(paths, tenders, args, record, gate, drift, model_id, len(new_grades), len(rows))
+    trial_lines = []
+    if plan.is_trial:
+        row = experiments.state(paths.ledger_home)[plan.experiment.id]
+        v, _ = experiments.read_verdict(paths.ledger_home, paths.models, plan.experiment,
+                                        row, now_utc().date().isoformat())
+        trial_lines.append(experiments.status_line(plan.experiment, v))
+        print(f'[experiment] {trial_lines[-1]}')
+    report(paths, tenders, args, record, gate, drift, model_id, len(new_grades), len(rows),
+           trial_lines=trial_lines)
     learn_references(paths, tenders, awards, args)
     deliver(paths, scored, args)
     import simulation

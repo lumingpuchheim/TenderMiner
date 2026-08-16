@@ -307,12 +307,26 @@ def main(data_dir=None, models_dir=None):
               f'{sorted(scores, reverse=True)[max(0, len(scores)//5 - 1)]:.2f}',
               f'{n_flagged/len(scores)*100:.0f}%']])
 
+    # A/B arms (doc/EXPERIMENTS.md §4): one verdict line per open experiment.
+    # Never fails the dashboard — the experiments module is a convenience here.
+    trial_html = ''
+    try:
+        import experiments
+        ov = experiments.overview(data, models, datetime.now(timezone.utc).date().isoformat())
+        if ov['open']:
+            trial_html = ('<h2>Experiments <span class="muted">(A/B arms — doc/EXPERIMENTS.md)</span></h2>'
+                          '<div class="panel">' + ''.join(f'<p>{esc(o["line"])}</p>' for o in ov['open'])
+                          + '</div>')
+    except Exception as e:                                       # noqa: BLE001
+        trial_html = f'<p class="muted">experiments: {esc(str(e))}</p>'
+
     body = f'''
 <h1>TenderMining — model &amp; ledger dashboard</h1>
 <p class="muted">generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} from the loop's result files ·
 regenerate with <code>python render_dashboard.py</code></p>
 
 <div class="tiles">{''.join(tiles)}</div>
+{trial_html}
 
 <h2>Sorting quality over time <span class="muted">(one point per weekly candidate)</span></h2>
 <div class="row">

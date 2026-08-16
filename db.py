@@ -343,13 +343,55 @@ CREATE TABLE IF NOT EXISTS token (
     used_at      TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_token_subject ON token (sub_id, purpose);
+
+-- A/B arms (doc/EXPERIMENTS.md §6). One row per (experiment, arm, lot): the
+-- arm's last prediction before the award, graded. `grade` stays the delivering
+-- arm's record; this is the arm-vs-arm comparison, frozen like every ledger.
+CREATE TABLE IF NOT EXISTS arm_grade (
+    experiment    TEXT NOT NULL,
+    arm           TEXT NOT NULL,
+    procedure_id  TEXT NOT NULL,
+    lot_id        TEXT NOT NULL,
+    model         TEXT,
+    ts            TEXT,
+    score         REAL,
+    threshold     REAL,
+    flag          INTEGER,
+    tier          TEXT,
+    label         INTEGER,
+    n_tenders     INTEGER,
+    award_pub     TEXT,
+    cpv3          TEXT,
+    place_nuts3   TEXT,
+    graded_at     TEXT NOT NULL,
+    seq           INTEGER NOT NULL,
+    raw           BLOB NOT NULL,
+    UNIQUE (experiment, arm, procedure_id, lot_id)
+);
+CREATE INDEX IF NOT EXISTS ix_armgrade_seq ON arm_grade (seq);
+CREATE INDEX IF NOT EXISTS ix_armgrade_exp ON arm_grade (experiment, arm);
+
+-- Experiment state (doc/EXPERIMENTS.md §7). Owned by experiments.py. Mutable
+-- like `token`, deliberately NOT a ledger: the delivering arm and the closing
+-- decision are stamped in place. The declaration itself lives in code.
+CREATE TABLE IF NOT EXISTS experiment (
+    id          TEXT PRIMARY KEY,
+    status      TEXT NOT NULL,        -- open | closed
+    delivering  TEXT NOT NULL,        -- arm id
+    opened      TEXT NOT NULL,
+    deadline    TEXT NOT NULL,
+    decision    TEXT,                 -- JSON: winner, note, closed_at, verdict_at_close
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
 """
 
 # Append-only enforcement. Ledgers are frozen records; `customer` is
 # deliberately excluded because personal data must stay correctable and
 # erasable.
 LEDGER_TABLES = ('subscription_version', 'prediction', 'grade', 'delivery',
-                 'learned_ref', 'gate_config', 'simulation', 'app_event')
+                 'learned_ref', 'gate_config', 'simulation', 'app_event',
+                 'arm_grade')
 
 # The one deliberate SQLite-specific construct left (doc/STORAGE.md 6.2). The
 # RULE — a ledger row is never updated or deleted — is portable; only this
@@ -478,6 +520,7 @@ LEDGERS = {
     'simulations_gate': ('ledger/simulations_gate.jsonl', 'simulation_gate'),
     'gate_outcomes': ('ledger/gate_outcomes.jsonl', 'gate_outcome'),
     'app_events': ('ledger/app_events.jsonl', 'app_event'),
+    'arm_grades': ('ledger/arm_grades.jsonl', 'arm_grade'),
 }
 
 # Fields that are JSON arrays in the ledger and stay JSON text in a column.
