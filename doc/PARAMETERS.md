@@ -66,7 +66,7 @@ recoverable from a ledger row written under it.
 | knob | value | status | stamped | receipt |
 | --- | --- | --- | --- | --- |
 | `mode` (`GATE_MODE`, env) | `evidence` | FROZEN | fp | RELEVANCE.md phase 8, 2026-08-06 |
-| `evidence_nomination_min` | 2 | LIVE | fp | phase 8e, K≥2 vs K≥3 receipt |
+| `evidence_nomination_min` | 2 | DEAD while `conviction_nominates` is on (docket run 2026-08-16, §11.5) | fp | phase 8e, K≥2 vs K≥3 receipt |
 | `conviction_nominates` (env) | on | FROZEN | fp | phase 8k, 79/126 |
 | `similarity_nominates` (env) | off | FROZEN | fp | phase 8i, four reasons |
 | `borderline_admit_p` | 0.0 | FROZEN (placeholder for an LLM reader) | fp | phase 8d |
@@ -161,10 +161,11 @@ Nothing to optimise; nothing to stamp.
 ### 2.7 The count that matters
 
 Of ~95 tunables (the first count of ~70 missed twenty env-driven switches in
-`evidence.py`; `RULES` is now the authority there), **LIVE: 5** —
-`evidence_nomination_min`, `min_code_hard`, `CONVICT_BODY_MIN` (gate);
-`--threshold`, `MULTIHOT_MIN_SUPPORT` (competitiveness) — plus per-customer
-overrides. ROLLBACK: 9. DEAD: 1. Everything else is frozen or operational.
+`evidence.py`; `RULES` is now the authority there), **LIVE: 4** —
+`min_code_hard`, `CONVICT_BODY_MIN` (gate); `--threshold`,
+`MULTIHOT_MIN_SUPPORT` (competitiveness) — plus per-customer overrides.
+ROLLBACK: 9. DEAD: 2 (`nomination_bar`; `evidence_nomination_min` since the
+docket's first run, §11.5). Everything else is frozen or operational.
 That is the overview. Note that "LIVE" here is a *description* of what has
 been moved recently; under §8 a knob is LIVE only while a filed question is
 open, so at the time of writing all five are formally FROZEN until one is
@@ -549,9 +550,11 @@ program-owned **ladder** — `lo`, `hi`, `step` — not a value:
 
 | knob | ladder | bucket |
 | --- | --- | --- |
-| `relevance.EVIDENCE_NOMINATION_MIN` | 1 … 4, step 1 | gate |
 | `relevance.DEFAULT_MIN_CODE_HARD` | 0.775 … 0.875, step 0.025 | gate |
 | `evidence.CONVICT_BODY_MIN` | 1 … 4, step 1 | gate |
+
+(`relevance.EVIDENCE_NOMINATION_MIN`, 1 … 4, was the first entry and the
+first question; §11.5 says why it is no longer listed.)
 
 `current` is read from the module at run time, never stored — the docket
 cannot disagree with the code, and after the operator accepts a step the
@@ -612,8 +615,44 @@ then the raw record. Monday's report carries the same ladder line under
   path, not the sweep's replica verdict.
 - The sweep's `(committed)` row hard-coded `K>=2`; it now reads
   `rel.EVIDENCE_NOMINATION_MIN`, so an override of K is measured there too.
+- **`inert`** joined the verdict ladder: every measured rung identical to
+  the last digit means the knob cannot move a verdict under the current
+  switches — DEAD, not flat — and the question closes at once instead of
+  holding the bucket two cycles to learn it twice.
 - **Competitiveness knobs are not on the docket.** `--threshold` and
   `MULTIHOT_MIN_SUPPORT` need the replay harness (33 min per cutoff set) *and*
   a lever that reaches them, which `TM_GATE_OVERRIDE` does not; listing them
   and measuring nothing would be the silent miss §10.1 refuses. When that
   lever exists they are three lines in `TUNABLES`.
+
+### 11.5 The first run — receipt, 2026-08-16
+
+Laptop, sandbox copy of the store, `python backplay.py`; the docket opened
+`relevance.EVIDENCE_NOMINATION_MIN` at 2, candidates 1 and 3; three
+`evidence.py --judge` runs of ~22 min each, `[benchmark]
+benchmark_relevance.jsonl blob 9e9e3f59076f cases 1752 seed 7`, 561 firms,
+recall over 2,698 leave-one-out positives, leakage over 28,050 negatives:
+
+| K | gate fingerprint | recall | leakage | verdict |
+| --- | --- | --- | --- | --- |
+| 2 (current) | `7931c8e9cd` | 0.649 | 2.20 % | — |
+| 1 | `98cb288f72` | 0.649 | 2.20 % | survives |
+| 3 | `ad1dc6cda8` | 0.649 | 2.20 % | survives |
+
+Three fingerprints, so the override reached the gate; identical numbers to
+sixteen digits, so **K cannot change a verdict**. The reason is in
+`relevance._evidence_verdict`: `passed = nominated and convicting`, and with
+`CONVICTION_NOMINATES` on (phase 8k) whatever convicts already nominates —
+the witness rule can only add nominations that then fail to convict. The
+register listed the knob as LIVE on the strength of the phase 8e receipt,
+which was measured before 8k. It is DEAD while that switch is on; the row in
+§2.1 says so, the knob left `TUNABLES`, and the `inert` verdict exists so the
+next such knob costs one run, not two cycles. The docket moved on to
+`DEFAULT_MIN_CODE_HARD` by itself.
+
+Two smaller findings from the same run, both fixed and tested: on Windows
+`subprocess.run(text=True)` decoded the judge's German titles as cp1252 and
+the reader thread died at eleven kilobytes (`encoding='utf-8'` now); and the
+25-minute crash of §11.4. The rows stand in the sandbox's `backplays` ledger;
+the server's ledger is empty until the first night after deployment.
+

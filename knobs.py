@@ -134,11 +134,13 @@ class Tunable:
         return getattr(importlib.import_module(module), name)
 
 
+# Not here: `relevance.EVIDENCE_NOMINATION_MIN`. The docket's first run
+# (2026-08-16, PARAMETERS.md 11.5) measured K=1/2/3 under their own
+# fingerprints and got identical recall and leakage to the last digit —
+# `passed = nominated and convicting`, and with CONVICTION_NOMINATES on,
+# convicting already nominates, so K cannot change a verdict. DEAD while that
+# switch is on; it comes back the day the switch goes off.
 TUNABLES = (
-    Tunable('relevance.EVIDENCE_NOMINATION_MIN', 'gate', 1, 4, 1,
-            'How many distinct witnesses must nominate a lot before the '
-            'evidence gate reads it — does K move recall without leakage?',
-            note='RELEVANCE.md phase 8e, K>=2 vs K>=3'),
     Tunable('relevance.DEFAULT_MIN_CODE_HARD', 'gate', 0.775, 0.875, 0.025,
             'Where does the hard-code similarity bar sit best — does a rung '
             'either way buy recall or cost leakage?',
@@ -267,6 +269,9 @@ def verdict(q, results, today, flat_streak=0):
                            lower bound clears the current value's upper bound.
                            One step, never a jump, and never a candidate that
                            breaches the hard bar.
+      `inert`              every measured rung identical — the knob cannot
+                           move a verdict under the current switches. Closes
+                           at once; the register marks the knob DEAD.
       `flat`               nobody is clearly better. Twice running ends the
                            question (§8.4) — that is a finding, not a failure.
     """
@@ -275,10 +280,20 @@ def verdict(q, results, today, flat_streak=0):
     if today > q.stop:
         return 'stop date reached', f'opened {q.opened}, stop {q.stop} — write the receipt'
     if cur is None:
-        return 'hold (underpowered)', 'the sweep returned nothing for the current value'
+        return 'hold (underpowered)', 'nothing measured for the current value yet'
     if cur['n'] < MIN_CASES:
         return ('hold (underpowered)',
                 f'{cur["n"]} cases behind {q.current} (need {MIN_CASES})')
+    # Every measured rung identical to the last digit: the knob cannot move a
+    # verdict under the current switches — DEAD, not flat. Found on the first
+    # docket run (EVIDENCE_NOMINATION_MIN under CONVICTION_NOMINATES): no
+    # point holding the bucket two cycles to learn it twice.
+    measured = [by_value[v] for v in q.neighbours() if v in by_value]
+    if measured and all((r['metric'], r['n'], r.get('leakage'))
+                        == (cur['metric'], cur['n'], cur.get('leakage')) for r in measured):
+        return ('inert', f'{[q.current] + [r["value"] for r in measured]} give identical '
+                         f'{q.metric} {cur["metric"]:.3f} on {cur["n"]} — the knob is DEAD '
+                         f'under the current switches; mark it so in the register')
 
     _, cur_hi = grading.wilson(round(cur['metric'] * cur['n']), cur['n'])
     best, best_lo, barred = None, None, []
@@ -358,7 +373,7 @@ def weekly(paths, today=None, questions=None):
         # A docket question ends itself (§8.4) and the rotation moves on; a
         # hand-filed one ends when its author removes it from LIVE.
         all_killed = bool(q.neighbours()) and all(n in killed for n in q.neighbours())
-        if v == 'stop date reached':
+        if v in ('stop date reached', 'inert'):
             v_close = v
         elif v == 'flat' and streak + 1 >= FLAT_TO_CLOSE:
             v_close = 'flat twice — current stands'

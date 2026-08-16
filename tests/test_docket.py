@@ -175,6 +175,20 @@ class BackplayMeasuresTheDocket(Sandbox):
         self.assertIn('every neighbour rejected', line)
         self.assertEqual(self.docket('2026-08-24')[0].knob, 'mod.B')
 
+    def test_identical_rungs_are_inert_and_close_at_once(self):
+        """The first real docket run: K=1/2/3 under three fingerprints,
+        identical recall and leakage to the last digit — a DEAD knob, and
+        not worth two flat cycles to learn twice."""
+        same = payload(.649, .022, n_pos=2698)
+        with self._measure({2: same, 1: dict(same, gate_fingerprint='a'),
+                            3: dict(same, gate_fingerprint='b')}):
+            backplay.run(self.paths, self.docket()[:1], today='2026-08-16')
+        line = knobs.weekly(self.paths, '2026-08-17')[0]
+        self.assertIn('**inert**', line)
+        self.assertIn('DEAD', line)
+        self.assertIn('closed', line)
+        self.assertEqual(self.docket('2026-08-18')[0].knob, 'mod.B')
+
     def test_flat_twice_closes_and_the_show_command_tells_the_story(self):
         table = {2: payload(.80, .010), 1: payload(.79, .010), 3: payload(.81, .010)}
         with self._measure(table):
