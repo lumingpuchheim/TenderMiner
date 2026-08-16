@@ -162,18 +162,26 @@ switch_to() {
         services+=(scheduler)
         say "scheduler is running; it will be recreated on $tag too"
     fi
-    # The edge rides deploys the same way: its image is caddy:2, not ours, but
-    # its CONFIG (docker/Caddyfile, mounts) arrives through git — recreating it
-    # here is what makes a Caddyfile change deploy itself instead of waiting
-    # for a hand-restart nobody remembers.
-    if [ -n "$(docker compose --profile edge ps -q edge 2>/dev/null)" ]; then
-        profiles+=(--profile edge)
-        services+=(edge)
-        say "edge is running; it will be recreated for the new config too"
-    fi
+    local edge_running=''
+    [ -n "$(docker compose --profile edge ps -q edge 2>/dev/null)" ] && edge_running=1
     TM_TAG="$tag" docker compose "${profiles[@]}" up -d --no-build "${services[@]}" \
         || die "compose refused to start $tag — the old containers may be down; \
 run 'bash docker/deploy.sh rollback'"
+    # The edge rides deploys too: its image is caddy:2, not ours, but its
+    # CONFIG (docker/Caddyfile) arrives through git. It has to be FORCED:
+    # `up -d` recreates a service only when its compose config changed, and
+    # a bind-mounted file whose content changed is the same mount spec — so
+    # without --force-recreate the edge kept yesterday's Caddyfile in memory
+    # (and, since git replaces the file's inode, even a reload inside the
+    # container would have read the old one). Found 2026-08-16, when a root
+    # change deployed "successfully" and the site did not move.
+    if [ -n "$edge_running" ]; then
+        say "edge is running; recreating it so it reads the deployed Caddyfile"
+        TM_TAG="$tag" docker compose --profile edge up -d --no-build \
+            --force-recreate edge \
+            || die "compose could not recreate the edge — app and cycle are on \
+$tag, but TLS may be down; check 'docker compose --profile edge ps edge'"
+    fi
 }
 
 # ----------------------------------------------------------- the public site
