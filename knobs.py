@@ -90,7 +90,7 @@ class Question:
 LIVE: tuple = ()
 
 
-# ------------------------------------------------------------- the knobs_list
+# ------------------------------------------------------------- the knobs
 #
 # The register's LIVE-eligible knobs (PARAMETERS.md 2.7), each with the grid
 # the program walks. `lo`/`hi`/`step` are the software's own bounds — a

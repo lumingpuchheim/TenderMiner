@@ -318,7 +318,7 @@ def show(paths, today=None):
     the raw record, newest first."""
     today = today or util.now_utc().date().isoformat()
     lines = [f'[queue] {today} — one live knob per bucket, rotating through '
-             f'{len(knobs.KNOBS)} knobs_list (PARAMETERS.md 11)']
+             f'{len(knobs.KNOBS)} knobs (PARAMETERS.md 11)']
     for q in knobs.queue(paths, today):
         killed = rejected_values(paths, q.id, today)
         results = measurements(paths, q, today)

@@ -39,7 +39,7 @@ class Sandbox(unittest.TestCase):
         import gc
         self.addCleanup(gc.collect)
         self.paths = util.Paths(self.tmp.name, Path(self.tmp.name) / 'models')
-        # the knobs_list read their current value from a module; here from a dict
+        # the knobs read their current value from a module; here from a dict
         p = mock.patch.object(knobs.Knob, 'current', lambda t: CURRENT[t.knob])
         p.start()
         self.addCleanup(p.stop)
@@ -66,7 +66,7 @@ class TheLadder(unittest.TestCase):
         with self.assertRaises(ValueError):
             knobs.question_from(T_A, '2026-08-16', current=9)
 
-    def test_the_real_knobs_list_hold_values_on_their_grids(self):
+    def test_the_real_knobs_hold_values_on_their_grids(self):
         """The one test that imports the real modules: the code's constants
         must sit on the program's grids, or the queue cannot open them."""
         for t in knobs.KNOBS:

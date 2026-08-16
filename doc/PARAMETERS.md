@@ -38,7 +38,7 @@ it; §6 says what to add there once it has merged) and
    report file (memory: tools print to console). Amending it is part of the
    same commit that moves the value.
 
-## 1. Where the ~70 knobs_list live today
+## 1. Where the ~70 tunables live today
 
 | place | count | mechanism | stamped? |
 | --- | --- | --- | --- |
@@ -160,7 +160,7 @@ Nothing to optimise; nothing to stamp.
 
 ### 2.7 The count that matters
 
-Of ~95 knobs_list (the first count of ~70 missed twenty env-driven switches in
+Of ~95 tunables (the first count of ~70 missed twenty env-driven switches in
 `evidence.py`; `RULES` is now the authority there), **LIVE: 4** —
 `min_code_hard`, `CONVICT_BODY_MIN` (gate); `--threshold`,
 `MULTIHOT_MIN_SUPPORT` (competitiveness) — plus per-customer overrides.
