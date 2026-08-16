@@ -192,8 +192,8 @@ def fit_multihot(frame, roles, min_support=MULTIHOT_MIN_SUPPORT, feature_build='
     transformed with the same columns. No label is consulted, so this is not
     target leakage — it is a fact about the notice population, like a role.
 
-    The result is plain JSON (dict of dict of list) so loop.learn can store it
-    in the champion's meta.json and loop.predict_open can rebuild the very
+    The result is plain JSON (dict of dict of list) so training.learn can store it
+    in the champion's meta.json and predicting.predict_open can rebuild the very
     same columns weeks later, whatever the archive has grown to since.
     Flat categorical lists use the level key '*'.
     """

@@ -11,7 +11,7 @@ not just 4531 = electrical installation). Does that depth predict "0-1 bids"?
 Four measurements, in order of how much they can be argued with:
 
   1. cardinality — what one_hot_max_size actually permits, per level, on the
-     frame loop.learn() trains on. This is the constraint, not a preference.
+     frame training.learn() trains on. This is the constraint, not a preference.
   2. within-cpv4 spread — how far cpv6 sub-buckets diverge inside a cpv4
      bucket the model can only price at one rate, against a permutation null
      that destroys sub-bucket structure while keeping bucket sizes.

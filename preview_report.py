@@ -28,6 +28,7 @@ import loop
 import subscriptions
 from util import Paths, read_jsonl
 import util
+import training
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -86,7 +87,7 @@ def main():
     paths.deliveries_home = ledger.start(sandbox)
     paths.reports = sandbox / 'reports'
 
-    champ = loop.current_champion(paths)
+    champ = training.current_champion(paths)
     if champ is None:
         sys.exit('[preview_report] no champion model — run a loop cycle first')
     scored = [r for r in ledger.read(args.data_dir, 'predictions')
