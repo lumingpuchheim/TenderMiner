@@ -1349,6 +1349,13 @@ def _run_cycle(paths, args):
     # (doc/STORAGE.md 6.1) — a cycle that silently used the wrong root would
     # look exactly like a cycle with nothing to do
     print(f'[config] data root: {config.describe(paths.data)}')
+    # and which gate rules this process resolved to (PARAMETERS.md 4.3): three
+    # GateConfig knobs and twenty evidence.py ones read env vars at import, so
+    # a stray variable in cron's environment would otherwise change
+    # production silently. The line is the assertion; the fingerprint on it
+    # is the one every delivery row of this cycle will carry.
+    import relevance as rel
+    print(f'[config] gate: {rel.DEFAULT_CONFIG.describe()}')
     checkpoint = read_json(paths.checkpoint, {})
 
     if args.skip_download:

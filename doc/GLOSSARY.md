@@ -26,6 +26,18 @@ receipt. **Dead** — currently changes nothing (`NOMINATION_BAR` while
 configuration can be switched back on (the embedding ladder under
 `GATE_MODE='embedding'`).
 
+**Retired** — a ROLLBACK knob deleted from the code after 90 days unused
+(PARAMETERS.md §8.1); the ledger keeps the stamps of the rows it once
+judged, git keeps the value.
+
+**Filed question** — the one-sentence entry ticket for a knob to go LIVE:
+question, metric, benchmark by blob hash, grid, stop date. Without one a
+knob stays FROZEN whatever anyone thinks of its value.
+
+**Rules (evidence rules)** — the `evidence.py` constants that decide which
+words are witnesses and what convicts; `evidence.RULES` names them and the
+gate fingerprint snapshots their values (`rules=<hash>` in `describe()`).
+
 **Configuration** — one complete set of knob values, named so it can be
 cited: "configuration H", "K≥2". Two knobs that must move together are one
 configuration, not two knobs.
@@ -145,6 +157,10 @@ scale; what survives is *never move two related knobs in the same week*.
 **Bandit** — an experiment that shifts traffic toward the winning arm while
 running. Not built, on purpose (EXPERIMENTS.md §11): the switch is the
 operator's.
+
+**Orchestrator** — a program that only *sequences* other modules (paths,
+checkpoint, call this then that, the CLI) and holds no logic of its own.
+PARAMETERS.md §9 wants `loop.py` to become one.
 
 **Verdict / ready** — EXPERIMENTS.md's software-computed line saying whether
 the picture is clear enough to decide; the decision itself is the

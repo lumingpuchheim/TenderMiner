@@ -116,6 +116,23 @@ class PublicPages(Base):
         self.assertIn(f'cycle_last_success={stamp}', body)
         self.assertIn('cycle_age_days=2', body)
 
+    def test_healthz_names_the_gate_configuration_customers_were_last_served_under(self):
+        """PARAMETERS.md 4.3: the fingerprint comes from the gate-config
+        ledger the cycle writes, newest first_seen wins; none recorded reads
+        as unknown, never as an error."""
+        import ledger
+        self._checkpoint(days_ago=1)
+        self._disk(50 * 1024**3)
+        _, _, body = request(self.dir, '/healthz')
+        self.assertIn('gate_config=unknown', body)
+        ledger.append(self.dir, 'gate_configs', [
+            {'fingerprint': 'old0000000', 'first_seen': '2026-08-01T00:00:00+00:00',
+             'mode': 'evidence'},
+            {'fingerprint': 'new1111111', 'first_seen': '2026-08-15T00:00:00+00:00',
+             'mode': 'evidence'}])
+        _, _, body = request(self.dir, '/healthz')
+        self.assertIn('gate_config=new1111111', body)
+
     def test_healthz_tolerates_exactly_one_late_monday(self):
         """8 days is the boundary and it is deliberate: a cycle that slipped a
         day must not page the operator, a cycle that missed a week must."""

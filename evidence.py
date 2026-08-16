@@ -20,6 +20,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -338,6 +339,65 @@ SEED = 7              # mirrors calibrate.py sampling
 NEG_PER_FIRM = 50
 VOL_PER_FIRM = 200
 MIN_WINS = 3
+
+# Every constant above that can change WHICH LOTS PASS — as opposed to how a
+# sweep samples (SEED, NEG_PER_FIRM, VOL_PER_FIRM, MIN_WINS, SWEEP_BARS) or
+# how a cache is keyed (DICT_CACHE_V). `relevance.GateConfig` snapshots this
+# list into its fingerprint (PARAMETERS.md 4.1), so moving any of them, by
+# edit or by environment variable, changes the stamp on every delivery row
+# written afterwards. A new verdict-affecting constant is added HERE in the
+# commit that introduces it; a test asserts every module-level constant is
+# either in this list or in the exclusions below.
+RULES = (
+    'MIN_STEM_LEN', 'MAX_KEYWORDS', 'MAX_DOC_FREQ', 'MIN_WITNESSES',
+    'TYPO_MIN_LEN', 'SYN_THRESHOLD', 'TRADE_DICTS', 'CONVICT_BODY_MIN',
+    'LABEL_DF_MAX', 'DICT_MIN_LOTS', 'DICT_TRUSTED_ONLY', 'DICT_CODE_SHARE',
+    'DICT_VOTE', 'DICT_VOTE_MARGIN', 'DICT_VOTE_MAX', 'DICT_MIN_IN',
+    'DICT_MIN_RATIO', 'DICT_MIN_BUYERS', 'DICT_MIN_BUYER_SHARE',
+    'WORD_MIN_REF_SHARE', 'TRADE_ROOTS', 'WIDE_NOMINATION', 'NAME_KEYWORDS',
+    'ROOT_LEXICON', 'CORE_TITLE_CONVICTS', 'CORE_SHARE', 'CORE_SINGLE_TITLE',
+    'CORE_NEED_BEARING', 'CORE_FAMILY', 'CORE_TITLE_FALLBACK',
+    'CORE_HYSTERESIS', 'LONE_TITLE_NEEDS_CODE', 'TITLE_CONTRADICTS_BODY',
+    'TRADE_READ_FORGIVES', 'CORE_TITLE_UNION', 'BUYER_DIVERSITY',
+    'DICT_MAX_WORDS',
+)
+# Module-level constants that are deliberately NOT rules: sampling, cache
+# keying, sweep grid, data-file names, key columns.
+NOT_RULES = ('KEY', 'DICT_CACHE_V', 'SEED', 'NEG_PER_FIRM', 'VOL_PER_FIRM',
+             'MIN_WINS', 'SWEEP_BARS', 'ROOTS_FILE', 'RULES', 'NOT_RULES')
+
+
+def rules():
+    """The current value of every verdict-affecting constant, in RULES
+    order — what the gate fingerprint covers. Values are the module's live
+    ones, so an env-var override is reflected."""
+    return {name: globals()[name] for name in RULES}
+
+
+def benchmark_cases(path='benchmark_relevance.jsonl', announce=True):
+    """The hand-read relevance benchmark, and — printed once per process —
+    the line that says which benchmark a receipt stands on: the file's git
+    blob hash, its case count and the sampling seed (PARAMETERS.md 4.2). Two
+    receipts whose first lines differ were not measured on the same set."""
+    raw = Path(path).read_bytes()
+    cases = [json.loads(line) for line in raw.decode('utf-8').splitlines()
+             if line.strip() and not line.startswith('#')]
+    if announce and not benchmark_cases._announced:
+        blob = hashlib.sha1(b'blob %d\0' % len(raw) + raw).hexdigest()
+        print(f'[benchmark] {path} blob {blob[:12]} cases {len(cases)} '
+              f'seed {SEED} rules {rules_fingerprint()}')
+        benchmark_cases._announced = True
+    return cases
+
+
+benchmark_cases._announced = False
+
+
+def rules_fingerprint():
+    """Short hash of `rules()` alone — printed beside a benchmark line so a
+    receipt names the evidence rules it ran under even outside a Gate."""
+    blob = json.dumps(rules(), sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode()).hexdigest()[:10]
 
 WORD_RE = re.compile(r'[a-zäöüß]{3,}')
 LEISTUNG_RE = re.compile(
@@ -1693,10 +1753,7 @@ def run_benchmark(data_dir, use_tier3):
     trust = json.loads(Path(f'trusted_codes_{MODEL_TAG}.json').read_text(
         encoding='utf-8'))
     trusted = {c for c, v in trust['codes'].items() if v['trusted']}
-    cases = [json.loads(line) for line in
-             Path('benchmark_relevance.jsonl').read_text(
-                 encoding='utf-8').splitlines() if line.strip()
-             and not line.startswith('#')]
+    cases = benchmark_cases()
     syn = SynonymTier(Path(data_dir) / 'embeddings' / 'word_vecs.npz') \
         if use_tier3 else None
     dicts = trade_dictionaries(tenders, trusted, docfreq,
@@ -1810,10 +1867,7 @@ def judge_run(data_dir):
             wins_by_firm[firm] = keys
     print(f'[judge-run] {len(wins_by_firm)} firms through the real judge()')
 
-    cases = [json.loads(line) for line in
-             Path('benchmark_relevance.jsonl').read_text(
-                 encoding='utf-8').splitlines()
-             if line.strip() and not line.startswith('#')]
+    cases = benchmark_cases()
     results = {}
     for mode in ('embedding', 'evidence'):
         cfg = CFG[mode]
@@ -1969,10 +2023,7 @@ def judge_sweep(data_dir, limit=None):
         wins_by_firm = dict(list(wins_by_firm.items())[:limit])
     print(f'[sweep] {len(wins_by_firm)} firms, one component pass', flush=True)
 
-    cases = [json.loads(line) for line in
-             Path('benchmark_relevance.jsonl').read_text(
-                 encoding='utf-8').splitlines()
-             if line.strip() and not line.startswith('#')]
+    cases = benchmark_cases()
     n_hard = min(19, len(cases))  # the original hand-labeled hard set
     bench_obs = []  # (case, is_hard, lot title, observation)
     for ci, case in enumerate(cases):
@@ -2094,10 +2145,7 @@ def judge_benchmark(data_dir):
     gate = rel.Gate(data_dir, config=CFG['evidence'])
     tenders, awards, lots, texts, raw, docfreq = load_world(data_dir)
     all_keys = [k for k in texts if k in gate.by_key]
-    cases = [json.loads(line) for line in
-             Path('benchmark_relevance.jsonl').read_text(
-                 encoding='utf-8').splitlines()
-             if line.strip() and not line.startswith('#')]
+    cases = benchmark_cases()
     fails = {'embedding': 0, 'evidence': 0}
     for case in cases:
         firm = case['firm']

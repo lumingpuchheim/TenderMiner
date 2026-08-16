@@ -276,13 +276,29 @@ def get_healthz(ctx):
     body = (f'{"ok" if ok else "degraded"}\n'
             f'cycle_last_success={stamp or "unknown"}\n'
             f'cycle_age_days={age if age is not None else "unknown"}\n'
-            f'disk_free_mb={free // 1024**2 if free is not None else "unknown"}\n')
+            f'disk_free_mb={free // 1024**2 if free is not None else "unknown"}\n'
+            f'gate_config={_gate_fingerprint(ctx["data_dir"]) or "unknown"}\n')
     return (('200 OK' if ok else '503 Service Unavailable'),
             'text/plain; charset=utf-8', body)
 
 
 def get_robots(ctx):
     return '200 OK', 'text/plain; charset=utf-8', 'User-agent: *\nDisallow: /\n'
+
+
+def _gate_fingerprint(data_dir):
+    """The gate configuration most recently recorded by a cycle
+    (`loop.record_gate_config`), read from the ledger — not recomputed here,
+    because the app image does not carry the gate's dependencies and because
+    the question is what customers were served under, not what this process
+    would resolve to (PARAMETERS.md 4.3). Any problem reads as None."""
+    try:
+        rows = ledger.read(data_dir, 'gate_configs')
+    except Exception:
+        return None
+    if not rows:
+        return None
+    return max(rows, key=lambda r: r.get('first_seen') or '').get('fingerprint')
 
 
 def _freshness(data_dir):

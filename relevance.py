@@ -224,6 +224,14 @@ TRUSTED_CODES = Path(__file__).resolve().parent / f'trusted_codes_{MODEL_TAG}.js
 
 # --------------------------------------------------------------- the config
 
+def _evidence_rules_snapshot():
+    """`evidence.rules()` as a hashable tuple of (name, value) pairs. Lazy
+    import: `evidence` pulls ftfy and the lexicon machinery, which the
+    embedding-only callers of this module never need."""
+    import evidence as evd
+    return tuple(evd.rules().items())
+
+
 @dataclass(frozen=True)
 class GateConfig:
     """Every tunable that changes a verdict, as one value (REFACTOR.md phase 3).
@@ -270,6 +278,17 @@ class GateConfig:
     # world
     model_tag: str = MODEL_TAG
     trusted_codes: Path = TRUSTED_CODES
+    # the evidence gate's own rules (PARAMETERS.md 4.1) — every
+    # `evidence.py` constant that decides which words are witnesses and what
+    # convicts, snapshotted at construction as (name, value) pairs. Before
+    # this field the fingerprint stayed 7d29fa0dce whatever those constants
+    # (or their env-var overrides) said; now moving any of them moves the
+    # stamp on every delivery row written afterwards. Snapshot, not a
+    # reference: `evidence.py` still reads its module state, so two configs
+    # differing here cannot coexist in one process — the honest stamp is
+    # what this buys, not that.
+    evidence_rules: tuple = dataclasses.field(
+        default_factory=lambda: _evidence_rules_snapshot())
 
     def replace(self, **fields):
         return dataclasses.replace(self, **fields)
@@ -281,6 +300,7 @@ class GateConfig:
         d = dataclasses.asdict(self)
         d['trusted_codes'] = Path(self.trusted_codes).name
         d['trade_branches'] = list(self.trade_branches)
+        d['evidence_rules'] = dict(self.evidence_rules)
         return d
 
     @property
@@ -297,13 +317,22 @@ class GateConfig:
         blob = json.dumps(self.as_dict(), sort_keys=True, default=str)
         return hashlib.sha256(blob.encode()).hexdigest()[:10]
 
+    @property
+    def rules_fingerprint(self):
+        """Hash of the evidence rules alone (matches `evidence.rules_fingerprint()`
+        when the snapshot is current), so a describe() line says which
+        witness rules were in force separately from the gate's own bars."""
+        blob = json.dumps(dict(self.evidence_rules), sort_keys=True, default=str)
+        return hashlib.sha256(blob.encode()).hexdigest()[:10]
+
     def describe(self):
         bits = [f'mode={self.mode}']
         if self.mode == 'evidence':
             bits += [f'K>={self.evidence_nomination_min}',
                      f'sim_nom={int(self.similarity_nominates)}',
                      f'conv_nom={int(self.conviction_nominates)}',
-                     f'band_p={self.borderline_admit_p}']
+                     f'band_p={self.borderline_admit_p}',
+                     f'rules={self.rules_fingerprint}']
             if self.similarity_nominates:
                 bits.insert(0, f'bar={self.nomination_bar}')
         else:
