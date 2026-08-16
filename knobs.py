@@ -220,6 +220,18 @@ KNOBS = (
             "What share of the trade's buyers must a word have?"),
     _switch('evidence.BUYER_DIVERSITY', 'Is buyer diversity required of a dictionary word?'),
     _grid('evidence.DICT_MAX_WORDS', 20, 40, 5, 'How many words may a trade dictionary hold?'),
+    # ---- competitiveness (PARAMETERS.md 13): the replay harness, a second
+    # bucket, so one of these runs beside the gate's knob each night the
+    # replay is allowed (not the night before the cycle). Metric: precision at
+    # the delivered cutoff, per cutoff week (EXPERIMENTS.md §1).
+    Knob('single_bidder.THRESHOLD', 'competitiveness', 0.40, 0.65, 0.05,
+         'Where should the flagging cut-off sit — does a step buy precision '
+         'without starving the picks?', metric='precision', harness='replay',
+         note="the loop's --threshold default; grid capped at 0.65 because "
+              'precision alone always votes higher (n flagged is in the line)'),
+    Knob('single_bidder.MULTIHOT_MIN_SUPPORT', 'competitiveness', 10, 60, 10,
+         'How many lots must carry a code before it gets its own column?',
+         metric='precision', harness='replay', note='new 2026-08-16, TRAINING.md'),
 )
 
 

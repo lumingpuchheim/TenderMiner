@@ -128,6 +128,21 @@ def _hier_levels(col):
 
 
 MULTIHOT_MIN_SUPPORT = 30  # a code needs this many distinct lots to get its own 0/1 column
+# The flagging cut-off: score >= THRESHOLD is "low competition expected". The
+# cycle's `--threshold` defaults to this; the replay reads it here too — one
+# value, so the queue's lever (below) reaches both.
+THRESHOLD = 0.5
+
+# A candidate value from TM_GATE_OVERRIDE lands here, exactly as in
+# evidence.py / relevance.py (PARAMETERS.md 10.1, 13): the two competitiveness
+# knobs are measured by the replay harness under their own value without
+# anybody editing a constant. Placed before `fit_multihot`, whose default
+# argument binds MULTIHOT_MIN_SUPPORT at definition time.
+import util  # noqa: E402  (after the constants on purpose)
+_OVERRIDDEN = util.apply_override(globals())
+if _OVERRIDDEN:
+    print('[single_bidder] override: '
+          + ', '.join(f'{k}={v!r}' for k, v in sorted(_OVERRIDDEN.items())))
 
 # Named feature builds (doc/EXPERIMENTS.md §3). `default` is the build the
 # cycle runs; the others exist so an A/B arm can differ from it in exactly one

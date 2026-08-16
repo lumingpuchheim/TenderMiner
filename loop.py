@@ -258,7 +258,9 @@ def main():
                      help='download window: the last N days/weeks/months (default 7d)')
     run.add_argument('--cpv', default='45', help='CPV scope (default 45 = construction)')
     run.add_argument('--country', default='DEU', help='buyer country (default DEU)')
-    run.add_argument('--threshold', type=float, default=0.5, help='flagging cut-off')
+    import single_bidder as sb
+    run.add_argument('--threshold', type=float, default=sb.THRESHOLD,
+                     help=f'flagging cut-off (default single_bidder.THRESHOLD = {sb.THRESHOLD})')
     run.add_argument('--val-window', default='8w', dest='val_window',
                      help='validation window for the promotion gate (default 8w)')
     run.add_argument('--track-window', default='12w', dest='track_window',

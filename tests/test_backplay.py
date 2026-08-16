@@ -247,7 +247,7 @@ class VerifiableWithoutFilingAnything(unittest.TestCase):
         self.assertIn('synthetic', body)
         self.assertIn('REJECTED', body)     # the majority case
         self.assertIn('survives', body)     # the minority case
-        self.assertIn('queue: 1 live question', body)
+        self.assertIn('queue: 2 live question', body)     # gate + competitiveness
         self.assertIn('evidence stamp', body)
 
     def test_an_ad_hoc_question_is_valid_and_not_filed(self):
@@ -270,7 +270,7 @@ class VerifiableWithoutFilingAnything(unittest.TestCase):
                        {'name': 'evidence + K>=2 + band p=0.0 (committed)',
                         'recall': 0.515, 'leakage': 0.027, 'volume': 0.044}]}
         self.assertEqual(backplay.judge_read(payload),
-                         [{'metric': 0.515, 'n': 2473, 'leakage': 0.027}])
+                         [{'metric': 0.515, 'n': 2473, 'leakage': 0.027, 'n_neg': 25600}])
 
     def test_judge_read_is_empty_when_the_row_is_absent(self):
         self.assertEqual(backplay.judge_read({'configurations': []}), [])
@@ -289,7 +289,7 @@ class VerifiableWithoutFilingAnything(unittest.TestCase):
                 doc = evidence.write_judge_json(out, rows, counts)
             self.assertEqual(json.loads(out.read_text(encoding='utf-8'))['counts'], counts)
         self.assertEqual(backplay.judge_read(doc),
-                         [{'metric': 0.649, 'n': 2698, 'leakage': 0.022}])
+                         [{'metric': 0.649, 'n': 2698, 'leakage': 0.022, 'n_neg': 28050}])
 
 
 class Measure(unittest.TestCase):
@@ -351,6 +351,67 @@ class Measure(unittest.TestCase):
         lines = backplay.run(self.paths, [], '2026-08-16')
         self.assertEqual(len(lines), 1)
         self.assertIn('no live question', lines[0])
+
+
+class TheReplayHarness(unittest.TestCase):
+    """PARAMETERS.md 13: the competitiveness knobs ride the replay harness —
+    one measurement per cutoff week, paired by week, pooled for the queue."""
+
+    def _payload(self):
+        lots = []
+        for week, flags in (('2026-05-04', [(True, 1), (True, 0), (True, 3), (False, 1)]),
+                            ('2026-05-11', [(True, 1), (True, 5), (False, 0)])):
+            for i, (flag, n) in enumerate(flags):
+                lots.append({'procedure_id': f'{week}-{i}', 'lot_id': 'L', 'flag': flag,
+                             'week': week if flag else None, 'n_tenders': n})
+        lots.append({'procedure_id': 'open', 'lot_id': 'L', 'flag': True,
+                     'week': '2026-05-11', 'n_tenders': None})          # award unknown: not graded
+        return {'schema': 2, 'lots': lots}
+
+    def test_replay_read_gives_precision_per_week(self):
+        ms = backplay.replay_read(self._payload())
+        self.assertEqual([(x['week'], x['n'], round(x['metric'], 3)) for x in ms],
+                         [('2026-05-04', 3, 0.667), ('2026-05-11', 2, 0.5)])
+        self.assertIsNone(ms[0]['leakage'])
+        self.assertAlmostEqual(ms[0]['recall'], 3 / 5)          # 3 flagged hits of 5 graded 0-1-bid lots, whole replay
+
+    def test_the_ledger_row_pools_the_weeks(self):
+        ms = backplay.replay_read(self._payload())
+        pooled = backplay._summary(ms)
+        self.assertEqual(pooled['n'], 5)
+        self.assertAlmostEqual(pooled['metric'], 3 / 5)
+        self.assertIsNone(pooled['leakage'])
+
+    def test_measurements_pair_by_week_not_position(self):
+        cur = [m(.8, 100) | {'week': 'w1'}, m(.8, 100) | {'week': 'w2'}, m(.8, 100) | {'week': 'w3'}]
+        cand = [m(.4, 100) | {'week': 'w3'}, m(.4, 100) | {'week': 'w1'}, m(.4, 100) | {'week': 'w2'}]
+        killed, why = backplay.rejects(cur, cand)
+        self.assertTrue(killed)
+        self.assertIn('all 3', why)
+        # a week only the candidate measured is not a comparison
+        killed, _ = backplay.rejects(cur, cand + [m(.4, 100) | {'week': 'w9'}])
+        self.assertFalse(killed)
+
+    def test_the_lever_reaches_single_bidder_and_the_loop_default(self):
+        env = dict(os.environ)
+        env['TM_GATE_OVERRIDE'] = '{"THRESHOLD": 0.6, "MULTIHOT_MIN_SUPPORT": 40}'
+        env['PYTHONIOENCODING'] = 'utf-8'
+        p = subprocess.run([sys.executable, '-c',
+                            'import relevance, single_bidder as sb; '
+                            'relevance.DEFAULT_CONFIG.fingerprint; '
+                            'print(sb.THRESHOLD, sb.MULTIHOT_MIN_SUPPORT)'],
+                           env=env, cwd=str(REPO), capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(p.stdout.strip().splitlines()[-1], '0.6 40')
+
+    def test_the_replay_bucket_sits_out_the_night_before_the_cycle(self):
+        q = knobs.question_from(next(t for t in knobs.KNOBS if t.harness == 'replay'),
+                                '2026-08-16')
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = util.Paths(tmp, Path(tmp) / 'models')
+            with mock.patch.object(backplay, 'measure', side_effect=AssertionError('must not run')):
+                lines = backplay.run(paths, [q], today='2026-08-17')       # a Monday
+            self.assertIn('skipped tonight', lines[0])
 
 
 if __name__ == '__main__':

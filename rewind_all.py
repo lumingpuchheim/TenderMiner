@@ -67,7 +67,7 @@ if hasattr(sys.stdout, 'reconfigure'):
 
 MIN_TRAIN_LOTS = 300   # first cutoff needs this many labeled lots
 RECAL_EVERY = 8        # cutoffs between trust/threshold recalibrations
-FLAG_THRESHOLD = 0.5   # mirrors the loop's --threshold default
+FLAG_THRESHOLD = sb.THRESHOLD   # the loop's --threshold default, one value (PARAMETERS.md 13)
 # The market-wide target simulation has no subscription behind it, so these
 # two are its own horizon and its own cap. A CUSTOMER's deadline promise and
 # pick cap are never these: they come off the subscription line, inside
@@ -520,7 +520,7 @@ def target_lines(payload):
     return lines
 
 
-SCHEMA = 1
+SCHEMA = 2   # 2: lots carry `week`; payload carries threshold / multihot_min_support / override
 
 
 def build_payload(res, targets_csv=None):
@@ -548,6 +548,10 @@ def build_payload(res, targets_csv=None):
     outcome, winners = res['outcome'], res['winners']
     lots = [{'procedure_id': lot[0], 'lot_id': lot[1], 'cpv3': cpv3,
              'flag': bool(lot in res['flagged']),
+             # the cutoff week the lot was first flagged in — one measurement
+             # per week is what the rejector's per-cutoff rule reads
+             # (backplay.replay_read, PARAMETERS.md 13)
+             'week': (res['flagged'][lot][0] if lot in res['flagged'] else None),
              'n_tenders': (int(outcome[lot]) if lot in outcome else None)}
             for lot, cpv3 in res['scored'].items()]
 
@@ -568,10 +572,16 @@ def build_payload(res, targets_csv=None):
                                            key=lambda kv: kv[1]['week'])],
             'wins': own_win_rows(res, s, firm, picks),
         })
+    import util
     payload = {
         'schema': SCHEMA,
         'generated': date.today().isoformat(),
         'model_tag': MODEL_TAG,
+        # what this replay stood on, so a document read weeks later cannot be
+        # mistaken for one measured under other values (PARAMETERS.md 13)
+        'threshold': FLAG_THRESHOLD,
+        'multihot_min_support': sb.MULTIHOT_MIN_SUPPORT,
+        'override': util.gate_override(),
         'step_days': res['step_days'],
         'cutoffs_trained': res['n_cutoffs'],
         'n_lots': len(lots),

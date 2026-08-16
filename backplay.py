@@ -76,7 +76,11 @@ def judge_harness(data_dir, out_path):
     """The gate harness: `evidence.py --judge`, whose table is the leakage
     number the hard bar is stated in. Returns the argv; the caller supplies
     the environment that makes it a candidate rather than the champion."""
+    # committed mode only, no volume sample: the same recall and leakage
+    # (same seed, same lots) at an eighth of the cost — the whole run overran
+    # two hours on the server (PARAMETERS.md 11.5)
     return [sys.executable, str(REPO / 'evidence.py'), '--judge',
+            '--modes', 'evidence', '--no-volume',
             '--data-dir', str(data_dir), '--out', str(out_path)]
 
 
@@ -140,9 +144,10 @@ def rejects(current, candidate, hard_bar=knobs.HARD_BAR):
         return True, (f'leaks above {hard_bar * 100:.1f}% on '
                       f'{len(breaches)}/{len(candidate)} measurements '
                       f'(worst {worst * 100:.1f}%)')
-    if current and len(current) == len(candidate):
+    pairs = _paired(current, candidate)
+    if pairs and len(pairs) == len(candidate):
         losses = 0
-        for cur, cand in zip(current, candidate):
+        for cur, cand in pairs:
             _, cand_hi = grading.wilson(round(cand['metric'] * cand['n']), cand['n'])
             cur_lo, _ = grading.wilson(round(cur['metric'] * cur['n']), cur['n'])
             if cand_hi < cur_lo:
@@ -151,6 +156,20 @@ def rejects(current, candidate, hard_bar=knobs.HARD_BAR):
             return True, (f'worse than the current value on all {losses} '
                           'measurements, intervals disjoint')
     return False, 'survives'
+
+
+def _paired(current, candidate):
+    """(current, candidate) measurement pairs — by `week` when both carry
+    one (the replay), by position otherwise (the judge). A week only one side
+    measured is not a comparison."""
+    if not current:
+        return []
+    if all('week' in m for m in current) and all('week' in m for m in candidate):
+        by_week = {m['week']: m for m in current}
+        return [(by_week[m['week']], m) for m in candidate if m['week'] in by_week]
+    if len(current) == len(candidate):
+        return list(zip(current, candidate))
+    return []
 
 
 def rejected_values(paths, question_id, today=None):
@@ -185,13 +204,21 @@ def evidence_stamp(paths):
 
 
 def _summary(metrics):
-    """One measurement list -> the numbers a ledger row carries. The first
-    measurement's (the judge has one; a replay's per-cutoff list is kept in
-    `n_measurements` and the rejection reason)."""
+    """One measurement list -> the numbers a ledger row carries, POOLED: the
+    judge gives one measurement, the replay one per cutoff week, and the
+    queue's verdict wants one rate on one denominator (the per-week list is
+    what the rejection rule reads, and its length is `n_measurements`)."""
     if not metrics:
         return {'metric': None, 'n': None, 'leakage': None}
-    m = metrics[0]
-    return {'metric': m.get('metric'), 'n': m.get('n'), 'leakage': m.get('leakage')}
+    n = sum(int(m.get('n') or 0) for m in metrics)
+    if not n:
+        return {'metric': None, 'n': 0, 'leakage': None}
+    metric = sum(float(m['metric']) * int(m.get('n') or 0) for m in metrics) / n
+    leaks = [m for m in metrics if m.get('leakage') is not None]
+    ln = sum(int(m.get('n_neg') or m.get('n') or 0) for m in leaks)
+    leakage = (sum(float(m['leakage']) * int(m.get('n_neg') or m.get('n') or 0)
+                   for m in leaks) / ln) if ln else None
+    return {'metric': metric, 'n': n, 'leakage': leakage}
 
 
 def _row(q, value, use, payload, metrics, rejected, reason, stamp, role):
@@ -246,7 +273,11 @@ def run(paths, questions=None, today=None, harness=None, force=False):
     lines, rows = [], []
     for q in questions:
         use = harness or getattr(q, 'harness', None) or 'judge'
-        read = getattr(q, 'read', None) or judge_read
+        read = getattr(q, 'read', None) or READERS[use]
+        if use == 'replay' and date.fromisoformat(today).weekday() in REPLAY_SKIP_WEEKDAYS:
+            lines.append(f'[backplay] {q.knob}: replay skipped tonight — the cycle '
+                         f'wants the lock at 08:15; measured on the next run')
+            continue
         had = last_rows(paths, q.id, today)
         stood_on = {r.get('stamp') for r in had.values()}
         wanted = {q.current, *q.neighbours()}
@@ -373,8 +404,45 @@ def judge_read(payload, row='(committed)'):
     for cfg in payload.get('configurations') or []:
         if row in cfg['name']:
             return [{'metric': cfg['recall'], 'n': counts.get('n_pos') or 0,
-                     'leakage': cfg['leakage']}]
+                     'leakage': cfg['leakage'], 'n_neg': counts.get('n_neg') or 0}]
     return []
+
+
+def replay_read(payload, max_tenders=1):
+    """The reader for the `replay` harness: precision at the delivered cutoff
+    (EXPERIMENTS.md §1's metric), one measurement per cutoff WEEK — flagged
+    lots whose award is known, the share that ended with 0-1 bids — so the
+    rejection rule sees several measurements and one bad week is weather.
+    Leakage is not a competitiveness number: None. Recall (flagged share of
+    all graded 0-1-bid lots) rides along for the record."""
+    weeks = {}
+    graded_pos = 0
+    for lot in payload.get('lots') or []:
+        if lot.get('n_tenders') is None:
+            continue
+        pos = int(lot['n_tenders']) <= max_tenders
+        graded_pos += pos
+        if lot.get('flag') and lot.get('week'):
+            w = weeks.setdefault(lot['week'], [0, 0])
+            w[0] += 1
+            w[1] += pos
+    total_hits = sum(h for _, h in weeks.values())
+    recall = (total_hits / graded_pos) if graded_pos else None      # over the whole replay
+    out = []
+    for week in sorted(weeks):
+        n, hits = weeks[week]
+        out.append({'metric': hits / n, 'n': n, 'leakage': None, 'week': week,
+                    'recall': recall})
+    return out
+
+
+READERS = {'judge': judge_read, 'replay': replay_read}
+
+# The replay is hours, and a Monday 04:00 start could still be running when
+# the 08:15 cycle wants the heavy lock; the cycle would wait, which is a late
+# report for customers. So the replay bucket sits out the night before the
+# cycle. The judge bucket (minutes per value) does not need to.
+REPLAY_SKIP_WEEKDAYS = (0,)      # Monday (date.weekday())
 
 
 def _ad_hoc(knob, grid, current, metric='recall', harness='judge'):

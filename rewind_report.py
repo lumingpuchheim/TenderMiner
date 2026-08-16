@@ -54,7 +54,7 @@ import delivering
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
-FLAG_THRESHOLD = 0.5  # mirrors the loop's --threshold default
+FLAG_THRESHOLD = sb.THRESHOLD  # the loop's --threshold default, one value (PARAMETERS.md 13)
 
 
 def freeze_clock(day):

@@ -74,8 +74,22 @@ def apply_override(namespace):
     return applied
 
 
+# The modules that claim override keys. The unconsumed check imports them
+# first (only when an override is set), so import ORDER cannot make a valid
+# key look unclaimed: relevance is often imported before single_bidder.
+OVERRIDE_OWNERS = ('evidence', 'relevance', 'single_bidder')
+
+
 def unconsumed_override():
-    return sorted(set(gate_override()) - _CONSUMED)
+    keys = set(gate_override())
+    if keys:
+        import importlib
+        for name in OVERRIDE_OWNERS:
+            try:
+                importlib.import_module(name)
+            except ImportError:      # the app image lacks the trainer's deps; fine
+                pass
+    return sorted(keys - _CONSUMED)
 
 
 def parse_window(spec):

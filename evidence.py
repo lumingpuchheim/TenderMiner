@@ -1832,12 +1832,17 @@ def run_benchmark(data_dir, use_tier3):
     return fails
 
 
-def judge_run(data_dir):
+def judge_run(data_dir, modes=('embedding', 'evidence'), volume=True):
     """THE WHOLE RUN (operator request 2026-08-06): benchmark cases, clean
     negatives, leave-one-out recall and volume — all through the REAL
     relevance.judge() code path, under BOTH gate modes, same seed, same
     lots. This is the only apples-to-apples table; the calibration numbers
-    are arithmetic replicas of the gate, this executes the gate."""
+    are arithmetic replicas of the gate, this executes the gate.
+
+    `modes` / `volume`: backplay measures the committed mode only and skips
+    the volume sample (200 lots per firm — 78 % of the calls for a number its
+    rule never reads); on the server the whole run overran two hours
+    (PARAMETERS.md 11.5). Same seed, so recall and leakage are unchanged."""
     import relevance as rel
     from calibrate import is_deep
     # profiles carry the evidence lexicon; the embedding ladder ignores it,
@@ -1880,7 +1885,7 @@ def judge_run(data_dir):
 
     cases = benchmark_cases()
     results = {}
-    for mode in ('embedding', 'evidence'):
+    for mode in modes:
         cfg = CFG[mode]
         # --- benchmark through judge() ---
         fails = 0
@@ -1929,7 +1934,8 @@ def judge_run(data_dir):
                         'buyer_name': raw[k][4]}, config=cfg)
                     n_neg += 1
                     neg_pass += bool(ok)
-            for pi in rng.choice(len(all_keys), VOL_PER_FIRM, replace=False):
+            for pi in (rng.choice(len(all_keys), VOL_PER_FIRM, replace=False)
+                       if volume else ()):
                 k = all_keys[pi]
                 ok, *_ = rel.judge(gate, profile, {
                     'procedure_id': k[0], 'lot_id': k[1],
@@ -1937,12 +1943,13 @@ def judge_run(data_dir):
                 n_vol += 1
                 vol_pass += bool(ok)
         results[mode] = {'benchmark': bench, 'recall': hits / n_pos,
-                         'leakage': neg_pass / n_neg, 'volume': vol_pass / n_vol,
+                         'leakage': neg_pass / n_neg,
+                         'volume': (vol_pass / n_vol) if n_vol else None,
                          'n_pos': n_pos, 'n_neg': n_neg, 'n_vol': n_vol}
         print(f'[judge-run] {mode:9s}: benchmark {bench}, '
               f'recall {hits / n_pos:.1%} ({hits}/{n_pos}), '
               f'leakage {neg_pass / n_neg:.1%} ({n_neg} negatives), '
-              f'volume {vol_pass / n_vol:.1%}', flush=True)
+              f'volume {(vol_pass / n_vol) if n_vol else float("nan"):.1%}', flush=True)
     if rel._SYN is not None:
         rel._SYN.save()
     # The shape `write_judge_json` reads — one configuration row per mode, the
@@ -1952,7 +1959,8 @@ def judge_run(data_dir):
     rows = [(f'{mode} gate' + (' (committed)' if mode == committed else ''),
              None, r['benchmark'], [], r['recall'], r['leakage'], r['volume'])
             for mode, r in results.items()]
-    counts = {k: results[committed][k] for k in ('n_pos', 'n_neg', 'n_vol')}
+    counted = results.get(committed) or next(iter(results.values()))
+    counts = {k: counted[k] for k in ('n_pos', 'n_neg', 'n_vol')}
     return rows, counts
 
 
@@ -2273,6 +2281,12 @@ def main():
                     help='what the embedder scores on INFLECTION vs on '
                          'synonyms, against a store noise floor — the '
                          'measurement behind grouping a firm\'s surface forms')
+    ap.add_argument('--modes', default=None,
+                    help='with --judge: comma-separated gate modes (default both); '
+                         'backplay passes the committed one')
+    ap.add_argument('--no-volume', action='store_true', dest='no_volume',
+                    help='with --judge: skip the 200-lots-per-firm volume sample '
+                         '(the number the rejector never reads; 78%% of the calls)')
     ap.add_argument('--out', metavar='PATH', default=None,
                     help='with --judge: also write the table as JSON here '
                          '(PARAMETERS.md 10 — what backplay.py reads)')
@@ -2299,7 +2313,8 @@ def main():
         judge_sweep(args.data_dir, args.limit)
         return
     if args.judge:
-        rows, counts = judge_run(args.data_dir)
+        modes = tuple(args.modes.split(',')) if args.modes else ('embedding', 'evidence')
+        rows, counts = judge_run(args.data_dir, modes=modes, volume=not args.no_volume)
         if args.out:
             write_judge_json(args.out, rows, counts)
         return

@@ -250,7 +250,7 @@ def _evidence_rules_snapshot():
     if left:
         raise SystemExit(
             f'TM_GATE_OVERRIDE names {", ".join(left)}, which no constant in '
-            'evidence.py or relevance.py answers to. Check the spelling '
+            'evidence.py, relevance.py or single_bidder.py answers to. Check the spelling '
             '(names are the constants\' own, upper case) - an override that '
             'silently does nothing would measure the champion and call it '
             'the candidate.')

@@ -749,3 +749,46 @@ Reading through the web app; using customer feedback verdicts as labels
 §3); a gate A/B with the unit customer × lot (EXPERIMENTS.md §10 — this is
 its cheaper sibling: one champion, N challengers, no delivery ever switches).
 
+## 13. The competitiveness knobs join the queue — 2026-08-16
+
+§11.4 left `--threshold` and `MULTIHOT_MIN_SUPPORT` out because the lever
+did not reach them and the replay harness had no reader. Both now exist, and
+the queue has a second bucket.
+
+- **One `THRESHOLD`.** `single_bidder.THRESHOLD = 0.5` is the constant; the
+  cycle's `--threshold` defaults to it and `rewind_all.py` /
+  `rewind_report.py` read it from there — one value where there were three
+  copies of `0.5`. `single_bidder.py` applies `TM_GATE_OVERRIDE` like the two
+  gate modules (the env var keeps its name; `util.OVERRIDE_OWNERS` names the
+  three, and the unconsumed check imports them first so import order cannot
+  make a valid key look unclaimed).
+- **The replay payload carries what it stood on** (`schema` 2): `threshold`,
+  `multihot_min_support`, `override`, and per lot the cutoff `week` it was
+  first flagged in.
+- **`backplay.replay_read`**: precision at the delivered cutoff, one
+  measurement per cutoff week (flagged lots with a known award; share that
+  ended with 0–1 bids), recall over the whole replay alongside for the
+  record, leakage `None` — not a competitiveness number. The rejection rule
+  pairs measurements **by week**; the queue's row pools them (one rate on
+  one denominator; the per-week list stays as `n_measurements`).
+- **Two knobs, bucket `competitiveness`, harness `replay`:**
+  `single_bidder.THRESHOLD` 0.40 … 0.65 by 0.05 and
+  `single_bidder.MULTIHOT_MIN_SUPPORT` 10 … 60 by 10. The grid for the
+  threshold is capped on purpose: precision alone always votes for a higher
+  cut-off, and the line shows `n` flagged so a proposal that starves the
+  picks is visible; EXPERIMENTS.md §1's "recall secondary" is the reason the
+  forward arm, not this number, decides.
+- **Cadence.** A replay is ~33 min on the laptop per value, three values a
+  night, so the replay bucket **sits out Monday night** (`REPLAY_SKIP_WEEKDAYS`)
+  — a run still going at 08:15 would make the cycle wait on the lock. Both
+  buckets run on the other nights, one knob each.
+- **What promotes them:** not this. A `move` here is a standing proposal like
+  any other, and the forward evidence for a competitiveness knob is an
+  EXPERIMENTS.md arm — the queue's proposal is the reason to open one.
+
+Also from the server's first night (§11.5): the whole `--judge` run overran
+two hours there (store 2.6× the laptop's), so backplay now calls it with
+`--modes evidence --no-volume` — the committed mode only, and without the
+200-lots-per-firm volume sample that is 78 % of the calls and a number the
+rule never reads. Same seed, same recall and leakage, an eighth of the cost.
+

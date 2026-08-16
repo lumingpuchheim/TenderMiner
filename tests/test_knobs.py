@@ -144,10 +144,11 @@ class Weekly(unittest.TestCase):
         """PARAMETERS.md 11: the program files its own — one per bucket,
         the first knob of the rotation, not yet measured."""
         lines = knobs.weekly(self.paths, '2026-08-16')
-        self.assertEqual(len(lines), 1)
+        self.assertEqual(len(lines), 2)                   # gate + competitiveness buckets
         self.assertIn(knobs.KNOBS[0].knob, lines[0])
         self.assertIn('not measured yet', lines[0])
         self.assertIn('grid', lines[0])
+        self.assertIn('(competitiveness)', lines[1])
 
     def test_the_flat_streak_survives_between_cycles(self):
         rows = sweep(v0_50=(0.49, 400), v0_55=(0.50, 400), v0_60=(0.52, 400))
