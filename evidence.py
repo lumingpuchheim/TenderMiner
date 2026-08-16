@@ -33,6 +33,7 @@ import pandas as pd
 from ftfy import fix_text
 
 import config
+import util
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -365,6 +366,16 @@ RULES = (
 # keying, sweep grid, data-file names, key columns.
 NOT_RULES = ('KEY', 'DICT_CACHE_V', 'SEED', 'NEG_PER_FIRM', 'VOL_PER_FIRM',
              'MIN_WINS', 'SWEEP_BARS', 'ROOTS_FILE', 'RULES', 'NOT_RULES')
+
+
+# A candidate value from TM_GATE_OVERRIDE lands here, after every constant
+# above exists and before anything reads one (PARAMETERS.md 10). Applied to
+# this module's globals, so `rules()` — and through it the gate fingerprint —
+# reports the candidate, not the champion.
+_OVERRIDDEN = util.apply_override(globals())
+if _OVERRIDDEN:
+    print(f'[evidence] gate override: '
+          + ', '.join(f'{k}={v!r}' for k, v in sorted(_OVERRIDDEN.items())))
 
 
 def rules():
@@ -2134,6 +2145,32 @@ def judge_sweep(data_dir, limit=None):
     return rows
 
 
+def write_judge_json(path, rows):
+    """`--judge`'s table as one JSON document, for a machine — PARAMETERS.md 10.
+
+    The table stays on stdout for a person; this is the same numbers keyed by
+    configuration name, plus the gate fingerprint and the benchmark the run
+    stood on, so a result read weeks later cannot be mistaken for one measured
+    under different rules. `backplay.py` reads it; nothing else should need to.
+    """
+    import relevance as rel
+    doc = {
+        'kind': 'judge',
+        'gate_fingerprint': rel.DEFAULT_CONFIG.fingerprint,
+        'rules_fingerprint': rules_fingerprint(),
+        'override': util.gate_override(),
+        'configurations': [
+            {'name': name, 'hard19': b19, 'benchmark': ball,
+             'recall': recall, 'leakage': leakage, 'volume': volume,
+             'hard_fails': [c.get('expect') for c, _ in hard_fails]}
+            for name, b19, ball, hard_fails, recall, leakage, volume in rows],
+    }
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_text(json.dumps(doc, indent=2, default=str), encoding='utf-8')
+    print(f'[judge] {path}')
+    return doc
+
+
 def judge_benchmark(data_dir):
     """The committed benchmark cases through the REAL judge(), BOTH gate
     modes — the seconds-fast per-case receipt (the store-wide loops live in
@@ -2218,6 +2255,9 @@ def main():
                     help='what the embedder scores on INFLECTION vs on '
                          'synonyms, against a store noise floor — the '
                          'measurement behind grouping a firm\'s surface forms')
+    ap.add_argument('--out', metavar='PATH', default=None,
+                    help='with --judge: also write the table as JSON here '
+                         '(PARAMETERS.md 10 — what backplay.py reads)')
     ap.add_argument('--judge-benchmark', action='store_true',
                     help='only the benchmark cases through the real judge(), '
                          'both gate modes — seconds, for benchmark growth')
@@ -2241,7 +2281,9 @@ def main():
         judge_sweep(args.data_dir, args.limit)
         return
     if args.judge:
-        judge_run(args.data_dir)
+        rows = judge_run(args.data_dir)
+        if args.out:
+            write_judge_json(args.out, rows)
         return
     if args.keywords:
         from calibrate import lot_codes

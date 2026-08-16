@@ -371,6 +371,30 @@ CREATE TABLE IF NOT EXISTS arm_grade (
 CREATE INDEX IF NOT EXISTS ix_armgrade_seq ON arm_grade (seq);
 CREATE INDEX IF NOT EXISTS ix_armgrade_exp ON arm_grade (experiment, arm);
 
+-- Backplay verdicts (doc/PARAMETERS.md §10). One row per candidate knob value
+-- measured by the night job: whether the evidence killed it, on what, and
+-- under which gate fingerprint and benchmark. A ledger like every other —
+-- a rejection is a decision and decisions here are frozen, not edited. They
+-- EXPIRE by age at read time (backplay.REJECTION_TTL_DAYS) rather than being
+-- deleted, so the record of what was believed when survives the belief.
+CREATE TABLE IF NOT EXISTS backplay (
+    ts               TEXT NOT NULL,
+    question         TEXT NOT NULL,
+    knob             TEXT NOT NULL,
+    value            TEXT NOT NULL,     -- the candidate, as text: a grid holds floats, ints and flags
+    harness          TEXT,
+    gate_fingerprint TEXT,
+    benchmark        TEXT,
+    rejected         INTEGER NOT NULL,
+    reason           TEXT,
+    n_measurements   INTEGER,
+    seq              INTEGER NOT NULL,
+    raw              BLOB NOT NULL,
+    UNIQUE (question, value, ts)
+);
+CREATE INDEX IF NOT EXISTS ix_backplay_seq ON backplay (seq);
+CREATE INDEX IF NOT EXISTS ix_backplay_q ON backplay (question, ts);
+
 -- Experiment state (doc/EXPERIMENTS.md §7). Owned by experiments.py. Mutable
 -- like `token`, deliberately NOT a ledger: the delivering arm and the closing
 -- decision are stamped in place. The declaration itself lives in code.
@@ -391,7 +415,7 @@ CREATE TABLE IF NOT EXISTS experiment (
 # erasable.
 LEDGER_TABLES = ('subscription_version', 'prediction', 'grade', 'delivery',
                  'learned_ref', 'gate_config', 'simulation', 'app_event',
-                 'arm_grade')
+                 'arm_grade', 'backplay')
 
 # The one deliberate SQLite-specific construct left (doc/STORAGE.md 6.2). The
 # RULE — a ledger row is never updated or deleted — is portable; only this
@@ -521,6 +545,7 @@ LEDGERS = {
     'gate_outcomes': ('ledger/gate_outcomes.jsonl', 'gate_outcome'),
     'app_events': ('ledger/app_events.jsonl', 'app_event'),
     'arm_grades': ('ledger/arm_grades.jsonl', 'arm_grade'),
+    'backplays': ('ledger/backplays.jsonl', 'backplay'),
 }
 
 # Fields that are JSON arrays in the ledger and stay JSON text in a column.

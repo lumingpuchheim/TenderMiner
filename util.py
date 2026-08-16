@@ -14,11 +14,68 @@ same trick patched `loop.now_utc` and reached only loop.py's own callers.
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
+
+# ---------------------------------------------------- the gate override lever
+# PARAMETERS.md 10: one candidate gate configuration per PROCESS, declared in
+# the environment, so a backplay run measures a knob value without anybody
+# editing the constant that holds it.
+#
+#     TM_GATE_OVERRIDE='{"NOMINATION_BAR": 0.60}' python evidence.py --judge
+#
+# Keys are the constants' own names, in `evidence.py` or `relevance.py`; each
+# module applies the ones it owns and marks them consumed, and a key nobody
+# claims RAISES at the first `GateConfig` construction. A silently ignored
+# override is the failure mode this project already refuses for subscription
+# fields (CLAUDE.md), and it would be worse here: the run would look like a
+# measurement of the candidate and be a measurement of the champion.
+#
+# The override flows into `evidence.rules()` and therefore into the gate
+# fingerprint, so a backplay run stamps itself as its own configuration
+# without a line of extra bookkeeping.
+_OVERRIDE_ENV = 'TM_GATE_OVERRIDE'
+_CONSUMED = set()
+
+
+def gate_override():
+    """The parsed override, {} when unset. Parsed on every call — a test may
+    change the environment between them, and the cost is a small json.loads."""
+    raw = os.environ.get(_OVERRIDE_ENV, '').strip()
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except ValueError as e:
+        raise SystemExit(f'{_OVERRIDE_ENV} is not valid JSON: {e}')
+    if not isinstance(value, dict):
+        raise SystemExit(f'{_OVERRIDE_ENV} must be a JSON object, got {type(value).__name__}')
+    return value
+
+
+def consume_override(name):
+    _CONSUMED.add(name)
+
+
+def apply_override(namespace):
+    """Apply the override to a module's globals, claiming the names it owns.
+    Only existing UPPER_CASE constants may be overridden: a typo is a new
+    global otherwise, which is exactly the silent miss this guards."""
+    applied = {}
+    for key, value in gate_override().items():
+        if key.isupper() and key in namespace:
+            namespace[key] = value
+            consume_override(key)
+            applied[key] = value
+    return applied
+
+
+def unconsumed_override():
+    return sorted(set(gate_override()) - _CONSUMED)
 
 
 def parse_window(spec):

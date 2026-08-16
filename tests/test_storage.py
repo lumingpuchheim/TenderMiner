@@ -432,6 +432,15 @@ class AppendOnly(TempHome):
             'model': 'm-1-a', 'ts': '2026-08-01T00:00:00+00:00', 'score': 0.7,
             'flag': True, 'label': 1, 'award_pub': '2026-08-20',
             'graded_at': '2026-08-25T00:00:00+00:00'}])
+        # backplays likewise (doc/PARAMETERS.md §10): a rejection is a decision,
+        # and decisions here are frozen — the expiry is a read-time horizon,
+        # never a DELETE.
+        ledger.append(self.home, 'backplays', [{
+            'ts': '2026-08-16T00:00:00+00:00', 'question': 'nomination-bar',
+            'knob': 'evidence.NOMINATION_BAR', 'value': 0.60, 'harness': 'judge',
+            'gate_fingerprint': 'abc1234567', 'benchmark': 'def4567890',
+            'rejected': True, 'reason': 'leaks above 2.2% on 3/4 measurements',
+            'n_measurements': 4}])
 
     def test_every_ledger_table_has_a_row_to_test_against(self):
         """Guards the test above: an empty table would make it vacuous."""

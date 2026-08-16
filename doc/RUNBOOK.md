@@ -42,6 +42,31 @@ report → **render every active customer** → **simulate every winner company*
   is no live question, so it reads "every knob frozen". Filing one is a
   commit that adds a `Question` to `knobs.py` (§8.1).
 
+**The night job** (`backplay.py`, [`PARAMETERS.md`](PARAMETERS.md) §10) is the
+only other thing worth scheduling, and only once a question is filed:
+
+```
+python backplay.py
+```
+
+It measures each candidate value in its own subprocess under
+`TM_GATE_OVERRIDE`, and may **reject** — never promote. It takes the heavy
+lock, so it will wait for the Monday cycle rather than collide with it; give
+it a slot the cycle does not want (a gate candidate is minutes, an end-to-end
+replay ~33 minutes and ~200 MB of scratch per candidate). `python backplay.py
+--show` prints what has been rejected and what has aged out. Rejections
+expire after 90 days and reappear as candidates — that is deliberate, not a
+bug: a value killed in one market is not dead forever.
+
+To measure a candidate by hand, the same lever works anywhere:
+
+```
+TM_GATE_OVERRIDE='{"NOMINATION_BAR": 0.60}' python evidence.py --judge
+```
+
+A key no constant answers to stops the run. That is on purpose — an ignored
+override would measure the champion and print the candidate's name.
+
 Re-run a cycle without re-downloading (e.g. after editing a subscription):
 
 ```

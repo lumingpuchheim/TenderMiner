@@ -25,6 +25,7 @@ import pandas as pd
 
 from calibrate import is_deep, pseudo_refs
 import config
+import util
 from embed import KEY, MODEL_TAG, load_label_sidecar, load_sidecar
 
 # Defaults from calibration_<MODEL_TAG>.md (configuration H under
@@ -224,11 +225,35 @@ TRUSTED_CODES = Path(__file__).resolve().parent / f'trusted_codes_{MODEL_TAG}.js
 
 # --------------------------------------------------------------- the config
 
+# A candidate value from TM_GATE_OVERRIDE for THIS module's constants
+# (PARAMETERS.md 10) — applied before GateConfig is defined, because the
+# dataclass takes them as its field defaults.
+_OVERRIDDEN = util.apply_override(globals())
+if _OVERRIDDEN:
+    print(f'[relevance] gate override: '
+          + ', '.join(f'{k}={v!r}' for k, v in sorted(_OVERRIDDEN.items())))
+
+
 def _evidence_rules_snapshot():
     """`evidence.rules()` as a hashable tuple of (name, value) pairs. Lazy
     import: `evidence` pulls ftfy and the lexicon machinery, which the
-    embedding-only callers of this module never need."""
+    embedding-only callers of this module never need.
+
+    Also the one choke point where an override key that NO module claimed is
+    caught: by the time a gate configuration is built both modules have been
+    imported, so a leftover key is a typo, not a timing artefact. Raising is
+    the point — a run under an ignored override measures the champion while
+    reporting the candidate's name.
+    """
     import evidence as evd
+    left = util.unconsumed_override()
+    if left:
+        raise SystemExit(
+            f'TM_GATE_OVERRIDE names {", ".join(left)}, which no constant in '
+            'evidence.py or relevance.py answers to. Check the spelling '
+            '(names are the constants\' own, upper case) - an override that '
+            'silently does nothing would measure the champion and call it '
+            'the candidate.')
     return tuple(evd.rules().items())
 
 

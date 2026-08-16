@@ -38,6 +38,15 @@ knob stays FROZEN whatever anyone thinks of its value.
 question: `move up`, `move down`, `flat`, `hold (underpowered)` or `stop date
 reached`. A proposal is not an action — no code moves a value.
 
+**Rejector** — the night job (`backplay.py`) that measures candidate knob
+values and may kill them, never promote them. Safe to automate for the same
+reason auto-revert is: its worst case is an improvement nobody sees.
+
+**Override lever** — `TM_GATE_OVERRIDE`, a JSON object naming constants, read
+once per process. It lets a candidate value be *measured* without anyone
+editing the constant that holds it; a key no module claims raises rather than
+being ignored.
+
 **Guard (gate guard)** — the check that refuses to deliver when the gate
 configuration a run resolved to is not the one the register records. It is
 what an edited constant without the ritual looks like from outside.

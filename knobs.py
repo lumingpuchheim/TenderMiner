@@ -67,6 +67,12 @@ class Question:
     opened: str                 # ISO date
     stop: str                   # ISO date — §8.4's backstop
     run: object = None          # () -> [{'value', 'metric', 'n', 'leakage'}]
+    # payload -> [{'metric', 'n', 'leakage'}], one per measurement: how this
+    # question reads its own harness's document (PARAMETERS.md 10). Only
+    # `backplay.py` calls it, and only a question knows which row of which
+    # table its metric lives in — which is why there is no universal parser.
+    read: object = None
+    harness: str = 'judge'      # backplay.HARNESSES
     note: str = ''
 
     def neighbours(self):
@@ -178,6 +184,7 @@ def weekly(paths, today=None, questions=None):
         return ['- knobs: no live question — every knob frozen '
                 '(PARAMETERS.md 8.1 files one)']
 
+    import backplay          # lazy: backplay imports this module (PARAMETERS.md 10)
     state = util.read_json(_state_path(paths), {})
     lines, new_state = [], {}
     for q in qs:
@@ -188,7 +195,15 @@ def weekly(paths, today=None, questions=None):
             lines.append(f'- knob {q.knob}: sweep skipped ({e})')
             new_state[q.id] = {'flat_streak': streak, 'verdict': 'skipped'}
             continue
+        # A candidate the night job has already killed is not proposed, and
+        # the line says who killed it — the operator sees the rejection, not
+        # a silently shorter grid (§10).
+        killed = backplay.rejected_values(paths, q.id, today)
+        results = [r for r in results if r['value'] not in killed]
         v, detail = verdict(q, results, today, streak)
+        if killed:
+            detail += ('; backplay rejected ' +
+                       ', '.join(f'{value} ({why})' for value, why in sorted(killed.items())))
         weeks = max(0, (date.fromisoformat(today) - date.fromisoformat(q.opened)).days // 7)
         lines.append(f'- knob {q.knob} ({q.bucket}): **{v}** — {detail}; '
                      f'live {weeks}w, stop {q.stop}')

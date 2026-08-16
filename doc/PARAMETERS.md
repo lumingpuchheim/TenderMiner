@@ -271,13 +271,14 @@ when there are hundreds of active customers and a feedback rate worth
 counting; the schema already carries `model`, `gate_config`, `sub_version`
 on every row, so nothing has to be re-instrumented then.
 
-## 6. To add to EXPERIMENTS.md after the `ab-arms-spec` worktree merges
+## 6. Added to EXPERIMENTS.md once the `ab-arms-spec` worktree merged (done)
 
-One line under §0: *backplay (`asof.World`, `rewind_all.py`) may reject an
-arm before it earns a shadow slot; only forward grades promote.* And under
-§6: `arm_grade` is also the per-(lot, model) grading this file's §3 wants —
-reuse it over the 3,942 historical lots scored by more than one model rather
-than writing a twin.
+Both landed 2026-08-16. Under its §0: *backplay (`asof.World`,
+`rewind_all.py`) may reject an arm before it earns a shadow slot; only
+forward grades promote.* Under its §6: `arm_grade` **is** the per-(lot,
+model) grading this file's §3 wants — drop `experiment`/`arm` and it is
+(lot, model) → correct — so the 3,942 historical lots scored by more than one
+model are a backfill of that writer, not a twin table.
 
 ## 7. Decisions taken in this session
 
@@ -428,3 +429,94 @@ is a module. `SECTOR` travelled with its only caller (`track_record`) into
 `grading.py`; the copies in `simulation.py` and `render_dashboard.py` are a
 pre-existing triplication this phase neither widened nor fixed.
 
+## 10. Automating the rejector — done 2026-08-16
+
+The operator asked whether software could move a knob by itself, ideally
+continuously. The answer taken: **the retreat and the rejection are safe to
+automate; the advance is not.** A wrong rejection costs an improvement nobody
+sees; a wrong promotion reaches customers. So a night job may kill a
+candidate value on its own and may never promote one — §0.5's rule, now with
+a machine on the rejecting half.
+
+### 10.1 The override lever
+
+`TM_GATE_OVERRIDE='{"NOMINATION_BAR": 0.60}'` — one candidate configuration
+per **process**. Keys are the constants' own names in `evidence.py` or
+`relevance.py`; each module applies the ones it owns (`util.apply_override`)
+and a key nobody claims **raises** at the first `GateConfig` construction.
+That refusal is the point: a run under a silently ignored override would
+measure the champion and report the candidate's name.
+
+Two properties come free. The override flows through `evidence.rules()` into
+the gate fingerprint, so every measurement stamps itself as its own
+configuration; and because it is per process, two candidates never share one
+interpreter — which is exactly the limitation §4.1 accepted when it made
+`evidence_rules` a snapshot rather than a read-from-config.
+
+### 10.2 The job
+
+`backplay.py`, nightly, under the heavy lock so it never meets the Monday
+cycle halfway:
+
+    python backplay.py            # measure every live question's candidates
+    python backplay.py --show     # the record, and what has expired
+
+Per candidate: a subprocess with the override set, running the question's
+harness — `evidence.py --judge` for a gate knob (minutes; `--out` writes the
+table as JSON for exactly this), `rewind_all.py` for the end-to-end replay
+over every weekly cutoff (~33 min, ~200 MB of scratch). A question supplies
+its own `read` to pull its metric out of its own harness's document: there is
+no universal parser, because only the question knows which row of which table
+its number lives in.
+
+A harness that exits non-zero or writes nothing **raises**. A rejection
+resting on a crash is the worst kind of silent kill.
+
+### 10.3 The rule, and why it is hard to satisfy
+
+Several candidates over several measurements guarantee that some look bad by
+chance, so the rejector is deliberately conservative. A candidate dies only
+when:
+
+- it breaches the hard bar (2.2 % wrong-trade leakage) on a **majority** of
+  measurements — exactly half is not a majority; or
+- it loses to the current value on **every** measurement, intervals disjoint,
+  and there is more than one measurement. One bad cutoff is weather.
+
+A consequence worth stating plainly: with the `judge` harness a candidate
+usually has **one** measurement, so only the hard-bar rule can kill it. That
+is the intended asymmetry — leakage is a refusal whatever recall it buys,
+while "slightly worse on one benchmark run" is not evidence of anything.
+
+### 10.4 Rejections expire
+
+Rows in the `backplays` ledger, stamped with the gate fingerprint, the
+benchmark, the harness and the day. They stand for `REJECTION_TTL_DAYS` (90,
+matching §8.1's ROLLBACK retirement) and are then simply not read any more —
+a horizon at read time, never a DELETE, because the ledger is frozen and the
+record of what was believed when is worth keeping.
+
+`knobs.weekly()` reads the live rejections, drops those values from the
+proposal, and **names them in the line**: `backplay rejected 0.60 (leaks
+above 2.2% on 3/4 measurements)`. The operator must see a rejection, never a
+silently shorter grid.
+
+### 10.5 What is still not automated, and why
+
+- **Promotion.** Unchanged: only forward grades promote, and only the
+  operator flips the switch (§8.3).
+- **Continuous anything.** The gate harness is minutes and the replay is
+  half an hour; the data behind them moves weekly at best (awards lag
+  deadlines by ~3 months). Sampling faster than the truth changes converts
+  noise into motion.
+- **Door 3 — the bias no engine closes.** `asof.py` is honest by
+  construction about data leakage, but the knobs were chosen by someone who
+  had already seen those outcomes. Automating backplay *industrialises* that
+  bias rather than removing it, which is precisely why this half may only
+  reject, and why the most recent weeks should stay held out for the forward
+  confirmation.
+- **Auto-revert on a live guardrail breach.** Proposed in the same
+  conversation and not built: it needs leakage measured on *delivered* lots,
+  which is the forward channel, not this one. When that number exists weekly,
+  reverting to the last recorded-good configuration is the second safe
+  automatic move.
