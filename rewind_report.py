@@ -48,6 +48,7 @@ import selection
 import single_bidder as sb
 import subscriptions
 import util
+import predicting
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -176,7 +177,7 @@ def main():
     Xo, cats_o, _, _ = sb.build_features(open_t, world.roles,
                                          list_frame=world.tenders)
     scores = sb.predict(model, Xo)
-    why_lonely, why_crowded = loop.explain_rows(model, Xo, cats_o)
+    why_lonely, why_crowded = predicting.explain_rows(model, Xo, cats_o)
     scored = []
     for (i, t), s, w_l, w_c in zip(open_t.iterrows(), scores, why_lonely,
                                    why_crowded):
