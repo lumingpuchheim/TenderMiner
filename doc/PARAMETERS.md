@@ -334,7 +334,7 @@ confirmed on the held-out. Ending writes the receipt and returns the knob to
 FROZEN. The weekly line says "live for N weeks, stop date D" so an extension
 cannot happen silently.
 
-## 9. `loop.py` does too much — the split (operator, 2026-08-16)
+## 9. `loop.py` does too much — the split (operator, 2026-08-16; done the same day)
 
 1,541 lines, nine sections, one file that is downloader, grader, trainer,
 predictor, deliverer, housekeeper, drift monitor, reporter and CLI. Phase 4
@@ -364,5 +364,44 @@ with their functions, `loop.py` re-exports nothing (callers such as
 module — grep first). `_run_cycle` reads, afterwards, as the list above in
 order. Sequenced **after the `ab-arms-spec` worktree merges** — it holds 200
 changed lines of `loop.py` and a split under it would be a merge nobody
-wants — and recorded in REFACTOR.md as phase 6 when it starts.
+wants — and recorded in REFACTOR.md as phase 6.
+
+### What actually happened, 2026-08-16
+
+Eight commits, one per module, 340 tests green after each. `loop.py`: 1,541
+→ 284 lines.
+
+| module | lines | what moved |
+| --- | --- | --- |
+| `util.py` | 100 | `parse_window`, `now_utc`, `read_json`, `write_json`, `read_jsonl`, `stamp`, `append_jsonl`, `Paths` |
+| `grading.py` | 245 | `grade`, `wilson`, `flag_stats`, `track_record`, `_top_slice_stats`, `SECTOR` |
+| `training.py` | 249 | `learn`, `current_champion` |
+| `predicting.py` | 231 | `predict_open`, `explain_rows`, the `WHY_*` phrase book |
+| `delivering.py` | 173 | `deliver`, `record_gate_config`, `learn_references` |
+| `housekeeping.py` | 82 | `prune_caches`, `_prune_scratch_world` |
+| `drift.py` | 136 | `drift_monitors`, `_psi` |
+| `report.py` | 186 | `report`, `flag_view_lines`, `_rate_ci` |
+
+Three deviations from the table above, each deliberate:
+
+- **Step 1 stayed in `loop.py`.** Moving the `download()` wrapper into
+  `download.py` would put the *store rebuild* (`features.py`) inside the
+  network job, which is a different program's business. The wrapper is a
+  window subtraction and two `subprocess.run` calls — orchestration, so it
+  stays with the orchestrator.
+- **The clock's patch point moved on purpose.** `rewind_report.freeze_clock`
+  replaced `loop.now_utc`, which only loop.py's own callers ever resolved;
+  it now replaces `util.now_utc`, which every cycle module resolves at call
+  time. Strictly this makes the freeze *wider* than before — the previous
+  behaviour was the accident.
+- **Five render aliases and `_lot_key` were deleted, not moved**
+  (`clean_cell`, `date_de`, `html_page`, `table_html`, `receipt_html`).
+  Nothing outside `loop.py` ever read them and nothing inside still called
+  them; re-exports are what this phase removes.
+
+One name collision surfaced and was resolved in favour of the module: the
+cycle's local for the monitor results is now `drift_checks`, because `drift`
+is a module. `SECTOR` travelled with its only caller (`track_record`) into
+`grading.py`; the copies in `simulation.py` and `render_dashboard.py` are a
+pre-existing triplication this phase neither widened nor fixed.
 

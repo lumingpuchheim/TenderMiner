@@ -615,6 +615,30 @@ tangle mirrored backwards. Open, cheap and optional: `rewind_win.py` is
 nearly a special case of `rewind_report.py`; folding 3 → 2 is a small diff
 now that both are thin.
 
+## Phase 6 — `loop.py` becomes an orchestrator (done, 2026-08-16)
+
+Specified in [`PARAMETERS.md`](PARAMETERS.md) §9 and executed the same day,
+because §8's weekly knob proposal would otherwise have become a tenth section
+of a file that already had nine. Phase 4 split `loop.deliver` *downward* into
+`selection.py` and `render.py`; this phase split `loop.py` *sideways*.
+
+**1,541 → 284 lines**, eight modules, one commit each, 340 tests green after
+every one: `util` (helpers and `Paths`), `grading`, `training`, `predicting`,
+`delivering`, `housekeeping`, `drift`, `report`. `_run_cycle` now reads as
+the ordered list of those calls, and `loop.py` re-exports nothing — every
+caller (`preview_report`, `rewind_report`, `rewind_all`, `explain_verdict`,
+`trade_pages`, `experiments`, the tests) imports the module that owns the
+function.
+
+The three deliberate deviations from the spec's table, the clock's wider
+patch point, and the deleted render aliases are recorded in PARAMETERS.md §9
+under "What actually happened" rather than repeated here.
+
+**What this phase did NOT touch**: the `relevance`/`evidence`/`feedback`
+import knot below (still the open item at the end of this file — the split
+was never on that axis), the `SECTOR` triplication, and `simulation.py`'s own
+`now_utc`. None of them is blocked by anything phase 6 did.
+
 ## Open, not scheduled
 
 Re-audited 2026-08-12, item by item against the code. Two of the three were
