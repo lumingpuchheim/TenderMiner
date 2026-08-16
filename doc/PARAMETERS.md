@@ -317,8 +317,9 @@ any      --(controlling switch off)-------> DEAD       (a fact, not a decision)
   interval) or "decided" (value chosen, numbers cited). A frozen value is
   not "tweaked"; it goes through LIVE again.
 - **DEAD** is whatever the controlling switch says; the register marks it.
-- **Retired** after 90 days on ROLLBACK unused — the grid must not grow
+- **Retired** after 90 days on ROLLBACK unused — the ladder must not grow
   forever. (Operator default; may be overruled per knob in the receipt.)
+  Counted by `knobs.retirements()` since 2026-08-16 (§15).
 
 ### 8.2 Drifting a knob — the move rule
 
@@ -826,4 +827,23 @@ later win is positive truth only. So the truth is the same blind reading as
 
 Reading load: ten delivered lots a week plus the disagreements. Thirty read
 before the rate counts, so the first verdict is about a month in.
+
+## 15. The retirement clock — 2026-08-16
+
+§8.1's last rung had no clock: nobody would have noticed the nine ROLLBACK
+constants and the two DEAD knobs passing 90 days. `knobs.PARKED` now lists
+them by hand, mirroring §2.1 — knob, status, the date it was parked, and the
+**switch** that would revive it (a field of the recorded gate configuration
+and the value that means "in use": `mode='embedding'` for the rollback
+ladder, `similarity_nominates=True` for `nomination_bar`,
+`conviction_nominates=False` for `evidence_nomination_min`).
+
+`knobs.retirements()` reads the `gate_configs` ledger: a parked knob is
+*unused* while no configuration recorded since its date used the switch. At
+90 days unused the weekly line says `retire <knob> … delete the constant —
+the ledger keeps the stamp`; from 76 days it counts down. A recorded use
+keeps the clock quiet — the ledger, not a person, says whether the rollback
+was needed. Deleting is still a commit (constant, register row); the clock
+only makes the day visible. First due dates: the rollback ladder 2026-11-04,
+`nomination_bar` 2026-11-05, `evidence_nomination_min` 2026-11-14.
 

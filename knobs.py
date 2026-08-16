@@ -235,6 +235,69 @@ KNOBS = (
 )
 
 
+# ------------------------------------------------------- the parked knobs
+#
+# §8.1's last rung: ROLLBACK and DEAD knobs are retired after 90 days unused
+# — "the ladder must not grow forever" — and until tonight nothing counted
+# the days. Each parked knob names the SWITCH that would revive it (a field of
+# the recorded gate configuration and the value that means "in use"); the
+# clock is "unused" only while no recorded configuration since `since` has
+# used it. Kept by hand like the register rows they mirror (§2.1).
+
+@dataclass(frozen=True)
+class Parked:
+    knob: str            # register name
+    status: str          # ROLLBACK | DEAD
+    since: str           # ISO date it went there
+    switch: tuple        # (gate_config field, value meaning "in use")
+    note: str = ''
+
+
+RETIRE_DAYS = 90         # §8.1
+
+PARKED = (
+    Parked('min_relevance', 'ROLLBACK', '2026-08-06', ('mode', 'embedding'), 'configuration H'),
+    Parked('min_code_soft', 'ROLLBACK', '2026-08-06', ('mode', 'embedding'), 'configuration F'),
+    Parked('soft_floor / soft_consensus', 'ROLLBACK', '2026-08-06', ('mode', 'embedding'), 'phase 5'),
+    Parked('use_expansion', 'ROLLBACK', '2026-08-06', ('mode', 'embedding'), 'configs C/D vs E'),
+    Parked('borderline_margin', 'ROLLBACK', '2026-08-06', ('mode', 'embedding'), 'configuration G'),
+    Parked('trade_read_form / trade_read_param', 'ROLLBACK', '2026-08-06', ('mode', 'embedding'), 'phase 5'),
+    Parked('trade_talk_margin / trade_branches', 'ROLLBACK', '2026-08-06', ('mode', 'embedding'), 'configuration K'),
+    Parked('nomination_bar', 'DEAD', '2026-08-07', ('similarity_nominates', True), 'phase 8i'),
+    Parked('evidence_nomination_min', 'DEAD', '2026-08-16', ('conviction_nominates', False), 'PARAMETERS.md 11.5'),
+)
+
+
+def retirements(paths, today=None, parked=None):
+    """The lines §8.1's clock owes the report: which parked knobs have passed
+    RETIRE_DAYS without their switch being used (retire them: delete the
+    constant, the ledger keeps the stamp), and which are close. Quiet
+    otherwise. Never raises — it runs inside the report."""
+    today = today or util.now_utc().date().isoformat()
+    parked = PARKED if parked is None else parked
+    try:
+        import ledger
+        recorded = ledger.read(paths.deliveries_home, 'gate_configs')
+    except Exception:
+        recorded = []
+    lines = []
+    for k in parked:
+        field, live_value = k.switch
+        used = [str(r.get('first_seen') or '')[:10] for r in recorded
+                if str(r.get('first_seen') or '')[:10] >= k.since and r.get(field) == live_value]
+        days = (date.fromisoformat(today) - date.fromisoformat(k.since)).days
+        if used:
+            continue                    # the switch was used: not "unused", clock stays quiet
+        if days >= RETIRE_DAYS:
+            lines.append(f'- retire {k.knob} ({k.status} since {k.since}, {days} days, '
+                         f'{field}={live_value!r} never recorded): delete the constant — '
+                         f'the ledger keeps the stamp (PARAMETERS.md 8.1)')
+        elif days >= RETIRE_DAYS - 14:
+            lines.append(f'- {k.knob}: {RETIRE_DAYS - days} days to retirement '
+                         f'({k.status} since {k.since})')
+    return lines
+
+
 def question_from(t, opened, stop=None, current=None):
     """The queue's Question for a knob — id stable per knob so a
     rejection outlives one opening (they expire on their own, §10.4)."""
@@ -529,6 +592,7 @@ def weekly(paths, today=None, questions=None):
         for c in closed:
             lines.append(f'- closed this week: {c["knob"]} at {c["current"]} — '
                          f'{c["verdict"]} ({c["receipt"]})')
+        lines += retirements(paths, today)
         import shadow            # lazy: shadow imports this module (PARAMETERS.md 12)
         for c in standing_proposals(paths):
             status, detail, _ = shadow.verdict(paths, c['knob'], c.get('proposed'), today)

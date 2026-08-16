@@ -135,6 +135,26 @@ class Weekly(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.paths = util.Paths(self.tmp.name, Path(self.tmp.name) / 'models')
 
+    def test_the_retirement_clock(self):
+        """PARAMETERS.md 15: parked knobs pass 90 days unused -> retire line;
+        a recorded configuration that used the switch keeps the clock quiet."""
+        parked = (knobs.Parked('min_relevance', 'ROLLBACK', '2026-08-06', ('mode', 'embedding')),
+                  knobs.Parked('nomination_bar', 'DEAD', '2026-08-07', ('similarity_nominates', True)))
+        self.assertEqual(knobs.retirements(self.paths, '2026-09-01', parked), [])
+        soon = knobs.retirements(self.paths, '2026-10-30', parked)
+        self.assertEqual(len(soon), 2)
+        self.assertIn('5 days to retirement', soon[0])
+        due = knobs.retirements(self.paths, '2026-11-10', parked)
+        self.assertIn('retire min_relevance', due[0])
+        self.assertIn('delete the constant', due[0])
+        # the rollback ladder was used once: it is not "unused", the clock is quiet for it
+        import ledger
+        ledger.append(self.paths.deliveries_home, 'gate_configs', [
+            {'fingerprint': 'emb0000000', 'first_seen': '2026-09-15T08:00:00+00:00', 'mode': 'embedding'}])
+        due = knobs.retirements(self.paths, '2026-11-10', parked)
+        self.assertEqual([l for l in due if 'min_relevance' in l], [])
+        self.assertIn('retire nomination_bar', due[0])
+
     def test_no_question_at_all_is_one_quiet_line(self):
         lines = knobs.weekly(self.paths, '2026-08-16', [])
         self.assertEqual(len(lines), 1)
