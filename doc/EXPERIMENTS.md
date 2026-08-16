@@ -1,350 +1,383 @@
-# EXPERIMENTS — A/B tests between models, decided by the operator
+# EXPERIMENTS — one hot vs target statistics, and the A/B method it needs
 
 Written 2026-08-16 from the operator's questions in this session and the brief
-"One Hot vs Target Statistics" (arms `onehot` / `ts`). This is the **spec** for
-`experiments.py`; nothing here is built yet except where a line says so.
+"One Hot vs Target Statistics". This is the **spec** for the first experiment
+and for `experiments.py`, which is exactly as general as that experiment
+needs and no more; nothing here is built yet except where a line says so.
 Companions: [`ONLINE_LEARNING.md`](ONLINE_LEARNING.md) (the cycle the arms run
 in), [`TRAINING.md`](TRAINING.md) (leakage rules and tripwires every arm keeps),
 [`APP.md`](APP.md) (the web area the overview page joins).
 
 ## 0. The rule
 
-**Every arm predicts the same units, before the truth exists; the software
-tells the operator when the picture is clear; the operator decides.**
+**Both arms predict the same lots, before the award exists; the software says
+when the picture is clear; the operator decides.**
 
-- No historical replay and no backtest count as evidence (operator decision
-  2026-08-16 — "simulation may cheat"). Only a prediction written to the
-  ledger *before* the outcome was published is graded.
-- The software never switches a model on its own. It computes, it flags
-  "ready", it waits. The deadline is a backstop that turns the flag red, not
-  a trigger that acts.
-- Exactly one arm feeds customers at any time (the **delivering** arm); the
-  others are **shadows** — trained, scored, graded, never delivered. Switching
-  the delivering arm rewrites no history: every ledger row already carries
-  its model id.
-- Business-action tests (mail wording, cadence, pricing) are **out of scope**.
-  E-mails use one default method; there is no A/B in the e-mails (operator
-  decision 2026-08-16). Nothing below assigns customers to groups.
+- No historical replay, no backtest, as evidence (operator, 2026-08-16:
+  "simulation may cheat"). Only a prediction in the ledger *before* the award
+  published is graded.
+- The software never switches a model on its own. It computes, flags "ready",
+  waits. The deadline is a backstop that turns the flag red, not a trigger.
+- Exactly one arm feeds customers (the **delivering** arm); the other is a
+  **shadow** — trained, scored, graded, never delivered. Switching rewrites
+  no history: every ledger row already carries its model id.
+- E-mails use one default method; there is no A/B in the e-mails. Nothing
+  here assigns customers to groups.
 
-## 1. Vocabulary
+---
 
-| word | meaning |
-| --- | --- |
-| **experiment** | one question with N arms, a kind, a deadline, a status |
-| **kind** | what is being predicted and how truth arrives — `single_bidder` now, `relevance` later (§8) |
-| **arm** | a named set of overrides on the kind's pipeline, with a **human label** used verbatim in every output (`onehot` → "one hot", `ts` → "target statistics") |
-| **unit** | the thing one prediction and one truth attach to — a lot for `single_bidder`, a customer × lot for `relevance` |
-| **delivering arm** | the one arm whose predictions reach customers; the champion pointer `models/CURRENT` always names *its* champion |
-| **shadow** | every other arm |
-| **verdict** | the software's current reading: `collecting`, `leaning <label>`, `ready: <label>`, `deadline reached`, plus the numbers behind it |
-| **decision** | the operator's closing act: winner (or "no difference"), note, date |
+# Part I — the case: `cpv-additional-encoding`
 
-## 2. What is built, where
+## 1. The question
 
-| piece | lives in | new? |
+`cpv_additional` is a list of extra CPV codes per lot. Today it becomes three
+categorical columns — `cpv_additional__cpv2/3/4` — each holding the *combination
+string* of the lot's codes truncated to 2/3/4 digits (`single_bidder._hier_levels`,
+`build_features`). The cpv4 combination has 1,767 distinct values on the server,
+above `ONE_HOT_MAX_SIZE = 1024`, so `assert_pure_one_hot` refuses every
+candidate and the server has produced **no model since bootstrap** (brief §3).
+
+Two honest encodings; the operator wants both tried on real predictions:
+
+| arm id | label (verbatim in every output) | what the model sees for the additional codes |
 | --- | --- | --- |
-| experiment declarations (id, question, kind, arms, deadline) | `experiments.py`, a checked-in `EXPERIMENTS` list | new module |
-| experiment **state** (status, delivering arm, decision) | table `experiment` in `data/tendermining.db`, via `ledger.py` | new table |
-| per-arm graded predictions | ledger `arm_grades` (table `arm_grade`), via `ledger.py` | new table |
-| per-arm champion pointer and models | `models/arms/<arm>/CURRENT`, models as today with `arm` in `meta.json` | extension |
-| training / scoring / grading per arm | `loop.learn`, `loop.predict_open`, `loop.grade` loop over arms | ~40 lines |
-| verdict statistics | `experiments.verdict(...)`, plain numpy — no new dependency | new |
-| operator commands | `python experiments.py [list|show|deliver|close]` | new |
-| overview page | one route in `app.py`, rendered by `render.py` helpers | new route |
+| `onehot` | **one hot** | one 0/1 numeric column per distinct code, multi-hot, at cpv2/cpv3/cpv4; rare codes folded into a count (§3) |
+| `ts` | **target statistics** | the three combination columns exactly as today; CatBoost's ordered target statistics (CTR) for them, because the guard is told they may exceed the cap (§3) |
 
-The two tables are the only schema change. `prediction` needs none: its
-UNIQUE key `(procedure_id, lot_id, notice_id, model)` already lets two arms
-score one lot. `grade` (PRIMARY KEY `(procedure_id, lot_id)`) stays what it is
-— **the delivering arm's** record, the one customers' track record is built
-from. The arm-vs-arm comparison lives in `arm_grade`, one row per
-`(experiment, arm, procedure_id, lot_id)`, and is a frozen record like every
-other ledger here: written once when the award publishes, never recomputed
-from a rebuilt store.
+Not an arm: raising the cap to 4096. Everything else — data, temporal split,
+seed, class weights, all other features, tripwires, threshold, promotion
+epsilon — is the same object for both arms.
 
-## 3. Declaring an experiment
+**Verdict metric: precision at the delivered cutoff** — of the lots an arm
+flagged (`score ≥ threshold`), the share that ended with 0–1 bids — on lots
+graded for *both* arms. Recall secondary. Training-time PR-AUC is background.
 
-In code, not in a form (operator decision 2026-08-16): an arm is a set of
-pipeline overrides, and those only live sensibly next to the pipeline. The
-first entry:
+## 2. What happens, Monday by Monday
+
+**Monday 1 (opened, planned 2026-08-18).** The cycle finds the experiment
+declared and open. `learn` runs twice — once per arm. Neither arm has a
+champion, so each promotes on passing its checks:
+`models/m2026-08-18-…-onehot/` and `models/m2026-08-18-…-ts/`, each with
+`model.cbm` + `meta.json`; `models/arms/onehot/CURRENT` and
+`models/arms/ts/CURRENT` point at them; `models/CURRENT` is rewritten to the
+**onehot** model, because `onehot` is the delivering arm. `predict` scores
+every open lot twice and writes both arms' rows to `prediction`, distinct
+`model` values, same lots. `deliver` sees only the onehot rows — the server
+delivers again for the first time. Report line:
+`experiment cpv-additional-encoding: collecting — 0 lots graded (one hot 0 / target statistics 0), delivering one hot, deadline 2026-11-30 (104 d)`.
+The page shows the same, plus both arms' training background (val PR-AUC,
+tripwire text) collapsed.
+
+**Mondays 2–6.** Same. Each arm gates against **its own** champion (val
+PR-AUC ≥ own champion − epsilon, all tripwires). If `ts` fails a tripwire one
+week, `ts` keeps its champion, keeps scoring, and the failure text appears on
+its row — "a tripwire failure in an arm is itself a result". `collecting`
+throughout; the page says why (awards publish 1–3 months after the notice).
+
+**Mondays 7–12.** Awards for the first Mondays' lots arrive. `grade` writes
+`grade` rows for the delivering arm as today (customer track record), and one
+`arm_grade` row per arm per newly awarded lot the arm had scored (§6). Verdict
+line moves: `collecting — 41 lots graded (both arms)`, then
+`leaning target statistics — P 0.84, 137 paired lots, flagged precision 0.31 vs 0.26 (base 0.11)`,
+then perhaps `ready: target statistics better, 96% — 212 paired lots`.
+
+**When the operator decides** (early when clear, or at the red
+`deadline reached` on 2026-11-30 at the latest):
+
+```
+python experiments.py show cpv-additional-encoding
+python experiments.py close cpv-additional-encoding --winner ts --note "..."
+python experiments.py deliver cpv-additional-encoding ts     # only if the winner should deliver
+```
+
+`close` records the decision; `deliver` rewrites `models/CURRENT` to the ts
+champion. From that Monday the customer track record is ts's; nothing before
+it changes. Both arms stop training the next cycle; the delivering arm's
+champion stays, so the cycle is never left without a model.
+
+## 3. The two feature builds, concretely
+
+Both start from today's `build_features(df, roles, list_frame)`. An arm's
+`feature_build` runs **after** the role-driven build and **before** the guard.
+
+**`default` (arm `ts`).** Nothing changes in the frame. `assert_pure_one_hot`
+gains `exempt=()`: exempt columns are left out of the `max()` but still
+reported, so the gate check reads
+`pure_one_hot: passed (max cardinality 412; CTR columns: cpv_additional__cpv4 1767, cpv_additional__cpv3 …)`.
+`one_hot_max_size` stays 1024, so CatBoost uses one-hot for every column
+under the cap and ordered target statistics for the exempt ones above it —
+the switch is CatBoost's own, per column, and the guard now *says* which
+columns took it instead of refusing. Arm overrides:
+`guard_exempt=('cpv_additional__cpv2', 'cpv_additional__cpv3', 'cpv_additional__cpv4')`.
+
+**`cpv_additional_multihot` (arm `onehot`).** Drops the three combination
+columns from `cat_cols` and adds numeric columns per level `L ∈ {cpv2, cpv3, cpv4}`
+(digits 2/3/4 of each code in the list):
+
+- `cpv_additional__L__has_<code>` = 1 if `<code>` is among the lot's codes at
+  that level, else 0 — for every code in the level's **vocabulary**;
+- `cpv_additional__L__n_rare` = number of the lot's codes at that level that
+  are *not* in the vocabulary;
+- `cpv_additional__L__n` = number of distinct codes at that level (0 when the
+  list is empty), so "no additional codes" is a value, not a row of zeros
+  that looks like "only rare codes".
+
+The **vocabulary** per level is the set of codes present in at least
+`MIN_SUPPORT = 30` distinct training **lots** (grouped by `sb.KEY`, not rows),
+sorted. It is fixed on the training frame and returned as the build's state:
+
+```json
+"feature_state": {"cpv_additional_multihot": {
+    "min_support": 30,
+    "vocab": {"cpv2": ["09", "31", …], "cpv3": [...], "cpv4": ["4521", "4523", …]}}}
+```
+
+`learn` stores it in the arm's `meta.json`; `predict` rebuilds the open lots'
+columns **from the stored state**, never from the open frame — that is what
+makes the computability tripwire ("feature set differs for open lots") hold
+and what makes week 6's columns equal week 1's. Expected width: a few hundred
+columns; the guard is unaffected because these are numeric. `default` has
+empty state.
+
+## 4. Where things live for this experiment
+
+| what | where |
+| --- | --- |
+| the declaration (id, question, arms, opened, deadline, `default_delivering`) | `experiments.py`, checked in (§7) |
+| state: status, delivering arm, decision | table `experiment`, one row, through `ledger.py` |
+| models | `models/m<ts>-onehot/`, `models/m<ts>-ts/`; `meta.json` gains `experiment`, `arm`, `label`, `feature_build`, `feature_state`, `guard_exempt`; `models/registry.jsonl` rows gain `arm` |
+| champion pointers | `models/arms/onehot/CURRENT`, `models/arms/ts/CURRENT`; `models/CURRENT` = the delivering arm's |
+| predictions | table `prediction`, unchanged — UNIQUE `(procedure_id, lot_id, notice_id, model)` already separates the arms |
+| customer track record | table `grade`, unchanged — delivering arm only |
+| arm-vs-arm outcomes | table `arm_grade` (§6) |
+| what customers saw | table `delivery`, unchanged (rows carry the model id) |
+| the page | `/experiments/<key>` (§9) |
+
+## 5. What the operator sees, exactly
+
+The verdict line, in the cycle log, the operator report, `dashboard.html` and
+on top of the page:
+
+```
+<id>: <status> — <n> paired lots (one hot <n₁> graded / target statistics <n₂>),
+      flagged precision <p₁> vs <p₂> (base <b>), delivering <label>, deadline <date> (<d> d)
+```
+
+Below it on the page, per arm side by side, **cumulative** and, collapsed,
+**per ISO week of award publication**:
+
+| column | source |
+| --- | --- |
+| graded lots, positives, base rate | `arm_grade` |
+| flagged: n, precision with Wilson 95 % interval, recall, beats base | `loop.flag_stats`, `loop.wilson` — reused, not re-implemented |
+| top tier (`HIGH`) precision vs base | `arm_grade` |
+| delivered precision — delivering arm only | join `arm_grade` × `delivery` |
+| latest candidate: promoted?, val PR-AUC, tripwire text | `models/registry.jsonl` + `meta.json`, collapsed as "training background" |
+
+## 6. `arm_grade` and the verdict
+
+`grade()` today: per newly awarded lot, the *last prediction before the award*
+→ one `grade` row (PK `(procedure_id, lot_id)`). That stays and keeps meaning
+"the delivering arm" — it is what customers' track record is built from.
+
+New, in the same step: for every open experiment and every arm, the arm's
+last prediction before the award for that lot →
+
+```
+arm_grade (experiment, arm, procedure_id, lot_id, model, ts, score, threshold,
+           flag, tier, label, n_tenders, award_pub, cpv3, place_nuts3, graded_at,
+           seq, raw)   UNIQUE (experiment, arm, procedure_id, lot_id)
+```
+
+A frozen record like every other ledger — written once when the award
+publishes, never recomputed from a rebuilt store; idempotent by the UNIQUE
+key. Read and written through `ledger.py` (`'arm_grades'`).
+
+**Paired.** The comparison uses only lots present in `arm_grade` for **both**
+arms. An arm that missed a Monday is not compared on lots the other saw
+alone.
+
+**The verdict** — computed on request from `arm_grade`, never stored:
+
+| status | rule |
+| --- | --- |
+| `collecting` | fewer than `MIN_PAIRED = 100` paired lots, or fewer than `MIN_FLAGGED = 30` flagged-and-graded lots in either arm |
+| `no difference yet` | above the minimums, 0.20 < P < 0.80 |
+| `leaning <label>` | above the minimums, P ≥ 0.80 |
+| `ready: <label> better, <P>%` | above the minimums, P ≥ 0.95, **and** the winner's latest candidate passed every tripwire |
+| `deadline reached` | today ≥ deadline and still open — red, on top of whichever line above applies |
+
+P = posterior probability that one arm's flagged precision exceeds the
+other's: independent Beta(½,½) posteriors on each arm's `(hits, flagged)`
+over the paired lots, 20 000 draws, fixed seed (plain numpy). Ties break in
+favour of the delivering arm — the burden of proof is on the shadow, which is
+precision-over-recall applied to the test itself. All constants sit at the
+top of `experiments.py` and are printed at the bottom of the page.
+
+---
+
+# Part II — the method, as general as Part I needs
+
+## 7. Declaring an experiment
+
+In code, not in a form (operator, 2026-08-16): an arm is a set of pipeline
+overrides, and those live next to the pipeline. The whole first declaration:
 
 ```python
 EXPERIMENTS = [
     Experiment(
         id='cpv-additional-encoding',
         question='Which encoding of the additional-CPV codes sorts 0/1-bidder '
-                 'lots from the rest better on real predictions?',
-        kind='single_bidder',
-        opened='2026-08-18',            # first Monday both arms train
-        deadline='2026-11-30',          # backstop, see §5
-        arms=[
-            Arm('onehot', 'one hot',
-                feature_build='cpv_additional_multihot',   # §9
-                catboost={}, guard_exempt=()),
-            Arm('ts', 'target statistics',
-                feature_build='default',
-                catboost={},                                # one_hot_max_size stays 1024
-                guard_exempt=('cpv_additional__cpv2',
-                              'cpv_additional__cpv3',
-                              'cpv_additional__cpv4')),      # may exceed the cap → CTR
-        ],
+                 'lots from the rest better, on real predictions?',
+        opened='2026-08-18', deadline='2026-11-30',
+        arms=[Arm('onehot', 'one hot', feature_build='cpv_additional_multihot'),
+              Arm('ts', 'target statistics', feature_build='default',
+                  guard_exempt=('cpv_additional__cpv2', 'cpv_additional__cpv3',
+                                'cpv_additional__cpv4'))],
         default_delivering='onehot',
     ),
 ]
 ```
 
-Rules the declaration enforces at import time (a bad declaration must fail
-the test suite, not the Monday cycle):
+An `Arm` has `id`, `label`, `feature_build` (a registered name — `default`,
+`cpv_additional_multihot`), `catboost` (dict forwarded to `sb.make_model`,
+empty here), `guard_exempt` (columns `assert_pure_one_hot` leaves out of the
+max). That is the entire override surface; nothing else about training can
+differ between arms, by construction.
 
-- ids and arm ids are `[a-z0-9-]+`, unique; labels are non-empty and unique
-  within the experiment;
-- `kind` is one of the registered kinds (§8);
-- `default_delivering` names one of the arms;
-- `deadline` is a date after `opened`;
-- an arm's overrides may touch only what its kind exposes: for
-  `single_bidder` that is `feature_build` (a registered name), `catboost`
-  (a dict forwarded to `make_model`), `guard_exempt` (columns
-  `assert_pure_one_hot` may let exceed the cap). Everything else — data,
-  temporal split, seed, class weights, tripwires, threshold, promotion
-  epsilon — is the same object for every arm and cannot be overridden.
+Checked at import time, so a bad declaration fails the test suite and never a
+Monday: ids `[a-z0-9-]+` and unique; labels non-empty and unique within the
+experiment; `feature_build` registered; `default_delivering` an arm;
+`deadline` after `opened`.
 
-The **state** row is created the first time the cycle sees a declared id it
-has no row for: `status='open'`, `delivering=default_delivering`,
-`decision=NULL`. Removing a declaration from code does not delete state; a
-row whose declaration is gone shows on the page as "declaration missing" and
-its arms stop training.
+**State** row created the first time the cycle sees a declared id without
+one: `status='open'`, `delivering=default_delivering`, `decision=NULL`. A
+declaration removed from code leaves its state row; the page marks it
+"declaration missing" and its arms stop training.
 
-**Zero open experiments** is the normal case for most of the year and must
-cost nothing: the cycle then runs one implicit arm named `default` exactly as
-it does today, and `models/CURRENT` is the only pointer in play.
+**Zero open experiments** — most of the year — costs nothing: the cycle runs
+one implicit arm `default` exactly as today, and `models/CURRENT` is the only
+pointer in play. That is also the exact behaviour after `close`.
 
-## 4. What the cycle does per arm
+## 8. What the cycle does per arm
 
-Inside `_run_cycle`, for the `single_bidder` kind:
+Inside `_run_cycle`, when at least one experiment is open:
 
-1. **learn** — `learn()` runs once per arm. Its overrides come from the arm.
-   Each arm is gated **against its own champion** (`models/arms/<arm>/CURRENT`)
-   with the unchanged rules: all trust checks pass and val PR-AUC ≥ own
-   champion − epsilon. A failing arm keeps its own champion and never aborts
-   the cycle; the failure is recorded on that arm and shown on the page ("a
-   tripwire failure in an arm is itself a result").
-   Model ids become `m<timestamp>-<arm>`; `meta.json` gains `experiment`,
-   `arm`, `label`, `feature_build`, `feature_state` (§9). The delivering
-   arm's promotion also rewrites `models/CURRENT`, so nothing downstream of
-   it changes.
-2. **predict** — `predict_open()` scores the same open lots once per arm and
-   writes each arm's rows under its own model id (dedup by the UNIQUE key,
-   as today). It returns the **delivering arm's** rows to `deliver()`,
-   `drift_monitors()` and `simulation` — shadows never reach a customer, the
-   drift monitors or the simulation.
-3. **grade** — `grade()` keeps writing `grade` for the delivering arm's
-   "last prediction before the award" (customer track record, unchanged).
-   Additionally, for every open experiment and every arm, it writes one
-   `arm_grade` row per newly awarded lot the arm had predicted: the arm's
-   last prediction before the award, with `label`, `n_tenders`, `award_pub`,
-   `score`, `flag`, `tier`, `model`. Idempotent by the UNIQUE key.
-4. **report** — the operator report and `dashboard.html` gain one line per
-   open experiment: verdict, n graded per arm, days to deadline.
+1. **learn** — `learn()` once per arm with the arm's `feature_build`,
+   `catboost`, `guard_exempt`; gate against **its own** champion
+   (`models/arms/<arm>/CURRENT`), unchanged rules; a failing arm keeps its
+   champion and never aborts the cycle. Model id `m<ts>-<arm>`. The
+   delivering arm's promotion also rewrites `models/CURRENT`.
+2. **predict** — `predict_open()` once per arm on the same open lots; rows
+   under each arm's model id; returns the **delivering arm's** rows to
+   `deliver()`, `drift_monitors()` and `simulation` — a shadow never reaches
+   a customer, a monitor or the simulation.
+3. **grade** — `grade` as today for the delivering arm; `arm_grade` per arm
+   (§6).
+4. **report** — the verdict line (§5) in the log, the report and
+   `dashboard.html`.
 
-Compute: two trainings per weekly cycle, and the monthly shuffled-label
-check trains its three models **per arm**. Accepted (4-vCore VPS; brief §6).
+Compute: two trainings per weekly cycle; the monthly shuffled-label check
+trains its three models per arm. Accepted (4-vCore VPS).
 
-Switching the delivering arm (`experiments.py deliver …`) rewrites
-`models/CURRENT` to the new arm's champion **and nothing else**. Past
-deliveries, predictions and grades keep the model ids they were written
-with; the customer track record from that day on is the new arm's.
+`experiments.py deliver <id> <arm>` rewrites `models/CURRENT` to that arm's
+champion and updates the state row — nothing else. Past deliveries,
+predictions and grades keep the model ids they were written with.
 
-## 5. Metrics and the verdict
-
-**Headline: precision at the delivered cutoff** — of the lots an arm flagged
-(`score ≥ threshold`), the share that ended with 0–1 bids — against the base
-rate of the same graded lots. Recall secondary. Training-time validation
-metrics (PR-AUC on the recent window) are shown collapsed as background,
-never in the verdict line (operator decision: background only).
-
-Per arm, side by side, cumulative and per ISO week of award publication:
-
-- graded lots `n`, positives, base rate;
-- flagged precision with its Wilson interval (`loop.flag_stats`, `loop.wilson`
-  — reused, not re-implemented), recall, `beats_base`;
-- precision of the top tier (`tier == 'HIGH'`), against base;
-- for the delivering arm only: precision of what was actually delivered
-  (join with the `delivery` ledger);
-- tripwire status of the arm's latest candidate.
-
-**Paired evidence.** Both arms score the same lots, so the comparison uses
-only lots graded for *both* arms. That is what makes the numbers comparable
-week to week: an arm that missed a Monday does not get compared on lots the
-other saw alone.
-
-**The verdict** — computed on request from `arm_grade`, never stored:
-
-| status | rule |
-| --- | --- |
-| `collecting` | fewer than `MIN_FLAGGED = 30` flagged-and-graded lots in either arm, or fewer than `MIN_PAIRED = 100` paired lots |
-| `leaning <label>` | above the minimums and P(precision<sub>A</sub> > precision<sub>B</sub>) ≥ 0.80 |
-| `ready: <label> better, <P>%` | above the minimums, P ≥ 0.95, **and** the winner's latest candidate passed every tripwire |
-| `no difference yet` | above the minimums, 0.20 < P < 0.80 |
-| `deadline reached` | today ≥ deadline and still open — shown red on top of whichever line above applies |
-
-P is the posterior probability that one arm's flagged precision exceeds the
-other's: independent Beta posteriors (Jeffreys prior, ½/½) on each arm's
-`(hits, flagged)`, evaluated by 20 000 draws with a fixed seed so the page is
-reproducible. Ties in labels break in favour of the delivering arm (the
-burden of proof is on the shadow, which is the precision-over-recall rule
-applied to the test itself). All thresholds are named constants at the top
-of `experiments.py`, printed on the page.
-
-Expected timing (brief §5): awards publish 1–3 months after the notice, so
-`collecting` for the first 6–10 weeks is normal and the page says so instead
-of showing an empty table.
-
-## 6. Operator commands
+## 9. Commands and the page
 
 ```
-python experiments.py                       # open + closed, one line each, verdict inline
-python experiments.py show <id>             # the per-arm tables, weekly + cumulative
-python experiments.py deliver <id> <arm>    # switch the delivering arm (rewrites models/CURRENT)
+python experiments.py                       # open + closed, one verdict line each
+python experiments.py show <id>             # the §5 tables, cumulative and weekly
+python experiments.py deliver <id> <arm>    # switch the delivering arm
 python experiments.py close <id> --winner <arm|none> --note "..."
 ```
 
-`close` records `decision = {winner, note, closed_at, verdict_at_close}` and
-sets `status='closed'`. Closing does **not** switch delivery — if the winner
-is not the delivering arm the command says so and names the `deliver` call;
-one act, one command. A closed experiment's arms stop training the next
-cycle; the delivering arm's champion stays whatever it was, so a close never
-leaves the cycle without a model. Every command prints; none writes a report
-file.
+`close` writes `decision = {winner, note, closed_at, verdict_at_close}`,
+`status='closed'`; it does **not** switch delivery — if the winner is not the
+delivering arm it says so and prints the `deliver` line. Every command
+prints; none writes a report file.
 
-## 7. The overview page
+**The page**: one GET route in `app.py`, `/experiments/<key>`, `<key>` =
+`TM_EXPERIMENTS_KEY` from `.env` (`secrets.token_urlsafe(24)`, generated
+once; empty default in `.env.example`; a configuration line, not one of
+`SECRETS.md`'s four credentials). Unset → 404 like any unknown path. An
+unlisted URL, not authentication (operator: "not yet"); `robots.txt`
+already disallows everything. Rendered with `render.py` helpers like the
+customer pages. Sections: last cycle date (from the loop checkpoint, as
+`/healthz` does) · **Open** — one card per experiment: question, opened →
+deadline (red when past), delivering arm, the verdict line, the §5 tables ·
+**Closed** — question, winner label, note, closed date, verdict at close ·
+**Constants** — the §6 thresholds. Reads through the same modules the cycle
+uses; never opens a storage file itself.
 
-One route in `app.py`, GET only, HTML from the same helpers as the customer
-pages: **`/experiments/<key>`** where `<key>` is the value of
-`TM_EXPERIMENTS_KEY` in `.env` (32+ URL-safe characters, generated once with
-`secrets.token_urlsafe(24)`). Unset → the route does not exist (404 like any
-other unknown path). Not authentication — an unlisted URL, as the operator
-asked; `robots.txt` already disallows everything. Authentication is a later
-change and this spec does not pretend otherwise. `TM_EXPERIMENTS_KEY` is a
-configuration line, not one of the four credentials in `SECRETS.md` §1, and
-travels with `.env.example` as an empty default.
+## 10. The second experiment — what would change
 
-Sections, top to bottom:
+Nothing above knows the arms are CatBoost models except `learn`, `predict`
+and the `feature_build` registry; the state row, `arm_grade`, the verdict,
+the commands and the page only see "arm → prediction per lot" and "lot →
+label from the award". So:
 
-1. **Open** — one card per open experiment: question, kind, opened →
-   deadline (days left, red when past), delivering arm, **verdict line**,
-   then the per-arm cumulative table (§5), then a collapsed weekly table
-   and a collapsed "training background" table (val PR-AUC, tripwire text
-   of the latest candidate per arm).
-2. **Closed** — one line each: question, winner (label), note, closed date,
-   the verdict at close.
-3. **Constants** — the thresholds from §5, so a reader knows what "ready"
-   meant when the page was read.
+- **another single-bidder test** (e.g. target statistics for *all*
+  categoricals against a clean baseline, the brief's "considered and
+  rejected for now") is one more `Experiment(...)` entry, possibly one more
+  registered `feature_build`. No new code path.
+- **a test of the relevance gate** ("is this our business") would need three
+  things this spec deliberately does not build: the unit becomes
+  customer × lot, `learn`/`predict` become "build `relevance.Gate` with the
+  arm's config and judge the lots the delivering gate judged", and the
+  truth comes from the customer's feedback verdicts (`feedback.py`,
+  `learned_refs`) instead of the award — sparse, so `collecting` lasts
+  longer. `arm_grade` would gain `sub_id` in its key. That is a second spec,
+  written when there is a second concrete question.
 
-The page reads `experiment`, `arm_grade`, `delivery` and the model registry
-through the same modules the cycle uses; it never opens a storage file
-itself. Its live numbers change only when a cycle runs — a paragraph at the
-top names the last cycle date (from the loop checkpoint, as `/healthz` does).
+## 11. Not built, on purpose
 
-## 8. Kinds — the seam that keeps this general
+Authentication on the page; a form to create or edit experiments; automatic
+switching at the deadline or ever; customer assignment or bandits; re-grading
+history (an experiment opened today has no graded lots today, whatever the
+ledger holds); the relevance kind.
 
-A kind answers three questions; the registry, the arm bookkeeping, the
-verdict, the commands and the page never ask a fourth:
+## 12. Tests
 
-```python
-class Kind:
-    unit_key: tuple[str, ...]                          # what one prediction attaches to
-    def learn(self, arm, ctx) -> Candidate             # train / build this arm; gate vs its own champion
-    def predict(self, arm, ctx) -> list[dict]          # one ledger-shaped row per unit, model id set
-    def outcomes(self, ctx, since) -> dict[key, truth] # units whose truth arrived
-```
+`tests/test_experiments.py`, sandbox data dir, no network, no real training
+(a stub `learn`/`predict` that writes rows):
 
-| kind | unit | `learn` | `predict` | `outcomes` |
-| --- | --- | --- | --- | --- |
-| `single_bidder` — **built by this spec** | lot `(procedure_id, lot_id)` | `single_bidder.train` with the arm's overrides, today's tripwires | score open lots | award notice → `label` from bid count (`sb.assemble`) |
-| `relevance` — **specified, not built** | customer × lot `(sub_id, procedure_id, lot_id)` | build `relevance.Gate` with the arm's config / references / lexicon | judge the same lots the delivering gate judged | the customer's feedback verdicts (`feedback.py`, `learned_refs`) |
-
-Honest caveat for `relevance`: its truth is sparse — only lots the customer
-bothered to judge get one — so `collecting` lasts longer and the numbers rest
-on fewer units. The status shows the counts; no design removes the sparsity.
-
-## 9. The first experiment: `cpv-additional-encoding`
-
-From the brief. Two arms, differing **only** in how the additional-CPV codes
-reach the model:
-
-| arm | label | encoding |
-| --- | --- | --- |
-| `onehot` | **one hot** | `feature_build='cpv_additional_multihot'`: one 0/1 numeric column per distinct code ("has 4521", …), multi-hot, at the levels the column has today (cpv2 / cpv3 / cpv4). No categorical column → no `one_hot_max_size` involved, rule 4 holds structurally. Codes seen in fewer than `MIN_SUPPORT = 30` training lots fold into one `n_rare_additional_cpv` count per level. |
-| `ts` | **target statistics** | `feature_build='default'`: the combination column as today, `one_hot_max_size` 1024, and `guard_exempt` names the three `cpv_additional__cpv*` columns so `assert_pure_one_hot` lets *those* exceed the cap → CatBoost's ordered target statistics for exactly those. |
-
-Not an arm: raising the cap (e.g. 4096). Rejected in the brief — a later
-wall, not the absence of one.
-
-**`feature_state`.** The `onehot` build has state: the code vocabulary per
-level (which codes got a column, which folded into the rare count) is fixed
-on the training frame and must be applied identically to open lots — the
-computability tripwire ("feature set differs for open lots") checks exactly
-this. So the build returns its state, `learn` stores it in `meta.json`, and
-`predict` rebuilds features from the stored state, never from the open
-frame. `feature_build='default'` has empty state. This is the one place §3's
-"an arm may change the feature build" touches `single_bidder.build_features`:
-a `feature_build` hook after the role-driven build, before the guard.
-
-**Delivering arm during the trial: `onehot`** (operator: "keep the rule until
-decided"). Note what this means on the server today: there is no champion
-at all (brief §3), so the first `onehot` promotion is what makes the server
-predict again — the experiment is also the fix.
-
-## 10. What is not built, on purpose
-
-- No authentication on the page (operator: "not yet").
-- No form to create experiments; no editing of arms after `opened`.
-- No automatic switch of the delivering arm, at the deadline or ever.
-- No customer assignment, no bandit, no business-action tests.
-- No re-grading of history: an experiment opened today has no graded lots
-  today, whatever the ledger holds from before — rule §0.
-- No `relevance` kind implementation — the seam only.
-
-## 11. Tests
-
-`tests/test_experiments.py`, on a sandbox data dir (`subscriptions.write_sandbox`
-style, `--network none`-safe, no model training — a fake `Kind` with a
-two-line `learn`/`predict`/`outcomes`):
-
-- declaration validation: duplicate ids, unknown kind, override outside the
-  kind's surface, deadline before opened → import-time error;
-- state creation on first sight; declaration removed → row survives, marked;
-- `arm_grade` written once per (experiment, arm, lot); re-running the cycle
-  adds nothing;
-- paired restriction: a lot graded for one arm only is in neither arm's
-  comparison;
-- verdict thresholds at the boundaries (29 vs 30 flagged; P at 0.79 / 0.80 /
-  0.95); tie goes to the delivering arm; `deadline reached` overlays;
+- declaration validation: duplicate ids, unknown `feature_build`,
+  `deadline ≤ opened`, `default_delivering` not an arm → import error;
+- state row on first sight; declaration removed → row survives, marked;
+- `arm_grade`: one row per (experiment, arm, lot); a second cycle adds none;
+- paired restriction: a lot graded for one arm only is in neither comparison;
+- verdict thresholds at the boundaries (99/100 paired; 29/30 flagged; P at
+  0.79 / 0.80 / 0.95); tie → delivering arm; `deadline reached` overlays;
 - `deliver` rewrites `models/CURRENT` and nothing else; `close` on a
-  non-delivering winner prints the `deliver` hint and does not switch;
-- zero open experiments → cycle output identical to today (golden compare
-  of the ledger rows written);
-- `app.py`: route absent when the key is unset; 200 with the key; the page
-  names labels verbatim.
+  non-delivering winner prints the hint and does not switch;
+- zero open experiments → the ledger rows a cycle writes are identical to
+  today's (golden compare);
+- `app.py`: no key → 404; key → 200 and the labels "one hot" / "target
+  statistics" appear verbatim.
 
-For the real `single_bidder` kind, one small end-to-end on a 300-lot fixture:
-both arms train, both write predictions with distinct model ids on the same
-lots, `models/CURRENT` equals the `onehot` arm's champion, and
-`cpv_additional_multihot` reproduces its columns on open lots from
-`feature_state`.
+For the real arms, one end-to-end on a small fixture: `cpv_additional_multihot`
+builds the §3 columns, `n_rare` counts codes under support, the vocabulary
+round-trips through `feature_state` and reproduces identical columns on an
+open frame that contains an unseen code; `assert_pure_one_hot(exempt=…)`
+passes with the cpv4 column above the cap and reports it as a CTR column;
+both arms train on a 300-lot fixture, write predictions with distinct model
+ids on the same lots, and `models/CURRENT` equals the onehot champion.
 
-## 12. Decisions taken in this session
+## 13. Decisions taken in this session
 
 | decision | who | value |
 | --- | --- | --- |
 | headline metric | brief | precision at the delivered cutoff; recall secondary |
 | evidence | operator | real predictions only; no replay, no backtest |
 | what happens at "ready" | operator | show the result; the switch is the operator's |
-| deadline | operator | a backstop; earlier decision allowed when clear |
-| who says "clear" | operator → assistant | the software flags it (§5); the operator decides |
+| deadline | operator | a backstop; earlier decision when clear |
+| who says "clear" | operator → assistant | the software flags it (§6); the operator decides |
 | where the overview lives | operator | unlisted URL under the Murara area, no auth yet |
 | e-mails | operator | one default method, no A/B |
-| first-version scope | operator | model-vs-model only |
+| first-version scope | operator | model-vs-model only; this one case, method sized to it |
 | how a test is created | assistant, confirmed | in code; state and decisions via CLI |
 | framework | assistant, confirmed | in-house, no external product, no new dependency |
-| delivering arm during trial | assistant, per brief's recommendation | `onehot` |
+| delivering arm during trial | assistant, per the brief's recommendation | `onehot` |
 | validation metrics on the page | assistant | collapsed background, never the verdict line |
