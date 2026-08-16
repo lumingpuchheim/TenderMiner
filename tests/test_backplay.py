@@ -206,6 +206,75 @@ class WeeklyReadsTheRejections(unittest.TestCase):
         self.assertIn('leaks above 2.2%', line)
 
 
+class Scheduled(unittest.TestCase):
+    """It is not built until something runs it. The operator asked whether it
+    was in cron; it was not, and these are what keep the answer yes."""
+
+    def test_the_crontab_runs_the_rejector(self):
+        crontab = (REPO / 'docker' / 'crontab').read_text(encoding='utf-8')
+        job = [l for l in crontab.splitlines()
+               if 'backplay.sh' in l and not l.lstrip().startswith('#')]
+        self.assertEqual(len(job), 1, 'exactly one backplay cron line')
+        fields = job[0].split()
+        self.assertEqual(fields[:5], ['0', '4', '*', '*', '0'], 'Sunday 04:00')
+        self.assertEqual(fields[5], 'tm', 'runs as tm, like the other jobs')
+        self.assertIn('cron.log', job[0], 'a job whose output goes nowhere is silent')
+
+    def test_the_job_script_exists_and_never_fails_the_container(self):
+        script = (REPO / 'docker' / 'backplay.sh').read_text(encoding='utf-8')
+        self.assertIn('python backplay.py', script)
+        self.assertTrue(script.rstrip().endswith('exit 0'),
+                        'a rejector that cannot measure is a week without a '
+                        'proposal, not an outage')
+
+    def test_the_crontab_still_ends_in_a_newline(self):
+        """cron.d silently ignores a file that does not."""
+        self.assertTrue((REPO / 'docker' / 'crontab')
+                        .read_text(encoding='utf-8').endswith('\n'))
+
+
+class VerifiableWithoutFilingAnything(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        import gc
+        self.addCleanup(gc.collect)
+        self.paths = util.Paths(self.tmp.name, Path(self.tmp.name) / 'models')
+
+    def test_self_check_runs_the_real_rule_and_says_it_is_synthetic(self):
+        lines = backplay.self_check(self.paths)
+        body = '\n'.join(lines)
+        self.assertIn('synthetic', body)
+        self.assertIn('REJECTED', body)     # the majority case
+        self.assertIn('survives', body)     # the minority case
+        self.assertIn('filed questions: 0', body)
+
+    def test_an_ad_hoc_question_is_valid_and_not_filed(self):
+        q = backplay._ad_hoc('evidence.NOMINATION_BAR', '0.50,0.55,0.60', '0.55')
+        self.assertTrue(knobs._validate([q]))
+        self.assertEqual(q.neighbours(), [0.50, 0.60])
+        self.assertNotIn(q, knobs.LIVE)
+
+    def test_the_grid_keeps_its_types(self):
+        ints = backplay._ad_hoc('evidence.EVIDENCE_NOMINATION_MIN', '1,2,3', '2')
+        self.assertEqual(ints.grid, (1, 2, 3))
+        floats = backplay._ad_hoc('evidence.NOMINATION_BAR', '0.50,0.55', '0.55')
+        self.assertEqual(floats.grid, (0.50, 0.55))
+
+    def test_judge_read_pulls_the_committed_row_with_its_denominator(self):
+        payload = {'counts': {'n_pos': 2473, 'n_neg': 25600},
+                   'configurations': [
+                       {'name': 'evidence, bar 0.55', 'recall': 0.1,
+                        'leakage': 0.9, 'volume': 0.1},
+                       {'name': 'evidence + K>=2 + band p=0.0 (committed)',
+                        'recall': 0.515, 'leakage': 0.027, 'volume': 0.044}]}
+        self.assertEqual(backplay.judge_read(payload),
+                         [{'metric': 0.515, 'n': 2473, 'leakage': 0.027}])
+
+    def test_judge_read_is_empty_when_the_row_is_absent(self):
+        self.assertEqual(backplay.judge_read({'configurations': []}), [])
+
+
 class Measure(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

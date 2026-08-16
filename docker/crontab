@@ -59,4 +59,12 @@ PYTHONUNBUFFERED=1
 # racing for disk bandwidth on the same box is still worth six hours of space.
   30 2  *   *   *    tm    /app/docker/nightly.sh >> /data/logs/cron.log 2>&1
 
+# The backplay rejector (doc/PARAMETERS.md §10): measures the candidate values
+# of every filed knob question and may REJECT one, never promote. Sunday 04:00
+# — ninety minutes after the backup, four hours before the Monday cycle, so
+# Monday's report carries fresh rejections. It takes the heavy lock, so the
+# separation is politeness and the lock is the guarantee. With no filed
+# question (the usual state) it exits in a second and says so.
+   0 4  *   *   0    tm    /app/docker/backplay.sh >> /data/logs/cron.log 2>&1
+
 # A cron.d file that does not end in a newline is silently ignored. This is it.

@@ -42,21 +42,37 @@ report → **render every active customer** → **simulate every winner company*
   is no live question, so it reads "every knob frozen". Filing one is a
   commit that adds a `Question` to `knobs.py` (§8.1).
 
-**The night job** (`backplay.py`, [`PARAMETERS.md`](PARAMETERS.md) §10) is the
-only other thing worth scheduling, and only once a question is filed:
+**The rejector is scheduled** — `docker/backplay.sh`, **Sunday 04:00**, third
+line in `docker/crontab` beside the Monday cycle and the nightly backup. It
+measures each candidate value in its own subprocess under `TM_GATE_OVERRIDE`
+and may **reject** — never promote. Monday's report then carries the result in
+its **Knobs** section, so nothing has to be read out of a log.
+
+With no filed question — the usual state — it exits in a second and says so in
+`/data/logs/cron.log`. That is deliberate: a job that is loud about doing
+nothing is how you know it is still wired in.
+
+To see it work without waiting for Sunday:
 
 ```
-python backplay.py
+docker compose run --rm tm python backplay.py --self-check
 ```
 
-It measures each candidate value in its own subprocess under
-`TM_GATE_OVERRIDE`, and may **reject** — never promote. It takes the heavy
-lock, so it will wait for the Monday cycle rather than collide with it; give
-it a slot the cycle does not want (a gate candidate is minutes, an end-to-end
-replay ~33 minutes and ~200 MB of scratch per candidate). `python backplay.py
---show` prints what has been rejected and what has aged out. Rejections
-expire after 90 days and reappear as candidates — that is deliberate, not a
-bug: a value killed in one market is not dead forever.
+One second, synthetic numbers, no harness — it runs the real rejection rule
+and prints what it decided, then the rejections standing today and how many
+questions are filed. It proves the wiring, not the science.
+
+For a real measurement on real data, without filing anything:
+
+```
+docker compose run --rm tm python backplay.py --knob evidence.NOMINATION_BAR --grid 0.50,0.55,0.60 --current 0.55
+```
+
+That runs the gate harness once per neighbouring value (minutes each) under
+that value's own override, applies the rule, and writes real rows. `python
+backplay.py --show` prints what has been rejected and what has aged out.
+Rejections expire after 90 days and return as candidates — deliberate: a value
+killed in one market is not dead forever.
 
 To measure a candidate by hand, the same lever works anywhere:
 

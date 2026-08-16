@@ -455,11 +455,22 @@ interpreter — which is exactly the limitation §4.1 accepted when it made
 
 ### 10.2 The job
 
-`backplay.py`, nightly, under the heavy lock so it never meets the Monday
-cycle halfway:
+`backplay.py`, **Sunday 04:00** via `docker/backplay.sh` and the third line of
+`docker/crontab`, under the heavy lock so it never meets the Monday cycle
+halfway. Sunday rather than nightly because the evidence changes weekly at
+best; four hours before the cycle so Monday's report carries fresh
+rejections.
 
-    python backplay.py            # measure every live question's candidates
+    python backplay.py            # every filed question's candidates
+    python backplay.py --self-check   # the rule and the wiring, one second
     python backplay.py --show     # the record, and what has expired
+    python backplay.py --knob evidence.NOMINATION_BAR --grid 0.50,0.55,0.60 --current 0.55
+
+The last form measures a knob **ad hoc**, without filing a question — real
+harness, real data, real rows, but nothing becomes LIVE. It exists because
+"is this connected" deserved an answer that costs a command rather than a
+deployment. `--self-check` answers the same question in a second on synthetic
+numbers, and says that is what it is doing.
 
 Per candidate: a subprocess with the override set, running the question's
 harness — `evidence.py --judge` for a gate knob (minutes; `--out` writes the
