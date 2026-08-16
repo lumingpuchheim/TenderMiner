@@ -9,7 +9,7 @@
 #
 # Two things run: the trade-page unit tests (`Release` among them), and a
 # script that mounts a directory into caddy:2 the way the edge does, releases
-# into it twice from a python:3.13 container, and asserts what curl sees.
+# into it twice, kills a build halfway, and asserts what curl sees.
 
 name: site-check
 

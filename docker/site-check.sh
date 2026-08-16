@@ -8,9 +8,11 @@
 #
 # What it sets up is the server, in miniature: caddy:2 mounts a directory as
 # /srv/public and serves /srv/public/current — the same mount and the same
-# root the edge uses (docker-compose.yml, docker/Caddyfile). A python:3.13
-# container mounts the SAME directory and calls trade_pages.release, which is
-# what the cycle and deploy.sh call. Between steps, curl through Caddy.
+# root the edge uses (docker-compose.yml, docker/Caddyfile). This machine's
+# python calls trade_pages.release on that directory, which is what the cycle
+# and deploy.sh call (from inside the image, but the file operations are the
+# same). Between steps, curl through Caddy. Needs Docker, curl, and the
+# project's python dependencies (as the unit tests do).
 #
 # What it asserts, in order:
 #   1. the legacy flat layout (today's server) is left alone by the first
@@ -26,6 +28,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO"
 WORK="$(mktemp -d)"
 PUB="$WORK/public"
 PORT="${SITE_CHECK_PORT:-8099}"
@@ -59,34 +62,34 @@ for _ in $(seq 1 30); do
     curl -s -o /dev/null "http://127.0.0.1:$PORT/" && break || sleep 1
 done
 
-# release <marker>: a complete two-page site whose every file reads <marker>
+# release <marker>: a complete two-page site whose every file reads <marker>.
+# Run with this machine's python (needs the project's dependencies, as the
+# unit tests do): the same rename/unlink/rmtree calls the container makes,
+# on the same directory Caddy is reading through its mount.
+PY="${PYTHON:-python3}"
 release() {
-    docker run --rm --user 1000:1000 \
-        -v "$REPO:/app:ro" -v "$PUB:/data/public" -w /app python:3.13-slim \
-        python - "$1" <<'PY'
+    "$PY" - "$PUB" "$1" <<'PY'
 import sys
-sys.path.insert(0, '/app')
+sys.path.insert(0, '.')
 import trade_pages as tp
-m = sys.argv[1]
+pub, m = sys.argv[1], sys.argv[2]
 def write(d):
     (d / 'index.html').write_text(m)
     (d / 'gewerke').mkdir()
     (d / 'gewerke' / 'index.html').write_text(m)
-tp.release('/data/public', write)
+tp.release(pub, write)
 PY
 }
 dead_release() {
-    docker run --rm --user 1000:1000 \
-        -v "$REPO:/app:ro" -v "$PUB:/data/public" -w /app python:3.13-slim \
-        python - <<'PY'
+    "$PY" - "$PUB" <<'PY'
 import sys
-sys.path.insert(0, '/app')
+sys.path.insert(0, '.')
 import trade_pages as tp
 def die(d):
     (d / 'index.html').write_text('half')
     raise RuntimeError('the store went away mid-build')
 try:
-    tp.release('/data/public', die)
+    tp.release(sys.argv[1], die)
 except RuntimeError:
     sys.exit(0)
 sys.exit(1)
