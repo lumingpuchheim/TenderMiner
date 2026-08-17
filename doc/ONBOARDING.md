@@ -409,6 +409,19 @@ customer field: none — `batch` lives on the event, `do_not_contact` is
 Alias merging (decision #5) stays manual: `add --also-name "<spelling>"`
 appends to `award_names`; nothing merges by similarity.
 
+**Built 2026-08-17: `add`, `reissue`, `objection`** ([`invite.py`](../invite.py),
+`tests/test_invite.py`). Two things settled in the building: the draft's
+knobs copy the live customers (`cpv_prefixes ['45']`, gate at 0.7,
+`max_picks 5`) rather than the row's CPV3 codes — buyers enter CPV wrongly and
+the gate reads the text, so the market filter stays wide and the gate narrows;
+and `add` refuses an exact-spelling miss instead of guessing (the message
+names the rows that contain the typed text). Receipt against a copy of the
+live database: `add "Jens Dunkel Glas- und Bauelemente GmbH"` → sub_id,
+`https://app.murara.eu/t/…`; the URL answers 200 with the signup form; a
+second `add` refuses with the owning customer; `invited` event carries the
+batch and the 8-character token stub. `batch`, `letter`, `report` are the
+next rows.
+
 ### 9.3 The report goes out by e-mail [BUILD]
 
 In [`delivering.py`](../delivering.py), after the report file is written and

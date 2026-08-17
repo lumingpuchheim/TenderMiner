@@ -1,0 +1,265 @@
+"""invite.py — the front of the funnel: a target-list firm becomes an invitation.
+
+doc/ONBOARDING.md 9.2. Console tool; prints, writes no report files. Storage
+only through subscriptions.py, tokens.py and ledger.py (CLAUDE.md).
+
+    python invite.py add "Jens Dunkel Glas- und Bauelemente GmbH"
+    python invite.py reissue jens-dunkel-glas-und-bauelemente-gmbh
+    python invite.py objection "Jens Dunkel Glas- und Bauelemente GmbH"
+
+`add` reads the firm's row from `<data>/outreach/targets.csv` (outreach.py's
+output), writes the customer row (name, the exact winner spelling as
+award_names, the postal contact as contact_note), appends subscription
+version 1 with `active: false` — the DRAFT the app's signup handler
+pre-flights and activates — mints one `t` token and prints the QR URL. The
+URL is printed exactly once: a token is never read back out of storage, only
+minted (`reissue` revokes and mints anew).
+
+`objection` is the Art. 21 flag: contact_state = hard_stopped, every token
+revoked, one `objection` event. It works for a firm that was never invited —
+the row is created hard-stopped, so a later `batch` cannot pick it up.
+
+Draft knobs follow the live customers rather than the target row's CPV3
+codes: `cpv_prefixes ['45']` (the whole construction range) and the relevance
+gate at 0.7 do the narrowing, because buyers enter CPV wrongly and the gate
+reads the lot text; `nuts_prefixes` come from the firm's won regions.
+"""
+
+import argparse
+import csv
+import os
+import re
+import sys
+import unicodedata
+from datetime import datetime, timezone
+from pathlib import Path
+
+import config
+import ledger
+import subscriptions
+import tokens
+
+APP_URL_ENV = 'TM_APP_URL'
+DEFAULT_APP_URL = 'https://app.murara.eu'
+TARGETS = Path('outreach') / 'targets.csv'
+MIN_REFS = 2
+
+# The draft version's knobs, copied from the live customers (2026-08-17).
+DRAFT_KNOBS = {'cpv_prefixes': ['45'], 'min_deadline_days': 0,
+               'max_picks': 5, 'min_relevance': 0.7}
+
+
+class InviteError(ValueError):
+    """An invitation that must not be written."""
+
+
+def _now():
+    return datetime.now(timezone.utc).isoformat(timespec='seconds')
+
+
+def _event(data_dir, kind, sub_id, **fields):
+    ledger.append(data_dir, 'app_events',
+                  [{'ts': _now(), 'kind': kind, 'sub_id': sub_id, **fields}])
+
+
+def slug(name):
+    """'Jens Dunkel Glas- und Bauelemente GmbH' -> 'jens-dunkel-glas-und-bauelemente-gmbh'."""
+    s = unicodedata.normalize('NFKD', name)
+    s = s.replace('ß', 'ss')
+    s = ''.join(c for c in s if not unicodedata.combining(c))
+    s = re.sub(r'[^a-z0-9]+', '-', s.lower()).strip('-')
+    if not s:
+        raise InviteError(f'no slug can be made from {name!r}')
+    return s
+
+
+def app_url(base=None):
+    return (base or os.environ.get(APP_URL_ENV) or DEFAULT_APP_URL).rstrip('/')
+
+
+# ------------------------------------------------------------- the target list
+
+def load_targets(data_dir):
+    path = Path(data_dir) / TARGETS
+    if not path.exists():
+        raise InviteError(f'{path} not found — run outreach.py first')
+    with path.open(encoding='utf-8-sig', newline='') as f:
+        return list(csv.DictReader(f))
+
+
+def find_target(rows, company):
+    """The one row for `company`: exact winner spelling first, then a unique
+    case-insensitive match. Anything ambiguous names the candidates."""
+    exact = [r for r in rows if r.get('company') == company]
+    if len(exact) == 1:
+        return exact[0]
+    loose = [r for r in rows
+             if (r.get('company') or '').casefold() == company.casefold()]
+    if len(loose) == 1:
+        return loose[0]
+    part = [r for r in rows
+            if company.casefold() in (r.get('company') or '').casefold()]
+    if not part:
+        raise InviteError(f'{company!r} is not on the target list')
+    names = ', '.join(repr(r['company']) for r in part[:6])
+    raise InviteError(f'{company!r} is not an exact target-list spelling; '
+                      f'{len(part)} row(s) contain it — use the exact one: '
+                      f'{names}')
+
+
+def _split(cell):
+    return [x for x in (cell or '').split(';') if x]
+
+
+# ------------------------------------------------------------ what exists now
+
+def _known_names(data_dir):
+    """Every winner spelling already claimed by a customer, from the draft
+    and later versions' award_names and name. An invitation to a firm that is
+    already one — under any spelling — is a double letter, and refused."""
+    claimed = {}
+    for r in subscriptions.read_all(data_dir):
+        for n in (r.get('award_names') or []) + [r.get('name')]:
+            if n:
+                claimed[n] = r['sub_id']
+    return claimed
+
+
+def _versions_of(data_dir, sub_id):
+    return [r for r in subscriptions.read_all(data_dir)
+            if r.get('sub_id') == sub_id]
+
+
+def _resolve(data_dir, key):
+    """A sub_id or a company spelling -> sub_id (customer or target)."""
+    if subscriptions.customer_get(data_dir, key) or _versions_of(data_dir, key):
+        return key
+    claimed = _known_names(data_dir)
+    if key in claimed:
+        return claimed[key]
+    return slug(key)
+
+
+# ------------------------------------------------------------------- commands
+
+def add(data_dir, company, *, sub_id=None, also_names=(), batch=None,
+        base_url=None, now=None):
+    """-> (sub_id, url). Raises InviteError rather than writing a half
+    invitation; every check runs before the first write."""
+    row = find_target(load_targets(data_dir), company)
+    name = row['company']
+    sub_id = sub_id or slug(name)
+    names = [name] + [n for n in also_names if n and n != name]
+
+    refs = _split(row.get('profile_refs'))
+    if len(refs) < MIN_REFS:
+        raise InviteError(f'{name!r} has {len(refs)} usable profile ref(s); '
+                          f'{MIN_REFS} are the minimum for a profile '
+                          f'(ONBOARDING.md 1.1)')
+    claimed = _known_names(data_dir)
+    for n in names:
+        if n in claimed:
+            raise InviteError(f'{n!r} already belongs to customer '
+                              f'{claimed[n]!r} — no second invitation')
+    if _versions_of(data_dir, sub_id):
+        raise InviteError(f'sub_id {sub_id!r} already has subscription '
+                          f'versions; pass --sub-id for a different key')
+    cust = subscriptions.customer_get(data_dir, sub_id)
+    if cust and cust.get('contact_state') == 'hard_stopped':
+        raise InviteError(f'{sub_id!r} is hard_stopped (objection on file) — '
+                          f'not invited, ever')
+
+    contact = ', '.join(x for x in (row.get('postal_zone'), row.get('city'))
+                        if x)
+    note = f'target list {row.get("last_win") or ""}: {contact}'.strip(': ')
+    subscriptions.customer_update(data_dir, sub_id, name=name,
+                                  award_names=names, contact_note=note)
+    subscriptions.append_version(data_dir, {
+        'sub_id': sub_id, 'version': 1, 'active': False,
+        'name': name, 'award_names': names,
+        'nuts_prefixes': _split(row.get('regions')) or None,
+        'profile_refs': refs,
+        **DRAFT_KNOBS})
+    value = tokens.mint(data_dir, 't', sub_id, now=now)
+    _event(data_dir, 'invited', sub_id,
+           detail=f'batch={batch or "-"} token={tokens.short(value)}')
+    return sub_id, f'{app_url(base_url)}/t/{value}'
+
+
+def reissue(data_dir, key, *, base_url=None, now=None):
+    """A fresh QR URL for a firm invited but not yet signed up. Every earlier
+    token is revoked first — the old letter, if it turns up, is dead."""
+    sub_id = _resolve(data_dir, key)
+    if not _versions_of(data_dir, sub_id):
+        raise InviteError(f'{key!r} was never invited — use add')
+    cust = subscriptions.customer_get(data_dir, sub_id) or {}
+    if cust.get('consent_at'):
+        raise InviteError(f'{sub_id!r} has already signed up '
+                          f'({cust["consent_at"][:10]}); nothing to reissue')
+    if cust.get('contact_state') == 'hard_stopped':
+        raise InviteError(f'{sub_id!r} is hard_stopped — no reissue')
+    n = tokens.revoke_all(data_dir, sub_id, now=now)
+    value = tokens.mint(data_dir, 't', sub_id, now=now)
+    _event(data_dir, 'reissued', sub_id,
+           detail=f'revoked={n} token={tokens.short(value)}')
+    return sub_id, f'{app_url(base_url)}/t/{value}'
+
+
+def objection(data_dir, key, *, note=None, now=None):
+    """Art. 21: honoured immediately, forever, no reasons asked. -> sub_id."""
+    sub_id = _resolve(data_dir, key)
+    fields = {'contact_state': 'hard_stopped'}
+    if not subscriptions.customer_get(data_dir, sub_id):
+        # never invited: create the row so a batch can never pick the firm up
+        fields.update(name=key, award_names=[key])
+    if note:
+        fields['contact_note'] = note
+    subscriptions.customer_update(data_dir, sub_id, **fields)
+    n = tokens.revoke_all(data_dir, sub_id, now=now)
+    _event(data_dir, 'objection', sub_id,
+           detail=f'revoked={n}' + (f' {note}' if note else ''))
+    return sub_id
+
+
+# ----------------------------------------------------------------- console
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
+    ap.add_argument('--data-dir', default=None)
+    ap.add_argument('--url', default=None,
+                    help=f'app base URL (default ${APP_URL_ENV} or '
+                         f'{DEFAULT_APP_URL})')
+    sub = ap.add_subparsers(dest='cmd', required=True)
+    a = sub.add_parser('add', help='invite one target-list firm')
+    a.add_argument('company')
+    a.add_argument('--sub-id')
+    a.add_argument('--also-name', action='append', default=[],
+                   help='another winner spelling that is this firm')
+    a.add_argument('--batch', help='batch label, e.g. 2026-08-24-452')
+    r = sub.add_parser('reissue', help='revoke and mint a new QR URL')
+    r.add_argument('key', help='sub_id or company')
+    o = sub.add_parser('objection', help='Art. 21: hard stop, forever')
+    o.add_argument('key', help='sub_id or company')
+    o.add_argument('--note')
+    args = ap.parse_args(argv)
+    data_dir = str(config.data_root(args.data_dir))
+    try:
+        if args.cmd == 'add':
+            sub_id, url = add(data_dir, args.company, sub_id=args.sub_id,
+                              also_names=args.also_name, batch=args.batch,
+                              base_url=args.url)
+            print(f'{sub_id}\n{url}')
+        elif args.cmd == 'reissue':
+            sub_id, url = reissue(data_dir, args.key, base_url=args.url)
+            print(f'{sub_id}\n{url}')
+        else:
+            sub_id = objection(data_dir, args.key, note=args.note)
+            print(f'{sub_id}: hard_stopped, tokens revoked')
+    except InviteError as e:
+        print(f'[invite] {e}', file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
