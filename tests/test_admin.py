@@ -104,7 +104,7 @@ class Status(Base):
 
         self.assertEqual(label(), 'nicht eingeladen')
         sub_id, url = invite.add(self.dir, DUNKEL, channel='xing')
-        self.assertTrue(label().startswith('eingeladen · xing · '))
+        self.assertTrue(label().startswith('Link erzeugt · xing · '))
         subscriptions.customer_update(self.dir, sub_id,
                                       contact_email='a@b.de',
                                       consent_at='2026-08-17T09:00:00+00:00')
@@ -127,7 +127,7 @@ class Status(Base):
     def test_counts_line(self):
         invite.add(self.dir, DUNKEL)
         c = admin.counts(admin.state_of(self.dir))
-        self.assertEqual(c['eingeladen'], 1)
+        self.assertEqual(c['Link erzeugt'], 1)
         self.assertEqual(c['angemeldet'], 0)
 
 
@@ -137,7 +137,7 @@ class Invite(Base):
                              {'company': DUNKEL, 'channel': 'linkedin'})
         self.assertIn('Einladungslink', body)
         self.assertIn('https://app.murara.eu/t/', body)
-        self.assertIn('eingeladen · linkedin', body)
+        self.assertIn('Link erzeugt · linkedin', body)
         # a second invitation is refused, visibly, and nothing is minted
         _, _, body = request(self.dir, '/admin/invite', 'POST',
                              {'company': DUNKEL, 'channel': 'linkedin'})
@@ -284,6 +284,48 @@ class Message(Base):
         _, _, body = request(self.dir, '/admin/message',
                              query=f'sub_id={self.sub_id}')
         self.assertIn('keinen offenen', body)
+
+
+
+
+class Sent(Base):
+    """Minting a link is not contacting anybody — doc/ADMIN.md 3."""
+
+    def setUp(self):
+        super().setUp()
+        self.sub_id, _ = invite.add(self.dir, DUNKEL, channel='xing')
+
+    def label(self):
+        return admin.status_of(admin.state_of(self.dir), DUNKEL)['label']
+
+    def test_the_two_words_and_the_counts(self):
+        self.assertTrue(self.label().startswith('Link erzeugt · xing · '))
+        c = admin.counts(admin.state_of(self.dir))
+        self.assertEqual((c['Link erzeugt'], c['angeschrieben']), (1, 0))
+
+        _, _, body = request(self.dir, '/admin/sent', 'POST',
+                             {'sub_id': self.sub_id})
+        self.assertTrue(self.label().startswith('angeschrieben · xing · '))
+        self.assertIn('angeschrieben', body)
+        c = admin.counts(admin.state_of(self.dir))
+        self.assertEqual((c['Link erzeugt'], c['angeschrieben']), (1, 1))
+
+    def test_the_button_is_offered_once_and_the_event_is_ledgered(self):
+        import ledger
+        _, _, body = request(self.dir, '/admin', query='q=dunkel')
+        self.assertIn('verschickt', body)
+        request(self.dir, '/admin/sent', 'POST', {'sub_id': self.sub_id})
+        _, _, body = request(self.dir, '/admin', query='q=dunkel')
+        self.assertNotIn('verschickt', body)         # already marked
+        evs = [e for e in ledger.read(self.dir, 'app_events')
+               if e['kind'] == 'invite_sent']
+        self.assertEqual(len(evs), 1)
+        self.assertIn('channel=xing', evs[0]['detail'])
+
+    def test_an_unknown_firm_is_not_marked(self):
+        status, _, _ = request(self.dir, '/admin/sent', 'POST',
+                               {'sub_id': 'niemand'})
+        self.assertEqual(status, '404 Not Found')
 
 
 if __name__ == '__main__':

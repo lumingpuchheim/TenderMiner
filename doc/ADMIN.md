@@ -57,6 +57,7 @@ password once.
 | `/admin/invite` | — | `company`, `channel` → `invite.add`; re-renders the list with the URL box on that row (URL shown once) |
 | `/admin/reissue` | — | `sub_id` → `invite.reissue`; URL box |
 | `/admin/email` | form for `sub_id` (`?sub_id=`): e-mail, Einwilligung | writes `contact_email`, `consent_at`, `contact_note` += „Einwilligung: …"; runs the same pre-flight/activation as `POST /t/` (`app._preflight`, moved to a shared function); event `signup` / `signup_held` with `detail=admin: <consent text>`; confirmation mail |
+| `/admin/sent` | — | `sub_id` → `invite_sent` event with the channel copied from the invitation; the row becomes *angeschrieben* |
 | `/admin/message` | the two texts to paste (ONBOARDING.md 9.2a): connection note ≤300 chars, and the message with picks, own win and the live invitation link | — |
 | `/admin/stop` | confirmation page for `sub_id`, two buttons | `wahl` = berichte / alles → the same writes as `post_stop` (soft/hard, tokens revoked on hard); event `stop_soft` / `stop_hard` with `detail=admin` |
 
@@ -70,7 +71,8 @@ included in the access log like every path.
 | status | derived from |
 | --- | --- |
 | nicht eingeladen | no customer row |
-| eingeladen · `<channel>` · `<date>` | customer row, no `consent_at`, a live `t` token; from the `invited` event |
+| Link erzeugt · `<channel>` · `<date>` | customer row, no `consent_at`; from the `invited` event — a link exists, **nobody has been written to** |
+| angeschrieben · `<channel>` · `<date>` | the operator pressed „verschickt" (`invite_sent` event). Minting is not contacting: without this word a silent firm that was never written to looks like one that ignored us |
 | angemeldet · Tag n von 28 / zurückgestellt | `consent_at` set; active version → `subscriptions.trial_status`; `signup_held` and no active version → zurückgestellt |
 | Kunde · bezahlt | `plan: paid` |
 | gefragt | `ask` event, still trial |

@@ -163,13 +163,19 @@ def status_of(state, company):
         return done('gestoppt (Berichte)', 'st-stop')
     if not cust.get('consent_at'):
         invites = [e for e in evs if e['kind'] in ('invited', 'reissued')]
-        if invites:
-            last = invites[-1]
+        sent = [e for e in evs if e['kind'] == 'invite_sent']
+        if sent or invites:
+            # Minting a link is not contacting anybody. Two words, because
+            # the difference decides whether a silent firm was never written
+            # to or wrote us off (operator, 2026-08-17).
+            last = (sent or invites)[-1]
             chan = next((p.split('=', 1)[1]
                          for p in (last.get('detail') or '').split()
                          if p.startswith('channel=')), '')
-            return done(f"eingeladen{' · ' + chan if chan else ''} · "
-                        f"{str(last['ts'])[:10]}", 'st-inv')
+            word = 'angeschrieben' if sent else 'Link erzeugt'
+            cls = 'st-sent' if sent else 'st-inv'
+            return done(f"{word}{' · ' + chan if chan else ''} · "
+                        f"{str(last['ts'])[:10]}", cls)
         # No consent and no invitation, but a live subscription: the pilot
         # customers, whose reports are written to disk and read by us. Saying
         # "angelegt" would hide that they are being served.
@@ -190,13 +196,15 @@ def status_of(state, company):
 
 def counts(state):
     """The read-off line (ONBOARDING.md 6): one number per funnel stage."""
-    out = {'eingeladen': 0, 'angemeldet': 0, 'zurückgestellt': 0,
-           'gefragt': 0, 'ja': 0, 'gestoppt': 0}
+    out = {'Link erzeugt': 0, 'angeschrieben': 0, 'angemeldet': 0,
+           'zurückgestellt': 0, 'gefragt': 0, 'ja': 0, 'gestoppt': 0}
     for sub_id, cust in state['customers'].items():
         evs = {e['kind'] for e in state['events'].get(sub_id, [])}
         versions = state['versions'].get(sub_id, [])
         if 'invited' in evs:
-            out['eingeladen'] += 1
+            out['Link erzeugt'] += 1
+        if 'invite_sent' in evs:
+            out['angeschrieben'] += 1
         if cust.get('consent_at'):
             out['angemeldet'] += 1
         if 'signup_held' in evs and not any(r.get('active') for r in versions):
@@ -220,6 +228,7 @@ STYLE = """
              border-radius: 10px; display: inline-block }
   .st-none { background: #eee; color: #555 }
   .st-inv  { background: #e6eff8; color: #24578c }
+  .st-sent { background: #dbe9fb; color: #1a3f6b; font-weight: 600 }
   .st-on   { background: #e3f3e8; color: #1d6b39 }
   .st-paid { background: #d8efe0; color: #14532d; font-weight: 600 }
   .st-ask  { background: #fdf0d5; color: #8a5a00 }
@@ -258,6 +267,12 @@ def _row_html(f, st, url_for):
         if not st['email']:
             acts.append(f'<a href="/admin/message?sub_id={esc(sub_id)}">'
                         '<button type="button">Nachricht</button></a>')
+            if not st['label'].startswith('angeschrieben'):
+                acts.append(
+                    '<form method="post" action="/admin/sent">'
+                    f'<input type="hidden" name="sub_id" value="{esc(sub_id)}">'
+                    '<button type="submit" class="secondary">verschickt'
+                    '</button></form>')
             acts.append('<form method="post" action="/admin/reissue">'
                         f'<input type="hidden" name="sub_id" value="{esc(sub_id)}">'
                         '<button type="submit" class="secondary">URL neu</button>'
@@ -300,8 +315,8 @@ def list_html(data_dir, q, state, *, url=None, url_firm=None, error=None,
     if url:
         parts.append(
             '<div class="urlbox"><p style="margin:0 0 .4em"><b>Einladungslink '
-            f'für {esc(url_firm or "")}</b> — jetzt kopieren, er wird nicht '
-            'wieder angezeigt:</p>'
+            f'für {esc(url_firm or "")}</b> — steht auch in der '
+            'fertigen Nachricht:</p>'
             f'<input type="text" readonly value="{esc(url)}" '
             'onclick="this.select()"></div>')
     if not rows:

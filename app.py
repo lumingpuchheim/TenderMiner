@@ -784,6 +784,28 @@ def post_admin_reissue(ctx, form):
         return admin_page(ctx, state_name, error=str(e))
 
 
+def post_admin_sent(ctx, form):
+    """„verschickt": the operator has actually written to this firm
+    (doc/ADMIN.md 3). Minting a link is not contact — this event is what the
+    funnel counts, and what tells a silent firm apart from an unwritten one.
+    The channel is copied from the invitation, so the count stays per
+    channel."""
+    home = ctx['data_dir']
+    sub_id = (form.get('sub_id') or '').strip()
+    cust, firm = _admin_firm(home, sub_id)
+    if not cust:
+        return not_found(ctx)
+    channel = ''
+    for e in ledger.read(home, 'app_events'):
+        if e['sub_id'] == sub_id and e['kind'] in ('invited', 'reissued'):
+            channel = next((p.split('=', 1)[1]
+                            for p in (e.get('detail') or '').split()
+                            if p.startswith('channel=')), channel)
+    _event(home, 'invite_sent', sub_id,
+           detail=f'channel={channel or "-"} (operator)')
+    return admin_page(ctx, firm)
+
+
 def get_admin_message(ctx, environ):
     """The text to paste into LinkedIn (doc/ONBOARDING.md 9.2a): live picks
     for this firm, its own win, the link. Two versions — the 300-character
@@ -921,6 +943,7 @@ ADMIN_ROUTES = {
     'reissue': (None, post_admin_reissue),
     'email': (get_admin_email, post_admin_email),
     'message': (get_admin_message, None),
+    'sent': (None, post_admin_sent),
     'stop': (get_admin_stop, post_admin_stop),
 }
 
