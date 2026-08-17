@@ -53,6 +53,24 @@ worktree branch, and `master` only ever receives work that is finished —
 spec, implementation and passing checks all done, never a half-landed
 change pushed "so it is saved".
 
+## Docker images built for testing are removed when the test is over
+
+Every `docker build` done to try something — a receipt, a memory
+measurement, a throwaway tag on the laptop or the server — ends with
+`docker rmi` of that tag in the same session, and the receipt says so.
+Images are 1.65 GB each; a machine that keeps every trial image fills its
+disk with copies of the same code and nobody can tell which one is real.
+
+The only images that stay are the ones `docker/deploy.sh` manages: the
+deployed tag, the previous one for rollback, and its `KEEP` most recent
+(pruned by the script itself). Anything else on `docker images` is a
+leftover and is deleted. Verify with `bash docker/deploy.sh status` — the
+`images:` list should be short and every tag in it should be a git SHA that
+`deploy.sh` put there.
+
+Same for containers: `docker compose run --rm`, never a `run` that leaves a
+stopped container behind.
+
 ## Subscriptions: go through `subscriptions.py`, always
 
 Several agents work on this repo at once, and subscription storage is moving
