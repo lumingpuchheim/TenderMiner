@@ -48,6 +48,10 @@ services:
       TM_MAIL_FROM: ${TM_MAIL_FROM:-}
       # Where the token links in every mail point (doc/APP.md 2).
       TM_APP_URL: ${TM_APP_URL:-https://app.murara.eu}
+      # The yes-page (doc/ONBOARDING.md 9.5): price line and payment link,
+      # both empty until decided.
+      TM_PRICE_LINE: ${TM_PRICE_LINE:-}
+      TM_STRIPE_URL: ${TM_STRIPE_URL:-}
     volumes:
       # THE state directory. Defaults to ./data — today's behaviour, so a
       # container started in the checkout finds exactly what the laptop

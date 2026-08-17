@@ -12,6 +12,7 @@ Four purposes, and a handler accepts exactly its own:
     f  feedback    one lot x one verdict x one customer
     s  stop        standing, per customer
     c  recall      standing, per customer
+    y  subscribe   standing, per customer — the yes-link that never expires
 
 **Purpose-binding is the security property**, not a tidiness rule. Without it a
 feedback link — which is printed in every report and travels through mail
@@ -33,7 +34,8 @@ from datetime import datetime, timezone
 
 import db
 
-PURPOSES = {'t': 'signup', 'f': 'feedback', 's': 'stop', 'c': 'recall'}
+PURPOSES = {'t': 'signup', 'f': 'feedback', 's': 'stop', 'c': 'recall',
+            'y': 'subscribe'}
 
 # Bytes of entropy per token. 24 bytes -> 192 bits -> 32 characters.
 ENTROPY_BYTES = 24
@@ -95,8 +97,8 @@ def standing(data_dir, purpose, sub_id, now=None):
     after. These two are standing links (doc/APP.md 3) — they appear in the
     footer of every report, so a fresh one per report would leave a trail of
     equally valid stop links that can never be revoked as a set."""
-    if purpose not in ('s', 'c'):
-        raise TokenError(f'only s and c tokens are standing, not {purpose!r}')
+    if purpose not in ('s', 'c', 'y'):
+        raise TokenError(f'only s, c and y tokens are standing, not {purpose!r}')
     con = db.connect(data_dir)
     row = con.execute(
         'SELECT token FROM token WHERE sub_id = ? AND purpose = ?'

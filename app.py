@@ -619,6 +619,92 @@ def post_recall(ctx, row, form):
          Ihren Wochenbericht.</p>""")
 
 
+# ------------------------------------------------------- the yes-link (/y/)
+
+PRICE_ENV = 'TM_PRICE_LINE'      # e.g. "179 € im Monat, monatlich kündbar";
+                                 # unset until the price is decided (LAUNCH.md 6)
+STRIPE_ENV = 'TM_STRIPE_URL'     # the payment link; unset = "wir melden uns"
+
+
+def _paid(home, sub_id, today):
+    sub = subscriptions.one(home, today, sub_id)
+    return bool(sub) and sub.get('plan') == 'paid'
+
+
+def get_subscribe(ctx, row):
+    home = ctx['data_dir']
+    cust = subscriptions.customer_get(home, row['sub_id']) or {}
+    firm = cust.get('name') or row['sub_id']
+    if _paid(home, row['sub_id'], _now()[:10]):
+        return page('Sie sind dabei', f"""
+          <h1>Sie sind dabei</h1>
+          <p>Für <strong>{esc(firm)}</strong> laufen die Berichte weiter.
+             Fragen: <a href="mailto:{esc(CONTACT)}">{esc(CONTACT)}</a>.</p>""")
+    price = os.environ.get(PRICE_ENV, '').strip()
+    price_line = (f'<p>Preis: <strong>{esc(price)}</strong>.</p>' if price else
+                  '<p>Den Preis nennen wir Ihnen persönlich, bevor etwas '
+                  'berechnet wird — mit dem Klick entsteht noch keine '
+                  'Zahlungspflicht.</p>')
+    return page('Weiter mit Murara', f"""
+      <h1>Weiter mit Murara</h1>
+      <p>Für <strong>{esc(firm)}</strong>: die Berichte laufen weiter — sobald
+         es passende Ausschreibungen gibt, geprüft jede Woche. Monatlich
+         beendbar, jederzeit, mit einem Klick in jeder E-Mail.</p>
+      {price_line}
+      <form method="post">
+        <p><button type="submit">Ja, weiter mit Murara</button></p>
+      </form>""")
+
+
+def post_subscribe(ctx, row, form):
+    """The yes (LAUNCH.md 3, ONBOARDING.md 9.5): one event, one new version
+    with `plan: paid`, then the payment link if there is one — or the
+    promise that a person follows up. Idempotent: a second yes changes
+    nothing and says so."""
+    home = ctx['data_dir']
+    today = _now()[:10]
+    if _paid(home, row['sub_id'], today):
+        return get_subscribe(ctx, row)
+    rows = [r for r in subscriptions.read_all(home)
+            if r.get('sub_id') == row['sub_id']]
+    speaking = subscriptions.resolve(rows, today)
+    base = speaking[0] if speaking else (max(rows, key=lambda r: int(r.get('version') or 1)) if rows else None)
+    if base is None:
+        return get_invalid(ctx)
+    subscriptions.append_version(home, {
+        **{k: base[k] for k in base
+           if k in subscriptions.KNOWN and base[k] is not None},
+        'version': max(int(r.get('version') or 1) for r in rows) + 1,
+        'effective_from': today, 'active': True, 'plan': 'paid'})
+    tokens.mark_used(home, row['token'])
+    _event(home, 'subscribe_yes', row['sub_id'])
+    stripe = os.environ.get(STRIPE_ENV, '').strip()
+    if not stripe:
+        try:
+            import mailer
+            cust = subscriptions.customer_get(home, row['sub_id']) or {}
+            mailer.send(home, 'operator', 'operator',
+                        f"[Murara] Ja von {cust.get('name') or row['sub_id']}",
+                        f"<p>{esc(row['sub_id'])} hat auf 'weiter' geklickt "
+                        f"({esc(cust.get('contact_email') or '—')}). "
+                        f"Kein Stripe-Link gesetzt — bitte melden.</p>",
+                        to=CONTACT)
+        except Exception as e:                                 # noqa: BLE001
+            print(f'[app] operator mail not sent ({e}); the yes is recorded')
+        return page('Danke', """
+          <h1>Danke — Sie sind dabei</h1>
+          <p>Die Berichte laufen weiter. Wir melden uns bei Ihnen wegen der
+             Rechnung; bis dahin ändert sich nichts.</p>""")
+    return page('Danke', f"""
+      <h1>Danke — Sie sind dabei</h1>
+      <p>Die Berichte laufen weiter. Der letzte Schritt ist die Zahlung:</p>
+      <p><a href="{esc(stripe)}"
+            style="display:inline-block;padding:6px 14px;border:1px solid #2a6;
+                   border-radius:4px">Zur Zahlung</a></p>
+      <p class="muted">Die Zahlungsseite betreibt unser Zahlungsdienstleister;
+         sie ist von dieser Seite getrennt.</p>""")
+
+
 def get_invalid(ctx):
     """One page for every token that does not work, whatever the reason
     (doc/APP.md 2). 200, not 404: a status code is an oracle too."""
@@ -659,6 +745,7 @@ TOKEN_ROUTES = {
     'f': ('f', get_feedback, post_feedback),
     's': ('s', get_stop, post_stop),
     'c': ('c', get_recall, post_recall),
+    'y': ('y', get_subscribe, post_subscribe),
 }
 
 

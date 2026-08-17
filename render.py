@@ -233,9 +233,29 @@ def feedback_cell(r, feedback_link):
             f'color:#c44">✘ Nein, nicht unser Geschäft</a></td>')
 
 
+def ask_html(y_url):
+    """The ask (LAUNCH.md 3): once, on top of the last trial report — on
+    what the customer already knows, were the picks relevant. One paragraph,
+    one link; the link is standing and never expires."""
+    return ('<div style="margin:0 0 1.5em;padding:12px 14px;background:#fff8e6;'
+            'border-left:3px solid #d9a400">'
+            '<p style="margin:0 0 .5em"><b>Vier Wochen Murara liegen hinter '
+            'Ihnen.</b> Waren die Empfehlungen Ihr Geschäft? Wenn Sie die '
+            'Berichte weiter erhalten möchten:</p>'
+            f'<p style="margin:0 0 .5em"><a href="{escape(y_url)}" '
+            'style="display:inline-block;padding:6px 14px;border:1px solid '
+            '#2a6;border-radius:4px;color:#2a6;text-decoration:none">'
+            'Ja, weiter mit Murara</a></p>'
+            '<p style="margin:0;font-size:90%;color:#555">Sonst kommt ab '
+            'jetzt kein Bericht mehr — nur gelegentlich eine Nachricht, wie '
+            'unsere Empfehlungen für Sie ausgegangen sind. Jede trägt diesen '
+            'Link wieder; Sie können auch später jederzeit einsteigen.</p>'
+            '</div>')
+
+
 def customer_report(sub, sel, *, today, profile, receipts,
                     tier_high, tier_medium, ts, already,
-                    feedback_link=None, footer_html=''):
+                    feedback_link=None, footer_html='', ask=''):
     """The weekly report and this cycle's delivery rows.
 
     Returns `(html_or_None, deliveries)`. `None` means nothing to report —
@@ -244,8 +264,9 @@ def customer_report(sub, sel, *, today, profile, receipts,
     as the operator's lookup.
 
     `feedback_link(procedure_id, lot_id, verdict) -> URL` mints the per-lot
-    `f` links (doc/APP.md 3); `footer_html` is `mailer.footer`'s block. Both
-    are supplied by the cycle, so the renderer stays free of tokens and
+    `f` links (doc/APP.md 3); `footer_html` is `mailer.footer`'s block;
+    `ask` is `ask_html(...)` on the one report that carries the ask. All
+    supplied by the cycle, so the renderer stays free of tokens and
     storage — the file on disk and the mail are the same HTML.
 
     The delivery rows are built in the same pass as the pick table on purpose:
@@ -264,7 +285,10 @@ def customer_report(sub, sel, *, today, profile, receipts,
     # — is there a recommendation this week, and how did the previous
     # recommendations end. No product prose, no market statistics, no warnings
     # list, no annex mention.
-    body = [f'<h1>{escape(name)} — Murara-Bericht — {date_de(today.isoformat())}</h1>',
+    body = [f'<h1>{escape(name)} — Murara-Bericht — {date_de(today.isoformat())}</h1>']
+    if ask:
+        body.append(ask)
+    body += [
             f'<p class="muted">Ihr Markt: {escape(market_line(sub, profile))}.</p>',
             '<h2>Empfehlungen dieser Woche</h2>']
     if not top:

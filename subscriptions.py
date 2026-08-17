@@ -59,7 +59,11 @@ KNOWN = {
     'min_relevance',      # gate: text-channel bar (enables the gate)
     'min_code_hard',      # gate: trusted-code bar
     'min_code_soft',      # gate: inferred-label bar
+    'plan',               # 'trial' (absent = trial) | 'paid' — LAUNCH.md 3, ONBOARDING.md 9.5
 }
+
+PLANS = ('trial', 'paid')
+TRIAL_DAYS = 28           # LAUNCH.md: four free weeks
 
 # Fields that were once real. Kept readable, never authoritative.
 RETIRED = {
@@ -177,7 +181,42 @@ def validate(row, source='<row>', lineno=None, retired_out=None):
         raise SubscriptionError(
             f'{_where(source, lineno)}: active must be true or false, '
             f'got {active!r}')
+    plan = out.get('plan')
+    if not _is_missing(plan) and plan not in PLANS:
+        raise SubscriptionError(
+            f'{_where(source, lineno)}: plan must be one of {PLANS}, '
+            f'got {plan!r}')
     return out
+
+
+def trial_status(rows, as_of):
+    """Where one customer stands in the trial -> dict, from ITS versions
+    (every version of one sub_id, any order) on `as_of` (ISO date).
+
+      plan     'paid' | 'trial'
+      started  ISO date of the first active version, or None (never active)
+      ends     started + TRIAL_DAYS, or None
+      day      1-based day of the trial on as_of, or None
+      ask_due  True once as_of >= ends and plan is still trial
+
+    No new date field (ONBOARDING.md 9.5): the trial starts when the first
+    `active: true` version starts speaking; a customer who says yes gets a
+    version with `plan: paid` and the clock stops mattering."""
+    from datetime import date, timedelta
+    as_of = str(as_of)[:10]
+    speaking = resolve(rows, as_of)
+    plan = (speaking[0].get('plan') or 'trial') if speaking else 'trial'
+    starts = sorted(str(r.get('effective_from') or '')[:10]
+                    for r in rows if r.get('active', True))
+    started = next((s for s in starts if s), None)
+    if not started:
+        return {'plan': plan, 'started': None, 'ends': None, 'day': None,
+                'ask_due': False}
+    d0 = date.fromisoformat(started)
+    ends = d0 + timedelta(days=TRIAL_DAYS)
+    day = (date.fromisoformat(as_of) - d0).days + 1
+    return {'plan': plan, 'started': started, 'ends': ends.isoformat(),
+            'day': day, 'ask_due': plan == 'trial' and as_of >= ends.isoformat()}
 
 
 def _iso_date(s):

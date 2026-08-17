@@ -498,6 +498,23 @@ annex stays the operator's).
   existing soft button plus a `plan: trial`-less deactivating version, by
   hand, under 50 customers.
 
+**Built 2026-08-17 (9.5)** — `plan` in `subscriptions.KNOWN` (`trial` |
+`paid`; absent = trial), `subscriptions.trial_status(rows, as_of)` (started =
+first active version's `effective_from`, 28 days, `ask_due`), token purpose
+`y` (standing), `render.ask_html`, `delivering.trial_state / ask_for` (the ask
+rides on top of the first report on or after day 28 that has content, event
+`ask` only when the mail actually went; after it, `trial` customers get the
+file only), `app.py /y/<token>` (GET: firm, „monatlich beendbar", price from
+`TM_PRICE_LINE` or „keine Zahlungspflicht"; POST: `subscribe_yes`, new version
+`plan: paid`, then the `TM_STRIPE_URL` button or „wir melden uns" + an
+operator mail to `info@murara.eu`; idempotent). Receipt on a copy of the live
+state (`TRIAL_DAYS` forced to 7 in-process so `beck` was due): report mailed
+with the ask block and a `/y/` link, `ask` event written; the next run:
+„trial ended, ask sent … file only", nothing mailed. The pre-existing demo
+customers are all `trial` by this definition and past day 28 — harmless
+today (no address, nothing mailed); give them `plan: paid` versions if they
+should ever receive mail.
+
 ### 9.6 Results notes [BUILD, blocked by data]
 
 Sent by the cycle when ≥3 of a customer's own trial picks have graded

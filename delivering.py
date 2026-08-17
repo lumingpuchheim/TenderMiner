@@ -117,6 +117,29 @@ def mail_links(home, sub_id):
     return link, footer_html, headers
 
 
+def trial_state(home, sub_id, today, all_versions):
+    """(status, ask_sent) for one customer: `subscriptions.trial_status` over
+    ITS versions, plus whether the ask already went out (an `ask` event in
+    the ledger — sent once, LAUNCH.md 3)."""
+    rows = [r for r in all_versions if r.get('sub_id') == sub_id]
+    status = subscriptions.trial_status(rows, today)
+    try:
+        asked = any(e['kind'] == 'ask' and e['sub_id'] == sub_id
+                    for e in ledger.read(home, 'app_events'))
+    except Exception:                                          # noqa: BLE001
+        asked = False
+    return status, asked
+
+
+def ask_for(home, sub_id):
+    """The ask block for the last trial report: `render.ask_html` around
+    the customer's standing `y` link."""
+    import mailer
+    import tokens
+    return render.ask_html(
+        f'{mailer.app_url()}/y/{tokens.standing(home, "y", sub_id)}')
+
+
 def send_report(home, sub, today, page, headers, transport=None):
     """The report goes out (doc/ONBOARDING.md 9.3). Through the guarded
     mailer, kind `report` (active customers only — the mailer refuses the
@@ -149,6 +172,7 @@ def deliver(paths, scored, args):
     if not subs:
         print('[deliver] no active subscriptions — skipped')
         return 0
+    all_versions = subscriptions.read_all(paths.subs_home)   # for the trial clock
     # latest revision per lot: a customer sees each lot once, as last published
     latest = {}
     for row in scored:
@@ -222,14 +246,30 @@ def deliver(paths, scored, args):
         # `args.mail` False = the report is written for the file only: what
         # preview_report.py wants (a tryout must not mint tokens or mail
         # anyone), and what a dry run wants. The cycle leaves it True.
+        mailing = getattr(args, 'mail', True)
         feedback_link, footer_html, headers = (
             mail_links(paths.data, sub['sub_id'])
-            if getattr(args, 'mail', True) else (None, '', None))
+            if mailing else (None, '', None))
+        # The trial clock (ONBOARDING.md 9.5): four free weeks, then the ask
+        # ONCE on top of that report; after it, no report goes out to a
+        # customer still on `trial` — the file is still written for the
+        # operator. `plan: paid` switches the clock off.
+        ask = ''
+        if mailing and feedback_link is not None:
+            status, asked = trial_state(paths.data, sub['sub_id'], today,
+                                        all_versions)
+            if status['plan'] == 'trial' and asked:
+                print(f"[deliver] {sub['sub_id']}: trial ended, ask sent "
+                      f"{'' if not status['ends'] else 'on ' + status['ends']}"
+                      f' — file only until they say yes')
+                feedback_link, footer_html, headers = None, '', None
+            elif status['ask_due']:
+                ask = ask_for(paths.data, sub['sub_id'])
         page, deliveries = render.customer_report(
             sub, sel, today=today, profile=profile, receipts=receipts,
             tier_high=args.tier_high, tier_medium=args.tier_medium,
             ts=ts, already=already, feedback_link=feedback_link,
-            footer_html=footer_html)
+            footer_html=footer_html, ask=ask)
         annex_name, annex = render.market_annex(
             sub, sel, today=today, profile=profile, top_slice=args.top_slice)
         out = paths.reports / 'subscriptions' / sub['sub_id'] / f'report_{today.isoformat()}.html'
@@ -240,7 +280,11 @@ def deliver(paths, scored, args):
             if feedback_link is not None:
                 # an address on record: the same HTML goes out by mail
                 # (ONBOARDING.md 9.3); no address -> file only, no attempt
-                send_report(paths.data, sub, today, page, headers)
+                mid = send_report(paths.data, sub, today, page, headers)
+                if ask and mid:
+                    ledger.append(paths.data, 'app_events', [{
+                        'ts': ts, 'kind': 'ask', 'sub_id': sub['sub_id'],
+                        'detail': f'trial ended; ask in report {today}'}])
         else:
             # nothing to recommend and nothing graded to look back on -> no
             # report this cycle (decision 2026-08-06); the annex above is
