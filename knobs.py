@@ -458,13 +458,40 @@ def verdict(q, results, today, flat_streak=0):
             best, best_lo = value, lo
 
     bar_note = f'; barred: {", ".join(barred)}' if barred else ''
+    # The current value itself over the hard bar (found on the server's first
+    # night, PARAMETERS.md 11.5: CONVICTION_NOMINATES on leaks 2.5%): the
+    # operator's standing rule is that leakage above the bar is a refusal
+    # whatever recall it buys, so the proposal is the in-bar neighbour, and
+    # the line says the current value is out of bounds. Still a proposal —
+    # the forward channel confirms it on live lots before anything moves.
+    if cur.get('leakage') is not None and cur['leakage'] > HARD_BAR:
+        in_bar = [v for v in q.neighbours() if v in by_value
+                  and by_value[v].get('leakage') is not None
+                  and by_value[v]['leakage'] <= HARD_BAR]
+        head = (f'{q.current} itself leaks {cur["leakage"] * 100:.1f}% > '
+                f'{HARD_BAR * 100:.1f}% (bar)')
+        if in_bar:
+            pick = max(in_bar, key=lambda v: by_value[v]['metric'])
+            direction = 'up' if q.grid.index(pick) > q.grid.index(q.current) else 'down'
+            return (f'move {direction}',
+                    f'{q.current} -> {pick}: {head}; {pick} is within it '
+                    f'(leakage {by_value[pick]["leakage"] * 100:.1f}%, {q.metric} '
+                    f'{by_value[pick]["metric"]:.3f} vs {cur["metric"]:.3f}){bar_note}')
+        bar_note = f'; {head}, and no neighbour is within it' + bar_note
     if best is not None:
         direction = 'up' if q.grid.index(best) > q.grid.index(q.current) else 'down'
         return (f'move {direction}',
                 f'{q.current} -> {best}: {q.metric} {by_value[best]["metric"]:.3f} '
                 f'(lower bound {best_lo:.3f}) clears {q.current}\'s {cur_hi:.3f}{bar_note}')
-    detail = (f'no neighbour of {q.current} is clearly better on {q.metric} '
-              f'({cur["n"]} cases){bar_note}')
+    cur_lo, _ = grading.wilson(round(cur['metric'] * cur['n']), cur['n'])
+    measured = [by_value[v] for v in q.neighbours() if v in by_value]
+    if measured and all(grading.wilson(round(r['metric'] * r['n']), r['n'])[1] < cur_lo
+                        for r in measured):
+        detail = (f'{q.current} is clearly better than every measured neighbour on '
+                  f'{q.metric} ({cur["n"]} cases){bar_note}')
+    else:
+        detail = (f'no neighbour of {q.current} is clearly better on {q.metric} '
+                  f'({cur["n"]} cases){bar_note}')
     if flat_streak + 1 >= FLAT_TO_CLOSE:
         return 'flat', detail + f' — {FLAT_TO_CLOSE} cycles running, close the question (§8.4)'
     return 'flat', detail

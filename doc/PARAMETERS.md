@@ -674,6 +674,26 @@ which was measured before 8k. It is DEAD while that switch is on; the row in
 next such knob costs one run, not two cycles. The queue moved on to
 `DEFAULT_MIN_CODE_HARD` by itself.
 
+**The server's first night, 2026-08-16/17** — the first question the queue
+answered on the real store, `CONVICTION_NOMINATES`, 20,332 leave-one-out
+positives:
+
+| value | recall | leakage |
+| --- | --- | --- |
+| on (current) | 0.676 | **2.5 %** |
+| off | 0.574 | 1.6 % |
+
+The first pass closed it "current stands" — the neighbour loses on recall
+and survives the rejector. That misses the point of the bar: **the current
+value is itself above 2.2 % on the server's negatives** (2.20 % on the
+laptop's, a different store), and `off` is the only value inside it. The
+verdict ladder now handles this case: a current value over the bar
+proposes the in-bar neighbour, `move down: True -> False: True itself
+leaks 2.5% > 2.2% (bar); False is within it (leakage 1.6%, recall 0.574 vs
+0.676)` — a standing proposal like any other, judged on live lots by the
+forward channel (§12) before anything moves. The question was reopened on
+the server so it is judged under the rule.
+
 Two smaller findings from the same run, both fixed and tested: on Windows
 `subprocess.run(text=True)` decoded the judge's German titles as cp1252 and
 the reader thread died at eleven kilobytes (`encoding='utf-8'` now); and the

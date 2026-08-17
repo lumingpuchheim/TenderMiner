@@ -86,6 +86,29 @@ class Verdicts(unittest.TestCase):
         v, _ = knobs.verdict(Q, rows, '2026-08-16')
         self.assertEqual(v, 'move down')
 
+    def test_the_current_value_over_the_bar_proposes_the_in_bar_neighbour(self):
+        """The server's first night (PARAMETERS.md 11.5): the current value
+        leaks 2.5%, its neighbour 1.6% at lower recall. Leakage above the bar
+        is a refusal whatever recall it buys, so the in-bar neighbour is the
+        proposal even though it loses on the metric."""
+        rows = [{'value': 0.50, 'metric': 0.57, 'n': 20000, 'leakage': 0.016},
+                {'value': 0.55, 'metric': 0.68, 'n': 20000, 'leakage': 0.025}]
+        v, detail = knobs.verdict(Q, rows, '2026-08-16')
+        self.assertEqual(v, 'move down')
+        self.assertIn('0.55 itself leaks 2.5%', detail)
+        self.assertIn('0.5 is within it', detail)
+        # no in-bar neighbour: the line still says the current value is out of bounds
+        rows[0]['leakage'] = 0.03
+        v, detail = knobs.verdict(Q, rows, '2026-08-16')
+        self.assertEqual(v, 'flat')
+        self.assertIn('no neighbour is within it', detail)
+
+    def test_a_current_value_clearly_better_than_its_neighbours_says_so(self):
+        rows = sweep(v0_50=(0.40, 400), v0_55=(0.60, 400), v0_60=(0.40, 400))
+        v, detail = knobs.verdict(Q, rows, '2026-08-16')
+        self.assertEqual(v, 'flat')
+        self.assertIn('clearly better than every measured neighbour', detail)
+
     def test_overlapping_intervals_are_flat_not_a_move(self):
         """The whole point of quoting an interval: 0.52 vs 0.50 on 400 cases
         is not a finding, and a protocol that moved on it would wander."""
