@@ -161,7 +161,13 @@ services:
       TM_WWW_DOMAIN: ${TM_WWW_DOMAIN:-}
       # basic auth for /admin (doc/ADMIN.md 5)
       TM_ADMIN_USER: ${TM_ADMIN_USER:-murara}
-      TM_ADMIN_HASH: ${TM_ADMIN_HASH:-}
+      # NOT `${TM_ADMIN_HASH:-}`: an EMPTY hash is a Caddyfile parse error
+      # ("username and password cannot be empty"), and a config that does not
+      # parse takes the whole edge down — the app and the public site with it
+      # (found the hard way, 2026-08-17). A non-empty placeholder keeps the
+      # config valid and lets no password through, which is the safe
+      # direction: /admin answers 401 until a real hash is set.
+      TM_ADMIN_HASH: ${TM_ADMIN_HASH:-kein-passwort-gesetzt}
     volumes:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data          # certificates survive the container

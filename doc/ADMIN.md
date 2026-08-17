@@ -109,6 +109,26 @@ port is loopback-bound, HOSTING.md). Without the header: the neutral
 page is reachable with `TM_ADMIN_OPEN=1` for development, never set on the
 server.
 
+### 5a. What the edge taught us — 2026-08-17
+
+Two traps, both found by taking the site down for four minutes and both now
+closed in the files rather than in someone's memory:
+
+1. **An empty `TM_ADMIN_HASH` is a Caddyfile parse error**, and a config that
+   does not parse takes the *whole edge* with it — app and public site
+   included, not just `/admin`. Compose therefore passes a non-empty
+   placeholder (`kein-passwort-gesetzt`) when the variable is unset: the
+   config stays valid, no password matches, `/admin` answers 401.
+2. **Compose expands `$` inside `.env` values.** A bcrypt hash pasted raw
+   (`$2a$14$…`) arrives at Caddy mangled and no password ever works, with a
+   `variable is not set` warning as the only clue. Every `$` must be doubled
+   in `.env`; `.env.example` carries the one-line recipe.
+
+Verified through the real edge afterwards: `/admin` 401 without credentials,
+200 with them, the search answering from the live store; a request carrying
+`X-Murara-Admin: 1` from outside still 401 — the header is set by the edge
+after auth and stripped everywhere else.
+
 ## 6. Out of scope
 
 Subscription and profile editing (operator); a review queue beyond the

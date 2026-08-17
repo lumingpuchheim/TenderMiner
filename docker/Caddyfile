@@ -25,6 +25,9 @@
 	@admin path /admin /admin/*
 	basic_auth @admin {
 		{$TM_ADMIN_USER:murara} {$TM_ADMIN_HASH:kein-passwort-gesetzt}
+		# ^ the placeholder is deliberate: no password can match a
+		#   non-bcrypt string, so an unset TM_ADMIN_HASH means 401
+		#   rather than an edge that will not start.
 	}
 	handle @admin {
 		reverse_proxy app:8000 {
