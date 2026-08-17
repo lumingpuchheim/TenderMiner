@@ -379,25 +379,8 @@ def post_signup(ctx, row, form):
           <p><a href="">Zurück zum Formular</a></p>""")
     # The consent record (LAUNCH.md 3): the submission IS the consent, its
     # text on the page above names what will come.
-    subscriptions.customer_update(home, row['sub_id'], contact_email=email,
-                                  consent_at=_now(), contact_state='active')
+    ok, _detail = activate(home, row['sub_id'], email)
     tokens.mark_used(home, row['token'])
-    ok, detail = _preflight(home, row['sub_id'])
-    _event(home, 'signup' if ok else 'signup_held', row['sub_id'],
-           detail=detail)
-    try:
-        import mailer
-        footer_html, headers = mailer.footer(home, row['sub_id'])
-        mailer.send(home, 'confirm', row['sub_id'],
-                    'Ihre Anmeldung bei Murara',
-                    f'<p>Ihre Anmeldung ist eingegangen. '
-                    f'{"Der erste Bericht kommt, sobald es passende "
-                       "Ausschreibungen gibt — wir prüfen wöchentlich."
-                       if ok else
-                       "Wir richten Ihr Profil ein und melden uns."}</p>'
-                    + footer_html, headers=headers)
-    except Exception as e:                                     # noqa: BLE001
-        print(f'[app] confirm mail not sent ({e}); signup itself is recorded')
     return page('Angemeldet', f"""
       <h1>Das war alles</h1>
       <p>{'Ihr erster Bericht kommt, sobald es passende Ausschreibungen '
@@ -407,6 +390,52 @@ def post_signup(ctx, row, form):
           'Bericht kommt.'}</p>
       <p class="muted">Bestätigung an {esc(_mask(email))}. Abbestellen geht
          in jeder E-Mail mit einem Klick.</p>""")
+
+
+def activate(home, sub_id, email, consent_note=None):
+    """Address + consent + pre-flight + confirmation mail, in one place —
+    doc/ADMIN.md 7 step 1. Both ways in use it: the customer typing the
+    address on `/t/<token>` (the submit IS the consent) and the operator
+    typing it on `/admin/email` (where `consent_note` says where the consent
+    came from — a phone call, a reply). -> (activated?, detail).
+
+    The mail is best-effort by design: a signup that is recorded but whose
+    confirmation could not go out is a customer we know about; a signup that
+    failed because the mail failed is a customer we lost."""
+    fields = {'contact_email': email, 'consent_at': _now(),
+              'contact_state': 'active'}
+    if consent_note:
+        fields['contact_note'] = f'Einwilligung: {consent_note}'
+    subscriptions.customer_update(home, sub_id, **fields)
+    ok, detail = _preflight(home, sub_id)
+    if consent_note:
+        detail = f'admin: {consent_note} — {detail}'
+    _event(home, 'signup' if ok else 'signup_held', sub_id, detail=detail)
+    try:
+        import mailer
+        footer_html, headers = mailer.footer(home, sub_id)
+        mailer.send(home, 'confirm', sub_id, 'Ihre Anmeldung bei Murara',
+                    f'<p>Ihre Anmeldung ist eingegangen. '
+                    f'{"Der erste Bericht kommt, sobald es passende "
+                       "Ausschreibungen gibt — wir prüfen wöchentlich."
+                       if ok else
+                       "Wir richten Ihr Profil ein und melden uns."}</p>'
+                    + footer_html, headers=headers)
+    except Exception as e:                                     # noqa: BLE001
+        print(f'[app] confirm mail not sent ({e}); signup itself is recorded')
+    return ok, detail
+
+
+def stop_customer(home, sub_id, hard, *, source='customer'):
+    """The two stop states (LAUNCH.md 3), from the customer's page or the
+    operator's. A hard stop revokes every live token as well: "stop sending"
+    and "the links in their inbox stop working" are the same promise."""
+    subscriptions.customer_update(
+        home, sub_id, contact_state='hard_stopped' if hard else 'soft_stopped')
+    _event(home, 'stop_hard' if hard else 'stop_soft', sub_id,
+           detail=source if source != 'customer' else None)
+    if hard:
+        tokens.revoke_all(home, sub_id)
 
 
 def _preflight(home, sub_id):
@@ -497,11 +526,8 @@ def post_stop(ctx, row, form):
     # (RFC 8058) to the List-Unsubscribe URL — no person chose between the two
     # buttons, so it is the ambiguous signal LAUNCH.md 3 maps to HARD.
     hard = form.get('wahl') == 'alles' or 'List-Unsubscribe' in form
-    subscriptions.customer_update(
-        home, row['sub_id'],
-        contact_state='hard_stopped' if hard else 'soft_stopped')
-    _event(home, 'stop_hard' if hard else 'stop_soft', row['sub_id'])
     tokens.mark_used(home, row['token'])
+    stop_customer(home, row['sub_id'], hard)
     if hard:
         return page('Abbestellt', """
           <h1>Abbestellt</h1>
@@ -705,6 +731,162 @@ def post_subscribe(ctx, row, form):
          sie ist von dieser Seite getrennt.</p>""")
 
 
+# ------------------------------------------------------------- the admin page
+
+ADMIN_OPEN_VAR = 'TM_ADMIN_OPEN'      # laptop only; never set on the server
+
+
+def _admin_allowed(environ):
+    """doc/ADMIN.md 5: the page is served only for a request the TLS edge
+    marked after basic auth. The app port is loopback-bound, so nothing but
+    the edge can set the header; a mis-configured edge therefore hides the
+    page rather than exposing it. TM_ADMIN_OPEN=1 opens it for development."""
+    if os.environ.get(ADMIN_OPEN_VAR, '').strip() == '1':
+        return True
+    return (environ or {}).get('HTTP_X_MURARA_ADMIN') == '1'
+
+
+def _query(environ, key, default=''):
+    return parse_qs((environ or {}).get('QUERY_STRING', '')).get(
+        key, [default])[0]
+
+
+def admin_page(ctx, q, **kw):
+    import admin
+    home = ctx['data_dir']
+    return page('Firmen', admin.list_html(home, q, admin.state_of(home), **kw))
+
+
+def get_admin(ctx, environ):
+    return admin_page(ctx, _query(environ, 'q'))
+
+
+def post_admin_invite(ctx, form):
+    import invite
+    q = (form.get('company') or '').strip()
+    try:
+        _sub, url = invite.add(ctx['data_dir'], q,
+                               channel=(form.get('channel') or 'linkedin'))
+        return admin_page(ctx, q, url=url, url_firm=q)
+    except invite.InviteError as e:
+        return admin_page(ctx, q, error=str(e))
+
+
+def post_admin_reissue(ctx, form):
+    import invite
+    sub_id = (form.get('sub_id') or '').strip()
+    state_name = (subscriptions.customer_get(ctx['data_dir'], sub_id)
+                  or {}).get('name') or sub_id
+    try:
+        _sub, url = invite.reissue(ctx['data_dir'], sub_id)
+        return admin_page(ctx, state_name, url=url, url_firm=state_name)
+    except invite.InviteError as e:
+        return admin_page(ctx, state_name, error=str(e))
+
+
+def _admin_firm(home, sub_id):
+    cust = subscriptions.customer_get(home, sub_id) or {}
+    return cust, (cust.get('name') or sub_id)
+
+
+def get_admin_email(ctx, environ):
+    """The form: one address, one sentence saying where the consent came
+    from. Both required — an address entered by us without a consent record
+    is exactly what the notice in every mail promises we do not have."""
+    home = ctx['data_dir']
+    sub_id = _query(environ, 'sub_id')
+    cust, firm = _admin_firm(home, sub_id)
+    if not cust:
+        return not_found(ctx)
+    current = (f'<p class="muted">Bisher: {esc(cust["contact_email"])}, '
+               f'Einwilligung {esc(str(cust.get("consent_at") or "")[:10])}</p>'
+               if cust.get('contact_email') else
+               '<p class="muted">Bisher keine Adresse hinterlegt.</p>')
+    return page('E-Mail eintragen', f"""
+      <h1>E-Mail eintragen</h1>
+      <p><strong>{esc(firm)}</strong></p>
+      {current}
+      <form method="post" action="/admin/email">
+        <input type="hidden" name="sub_id" value="{esc(sub_id)}">
+        <p><label>E-Mail-Adresse<br>
+           <input type="email" name="email" required
+                  value="{esc(cust.get('contact_email') or '')}"></label></p>
+        <p><label>Einwilligung — woher?<br>
+           <input type="text" name="consent" required
+                  placeholder="Telefonat 17.08., Herr Dunkel, möchte die Berichte">
+           </label></p>
+        <p><button type="submit">Eintragen und aktivieren</button>
+           <a href="/admin?q={esc(firm)}">abbrechen</a></p>
+      </form>
+      <p class="muted">Damit beginnt die Testphase: Vorprüfung gegen die
+         eigenen Aufträge der Firma, danach Bestätigungsmail und Berichte,
+         sobald es passende Ausschreibungen gibt.</p>""")
+
+
+def post_admin_email(ctx, form):
+    home = ctx['data_dir']
+    sub_id = (form.get('sub_id') or '').strip()
+    email = (form.get('email') or '').strip()
+    consent = (form.get('consent') or '').strip()
+    _cust, firm = _admin_firm(home, sub_id)
+    if not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', email):
+        return admin_page(ctx, firm, error=f'Keine gültige Adresse: {email!r}')
+    if not consent:
+        return admin_page(ctx, firm,
+                          error='Ohne Einwilligungsnachweis wird keine '
+                                'Adresse eingetragen.')
+    ok, detail = activate(home, sub_id, email, consent_note=consent)
+    return admin_page(ctx, firm, note=(
+        f'{firm}: {email} eingetragen — '
+        + ('aktiv, die Testphase läuft.' if ok else
+           f'zurückgestellt ({detail}). Kein Bericht, bis das Profil '
+           f'stimmt.')))
+
+
+def get_admin_stop(ctx, environ):
+    home = ctx['data_dir']
+    sub_id = _query(environ, 'sub_id')
+    cust, firm = _admin_firm(home, sub_id)
+    if not cust:
+        return not_found(ctx)
+    return page('Abmelden', f"""
+      <h1>Abmelden</h1>
+      <p><strong>{esc(firm)}</strong> — was hat die Firma gesagt?</p>
+      <form method="post" action="/admin/stop">
+        <input type="hidden" name="sub_id" value="{esc(sub_id)}">
+        <p><button name="wahl" value="berichte" type="submit">
+           Keine Berichte mehr</button></p>
+        <p><button name="wahl" value="alles" type="submit" class="secondary">
+           Keine E-Mails mehr — dauerhaft</button></p>
+        <p><a href="/admin?q={esc(firm)}">abbrechen</a></p>
+      </form>
+      <p class="muted">„Keine Berichte" lässt gelegentliche
+         Ergebnis-Nachrichten zu. „Keine E-Mails" ist der Widerspruch nach
+         Art. 21 DSGVO: dauerhaft, und alle offenen Links der Firma werden
+         ungültig.</p>""")
+
+
+def post_admin_stop(ctx, form):
+    home = ctx['data_dir']
+    sub_id = (form.get('sub_id') or '').strip()
+    _cust, firm = _admin_firm(home, sub_id)
+    hard = form.get('wahl') == 'alles'
+    stop_customer(home, sub_id, hard, source='admin')
+    return admin_page(ctx, firm, note=(
+        f'{firm}: ' + ('keine E-Mails mehr, dauerhaft; alle Links ungültig.'
+                       if hard else
+                       'keine Berichte mehr; Ergebnis-Nachrichten weiter '
+                       'möglich.')))
+
+
+ADMIN_ROUTES = {
+    'invite': (None, post_admin_invite),
+    'reissue': (None, post_admin_reissue),
+    'email': (get_admin_email, post_admin_email),
+    'stop': (get_admin_stop, post_admin_stop),
+}
+
+
 def get_invalid(ctx):
     """One page for every token that does not work, whatever the reason
     (doc/APP.md 2). 200, not 404: a status code is an oracle too."""
@@ -786,6 +968,24 @@ def route(ctx, method, path, environ=None):
         return STATIC[path](ctx)
 
     parts = [p for p in path.split('/') if p]
+    if parts and parts[0] == 'admin':
+        # doc/ADMIN.md: the operator's page. Unmarked requests get the same
+        # 404 as any unknown path — the page never announces itself.
+        if not _admin_allowed(environ):
+            return not_found(ctx)
+        if len(parts) == 1:
+            return (get_admin(ctx, environ) if method == 'GET'
+                    else not_yet(ctx))
+        pair = ADMIN_ROUTES.get(parts[1]) if len(parts) == 2 else None
+        if pair is None:
+            return not_found(ctx)
+        on_get, on_post = pair
+        if method == 'GET':
+            return on_get(ctx, environ) if on_get else not_yet(ctx)
+        if method == 'POST':
+            return on_post(ctx, _form(environ or {}))
+        return not_yet(ctx)
+
     key = _experiments_key()
     if len(parts) == 2 and parts[0] == 'experiments' and key and parts[1] == key:
         if method != 'GET':

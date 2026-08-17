@@ -35,6 +35,11 @@ AWARDS = [
 SIDECAR = {'p1': '00134047-2026', 'p2': '00022597-2026', 'p4': '00000001-2026',
            'p5': '00000002-2026', 'p6': '00000003-2026', 'p7': '00000005-2026',
            'p8': '00000006-2026'}
+# what the won lots were called — the admin page searches these words
+TITLES = {'p1': 'Dachsanierung Grundschule — Dacharbeiten',
+          'p2': 'Blitzschutzanlage Rathaus', 'p4': 'Elektroinstallation',
+          'p5': 'Straßenbau Ortsdurchfahrt', 'p7': 'Kanalbau'}
+
 XML = """<Notice><NoticeResult/><UBLExtensions><UBLExtension><ExtensionContent>
 <EformsExtension><Organizations><Organization><Company>
 <PartyName><Name>{name}</Name></PartyName>
@@ -56,7 +61,8 @@ def write_store(d):
         for c, p, l, pub, date, nuts, n, size in AWARDS]
     ).to_parquet(d / 'store' / 'awards.parquet')
     pd.DataFrame([{'procedure_id': p, 'lot_id': 'LOT-0001',
-                   'place_nuts3': 'DEA23' if p == 'p2' else None}
+                   'place_nuts3': 'DEA23' if p == 'p2' else None,
+                   'title': TITLES.get(p, 'Bauarbeiten')}
                   for p in SIDECAR]).to_parquet(d / 'store' / 'tenders.parquet')
     sd = embed.sidecar_dir(d)
     sd.mkdir(parents=True)

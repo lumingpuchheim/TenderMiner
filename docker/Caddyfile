@@ -14,10 +14,33 @@
 	# domain has served TLS for a while — preload is near-irreversible.
 	header Strict-Transport-Security "max-age=2592000"
 
+	# The operator's page (doc/ADMIN.md 5). Basic auth lives HERE, not in
+	# the app: the app has no login by design, and the one page that writes
+	# personal data on our say-so is gated by the edge that already
+	# terminates TLS. The app additionally refuses /admin unless this header
+	# is present — the app port is loopback-bound, so nothing else can set
+	# it, and an edge without this block hides the page instead of exposing
+	# it. TM_ADMIN_USER / TM_ADMIN_HASH come from .env; the hash is made
+	# with `docker run --rm caddy caddy hash-password --plaintext '…'`.
+	@admin path /admin /admin/*
+	basic_auth @admin {
+		{$TM_ADMIN_USER:murara} {$TM_ADMIN_HASH:kein-passwort-gesetzt}
+	}
+	handle @admin {
+		reverse_proxy app:8000 {
+			header_up X-Murara-Admin "1"
+		}
+	}
+
 	# The app sets its own security headers (noindex, CSP, referrer) —
 	# Caddy adds nothing content-shaped, so there is exactly one place
-	# where those decisions live: app.py.
-	reverse_proxy app:8000
+	# where those decisions live: app.py. The header a request might carry
+	# from outside is stripped: only the block above may set it.
+	handle {
+		reverse_proxy app:8000 {
+			header_up -X-Murara-Admin
+		}
+	}
 }
 
 # The public site (operator decision 2026-08-15: served from this box rather
