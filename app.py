@@ -346,9 +346,11 @@ def get_signup(ctx, row):
              ({esc(_mask(cust.get('contact_email')))}). Soll sie geändert
              werden, schreiben Sie uns:
              <a href="mailto:{esc(CONTACT)}">{esc(CONTACT)}</a>.</p>""")
+    cust = subscriptions.customer_get(ctx['data_dir'], row['sub_id']) or {}
+    firm = cust.get('name') or row['sub_id']
     return page('Anmeldung', f"""
       <h1>Ausschreibungen für Ihren Betrieb</h1>
-      <p>Für <strong>{esc(row['sub_id'])}</strong>: die Ausschreibungen Ihres
+      <p>Für <strong>{esc(firm)}</strong>: die Ausschreibungen Ihres
          Gewerks und Ihrer Region, bei denen wir wenig Wettbewerb erwarten —
          sobald es welche gibt. Wir prüfen wöchentlich; gibt es nichts
          Passendes, schreiben wir nicht. Kostenlos zum Kennenlernen,

@@ -133,6 +133,9 @@ class Add(Base):
         self.assertEqual(status, '200 OK')
         self.assertIn('Anmeldung', body)
         self.assertIn('name="email"', body)
+        # the firm's name, not the sub_id slug
+        self.assertIn(DUNKEL, body)
+        self.assertNotIn('jens-dunkel-glas-und-bauelemente-gmbh', body)
 
     def test_case_insensitive_match_and_also_name(self):
         sub_id, _ = invite.add(self.dir, DUNKEL.lower(),
