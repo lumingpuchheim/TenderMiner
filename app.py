@@ -549,10 +549,12 @@ def _lots_by_key(home):
 
 
 def get_recall(ctx, row):
-    return page('Ausschreibung prüfen', """
-      <h1>Ausschreibung prüfen</h1>
-      <p>Nummer oder Link einer Ausschreibung — wir sagen Ihnen, wie wir sie
-         für Sie einschätzen.</p>
+    return page('Haben wir eine Ausschreibung übersehen?', """
+      <h1>Haben wir eine Ausschreibung übersehen?</h1>
+      <p>Sie haben eine Ausschreibung gefunden, die nicht in Ihrem Bericht
+         stand? Tragen Sie hier ihre Nummer oder den Link ein — wir sagen
+         Ihnen, wie wir sie für Ihren Betrieb einschätzen, und warum sie
+         nicht in Ihrer Liste stand.</p>
       <form method="post">
         <p><input type="text" name="ref" required
                   placeholder="Nummer oder Link hier"></p>
