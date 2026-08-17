@@ -116,6 +116,29 @@ Subscription and profile editing (operator); a review queue beyond the
 customers — this page is the operator's, the tokened pages stay the
 customer's.
 
+## 6a. Built — 2026-08-17
+
+All of §1–§5 except the deploy-side receipt: [`admin.py`](../admin.py) (index,
+status vocabulary, HTML), the routes and the guard in [`app.py`](../app.py),
+`app.activate` / `app.stop_customer` shared by the token pages and the
+operator's, the `@admin` block in [`docker/Caddyfile`](../docker/Caddyfile),
+`TM_ADMIN_USER` / `TM_ADMIN_HASH` in `.env.example` and compose,
+`tests/test_admin.py` (14 tests: the guard, search, every status word, invite,
+reissue, e-mail with and without a consent note, both stops).
+
+Two things the building settled:
+
+- **`aktiv · ohne Adresse`** joined the vocabulary of §3. The pilot customers
+  have live subscriptions and no `consent_at`; „angelegt" would have hidden
+  that reports are being written for them every week.
+- **The index costs ~4 s on the first request** (22k procedures joined to
+  their titles), then nothing until the store's mtime moves. Acceptable for
+  a page one person opens; if it ever is not, the index belongs in the cycle.
+
+Receipt against a copy of the live store: `q=blitzschutz` → 39 firms,
+customers first; `q=Jebsen GmbH` → 1; no query → the 9 customers; the e-mail
+and stop forms render for a named firm.
+
 ## 7. Order of work
 
 1. `app._preflight` → shared `signup.activate(home, sub_id, email, consent)`
