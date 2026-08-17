@@ -397,6 +397,9 @@ def customer_get(home, sub_id):
         return None
     d = dict(row)
     d['contact_state'] = d.get('contact_state') or 'active'
+    if isinstance(d.get('award_names'), str):
+        import json
+        d['award_names'] = json.loads(d['award_names'])
     return d
 
 
@@ -420,6 +423,10 @@ def customer_update(home, sub_id, **fields):
             f'contact_state {state!r} is not one of {CONTACT_STATES}')
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc).isoformat(timespec='seconds')
+    if isinstance(fields.get('award_names'), (list, tuple)):
+        import json                    # the column is a JSON array (db.py)
+        fields['award_names'] = json.dumps(list(fields['award_names']),
+                                           ensure_ascii=False)
     con = db.connect(home)
     with con:
         con.execute(
