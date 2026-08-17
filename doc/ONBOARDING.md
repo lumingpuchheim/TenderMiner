@@ -1,6 +1,7 @@
 # ONBOARDING — from a name in the awards store to a paying subscription
 
-Design, written 2026-08-10. Companion to [`GO_TO_MARKET.md`](GO_TO_MARKET.md)
+Design, written 2026-08-10; §8–9 (status and the remaining build, specified) added
+2026-08-17. Companion to [`GO_TO_MARKET.md`](GO_TO_MARKET.md)
 (the play and the channel law), [`MARKET_AND_COMPETITORS.md`](MARKET_AND_COMPETITORS.md)
 (what may and may not be claimed), [`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md) (the
 customer-layer mechanics this design drives) and [`RELEVANCE.md`](RELEVANCE.md)
@@ -242,8 +243,8 @@ printed on the letter.
 
 ## 6. Instrumentation
 
-One append-only ledger, `data/outreach/outreach.jsonl` **[BUILD]**, one row per
-(firm, event): `company`, `batch`, `trade`, `channel`, `sent_at`, `replied_at`,
+One append-only ledger — **built 2026-08-11 as the `app_event` table**
+(`db.py`), not a JSONL file — one row per (firm, event): `company`, `batch`, `trade`, `channel`, `sent_at`, `replied_at`,
 `trial_started_at`, `paid_at`, `churned_at`, `note`. Batches stratified by trade
 means per-trade conversion is a `group by`, not a study.
 
@@ -281,3 +282,207 @@ And the components that do not exist yet: the `trade` column on the target list
 (§1.3), the letter mail-merge (§2.2), the public trade page (§4), the
 own-history lookup on the intake page (§5.1), the gate pre-flight check (§5.3),
 and the outreach ledger (§6).
+
+**Status of the table, 2026-08-17:** #3 decided (four weeks, `LAUNCH.md`);
+#7 decided (public site is one page without figures, `LAUNCH.md` §4.1); #8
+decided (the QR page shows, never asks, `LAUNCH.md`); #2 moved to "before the
+first trial ends" (`LAUNCH.md` §6). #1, #4, #5, #6, #9 open as written. The
+pre-flight check and the outreach ledger (`app_event`) exist — see §8.
+
+---
+
+## 8. Where it stands — 2026-08-17
+
+The middle of the funnel is built and live; the two ends are not.
+
+```
+target list → invitation → letter + QR → /t/<token> → signup → pre-flight → report e-mail → ask → paid
+   built        NOT          NOT           built        built      built       NOT (files)    NOT   NOT
+```
+
+**Built and running** (`app.murara.eu`, `/healthz` green; details in
+`APP.md` §10b–10c, `HOSTING.md`, `OPERATIONS.md`):
+
+- [`outreach.py`](../outreach.py) → `data/outreach/targets.csv`, 472 firms with
+  wins, refs, contacts, `sim_picks`; `market.py pitch <firm>` prints one firm's
+  letter numbers.
+- [`tokens.py`](../tokens.py): `t`/`f`/`s`/`c` tokens, purpose-bound,
+  revocable, rate-limited, never logged in full.
+- [`app.py`](../app.py): `GET /t/<token>` (the QR page), `POST /t/<token>`
+  (e-mail + `consent_at`, pre-flight against the firm's own wins, activating
+  version through `subscriptions.append_version`, confirmation mail), the
+  stop page (`contact_state`), feedback confirm, recall box, legal pages,
+  `app_event` ledger for every state change and send.
+- [`mailer.py`](../mailer.py): the guard around Resend; refuses hard-stopped
+  customers inside the module.
+- Deploy on push, TLS edge, backups, secrets, hardening.
+
+**Not built**, and the reason it matters:
+
+| gap | consequence today |
+| --- | --- |
+| nothing creates an invitation (customer row + draft subscription + `t` token); `tokens.mint` has no caller outside `app.py` and the tests | no real firm can reach the QR page |
+| no QR image, no letter template | nothing to post |
+| the weekly report is written to `data/reports/…/report_<date>.html` and **not sent**; it carries no `f`/`s`/`c` links, no Abbestellen, no criterion line | a signed-up firm gets a confirmation and then nothing |
+| the confirmation mail has no footer (no `/s/` link, no `List-Unsubscribe`) | first e-mail already breaks `APP.md` §8 |
+| no trial clock, no ask, no yes-link, no results notes, no Stripe page | no path from trial to money |
+| no console report over `app_event` | conversion is a hand query |
+
+Non-code blockers, unchanged: lawyer sign-off on the LIA (decision #1);
+Resend sending domain verified and `info@murara.eu` receiving; the price
+before the first trial ends.
+
+---
+
+## 9. The rest, specified
+
+Sized to one firm from the target list, then each piece named where it goes.
+Nothing here reopens a decision in `APP.md` §0 or `LAUNCH.md`.
+
+### 9.1 The concrete case, end to end
+
+*Jens Dunkel Glas- und Bauelemente GmbH*, Burg (39288) — first row of
+`targets.csv`: small, 4 wins, one of them with a single bid, trades 454/452,
+regions DE7 DEA DEC DED, 4 usable `profile_refs`, `sim_picks` 9.
+
+1. **Invite.** `python invite.py add "Jens Dunkel Glas- und Bauelemente GmbH"`
+   reads the row, writes the customer row (`name`, `award_names=[the exact
+   winner string]`, `contact_note` = postal address from the XML), appends
+   subscription version 1 with `active: false` (the *draft*: `cpv_prefixes`
+   from `trades`, `nuts_prefixes` from `regions`, `profile_refs`, the standard
+   gate knobs), mints one `t` token and prints
+   `https://app.murara.eu/t/<token>` plus the `invited` event. `sub_id` is a
+   slug of the name (`jens-dunkel-glas-und-bauelemente-gmbh`).
+2. **Letter.** `python invite.py letter <sub_id>` renders one HTML page (the
+   §2.2 template) with the QR as an inline SVG, plus a second page holding the
+   Art. 14 notice; a person prints it. `python invite.py batch --trade 452
+   --n 50` does 1–2 for a batch and writes `letters/<batch>/<sub_id>.html`.
+3. **Scan.** The page already built: firm name, market figures, one field.
+   Submitting writes `contact_email`, `consent_at`, runs the pre-flight; for
+   this firm the gate passes ≥1 of 4 wins → version 2, `active: true`,
+   `effective_from` today. The confirmation mail now carries the standard
+   footer (9.4).
+4. **Monday.** The cycle writes the report as today and then **sends it**: the
+   same HTML, every lot with two `f` links, footer with `/s/` and `/c/` links
+   and the criterion line, through `mailer.send(kind='report')`. Event `send`.
+5. **Week 4.** The Monday cycle after `effective_from + 28 d` sends the last
+   trial report with the ask on top: one paragraph and one link,
+   `/y/<token>` (9.5). No further reports unless yes.
+6. **Yes.** `/y/<token>` is one page, one button; the POST records
+   `subscribe_yes`, appends a version with `plan: paid`, and forwards to the
+   Stripe payment link. Reports resume next Monday. Silence → results notes
+   only, each carrying the same `/y/` link (9.6).
+7. **Read-off.** `python invite.py report` prints per batch: invited, scanned
+   (`t` used), signed up, held, asks sent, yes, soft/hard stops.
+
+### 9.2 `invite.py` — the front of the funnel [BUILD]
+
+Console tool, prints, writes no report files (house rule). Storage only
+through `subscriptions.py`, `tokens.py`, `ledger.py`.
+
+- `add <company> [--sub-id …]` — one firm from `targets.csv`. Refuses if a
+  customer with the same `award_names` entry exists (no double invitations)
+  or if the row has `< 2 profile_refs`. Prints the URL once; the token is not
+  retrievable later except by minting a new one (`reissue`, which revokes the
+  old).
+- `batch --trade <cpv3> --n 50 [--dry-run]` — the §1.2 ordering, skips firms
+  already invited or flagged `do_not_contact`, stamps `batch` (`YYYY-MM-DD-<trade>`)
+  on the `invited` event. `--dry-run` prints the list and touches nothing.
+- `letter <sub_id>` / part of `batch` — the template of §2.2, in German,
+  no forecast claim outside 452 (the not-claimable list from §3 sits in the
+  template as a comment). QR: SVG, generated in-process (`segno`, one new
+  pure-Python dependency, or a stdlib encoder — the operator's call, default
+  `segno`), error level M, the URL and nothing else in it. Page 2: the Art. 14
+  notice from `LEGAL_BASIS_TARGET_LIST.md` §"What this project must actually
+  do", the Art. 21 objection stated separately, `info@murara.eu` and the
+  postal address as objection channels.
+- `objection <sub_id|company>` — sets `contact_state = hard_stopped`,
+  revokes all tokens, event `objection`. Honoured before the next `batch`
+  runs (`batch` refuses to include a hard-stopped firm).
+- `report [--batch …]` — the §6 read-off over `app_event`, one line per
+  batch, plus trials ending this week.
+
+New `app_event` kinds: `invited`, `objection`, `ask`, `subscribe_yes`. New
+customer field: none — `batch` lives on the event, `do_not_contact` is
+`contact_state = hard_stopped`.
+
+Alias merging (decision #5) stays manual: `add --also-name "<spelling>"`
+appends to `award_names`; nothing merges by similarity.
+
+### 9.3 The report goes out by e-mail [BUILD]
+
+In [`delivering.py`](../delivering.py), after the report file is written and
+the delivery rows appended: `mailer.send(home, 'report', sub_id, subject,
+html)`. Rules:
+
+- **Links.** [`render.py`](../render.py) gets the app base URL
+  (`TM_APP_URL`, default `https://app.murara.eu`) and mints per lot two `f`
+  tokens (`ist unser Geschäft` / `nicht unser Geschäft`) — for picks and
+  near-misses alike — plus the standing `s` and `c` tokens for the footer.
+  The file on disk and the mail are the same HTML; tokens in
+  `data/reports/` are on the private volume and that is acceptable.
+- **Footer** (`APP.md` §8): Abbestellen → `/s/<token>`; „Ausschreibung
+  übersehen?" → `/c/<token>`; the Art. 21 line, visually separate;
+  `List-Unsubscribe` header pointing at `/s/<token>` (the app maps a
+  header-driven visit to **hard**, `LAUNCH.md` §3). Criterion line per pick.
+- **Kind and state.** `report` needs `active` — the mailer already refuses
+  otherwise; a refusal is logged by the cycle as one line, never a failed
+  cycle. `send`/`send_refused` events as today.
+- **The cycle container needs the secret.** `RESEND_API_KEY` and
+  `TM_MAIL_FROM` reach `loop.py`'s environment the way `SECRETS.md` already
+  describes; nothing new to design, one line in the compose file.
+- **No e-mail when there is nothing to report** — same rule as no file.
+- The confirmation mail in `app.py` uses the same footer function.
+  `mailer.send` grows a `headers` argument for `List-Unsubscribe`.
+
+### 9.4 One footer for every mail [BUILD]
+
+`mailer.footer(home, sub_id)` — returns the HTML block above and the header
+value; both `app.py` and `render.py` call it, so no mail can be assembled
+without it. Tested: a rendered report contains exactly one `/s/` link, its
+token resolves as `s` for that customer.
+
+### 9.5 The trial clock, the ask, the yes-link [BUILD]
+
+- **No new date field.** Trial start = `effective_from` of the first
+  `active: true` version; the trial ends after 28 days. `plan` joins `KNOWN`
+  (`trial` | `paid`; absent reads `trial`) — in the same commit that first
+  writes it.
+- **The ask** goes on top of the last trial report (the first Monday on or
+  after day 28), once: what they got, one question, one link. Event `ask`.
+  After that Monday, `report` is not sent to a `trial` customer (the mailer
+  guard is state-based; this rule is the cycle's, in `delivering.py`, and it
+  is a filter — the report file is still written for the operator).
+- **`y` token, `/y/<token>`** — fifth purpose, standing per customer, in
+  `tokens.PURPOSES` and `app.py`. GET: the price and one button. POST:
+  `subscribe_yes` event, new version `plan: paid`, redirect to the Stripe
+  payment link (`TM_STRIPE_URL`; until it is set the page says
+  „wir melden uns" and the operator gets a mail). GET never mutates.
+- Reports resume the next Monday for `plan: paid`. Cancel = the stop page's
+  existing soft button plus a `plan: trial`-less deactivating version, by
+  hand, under 50 customers.
+
+### 9.6 Results notes [BUILD, blocked by data]
+
+Sent by the cycle when ≥3 of a customer's own trial picks have graded
+outcomes (`grades` ledger) and no note went out in the last 30 days: the
+lots, what they closed at, how many bids; the `/y/` link; kind `results`
+(allowed for `active` and `soft_stopped`). Awards lag ~3 months, so the first
+one is ~November for an August trial. Event `results`.
+
+### 9.7 Order of work
+
+| # | build | unblocks | size |
+| --- | --- | --- | --- |
+| 1 | `invite.py add`, `reissue`, `objection`; the `invited` event | a real firm on the live QR page | small |
+| 2 | footer + report by e-mail (9.3–9.4), compose env line | the launch gate: nothing may be sent before Abbestellen works | medium |
+| 3 | `invite.py letter`, `batch`, QR | posting a batch (after decision #1) | medium |
+| 4 | trial clock, ask, `/y/` (9.5) | trial → paid | medium |
+| 5 | `invite.py report` | reading conversion | small |
+| 6 | Stripe URL | first payment; waits on the price | tiny |
+| 7 | results notes (9.6) | win-back; waits on award publications | small |
+
+Row 1 first because it makes the built middle testable end to end on the
+server today, with a real letter-shaped URL and no letters. Rows 1–2 are done
+in one worktree each; row 3 is the only one that waits on a person outside
+the repository.

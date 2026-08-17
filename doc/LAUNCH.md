@@ -511,6 +511,10 @@ conversion against the €60–€99 entrant band vs. €179 anchor
 | 6 | outreach ledger events + console report | conversion by channel, ask-to-yes gap | — |
 | 7 | Stripe page | first paid conversion | price decision, due before first trial ends |
 
+**Status 2026-08-17:** rows 1, 1a, 2, 3 (app side) and 4a done; the report
+is still not *sent* and no invitation can be created — the remaining build
+is specified in `ONBOARDING.md` §8–9.
+
 Rows 1–3 are the launch gate: nothing may be sent to anyone before the stop
 mechanics exist, because the first e-mail already needs a working Abbestellen
 link. Letter-specific work resumes when decision #1's lawyer sign-off
