@@ -404,6 +404,17 @@ class TheReplayHarness(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(p.stdout.strip().splitlines()[-1], '0.6 40')
 
+    def test_the_evidence_version_names_the_model_side_too(self):
+        """A replay measured under one feature build says nothing about
+        another: build, share and cut-off are part of the stamp, so a switch
+        re-measures every competitiveness question."""
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = util.Paths(tmp, Path(tmp) / 'models')
+            stamp = backplay.evidence_stamp(paths)
+        import single_bidder as sb
+        self.assertIn(f'build {sb.FEATURE_BUILD}', stamp)
+        self.assertIn(f'threshold {sb.THRESHOLD}', stamp)
+
     def test_the_replay_bucket_sits_out_the_night_before_the_cycle(self):
         q = knobs.question_from(next(t for t in knobs.KNOBS if t.harness == 'replay'),
                                 '2026-08-16')

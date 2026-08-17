@@ -200,6 +200,16 @@ def evidence_stamp(paths):
         except OSError:
             bits.append(f'{p.name} -')
     bits.append('gate ' + knobs.EXPECTED_GATE_FINGERPRINT)
+    # the model side too (2026-08-17, operator: "everything containing one
+    # hot is now rubbish"): a replay measured under one build says nothing
+    # about another, so the build, the support share and the cut-off are part
+    # of what a competitiveness measurement stood on
+    try:
+        import single_bidder as sb
+        bits.append(f'build {sb.FEATURE_BUILD} share {sb.MULTIHOT_MIN_SHARE} '
+                    f'threshold {sb.THRESHOLD}')
+    except ImportError:            # an image without the trainer's deps: gate knobs only
+        pass
     return ' '.join(bits)
 
 
