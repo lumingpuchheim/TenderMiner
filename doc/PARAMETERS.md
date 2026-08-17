@@ -129,7 +129,7 @@ change proposed.
 | `ONE_HOT_MAX_SIZE` | 1024 | C | FROZEN — inert under `FEATURE_BUILD='multihot'` (no categorical column left) | no |
 | `MULTIHOT_MIN_SHARE` | 0.0015 | C | LIVE (2026-08-17, on the queue) | `meta.json` `multihot.min_share` |
 | `MULTIHOT_MIN_SUPPORT` | 30 | C | FROZEN — the floor under the share (2026-08-17) | `meta.json` `multihot.min_support` |
-| `FEATURE_BUILD` | `default` | C | LIVE (2026-08-17, on the queue: `default` / `multihot`) | `meta.json` `feature_build` |
+| `FEATURE_BUILD` | `multihot` (since 2026-08-17) | C | LIVE (on the queue: `default` / `multihot`) | `meta.json` `feature_build` |
 | `SEED` | 42 | C | FROZEN | no |
 | `LABEL_MAX_TENDERS` | 1 | C — *the label definition* | FROZEN | no (implicit in every grade) |
 | `TOO_GOOD_ROC` | 0.85 | M | FROZEN | no |
@@ -901,9 +901,11 @@ Week by week the two track each other (e.g. 2026-03-20: 0.204 vs 0.194;
 2026-05-01: 0.279 vs 0.269; 2026-06-12: 0.296 vs 0.364); the rejector says
 *survives*. Removing the wall costs nothing measurable on the past.
 
-The build becomes the cycle's default the way any competitiveness value
-moves: the replay says it costs nothing (below), an EXPERIMENTS.md arm
-confirms it on real predictions, then `FEATURE_BUILD = 'multihot'` in one
-commit. The encoding trial already open (one hot vs target statistics) asks a
-question this build makes moot; see the note in EXPERIMENTS.md.
+Decision, operator, 2026-08-17 ("do it"): `FEATURE_BUILD = 'multihot'` is
+the cycle's default from the next training, and the encoding trial that
+opens 2026-08-24 is re-declared `onehot` vs `mh` with multi-hot delivering
+(EXPERIMENTS.md 2b) — the forward evidence for a decision already taken on
+principle, so it can be reversed on numbers if they say so. This is the one
+move today that went straight to production on a replay receipt: the
+operator's ground was structural (the wall), not the metric.
 

@@ -95,12 +95,12 @@ class State(Home):
         self.assertFalse(ex.plan(self.data, '2026-08-17').is_trial)
         self.assertEqual(ex.ensure_state(self.data, '2026-08-18'), ['cpv-additional-encoding'])
         row = ex.state(self.data)['cpv-additional-encoding']
-        self.assertEqual((row['status'], row['delivering']), ('open', 'onehot'))
+        self.assertEqual((row['status'], row['delivering']), ('open', 'mh'))
         p = ex.plan(self.data, '2026-08-25')
         self.assertTrue(p.is_trial)
-        self.assertEqual([a.id for a in p.arms], ['onehot', 'ts'])
-        self.assertTrue(p.is_delivering(EXP.arm('onehot')))
-        self.assertFalse(p.is_delivering(EXP.arm('ts')))
+        self.assertEqual([a.id for a in p.arms], ['onehot', 'mh'])
+        self.assertTrue(p.is_delivering(EXP.arm('mh')))
+        self.assertFalse(p.is_delivering(EXP.arm('onehot')))
         # a second call creates nothing more
         self.assertEqual(ex.ensure_state(self.data, '2026-08-25'), [])
 
@@ -155,10 +155,10 @@ class ArmGrading(Home):
         # p1, p2: both arms scored; p3: only ts scored; p4: pre-trial row only
         rows = [
             pred('p1', 'L1', 'm1-onehot', 0.8, '2026-08-18T06:00:00', 'onehot', EXP.id),
-            pred('p1', 'L1', 'm1-ts', 0.3, '2026-08-18T06:00:01', 'ts', EXP.id),
+            pred('p1', 'L1', 'm1-mh', 0.3, '2026-08-18T06:00:01', 'mh', EXP.id),
             pred('p2', 'L1', 'm1-onehot', 0.2, '2026-08-18T06:00:00', 'onehot', EXP.id),
-            pred('p2', 'L1', 'm1-ts', 0.9, '2026-08-18T06:00:01', 'ts', EXP.id),
-            pred('p3', 'L1', 'm1-ts', 0.6, '2026-08-18T06:00:01', 'ts', EXP.id),
+            pred('p2', 'L1', 'm1-mh', 0.9, '2026-08-18T06:00:01', 'mh', EXP.id),
+            pred('p3', 'L1', 'm1-mh', 0.6, '2026-08-18T06:00:01', 'mh', EXP.id),
             pred('p4', 'L1', 'm0', 0.6, '2026-08-01T06:00:00'),
         ]
         ledger.append(self.data, 'predictions', rows)
@@ -171,7 +171,7 @@ class ArmGrading(Home):
             grading.grade(self.paths, self.tenders, self.aw, ARGS, self.plan)
         by = ex.rows_by_arm(self.data, EXP.id)
         self.assertEqual({a: sorted(r['procedure_id'] for r in rows) for a, rows in by.items()},
-                         {'onehot': ['p1', 'p2'], 'ts': ['p1', 'p2', 'p3']})
+                         {'onehot': ['p1', 'p2'], 'mh': ['p1', 'p2', 'p3']})
         r = next(r for r in by['onehot'] if r['procedure_id'] == 'p1')
         self.assertEqual((r['label'], r['flag'], r['score'], r['model']), (1, True, 0.8, 'm1-onehot'))
         with contextlib.redirect_stdout(io.StringIO()):
@@ -182,20 +182,20 @@ class ArmGrading(Home):
         with contextlib.redirect_stdout(io.StringIO()):
             grading.grade(self.paths, self.tenders, self.aw, ARGS, self.plan)
         grades = {g['procedure_id']: g for g in ledger.read(self.data, 'grades')}
-        # p1: the ts row was appended LAST on the same lot, but onehot delivers
-        self.assertEqual(grades['p1']['model'], 'm1-onehot')
-        self.assertEqual(grades['p2']['model'], 'm1-onehot')
-        # p3: only a shadow scored it — no customer record for it
-        self.assertNotIn('p3', grades)
+        # multi-hot delivers (re-declared 2026-08-17): its rows are the record
+        self.assertEqual(grades['p1']['model'], 'm1-mh')
+        self.assertEqual(grades['p2']['model'], 'm1-mh')
+        # p3: only the delivering arm scored it — it IS a customer record now
+        self.assertEqual(grades['p3']['model'], 'm1-mh')
         # p4: pre-trial row, graded as always
         self.assertEqual(grades['p4']['model'], 'm0')
 
     def test_paired_restriction(self):
         with contextlib.redirect_stdout(io.StringIO()):
             grading.grade(self.paths, self.tenders, self.aw, ARGS, self.plan)
-        pr, common = ex.paired(ex.rows_by_arm(self.data, EXP.id), ['onehot', 'ts'])
+        pr, common = ex.paired(ex.rows_by_arm(self.data, EXP.id), ['onehot', 'mh'])
         self.assertEqual(sorted(p for p, _ in common), ['p1', 'p2'])
-        self.assertEqual(len(pr['ts']), 2)      # p3 is in neither comparison
+        self.assertEqual(len(pr['mh']), 2)      # p3 is in neither comparison
 
 
 # --------------------------------------------------------------- verdict
@@ -269,11 +269,11 @@ class Commands(Home):
     def setUp(self):
         super().setUp()
         ex.ensure_state(self.data, '2026-08-18')
-        for a in ('onehot', 'ts'):
+        for a in ('onehot', 'mh'):
             p = ex.arm_current_path(self.models, a)
             p.parent.mkdir(parents=True)
             p.write_text(f'm1-{a}\n')
-        (self.models / 'CURRENT').write_text('m1-onehot\n')
+        (self.models / 'CURRENT').write_text('m1-mh\n')
         (self.models / 'other.txt').write_text('untouched')
 
     def run_cli(self, *argv):
@@ -283,24 +283,24 @@ class Commands(Home):
         return code, out.getvalue()
 
     def test_deliver_rewrites_current_and_nothing_else(self):
-        code, out = self.run_cli('deliver', 'cpv-additional-encoding', 'ts')
+        code, out = self.run_cli('deliver', 'cpv-additional-encoding', 'onehot')
         self.assertEqual(code, 0)
-        self.assertEqual((self.models / 'CURRENT').read_text().strip(), 'm1-ts')
-        self.assertEqual(ex.arm_current_path(self.models, 'onehot').read_text().strip(), 'm1-onehot')
+        self.assertEqual((self.models / 'CURRENT').read_text().strip(), 'm1-onehot')
+        self.assertEqual(ex.arm_current_path(self.models, 'mh').read_text().strip(), 'm1-mh')
         self.assertEqual((self.models / 'other.txt').read_text(), 'untouched')
-        self.assertEqual(ex.state(self.data)['cpv-additional-encoding']['delivering'], 'ts')
-        self.assertIn('target statistics', out)
+        self.assertEqual(ex.state(self.data)['cpv-additional-encoding']['delivering'], 'onehot')
+        self.assertIn('one hot', out)
 
     def test_close_records_and_hints_but_does_not_switch(self):
-        code, out = self.run_cli('close', 'cpv-additional-encoding', '--winner', 'ts',
+        code, out = self.run_cli('close', 'cpv-additional-encoding', '--winner', 'onehot',
                                  '--note', 'clear after 12 weeks')
         self.assertEqual(code, 0)
         row = ex.state(self.data)['cpv-additional-encoding']
         self.assertEqual(row['status'], 'closed')
         dec = json.loads(row['decision'])
-        self.assertEqual((dec['winner'], dec['note']), ('ts', 'clear after 12 weeks'))
-        self.assertIn('deliver cpv-additional-encoding ts', out)
-        self.assertEqual((self.models / 'CURRENT').read_text().strip(), 'm1-onehot')
+        self.assertEqual((dec['winner'], dec['note']), ('onehot', 'clear after 12 weeks'))
+        self.assertIn('deliver cpv-additional-encoding onehot', out)
+        self.assertEqual((self.models / 'CURRENT').read_text().strip(), 'm1-mh')
         # closed -> the next plan is the plain single-arm cycle
         self.assertFalse(ex.plan(self.data, '2026-12-01').is_trial)
         # and closing twice is refused
@@ -314,7 +314,7 @@ class Commands(Home):
         code, out = self.run_cli('show', 'cpv-additional-encoding')
         self.assertEqual(code, 0)
         self.assertIn('one hot', out)
-        self.assertIn('target statistics', out)
+        self.assertIn('multi-hot', out)
 
 
 class ShadowModels(Home):
@@ -324,11 +324,11 @@ class ShadowModels(Home):
         util.append_jsonl(self.models / 'registry.jsonl', [
             {'model_id': 'm0', 'promoted': True},
             {'model_id': 'm1-onehot', 'arm': 'onehot', 'experiment': EXP.id},
-            {'model_id': 'm1-ts', 'arm': 'ts', 'experiment': EXP.id},
+            {'model_id': 'm1-mh', 'arm': 'mh', 'experiment': EXP.id},
         ])
-        self.assertEqual(ex.shadow_models(self.models, self.data), {'m1-ts'})
-        ex.set_delivering(self.data, EXP.id, 'ts', self.models)
         self.assertEqual(ex.shadow_models(self.models, self.data), {'m1-onehot'})
+        ex.set_delivering(self.data, EXP.id, 'onehot', self.models)
+        self.assertEqual(ex.shadow_models(self.models, self.data), {'m1-mh'})
 
 
 class ZeroOpen(Home):
@@ -373,7 +373,7 @@ class HiddenPage(Home):
             s, body = self.get('/experiments/' + 'k' * 24)
             self.assertTrue(s.startswith('200'), s)
             self.assertIn('one hot', body)
-            self.assertIn('target statistics', body)
+            self.assertIn('multi-hot', body)
             self.assertIn('cpv-additional-encoding', body)
             self.assertIn('MIN_PAIRED', body)
             s, _ = self.get('/experiments/' + 'x' * 24)

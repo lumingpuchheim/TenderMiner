@@ -86,12 +86,14 @@ class Vocabulary(unittest.TestCase):
 
 
 class Columns(unittest.TestCase):
+    """The `default` build — asked for by name since 2026-08-17, when the
+    cycle's default became `multihot` (TheMultihotBuild below)."""
 
     def setUp(self):
         self.rng = np.random.default_rng(11)
         self.tenders = frame(400, self.rng)
         self.X, self.cats, self.nums, self.excl = sb.build_features(
-            self.tenders, ROLES, list_frame=self.tenders)
+            self.tenders, ROLES, list_frame=self.tenders, feature_build='default')
 
     def test_no_combination_column_survives(self):
         for lvl in ('cpv2', 'cpv3', 'cpv4'):
@@ -138,11 +140,11 @@ class Columns(unittest.TestCase):
         # an "open lots" frame carrying a code the vocabulary never saw:
         # with the SAME vocabulary the columns are identical, the unseen code
         # lands in n_rare, and nothing new appears
-        mh = sb.fit_multihot(self.tenders, ROLES)
+        mh = sb.fit_multihot(self.tenders, ROLES, feature_build='default')
         open_t = frame(20, self.rng, extra_codes=['99999999'])
         open_t.at[0, 'cpv_additional'] = ['99999999', '45210000']
-        Xo, cats_o, nums_o, _ = sb.build_features(open_t, ROLES,
-                                                  list_frame=self.tenders, multihot=mh)
+        Xo, cats_o, nums_o, _ = sb.build_features(open_t, ROLES, list_frame=self.tenders,
+                                                  multihot=mh, feature_build='default')
         self.assertEqual(list(Xo.columns), list(self.X.columns))
         self.assertEqual(cats_o + nums_o, self.cats + self.nums)
         self.assertEqual(int(Xo.loc[0, 'cpv_additional__cpv4__n_rare']), 1)
@@ -154,9 +156,13 @@ class Columns(unittest.TestCase):
         # candidate on the server — is no longer a categorical at all
         rng = np.random.default_rng(3)
         many = frame(2000, rng, extra_codes=[f'{45000000 + i * 1000:08d}' for i in range(300)])
-        X, cats, _, _ = sb.build_features(many, ROLES, list_frame=many)
+        X, cats, _, _ = sb.build_features(many, ROLES, list_frame=many, feature_build='default')
         card = sb.assert_pure_one_hot(X, cats)          # raises if any cat > 1024
         self.assertLessEqual(int(card.max()), sb.ONE_HOT_MAX_SIZE)
+        # and under the cycle's build there is no categorical to check at all
+        X, cats, _, _ = sb.build_features(many, ROLES, list_frame=many)
+        self.assertEqual(cats, [])
+        self.assertEqual(len(sb.assert_pure_one_hot(X, cats)), 0)
 
 
 class TrainsAndScores(unittest.TestCase):
@@ -206,8 +212,9 @@ class TheMultihotBuild(unittest.TestCase):
         n = self.X['cpv_main__cpv4__n']
         self.assertTrue(set(n.unique()) <= {0, 1})           # one main code per lot
 
-    def test_the_default_build_is_unchanged(self):
-        X, cats, _, _ = sb.build_features(self.tenders, self.roles, list_frame=self.tenders)
+    def test_the_one_hot_build_is_still_there_by_name(self):
+        X, cats, _, _ = sb.build_features(self.tenders, self.roles, list_frame=self.tenders,
+                                          feature_build='default')
         self.assertIn('cpv_main__cpv4', cats)                 # still one-hot there
         self.assertIn('procedure_type', cats)
 

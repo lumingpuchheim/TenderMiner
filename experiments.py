@@ -82,15 +82,22 @@ class Experiment:
 
 EXPERIMENTS = (
     Experiment(
+        # Re-declared 2026-08-17 (EXPERIMENTS.md 2b): the `ts` arm (CatBoost
+        # target statistics for the additional codes) was overtaken by the
+        # all-multi-hot build before the trial opened. The question that
+        # matters is whether removing the one-hot wall costs precision on real
+        # predictions; multi-hot delivers, because the replay said it costs
+        # nothing and the operator ruled one-hot out for the store to come.
+        # Deadline moved to January: awards lag ~90 days, so November would
+        # have turned red while still collecting.
         id='cpv-additional-encoding',
-        question='Which encoding of the additional-CPV codes sorts 0/1-bidder '
-                 'lots from the rest better, on real predictions?',
-        opened='2026-08-18', deadline='2026-11-30',
+        question='Does the all-multi-hot build (no categorical column, no '
+                 'cardinality wall) sort 0/1-bidder lots from the rest as well '
+                 'as one hot for the single-valued columns, on real predictions?',
+        opened='2026-08-18', deadline='2027-01-31',
         arms=(Arm('onehot', 'one hot', feature_build='default'),
-              Arm('ts', 'target statistics', feature_build='cpv_additional_combination',
-                  guard_exempt=('cpv_additional__cpv2', 'cpv_additional__cpv3',
-                                'cpv_additional__cpv4'))),
-        default_delivering='onehot',
+              Arm('mh', 'multi-hot', feature_build='multihot')),
+        default_delivering='mh',
     ),
 )
 

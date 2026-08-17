@@ -55,10 +55,14 @@ multi-hot by default — `single_bidder.fit_multihot` / `build_features`,
 `onehot` encoding. The experiment therefore asks whether the *other* honest
 encoding would have been better, on real predictions:
 
-| arm id | label (verbatim in every output) | what the model sees for the additional codes |
+| arm id | label (verbatim in every output) | what the model sees |
 | --- | --- | --- |
-| `onehot` | **one hot** | the default build: one 0/1 numeric column per distinct code, multi-hot, at cpv2/cpv3/cpv4; rare codes folded into a count (§3) |
-| `ts` | **target statistics** | `feature_build='cpv_additional_combination'`: the three combination columns as before 2026-08-16, and CatBoost's ordered target statistics (CTR) for them, because the guard is told they may exceed the cap (§3). Every *other* list column stays multi-hot in both arms. |
+| `onehot` | **one hot** | `feature_build='default'`: list columns multi-hot, single-valued categoricals (`cpv_main` per level, `procedure_type`, …) one-hot under the 1,024 cap (§3) |
+| `mh` | **multi-hot** | `feature_build='multihot'` (TRAINING.md 2026-08-17): every categorical column multi-hot, no CatBoost categorical, no cap — **delivering**, because the replay measured no cost and the operator ruled one-hot out for the store to come (§2b) |
+
+(Re-declared 2026-08-17. The original second arm, `ts` = CatBoost target
+statistics via `feature_build='cpv_additional_combination'`, is overtaken —
+§2b; the build stays registered, the arm is gone.)
 
 Not an arm: raising the cap to 4096. Everything else — data, temporal split,
 seed, class weights, all other features, tripwires, threshold, promotion
@@ -263,9 +267,11 @@ statistics for the additional codes — moot: multi-hot needs neither. What is
 worth a forward answer now is **`default` (one hot for the single-valued
 columns) vs `multihot`**, i.e. does removing the wall cost precision on real
 predictions. The replay measures it first (PARAMETERS.md §16 has the number);
-the arm is one line here (`Arm('mh', 'multi-hot', feature_build='multihot')`)
-once the operator says which trial runs, since only one runs at a time and
-this one opens on 2026-08-24 by itself unless changed.
+Done the same day, operator: "do it" — the trial is now `onehot` vs `mh`
+with `mh` delivering, deadline 2027-01-31 (awards lag ~90 days; the November
+date would have turned red while still collecting), and
+`single_bidder.FEATURE_BUILD = 'multihot'` is the cycle's default outside a
+trial. It opens on 2026-08-24 by itself.
 
 # Part II — the method, as general as Part I needs
 

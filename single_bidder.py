@@ -141,7 +141,7 @@ MULTIHOT_MIN_SUPPORT = 30      # the floor, in lots
 # 'multihot': EVERY categorical column multi-hot — no cap anywhere, the
 # encoding an all-trades store needs (TRAINING.md, 2026-08-17). A knob: the
 # replay measures it under the lever, an arm confirms it forward.
-FEATURE_BUILD = 'default'
+FEATURE_BUILD = 'multihot'   # since 2026-08-17 (operator: 'do it'); 'default' is the one-hot arm
 # The flagging cut-off: score >= THRESHOLD is "low competition expected". The
 # cycle's `--threshold` defaults to this; the replay reads it here too — one
 # value, so the queue's lever (below) reaches both.
