@@ -63,9 +63,13 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint, arm=None, plan=None
     try:
         card = sb.assert_pure_one_hot(X, cat_cols, exempt=exempt)
         ctr = sb.ctr_columns(card, exempt)
-        checked_max = int(card.drop(labels=[c for c in exempt if c in card.index]).max())
+        checked = card.drop(labels=[c for c in exempt if c in card.index])
+        # under the multihot build there is no categorical column at all
+        # (TRAINING.md 2026-08-17): the check passes vacuously and says so
+        checked_max = int(checked.max()) if len(checked) else 0
         gate['checks']['pure_one_hot'] = (
-            f'passed (max cardinality {checked_max}'
+            (f'passed (max cardinality {checked_max}' if len(card)
+             else 'passed (no categorical column — every one multi-hot')
             + (f'; CTR columns: ' + ', '.join(f'{c} {n}' for c, n in ctr.items()) if ctr else '')
             + ')')
     except AssertionError as e:
@@ -208,7 +212,7 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint, arm=None, plan=None
         'n_train_rows': len(data),
         'n_train_lots': int(data.groupby(sb.KEY).ngroups),
         'features': features, 'n_features': len(features),
-        'max_cardinality': int(card.max()),
+        'max_cardinality': int(card.max()) if len(card) else 0,
         'multihot': multihot,
         'feature_build': feature_build,
         'val_pr_auc': None if val_metrics is None else val_metrics['pr_auc'],
