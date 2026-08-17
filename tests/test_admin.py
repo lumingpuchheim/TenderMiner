@@ -243,5 +243,48 @@ class Stop(Base):
         self.assertIn('gestoppt (alles)', body)
 
 
+
+
+class Message(Base):
+    """doc/ONBOARDING.md 9.2a — the text the operator pastes into LinkedIn."""
+
+    def setUp(self):
+        super().setUp()
+        self.sub_id, self.url = invite.add(self.dir, DUNKEL)
+
+    def test_the_message_leads_with_the_firms_own_win(self):
+        import pitch
+        m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today='2026-08-17')
+        self.assertIn('Dachsanierung', m['long'])      # the fixture's own win
+        self.assertIn('https://a/t/x', m['long'])
+        self.assertIn('Datenschutz', m['long'])
+        self.assertLessEqual(len(m['short']), pitch.SHORT_LIMIT)
+        self.assertNotIn('http', m['short'])           # no link in the note
+
+    def test_a_lot_without_a_deadline_is_never_offered(self):
+        import ledger
+        import pitch
+        ledger.append(self.dir, 'predictions', [{
+            'ts': '2026-08-17T08:00:00+00:00', 'model': 'm1',
+            'procedure_id': 'p9', 'lot_id': 'L1', 'score': 0.99,
+            'title': 'Ohne Frist', 'buyer_name': 'Stadt X',
+            'deadline_date': None, 'flag': True}])
+        rows = pitch.open_lots(self.dir, '2026-08-17')
+        self.assertEqual([r for r in rows if r['procedure_id'] == 'p9'], [])
+
+    def test_the_page_shows_both_texts_and_the_live_link(self):
+        _, _, body = request(self.dir, '/admin/message',
+                             query=f'sub_id={self.sub_id}')
+        self.assertIn('Kontaktanfrage', body)
+        self.assertIn('Nachricht nach dem Kontakt', body)
+        self.assertIn(self.url.rsplit('/', 1)[1], body)   # the real token
+        # after a hard stop the link is revoked -> the page says so
+        import tokens
+        tokens.revoke_all(self.dir, self.sub_id)
+        _, _, body = request(self.dir, '/admin/message',
+                             query=f'sub_id={self.sub_id}')
+        self.assertIn('keinen offenen', body)
+
+
 if __name__ == '__main__':
     unittest.main()

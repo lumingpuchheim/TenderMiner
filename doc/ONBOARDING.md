@@ -427,6 +427,43 @@ second `add` refuses with the owning customer; `invited` event carries the
 batch and the 8-character token stub. `batch`, `letter`, `report` are the
 next rows.
 
+### 9.2a The invitation message — built 2026-08-17
+
+The channel decision (`GO_TO_MARKET.md`) leaves the sending to a person: we
+mint the URL, the operator writes to the firm. What the program contributes
+is the part only it can: **the message leads with live tenders picked for
+that firm**, and with the firm's own win — the product working, not a
+description of it (operator: „just do it and let customer decide if it is
+valuable"; no „wir könnten", no service prose).
+
+[`pitch.py`](../pitch.py), reachable as the **Nachricht** button on the
+operator's page (`/admin/message?sub_id=…`, doc/ADMIN.md). Two texts:
+
+- **Kontaktanfrage**, ≤300 characters (LinkedIn's note), one concrete tender,
+  **no link** — a note with a URL reads as spam and the link is useless
+  before the contact is accepted;
+- **Nachricht nach dem Kontakt**: up to three open lots with buyer and
+  deadline, then „Ihren Auftrag „…" haben Sie gewonnen — bei 1 Bieter. Genau
+  solche Lose suchen wir für Sie", then the invitation URL, then one line
+  pointing at the Datenschutzerklärung (the Art. 14 pointer travels with the
+  approach).
+
+The picks come from the customer machinery: this cycle's scored lots
+(`ledger.prediction_latest_per_lot`), the firm's draft subscription written
+by `invite.add` from its own contracts, the relevance gate, and
+`selection.for_sub`. A prospect therefore sees exactly what it would receive
+as a customer; when nothing matches, the message opens with the win instead
+and invents nothing.
+
+`tokens.live_value` hands the operator's page the firm's current invitation
+link (behind basic auth, and a link is useless to anyone but the firm it
+names) — an invitation written days after minting still needs it.
+
+*Found by running it:* the first message said „Frist None". Lots without a
+deadline passed the filter because `str(NaN)` is `'nan'` and `'nan' >
+'2026-08-17'` is true in a string comparison. A lot we cannot date is now
+never offered.
+
 ### 9.3 The report goes out by e-mail [BUILD]
 
 In [`delivering.py`](../delivering.py), after the report file is written and

@@ -129,6 +129,25 @@ def resolve(data_dir, purpose, value):
     return dict(row)
 
 
+def live_value(data_dir, purpose, sub_id):
+    """The newest live token of this purpose for this subject, or None.
+
+    The one place a stored token is handed back out. It is safe *here* and
+    nowhere else: the operator's page (doc/ADMIN.md) is behind basic auth at
+    the edge, and an invitation link is useless to anyone but the firm it
+    names. The security property of a token is that it cannot be guessed,
+    not that it is displayed once."""
+    con = db.connect(data_dir, create=False)
+    if con is None:
+        return None
+    row = con.execute(
+        'SELECT token FROM token WHERE sub_id = ? AND purpose = ?'
+        ' AND revoked_at IS NULL AND used_at IS NULL'
+        ' ORDER BY created_at DESC LIMIT 1', (sub_id, purpose)).fetchone()
+    con.close()
+    return row['token'] if row else None
+
+
 def mark_used(data_dir, value, now=None):
     """Stamp first use. Not a consumption: `used_at` is a record, and which
     purposes may be used twice is the handler's call (doc/APP.md 3 — a click on

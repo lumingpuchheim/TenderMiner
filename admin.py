@@ -256,6 +256,8 @@ def _row_html(f, st, url_for):
             '<button type="submit">Einladen</button></form>')
     else:
         if not st['email']:
+            acts.append(f'<a href="/admin/message?sub_id={esc(sub_id)}">'
+                        '<button type="button">Nachricht</button></a>')
             acts.append('<form method="post" action="/admin/reissue">'
                         f'<input type="hidden" name="sub_id" value="{esc(sub_id)}">'
                         '<button type="submit" class="secondary">URL neu</button>'

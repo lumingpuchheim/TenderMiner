@@ -784,6 +784,43 @@ def post_admin_reissue(ctx, form):
         return admin_page(ctx, state_name, error=str(e))
 
 
+def get_admin_message(ctx, environ):
+    """The text to paste into LinkedIn (doc/ONBOARDING.md 9.2a): live picks
+    for this firm, its own win, the link. Two versions — the 300-character
+    connection note, and the message after the contact is accepted."""
+    import mailer
+    import pitch
+    home = ctx['data_dir']
+    sub_id = _query(environ, 'sub_id')
+    cust, firm = _admin_firm(home, sub_id)
+    if not cust:
+        return not_found(ctx)
+    value = tokens.live_value(home, 't', sub_id)
+    url = (f'{mailer.app_url()}/t/{value}' if value else None)
+    m = pitch.message(home, sub_id, url or f'{mailer.app_url()}/t/…',
+                      company=firm)
+    n = len(m['picks'])
+    warn = ('' if url else
+            '<p style="background:#fde8e8;border-left:3px solid #c44;'
+            'padding:10px 12px">Für diese Firma gibt es keinen offenen '
+            'Einladungslink mehr — mit „URL neu" einen erzeugen, sonst zeigt '
+            'die Nachricht nur Punkte.</p>')
+    return page('Nachricht', f"""
+      <h1>Nachricht für {esc(firm)}</h1>
+      {warn}
+      <p class="muted">{n} passende offene Ausschreibung{'' if n == 1 else 'en'}
+         gefunden{'' if n else '; die Nachricht führt dann mit dem eigenen '
+                               'Auftrag der Firma'}.</p>
+      <h2>Kontaktanfrage (max. 300 Zeichen)</h2>
+      <textarea rows="5" style="width:100%" onclick="this.select()"
+         readonly>{esc(m['short'])}</textarea>
+      <p class="muted">{len(m['short'])} Zeichen.</p>
+      <h2>Nachricht nach dem Kontakt</h2>
+      <textarea rows="18" style="width:100%" onclick="this.select()"
+         readonly>{esc(m['long'])}</textarea>
+      <p><a href="/admin?q={esc(firm)}">zurück zur Liste</a></p>""")
+
+
 def _admin_firm(home, sub_id):
     cust = subscriptions.customer_get(home, sub_id) or {}
     return cust, (cust.get('name') or sub_id)
@@ -883,6 +920,7 @@ ADMIN_ROUTES = {
     'invite': (None, post_admin_invite),
     'reissue': (None, post_admin_reissue),
     'email': (get_admin_email, post_admin_email),
+    'message': (get_admin_message, None),
     'stop': (get_admin_stop, post_admin_stop),
 }
 

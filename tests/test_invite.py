@@ -62,7 +62,8 @@ def write_store(d):
     ).to_parquet(d / 'store' / 'awards.parquet')
     pd.DataFrame([{'procedure_id': p, 'lot_id': 'LOT-0001',
                    'place_nuts3': 'DEA23' if p == 'p2' else None,
-                   'title': TITLES.get(p, 'Bauarbeiten')}
+                   'title': TITLES.get(p, 'Bauarbeiten'),
+                   'buyer_name': 'Stadt Musterhausen'}
                   for p in SIDECAR]).to_parquet(d / 'store' / 'tenders.parquet')
     sd = embed.sidecar_dir(d)
     sd.mkdir(parents=True)
