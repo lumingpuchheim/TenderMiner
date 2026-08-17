@@ -334,7 +334,7 @@ def market_annex(sub, sel, *, today, profile, top_slice):
             f'<p>Alle {len(annex_rows)} offenen Ausschreibungen in Ihrem '
             f'Markt ({escape(market_line(sub, profile))}), sortiert nach Frist. Schlagen Sie '
             'jede Ausschreibung nach, die Sie erwägen; das Urteil stammt '
-            'aus demselben Modell wie Ihre wöchentlichen Empfehlungen und '
+            'aus demselben Modell wie Ihre Empfehlungen und '
             'wird in Ihrem Bericht überprüft.</p>',
             table_html(['Ausschreibung', 'Frist', 'Auftraggeber', 'Urteil',
                         'warum'], annex_trs)]

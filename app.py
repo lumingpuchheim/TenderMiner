@@ -134,7 +134,7 @@ def get_root(ctx):
     return page('Murara', f"""
       <h1>Murara</h1>
       <p>Wir melden Bauausschreibungen, bei denen wenige Mitbewerber zu
-         erwarten sind — wöchentlich, für ein Gewerk und eine Region.</p>
+         erwarten sind — für ein Gewerk und eine Region, wöchentlich geprüft.</p>
       <p class="muted">Diese Seite richtet sich an bestehende Kontakte. Fragen
          beantworten wir unter <a href="mailto:{esc(CONTACT)}">{esc(CONTACT)}</a>.</p>""")
 
@@ -347,18 +347,20 @@ def get_signup(ctx, row):
              werden, schreiben Sie uns:
              <a href="mailto:{esc(CONTACT)}">{esc(CONTACT)}</a>.</p>""")
     return page('Anmeldung', f"""
-      <h1>Wöchentliche Ausschreibungen</h1>
-      <p>Für <strong>{esc(row['sub_id'])}</strong>: jeden Montag die
-         Ausschreibungen Ihres Gewerks und Ihrer Region, bei denen wir wenig
-         Wettbewerb erwarten. Kostenlos zum Kennenlernen, monatlich beendbar.</p>
+      <h1>Ausschreibungen für Ihren Betrieb</h1>
+      <p>Für <strong>{esc(row['sub_id'])}</strong>: die Ausschreibungen Ihres
+         Gewerks und Ihrer Region, bei denen wir wenig Wettbewerb erwarten —
+         sobald es welche gibt. Wir prüfen wöchentlich; gibt es nichts
+         Passendes, schreiben wir nicht. Kostenlos zum Kennenlernen,
+         monatlich beendbar.</p>
       <form method="post">
         <p><label>E-Mail-Adresse<br>
            <input type="email" name="email" required></label></p>
         <p><button type="submit">Berichte erhalten</button></p>
       </form>
-      <p class="muted">Mit der Anmeldung erhalten Sie die wöchentlichen
-         Berichte und danach gelegentlich Ergebnis-Nachrichten und Angebote
-         von uns. Jede E-Mail trägt einen Abbestellen-Link; Details in der
+      <p class="muted">Mit der Anmeldung erhalten Sie unsere Berichte, wenn
+         es passende Ausschreibungen gibt, und danach gelegentlich
+         Ergebnis-Nachrichten und Angebote von uns. Jede E-Mail trägt einen Abbestellen-Link; Details in der
          <a href="/datenschutz">Datenschutzerklärung</a>.</p>""")
 
 
@@ -386,14 +388,16 @@ def post_signup(ctx, row, form):
         mailer.send(home, 'confirm', row['sub_id'],
                     'Ihre Anmeldung bei Murara',
                     f'<p>Ihre Anmeldung ist eingegangen. '
-                    f'{"Der erste Bericht kommt mit dem nächsten Wochenlauf."
+                    f'{"Der erste Bericht kommt, sobald es passende "
+                       "Ausschreibungen gibt — wir prüfen wöchentlich."
                        if ok else
                        "Wir richten Ihr Profil ein und melden uns."}</p>')
     except Exception as e:                                     # noqa: BLE001
         print(f'[app] confirm mail not sent ({e}); signup itself is recorded')
     return page('Angemeldet', f"""
       <h1>Das war alles</h1>
-      <p>{'Ihr erster Bericht kommt mit dem nächsten Wochenlauf — montags.'
+      <p>{'Ihr erster Bericht kommt, sobald es passende Ausschreibungen '
+          'gibt — wir prüfen wöchentlich; gibt es nichts, schreiben wir nicht.'
           if ok else
           'Wir richten Ihr Profil ein und melden uns, bevor der erste '
           'Bericht kommt.'}</p>
@@ -470,7 +474,7 @@ def get_stop(ctx, row):
       <h1>Abbestellen</h1>
       <form method="post">
         <p><button name="wahl" value="berichte" type="submit">
-           Keine wöchentlichen Berichte mehr</button></p>
+           Keine Berichte mehr</button></p>
         <p><button name="wahl" value="alles" type="submit" class="secondary">
            Keine E-Mails mehr</button></p>
       </form>
@@ -494,7 +498,7 @@ def post_stop(ctx, row, form):
              Ergebnis-Nachrichten, nichts. Dauerhaft.</p>""")
     return page('Berichte abbestellt', """
       <h1>Berichte abbestellt</h1>
-      <p>Die wöchentlichen Berichte sind aus. Gelegentliche
+      <p>Die Berichte sind aus. Gelegentliche
          Ergebnis-Nachrichten können noch kommen.</p>
       <form method="post"><p>
         <button name="wahl" value="alles" type="submit" class="secondary">
