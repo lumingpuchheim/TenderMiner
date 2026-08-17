@@ -63,6 +63,38 @@ preference:
 The outreach *content* is channel-independent; nothing below blocks on this
 decision. Default for the first batch: letters.
 
+### Channel decision, revised — operator, 2026-08-17
+
+**No letters.** Too expensive per contact for the operator's taste; the
+letter template, QR code and print batches are dropped from the build
+(ONBOARDING.md §9.7 row 3 is void). What every remaining channel carries
+instead is the same thing the QR carried: the firm's personal invitation URL
+`https://app.murara.eu/t/<token>` from `invite.py add`, or — for channels
+that reach strangers — an open signup page (`app.murara.eu/anmelden`,
+**[BUILD]**, LAUNCH.md's deferred form; arrivals held for a person to build
+the profile). Consent is recorded at signup exactly as before; the channel
+only decides how the URL travels.
+
+**Options on the table, in the operator's order of interest** (Google Ads
+deliberately excluded):
+
+| # | channel | audience | how the URL travels | notes |
+| --- | --- | --- | --- | --- |
+| 1 | **LinkedIn — Message / Conversation Ads** | members who agreed in their settings to sponsored messages; targetable by Position (Geschäftsführer, Inhaber), Branche, Region | LinkedIn's own inbox ad, priced per send, our text with the `/t/` link to a named firm or the open form | EU targeting supported again since Oct 2024 (LinkedIn Marketing Solutions help a1514689); the recipient's opt-in is LinkedIn's — the cleanest paid inbox route |
+| 2 | **LinkedIn — direct messages** (by hand from the operator's profile, Sales Navigator to find the person; or a tool such as Lemlist / Waalaxy / Expandi) | Geschäftsführer/Inhaber of the target-list firms found by company name | personal message with the `/t/` link | the legal position (§7 Abs. 2 UWG, OLG Hamm 18 U 154/22; LinkedIn's terms on automation) was laid out and is the operator's accepted business risk — it is not re-raised |
+| 3 | **Xing** — ads or direct messages | the German B2B network, shrinking, still strong among 45+ Handwerk owners | as 1–2 | same opt-in logic as LinkedIn |
+| 4 | **Meta ads (Facebook / Instagram)** | small Handwerk firms are more present here than on LinkedIn — company pages, local groups | feed/story ad → open form | needs `/anmelden` |
+| 5 | **Trade press and association newsletters** — Deutsches Handwerksblatt, Bauhandwerk, BM, Fachverbände, Handwerkskammer newsletters | our segment, by trade; the publisher holds the double-opt-in | sponsored placement → open form | |
+| 6 | **Vergabeportale** (DTVP, evergabe, subreport, ibau) | contractors *while* they look for tenders | partner listing / advertising → open form | the most on-target audience there is |
+| 7 | **Handwerkskammern / Innungen** | every target-list firm is a member of one | a mention in a Kammer newsletter or at an Innung meeting | free, trusted; a person's call, not a tool's |
+| 8 | **Phone** | firms that demonstrably bid | „ich schicke Ihnen den Link" | the mutmaßliche-Einwilligung tier of §2.1 above |
+
+**Open:** which of 1–3 starts, and therefore whether the first build is
+`--channel` on the `invited` event (named firms, `/t/` links) or the open
+`/anmelden` form (strangers). Everything else in ONBOARDING.md §9 —
+report by e-mail, trial clock, the ask, `/y/`, results notes — is
+channel-independent and stands.
+
 ## Pricing
 
 **One flat price for everyone, anchored at 1% of a median deal per year**

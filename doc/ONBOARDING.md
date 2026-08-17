@@ -512,7 +512,7 @@ one is ~November for an August trial. Event `results`.
 | --- | --- | --- | --- |
 | 1 | `invite.py add`, `reissue`, `objection`; the `invited` event | a real firm on the live QR page | small |
 | 2 | footer + report by e-mail (9.3–9.4), compose env line | the launch gate: nothing may be sent before Abbestellen works | medium |
-| 3 | `invite.py letter`, `batch`, QR | posting a batch (after decision #1) | medium |
+| 3 | ~~`invite.py letter`, `batch`, QR~~ **void — no letters (operator, 2026-08-17; GO_TO_MARKET.md „Channel decision, revised")** | — | — |
 | 4 | trial clock, ask, `/y/` (9.5) | trial → paid | medium |
 | 5 | `invite.py report` | reading conversion | small |
 | 6 | Stripe URL | first payment; waits on the price | tiny |
