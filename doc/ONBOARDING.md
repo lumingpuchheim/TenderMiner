@@ -410,7 +410,12 @@ Alias merging (decision #5) stays manual: `add --also-name "<spelling>"`
 appends to `award_names`; nothing merges by similarity.
 
 **Built 2026-08-17: `add`, `reissue`, `objection`** ([`invite.py`](../invite.py),
-`tests/test_invite.py`). Two things settled in the building: the draft's
+`tests/test_invite.py`). **Nothing manual, nothing to copy**: `add` does not
+read `targets.csv` — `outreach.firm(data_dir, company)` computes the row from
+the awards and tenders store, the sidecar index for the contract-notice refs,
+and the firm's own award notices (`source_file`) for the contact; two seconds
+per firm on the server's `/data`. The row equals the CSV's row for the same
+firm (checked: regions, six refs, city). Two things settled in the building: the draft's
 knobs copy the live customers (`cpv_prefixes ['45']`, gate at 0.7,
 `max_picks 5`) rather than the row's CPV3 codes — buyers enter CPV wrongly and
 the gate reads the text, so the market filter stays wide and the gate narrows;

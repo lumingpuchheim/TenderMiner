@@ -85,17 +85,118 @@ def win_history(store_dir):
     return pd.DataFrame(rows)
 
 
-def contacts_from_xml(xml_dir, company_names):
+class OutreachError(ValueError):
+    """A firm that cannot be named with confidence."""
+
+
+def winner_rows(store_dir):
+    """One row per (award, winner name) — the awards store exploded on
+    `winner_names`, `company` = the exact stripped spelling. Cheap: no
+    iterrows, no tenders join; `win_history` is the heavy sibling for the
+    whole list, this is for one firm."""
+    awards = pd.read_parquet(
+        Path(store_dir) / 'awards.parquet',
+        columns=['procedure_id', 'lot_id', 'publication_number',
+                 'publication_date', 'buyer_nuts', 'n_tenders',
+                 'winner_names', 'winner_size', 'source_file'])
+    ex = awards.explode('winner_names').dropna(subset=['winner_names'])
+    ex = ex.assign(company=ex['winner_names'].astype(str).str.strip())
+    return ex[ex['company'] != '']
+
+
+def match_name(names, company):
+    """The one winner spelling meant by `company`: exact, else a unique
+    case-insensitive match. Anything else raises and names the spellings
+    that contain the text — a guess here would invite the wrong firm."""
+    if company in names:
+        return company
+    loose = [n for n in names if n.casefold() == company.casefold()]
+    if len(loose) == 1:
+        return loose[0]
+    part = [n for n in names if company.casefold() in n.casefold()]
+    if not part:
+        raise OutreachError(f'{company!r} is not a winner name in the '
+                            f'awards store')
+    shown = ', '.join(repr(n) for n in part[:6])
+    raise OutreachError(f'{company!r} is not an exact winner spelling; '
+                        f'{len(part)} name(s) contain it — use the exact '
+                        f'one: {shown}')
+
+
+def sidecar_index(data_dir):
+    """The embedding sidecar's index rows without the matrix — enough for
+    `contract_refs`, and 500 MB lighter than `load_sidecar`."""
+    from embed import sidecar_dir
+    idx = sidecar_dir(data_dir) / 'lots_index.jsonl'
+    if not idx.exists():
+        return []
+    with open(idx, encoding='utf-8') as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def contact_of(data_dir, name, source_files):
+    """One firm's contact details, read from its OWN award notices — the
+    files the awards store names in `source_file`. A handful of files, so
+    no cache and no full scan; the winner block in an award notice carries
+    the firm's address as the buyer published it."""
+    xml_dir = Path(data_dir) / 'raw' / 'xml'
+    files = sorted({xml_dir / f for f in source_files if f})
+    files = [f for f in files if f.exists()]
+    found = contacts_from_xml(xml_dir, {name}, files=files) if files else {}
+    return found.get(name) or {f: None for f in CONTACT_FIELDS}
+
+
+def firm(data_dir, company):
+    """One target-list row for one firm, computed from the store — the same
+    fields `build` writes to targets.csv, without the file. Raises
+    OutreachError when the name is not an exact winner spelling."""
+    store = Path(data_dir) / 'store'
+    ex = winner_rows(store)
+    name = match_name(sorted(set(ex['company'])), company)
+    g = ex[ex['company'] == name]
+    tenders = pd.read_parquet(store / 'tenders.parquet',
+                              columns=['procedure_id', 'lot_id', 'place_nuts3'])
+    place = (tenders.dropna(subset=['place_nuts3'])
+             .drop_duplicates(['procedure_id', 'lot_id'])
+             .set_index(['procedure_id', 'lot_id'])['place_nuts3'])
+    regions = set()
+    for pid, lid, bn in zip(g['procedure_id'], g['lot_id'], g['buyer_nuts']):
+        nuts = place.get((pid, lid))
+        if nuts is None or pd.isna(nuts):
+            nuts = bn if pd.notna(bn) else None
+        if nuts:
+            regions.add(str(nuts)[:3])
+    sizes = g['winner_size'].dropna()
+    refs = refs_for(g, contract_refs(sidecar_index(data_dir)))
+    row = {
+        'company': name,
+        'size': sizes.mode().iloc[0] if len(sizes) else 'unknown',
+        'wins': int(len(g)),
+        'single_bid_wins': int((g['n_tenders'] <= 1).sum()),
+        'regions': sorted(regions),
+        'last_win': str(g['publication_date'].max())[:10],
+        'profile_refs': refs,
+        'profile_refs_n': len(refs),
+    }
+    row.update(contact_of(data_dir, name, g['source_file']))
+    return row
+
+
+def contacts_from_xml(xml_dir, company_names, files=None):
     """company name -> most frequent contact details across award notices.
 
     Only award notices (the ones with a NoticeResult block) list winner
     organisations; a cheap substring test skips the rest before parsing.
     The most frequent non-null value wins per field — a firm's e-mail is
     stable across its notices, a sender's typo is not.
+
+    `files`: scan only these (paths), instead of every XML in the directory
+    — what `firm` passes: the firm's own award notices, from `source_file`.
     """
     counters = collections.defaultdict(
         lambda: {f: collections.Counter() for f in CONTACT_FIELDS})
-    files = glob.glob(str(Path(xml_dir) / '*.xml'))
+    files = ([str(f) for f in files] if files is not None
+             else glob.glob(str(Path(xml_dir) / '*.xml')))
     parsed = 0
     for i, path in enumerate(files):
         text = Path(path).read_text(encoding='utf-8', errors='ignore')
@@ -126,8 +227,10 @@ def contacts_from_xml(xml_dir, company_names):
             print(f'[outreach] scanned {i + 1}/{len(files)} files '
                   f'({parsed} award notices, {len(counters)} firms with contact)',
                   flush=True)
-    print(f'[outreach] scanned {len(files)} files, {parsed} award notices, '
-          f'{len(counters)} firms with contact details', flush=True)
+    if len(files) >= 5000:
+        print(f'[outreach] scanned {len(files)} files, {parsed} award '
+              f'notices, {len(counters)} firms with contact details',
+              flush=True)
     return {name: {f: (c[f].most_common(1)[0][0] if c[f] else None)
                    for f in CONTACT_FIELDS}
             for name, c in counters.items()}

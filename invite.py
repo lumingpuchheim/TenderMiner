@@ -7,8 +7,10 @@ only through subscriptions.py, tokens.py and ledger.py (CLAUDE.md).
     python invite.py reissue jens-dunkel-glas-und-bauelemente-gmbh
     python invite.py objection "Jens Dunkel Glas- und Bauelemente GmbH"
 
-`add` reads the firm's row from `<data>/outreach/targets.csv` (outreach.py's
-output), writes the customer row (name, the exact winner spelling as
+`add` computes the firm's row from the store itself — `outreach.firm`: the
+awards and tenders parquet, the embedding sidecar for the contract-notice
+refs, the firm's own award notices for its contact details. No
+file to prepare, nothing to copy to the server. It writes the customer row (name, the exact winner spelling as
 award_names, the postal contact as contact_note), appends subscription
 version 1 with `active: false` — the DRAFT the app's signup handler
 pre-flights and activates — mints one `t` token and prints the QR URL. The
@@ -26,13 +28,11 @@ reads the lot text; `nuts_prefixes` come from the firm's won regions.
 """
 
 import argparse
-import csv
 import os
 import re
 import sys
 import unicodedata
 from datetime import datetime, timezone
-from pathlib import Path
 
 import config
 import ledger
@@ -41,7 +41,6 @@ import tokens
 
 APP_URL_ENV = 'TM_APP_URL'
 DEFAULT_APP_URL = 'https://app.murara.eu'
-TARGETS = Path('outreach') / 'targets.csv'
 MIN_REFS = 2
 
 # The draft version's knobs, copied from the live customers (2026-08-17).
@@ -77,38 +76,16 @@ def app_url(base=None):
     return (base or os.environ.get(APP_URL_ENV) or DEFAULT_APP_URL).rstrip('/')
 
 
-# ------------------------------------------------------------- the target list
+# ------------------------------------------------------------- the target row
 
-def load_targets(data_dir):
-    path = Path(data_dir) / TARGETS
-    if not path.exists():
-        raise InviteError(f'{path} not found — run outreach.py first')
-    with path.open(encoding='utf-8-sig', newline='') as f:
-        return list(csv.DictReader(f))
-
-
-def find_target(rows, company):
-    """The one row for `company`: exact winner spelling first, then a unique
-    case-insensitive match. Anything ambiguous names the candidates."""
-    exact = [r for r in rows if r.get('company') == company]
-    if len(exact) == 1:
-        return exact[0]
-    loose = [r for r in rows
-             if (r.get('company') or '').casefold() == company.casefold()]
-    if len(loose) == 1:
-        return loose[0]
-    part = [r for r in rows
-            if company.casefold() in (r.get('company') or '').casefold()]
-    if not part:
-        raise InviteError(f'{company!r} is not on the target list')
-    names = ', '.join(repr(r['company']) for r in part[:6])
-    raise InviteError(f'{company!r} is not an exact target-list spelling; '
-                      f'{len(part)} row(s) contain it — use the exact one: '
-                      f'{names}')
-
-
-def _split(cell):
-    return [x for x in (cell or '').split(';') if x]
+def target_row(data_dir, company):
+    """outreach.firm, with its refusal re-raised as ours. Imported lazily:
+    the store libraries are heavy and `objection` never needs them."""
+    import outreach
+    try:
+        return outreach.firm(data_dir, company)
+    except outreach.OutreachError as e:
+        raise InviteError(str(e)) from None
 
 
 # ------------------------------------------------------------ what exists now
@@ -146,12 +123,12 @@ def add(data_dir, company, *, sub_id=None, also_names=(), batch=None,
         base_url=None, now=None):
     """-> (sub_id, url). Raises InviteError rather than writing a half
     invitation; every check runs before the first write."""
-    row = find_target(load_targets(data_dir), company)
+    row = target_row(data_dir, company)
     name = row['company']
     sub_id = sub_id or slug(name)
     names = [name] + [n for n in also_names if n and n != name]
 
-    refs = _split(row.get('profile_refs'))
+    refs = list(row.get('profile_refs') or [])
     if len(refs) < MIN_REFS:
         raise InviteError(f'{name!r} has {len(refs)} usable profile ref(s); '
                           f'{MIN_REFS} are the minimum for a profile '
@@ -177,7 +154,7 @@ def add(data_dir, company, *, sub_id=None, also_names=(), batch=None,
     subscriptions.append_version(data_dir, {
         'sub_id': sub_id, 'version': 1, 'active': False,
         'name': name, 'award_names': names,
-        'nuts_prefixes': _split(row.get('regions')) or None,
+        'nuts_prefixes': list(row.get('regions') or []) or None,
         'profile_refs': refs,
         **DRAFT_KNOBS})
     value = tokens.mint(data_dir, 't', sub_id, now=now)

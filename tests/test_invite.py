@@ -1,6 +1,7 @@
 """invite.py — doc/ONBOARDING.md 9.2. Own temp directory, own target list,
-no real data; the app is driven through its WSGI callable to prove the URL
+no real data — a miniature store is written per test; the app is driven through its WSGI callable to prove the URL
 `add` prints is a working signup page."""
+import json
 import sys
 import tempfile
 import unittest
@@ -14,22 +15,60 @@ import subscriptions                                            # noqa: E402
 import tokens                                                   # noqa: E402
 from tests.test_app import request                              # noqa: E402
 
-HEADER = ('company,size,wins,single_bid_wins,trades,regions,last_win,'
-          'profile_refs,profile_refs_n,email,phone,city,postal_zone,website,'
-          'sim_picks,trade_read,trade_read3,trade_match\n')
-ROWS = [
-    'Jens Dunkel Glas- und Bauelemente GmbH,small,4,1,454;452,DE7;DEA,'
-    '2026-05-04,00134047-2026;00022597-2026,2,info@dunkel.biz,,Burg,39288,'
-    ',9,,454,True\n',
-    'Müller Elektro GmbH,micro,2,0,453,DE1,2026-01-01,00000001-2026,1,'
-    ',,Ulm,89073,,3,,453,True\n',
-    'Beispiel Bau GmbH,small,3,0,452,DE2,2026-02-02,'
-    '00000002-2026;00000003-2026;00000004-2026,3,,,Rosenheim,83022,,4,,452,'
-    'True\n',
-    'Beispiel Bau GmbH & Co. KG,small,2,0,452,DE2,2026-03-03,'
-    '00000005-2026;00000006-2026,2,,,Rosenheim,83022,,4,,452,True\n',
-]
 DUNKEL = 'Jens Dunkel Glas- und Bauelemente GmbH'
+
+# The store, in miniature: four winner spellings, one of them with too few
+# contract-notice refs, two that share a prefix. Same shape as the real
+# parquet files and sidecar index; contact details in one award-notice XML.
+AWARDS = [
+    # company, procedure, lot, award pub, date, buyer_nuts, n_tenders, size
+    (DUNKEL, 'p1', 'LOT-0001', '00900001-2026', '2026-05-04', 'DE7', 1.0, 'small'),
+    (DUNKEL, 'p2', 'LOT-0001', '00900002-2026', '2026-03-01', 'DEA1', 4.0, 'small'),
+    (DUNKEL, 'p3', 'LOT-0002', '00900003-2025', '2025-11-11', 'DEA2', 3.0, 'small'),
+    ('Müller Elektro GmbH', 'p4', 'LOT-0001', '00900004-2026', '2026-01-01', 'DE1', 2.0, 'micro'),
+    ('Beispiel Bau GmbH', 'p5', 'LOT-0001', '00900005-2026', '2026-02-02', 'DE2', 5.0, 'small'),
+    ('Beispiel Bau GmbH', 'p6', 'LOT-0001', '00900006-2026', '2026-02-03', 'DE2', 5.0, 'small'),
+    ('Beispiel Bau GmbH & Co. KG', 'p7', 'LOT-0001', '00900007-2026', '2026-03-03', 'DE2', 2.0, 'small'),
+    ('Beispiel Bau GmbH & Co. KG', 'p8', 'LOT-0001', '00900008-2026', '2026-03-04', 'DE2', 2.0, 'small'),
+]
+# contract notices behind the wins (the sidecar index); p3 has none
+SIDECAR = {'p1': '00134047-2026', 'p2': '00022597-2026', 'p4': '00000001-2026',
+           'p5': '00000002-2026', 'p6': '00000003-2026', 'p7': '00000005-2026',
+           'p8': '00000006-2026'}
+XML = """<Notice><NoticeResult/><UBLExtensions><UBLExtension><ExtensionContent>
+<EformsExtension><Organizations><Organization><Company>
+<PartyName><Name>{name}</Name></PartyName>
+<PostalAddress><CityName>Burg</CityName><PostalZone>39288</PostalZone></PostalAddress>
+<Contact><ElectronicMail>info@dunkel.biz</ElectronicMail></Contact>
+</Company></Organization></Organizations></EformsExtension>
+</ExtensionContent></UBLExtension></UBLExtensions></Notice>"""
+
+
+def write_store(d):
+    import pandas as pd
+    import embed
+    (d / 'store').mkdir()
+    pd.DataFrame([{
+        'procedure_id': p, 'lot_id': l, 'publication_number': pub,
+        'publication_date': date, 'buyer_nuts': nuts, 'n_tenders': n,
+        'winner_names': [c], 'winner_size': size,
+        'source_file': 'a.xml' if c == DUNKEL else 'missing.xml'}
+        for c, p, l, pub, date, nuts, n, size in AWARDS]
+    ).to_parquet(d / 'store' / 'awards.parquet')
+    pd.DataFrame([{'procedure_id': p, 'lot_id': 'LOT-0001',
+                   'place_nuts3': 'DEA23' if p == 'p2' else None}
+                  for p in SIDECAR]).to_parquet(d / 'store' / 'tenders.parquet')
+    sd = embed.sidecar_dir(d)
+    sd.mkdir(parents=True)
+    with open(sd / 'lots_index.jsonl', 'w', encoding='utf-8') as f:
+        for p, pub in SIDECAR.items():
+            f.write(json.dumps({'procedure_id': p, 'lot_id': 'LOT-0001',
+                                'publication_number': pub}) + '\n')
+    (d / 'raw' / 'xml').mkdir(parents=True)
+    (d / 'raw' / 'xml' / 'a.xml').write_text(XML.format(name=DUNKEL),
+                                             encoding='utf-8')
+
+
 
 
 class Base(unittest.TestCase):
@@ -39,9 +78,7 @@ class Base(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         import gc
         self.addCleanup(gc.collect)
-        (self.dir / 'outreach').mkdir()
-        (self.dir / 'outreach' / 'targets.csv').write_text(
-            HEADER + ''.join(ROWS), encoding='utf-8-sig')
+        write_store(self.dir)
 
     def events(self, kind=None):
         rows = ledger.read(self.dir, 'app_events')
@@ -75,6 +112,7 @@ class Add(Base):
         self.assertEqual(draft['award_names'], [DUNKEL])
         self.assertEqual(draft['profile_refs'],
                          ['00134047-2026', '00022597-2026'])
+        # DE7 from the buyer, DEA from the lot's place (p2) and the buyer (p3)
         self.assertEqual(draft['nuts_prefixes'], ['DE7', 'DEA'])
         self.assertEqual(draft['cpv_prefixes'], ['45'])
         self.assertEqual(draft['min_relevance'], 0.7)
@@ -123,7 +161,7 @@ class Add(Base):
     def test_ambiguous_name_names_the_candidates(self):
         with self.assertRaises(invite.InviteError) as cm:
             invite.add(self.dir, 'Beispiel Bau')
-        self.assertIn('2 row(s) contain it', str(cm.exception))
+        self.assertIn('2 name(s) contain it', str(cm.exception))
         with self.assertRaises(invite.InviteError):
             invite.add(self.dir, 'Nicht Da GmbH')
 
