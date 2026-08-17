@@ -313,7 +313,11 @@ def build_features(df, roles, list_frame=None, multihot=None, feature_build='def
         elif role == 'date':
             if col == 'publication_date':
                 continue  # the reference point, not a feature
-            X[f'span__{col}'] = (pd.to_datetime(s) - pd.to_datetime(df['publication_date'])).dt.days
+            # errors='coerce': a buyer's typo (a deadline in the year 3032,
+            # 2026-08-17) is NaN, not a failed Monday — the model handles
+            # missing values, and one lot's bad date must never stop delivery
+            X[f'span__{col}'] = (pd.to_datetime(s, errors='coerce')
+                                 - pd.to_datetime(df['publication_date'], errors='coerce')).dt.days
             nums.append(f'span__{col}')
         else:
             excl.append((col, role or 'MISSING'))

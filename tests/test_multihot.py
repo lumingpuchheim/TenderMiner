@@ -177,5 +177,21 @@ class TrainsAndScores(unittest.TestCase):
         self.assertTrue(((p >= 0) & (p <= 1)).all())
 
 
+class DateSpans(unittest.TestCase):
+    def test_a_buyers_impossible_date_is_missing_not_a_failed_cycle(self):
+        """2026-08-17: one notice carried a deadline in the year 3032 and the
+        Monday cycle died in build_features on it — no delivery. A date pandas
+        cannot hold is NaN in the span feature; the lot still scores."""
+        rng = np.random.default_rng(3)
+        t = frame(60, rng)
+        t['deadline_date'] = '2026-02-01'
+        t.loc[5, 'deadline_date'] = '3032-06-30'
+        roles = dict(ROLES, deadline_date='date')
+        X, cats, nums, _ = sb.build_features(t, roles, list_frame=t)
+        self.assertIn('span__deadline_date', nums)
+        self.assertTrue(np.isnan(X['span__deadline_date'].iloc[5]))
+        self.assertEqual(X['span__deadline_date'].iloc[0], 31)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -78,7 +78,7 @@ RUN useradd --create-home --uid 1000 tm \
 # The exec bit is set here rather than relied on from the build context: the
 # checkout is on Windows, which does not carry one.
 RUN install -m 0644 -o root -g root /app/docker/crontab /etc/cron.d/tendermining \
- && chmod 0755 /app/docker/weekly.sh /app/docker/nightly.sh
+ && chmod 0755 /app/docker/weekly.sh /app/docker/nightly.sh /app/docker/backplay.sh
 
 USER tm
 
