@@ -220,8 +220,17 @@ def feedback_cell(r, feedback_link):
         return ''
     yes = feedback_link(r['procedure_id'], r['lot_id'], 'ist unser Geschäft')
     no = feedback_link(r['procedure_id'], r['lot_id'], 'nicht unser Geschäft')
-    return (f'<td class="fb"><a href="{escape(yes)}">ist unser Geschäft</a>'
-            f'<br><a href="{escape(no)}">nicht unser Geschäft</a></td>')
+    # two separate buttons, not two lines of text: a reader must never take
+    # them for one sentence (operator, 2026-08-17). Inline styles because
+    # mail clients drop <style>.
+    box = ('display:inline-block;padding:3px 10px;margin:3px 0;'
+           'border-radius:4px;white-space:nowrap;text-decoration:none;'
+           'font-size:90%;')
+    return (f'<td class="fb">'
+            f'<a href="{escape(yes)}" style="{box}border:1px solid #2a7;'
+            f'color:#2a7">✔ Ja, unser Geschäft</a><br>'
+            f'<a href="{escape(no)}" style="{box}border:1px solid #c44;'
+            f'color:#c44">✘ Nein, nicht unser Geschäft</a></td>')
 
 
 def customer_report(sub, sel, *, today, profile, receipts,
@@ -318,7 +327,7 @@ def customer_report(sub, sel, *, today, profile, receipts,
         headers.append('warum wir wenige Bieter erwarten')
         headers.append('Zuschlag')
         if feedback_link is not None:
-            headers.append('Ihre Rückmeldung')
+            headers.append('Passt das zu Ihnen?')
         body += [table_html(headers, pick_trs)]
     if receipts:
         body += ['<h2>Ihre Empfehlungen im Rückblick</h2>', receipts]

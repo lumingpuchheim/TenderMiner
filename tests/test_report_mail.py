@@ -89,8 +89,8 @@ class Report(Base):
                             feedback_link=link, footer_html=footer_html)
         self.assertIn('100 % Preis', page)
         self.assertIn('Preis 70 / Qualität 30', page)
-        self.assertEqual(page.count('ist unser Geschäft'), 2)
-        self.assertEqual(page.count('nicht unser Geschäft'), 2)
+        self.assertEqual(page.count('Ja, unser Geschäft'), 2)
+        self.assertEqual(page.count('Nein, nicht unser Geschäft'), 2)
         self.assertIn('Abbestellen', page)
         self.assertNotIn('TenderMining', page)
         # an f link resolves to its lot and verdict, and works in the app
