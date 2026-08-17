@@ -127,7 +127,21 @@ def _hier_levels(col):
     return None
 
 
-MULTIHOT_MIN_SUPPORT = 30  # a code needs this many distinct lots to get its own 0/1 column
+# Multi-hot support (TRAINING.md "List columns are multi-hot", scaled
+# 2026-08-17): a value gets its own 0/1 column when at least MULTIHOT_MIN_SHARE
+# of the distinct lots in the training frame carry it — a SHARE, so the rule
+# follows the store instead of decaying into a formality as it grows (the
+# operator: "today is good enough is a time bomb"). MULTIHOT_MIN_SUPPORT is
+# the FLOOR under that share: the statistical minimum below which a column
+# is noise whatever the store size. It stops mattering past ~20,000 lots.
+MULTIHOT_MIN_SHARE = 0.0015    # 0.15 %: 30 of today's ~20,000 lots — the first day changes nothing
+MULTIHOT_MIN_SUPPORT = 30      # the floor, in lots
+# The feature build the cycle runs (FEATURE_BUILDS below). 'default': list
+# columns multi-hot, single-valued categoricals one-hot under the 1024 cap.
+# 'multihot': EVERY categorical column multi-hot — no cap anywhere, the
+# encoding an all-trades store needs (TRAINING.md, 2026-08-17). A knob: the
+# replay measures it under the lever, an arm confirms it forward.
+FEATURE_BUILD = 'default'
 # The flagging cut-off: score >= THRESHOLD is "low competition expected". The
 # cycle's `--threshold` defaults to this; the replay reads it here too — one
 # value, so the queue's lever (below) reaches both.
@@ -149,7 +163,21 @@ if _OVERRIDDEN:
 # named way. `cpv_additional_combination`: the additional-CPV codes stay one
 # combination string per level (the pre-2026-08-16 encoding, the "target
 # statistics" arm) while every other list column is multi-hot as in `default`.
-FEATURE_BUILDS = ('default', 'cpv_additional_combination')
+# `multihot`: every categorical column — list or single-valued, categorical,
+# hierarchical (cpv_main at cpv3/4/6/8) or bool — becomes 0/1 columns for the
+# values with support, plus n_rare and n; no CatBoost categorical feature is
+# left, so `assert_pure_one_hot` has nothing to refuse and ONE_HOT_MAX_SIZE
+# is not a wall (1,323 cpv4 classes across all trades would breach it).
+FEATURE_BUILDS = ('default', 'cpv_additional_combination', 'multihot')
+
+
+def effective_support(n_lots, share=None, floor=None):
+    """The support in lots for a frame of `n_lots` distinct lots:
+    max(floor, ceil(share * n_lots)). Both default to the module's values, so
+    an override of either reaches here."""
+    share = MULTIHOT_MIN_SHARE if share is None else share
+    floor = MULTIHOT_MIN_SUPPORT if floor is None else floor
+    return int(max(int(floor), int(np.ceil(share * int(n_lots)))))
 
 
 def _check_build(feature_build):
@@ -163,7 +191,7 @@ def _is_list_col(frame, col):
         lambda v: isinstance(v, (list, np.ndarray))).any()
 
 
-def _multihot_levels(roles, frame, feature_build='default'):
+def _multihot_levels(roles, frame, feature_build=None):
     """The columns encoded multi-hot and their levels: every LIST column whose
     role is categorical (one level, the full value) or hierarchical with a
     known scheme (one level per truncation depth). A list never becomes a
@@ -171,9 +199,17 @@ def _multihot_levels(roles, frame, feature_build='default'):
     additional CPV codes made 5,325 — the combinations are what outgrew the
     one-hot cap, the values themselves never do. Non-list columns are
     untouched: one value per row is one-hot safe as it is."""
+    feature_build = FEATURE_BUILD if feature_build is None else feature_build
     _check_build(feature_build)
     out = {}
     for col, role in roles.items():
+        if feature_build == 'multihot':
+            # every categorical column, whatever its shape (TRAINING.md)
+            if role in ('categorical', 'bool'):
+                out[col] = [(None, None)]
+            elif role == 'hierarchical' and _hier_levels(col) is not None:
+                out[col] = _hier_levels(col)
+            continue
         if not _is_list_col(frame, col):
             continue
         if feature_build == 'cpv_additional_combination' and col == 'cpv_additional':
@@ -198,7 +234,7 @@ def _colname(col, lname, tail):
     return f'{col}__{lname}__{tail}' if lname is not None else f'{col}__{tail}'
 
 
-def fit_multihot(frame, roles, min_support=MULTIHOT_MIN_SUPPORT, feature_build='default'):
+def fit_multihot(frame, roles, min_support=None, feature_build=None):
     """The multi-hot vocabulary: per list column and level, the values present
     in at least `min_support` distinct lots of `frame`, sorted.
 
@@ -212,8 +248,13 @@ def fit_multihot(frame, roles, min_support=MULTIHOT_MIN_SUPPORT, feature_build='
     same columns weeks later, whatever the archive has grown to since.
     Flat categorical lists use the level key '*'.
     """
+    feature_build = FEATURE_BUILD if feature_build is None else feature_build
     vocab = {}
     lots = frame.drop_duplicates(subset=KEY) if all(k in frame.columns for k in KEY) else frame
+    # the support is a SHARE of the lots with a floor (effective_support);
+    # `min_support` given explicitly wins — a stored champion's own number
+    if min_support is None:
+        min_support = effective_support(len(lots))
     for col, levels in _multihot_levels(roles, frame, feature_build).items():
         vocab[col] = {}
         for lname, n in levels:
@@ -223,8 +264,8 @@ def fit_multihot(frame, roles, min_support=MULTIHOT_MIN_SUPPORT, feature_build='
                     counts[code] = counts.get(code, 0) + 1
             vocab[col][_level_key(lname)] = sorted(
                 c for c, k in counts.items() if k >= min_support)
-    return {'min_support': int(min_support), 'vocab': vocab,
-            'feature_build': feature_build}
+    return {'min_support': int(min_support), 'min_share': MULTIHOT_MIN_SHARE,
+            'n_lots': int(len(lots)), 'vocab': vocab, 'feature_build': feature_build}
 
 
 def _apply_multihot(df, col, levels, vocab):
@@ -248,7 +289,7 @@ def _apply_multihot(df, col, levels, vocab):
     return pd.DataFrame(block, index=df.index, dtype='int64')
 
 
-def build_features(df, roles, list_frame=None, multihot=None, feature_build='default'):
+def build_features(df, roles, list_frame=None, multihot=None, feature_build=None):
     """Mechanical role-driven feature build (leakage rule 2).
 
     list_frame: frame used to detect list-typed columns (which are encoded
@@ -261,6 +302,7 @@ def build_features(df, roles, list_frame=None, multihot=None, feature_build='def
     feature_build: one of FEATURE_BUILDS; must match the vocabulary's.
     Returns (X, cat_cols, num_cols, excluded).
     """
+    feature_build = FEATURE_BUILD if feature_build is None else feature_build
     if list_frame is None:
         list_frame = df
     if multihot is None:

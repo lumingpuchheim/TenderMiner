@@ -229,9 +229,15 @@ KNOBS = (
          'without starving the picks?', metric='precision', harness='replay',
          note="the loop's --threshold default; grid capped at 0.65 because "
               'precision alone always votes higher (n flagged is in the line)'),
-    Knob('single_bidder.MULTIHOT_MIN_SUPPORT', 'competitiveness', 10, 60, 10,
-         'How many lots must carry a code before it gets its own column?',
-         metric='precision', harness='replay', note='new 2026-08-16, TRAINING.md'),
+    Knob('single_bidder.MULTIHOT_MIN_SHARE', 'competitiveness', 0.0005, 0.005, 0.0005,
+         'What share of the lots must carry a value before it gets its own column?',
+         metric='precision', harness='replay',
+         note='a share so it follows the store (2026-08-17); MULTIHOT_MIN_SUPPORT is the floor'),
+    Knob('single_bidder.FEATURE_BUILD', 'competitiveness', 'default', 'multihot', 1,
+         'Does the all-multi-hot build (no categorical column, no cardinality wall) '
+         "cost precision against today's build?", metric='precision', harness='replay',
+         note='TRAINING.md 2026-08-17; the encoding an all-trades store needs',
+         values=('default', 'multihot')),
 )
 
 

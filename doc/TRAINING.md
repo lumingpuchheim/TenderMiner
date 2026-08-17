@@ -104,6 +104,39 @@ features, of which 239 multi-hot; largest remaining categorical
 `place_nuts3__nuts3` 367 (523 for `cpv_main__cpv8` on all tenders) — scalar codes with
 a bounded range. All four trust checks pass; tests in `tests/test_multihot.py`.
 
+### Every categorical column multi-hot — the `multihot` build, and support as a share (2026-08-17)
+
+The section above left the single-valued categoricals one-hot under
+`ONE_HOT_MAX_SIZE = 1024`. That is a wall, and the operator's plan is a store
+beyond construction: the CPV vocabulary is 9,456 codes — 47 divisions, 319
+groups, **1,323 classes at cpv4**, and `cpv_main` is expanded to cpv8 — so an
+all-trades store breaches the cap on `cpv_main__cpv4` alone and the guard
+would refuse every candidate again. The cap is not on tenders, it is on
+distinct values; more tenders of the same kinds never hit it, more kinds do.
+
+**`feature_build='multihot'`** (`single_bidder.FEATURE_BUILDS`): every
+categorical column — list or single-valued; `categorical`, `hierarchical`
+(`cpv_main` at cpv3/4/6/8) and `bool` — is encoded as the list columns already
+are: `<col>__[level__]has_<value>` for every value with support, `…__n_rare`,
+`…__n`. **No CatBoost categorical feature is left**, so `assert_pure_one_hot`
+has nothing to refuse and there is no cardinality wall anywhere. An open lot
+with a main code the vocabulary never saw lands in `cpv_main__cpv8__n_rare`
+and scores. The build is a knob (`single_bidder.FEATURE_BUILD`, on the queue,
+grid `default` / `multihot`); the replay measures it under the lever and an
+EXPERIMENTS.md arm confirms it forward before it becomes the default.
+
+**Support is a share, with a floor.** `MULTIHOT_MIN_SUPPORT = 30` was an
+absolute count — 0.15 % of today's ~20,000 lots, 0.0015 % of two million: it
+would have decayed into a formality as the store grew (operator: "today is
+good enough is a time bomb"). Now
+`support = max(MULTIHOT_MIN_SUPPORT, ceil(MULTIHOT_MIN_SHARE × n_lots))`,
+`MULTIHOT_MIN_SHARE = 0.0015` — the same 30 today, 3,000 at two million lots
+— and the floor is the statistical minimum below which a column is noise at
+any size; it stops mattering past ~20,000 lots. `fit_multihot` records
+`min_support`, `min_share` and `n_lots` in the vocabulary (`meta.json`), so
+every model states the number it actually used. The share is on the queue
+(grid 0.0005 … 0.005), the floor is FROZEN.
+
 ## CPV depth (decision 2026-08-06)
 
 `cpv_main` is expanded to its **full 8 digits**; `cpv_additional` stays at 4. The two

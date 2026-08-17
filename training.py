@@ -45,7 +45,7 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint, arm=None, plan=None
     with the arm's feature build, CatBoost overrides and guard exemptions,
     gated against the arm's own champion; the delivering arm's promotion also
     rewrites models/CURRENT. Without an arm it is exactly the single-arm cycle."""
-    feature_build = arm.feature_build if arm else 'default'
+    feature_build = arm.feature_build if arm else sb.FEATURE_BUILD
     exempt = arm.guard_exempt if arm else ()
     tag = f'[learn:{arm.id}]' if arm else '[learn]'
     # the multi-hot vocabulary is fitted once, on the full tenders frame, and

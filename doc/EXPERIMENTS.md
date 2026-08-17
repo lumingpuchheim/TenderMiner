@@ -251,6 +251,22 @@ top of `experiments.py` and are printed at the bottom of the page.
 
 ---
 
+## 2b. Overtaken before it opened — the `multihot` build (2026-08-17)
+
+The day before this trial's first Monday the operator ruled the one-hot
+encoding out on principle — "useless because I will have more and more
+tenders" — and TRAINING.md gained `feature_build='multihot'`: every
+categorical column multi-hot, no CatBoost categorical left, no cap to breach
+(the cap is on distinct values, and an all-trades store has 1,323 cpv4
+classes). That makes this trial's question — one hot vs CatBoost's target
+statistics for the additional codes — moot: multi-hot needs neither. What is
+worth a forward answer now is **`default` (one hot for the single-valued
+columns) vs `multihot`**, i.e. does removing the wall cost precision on real
+predictions. The replay measures it first (PARAMETERS.md §16 has the number);
+the arm is one line here (`Arm('mh', 'multi-hot', feature_build='multihot')`)
+once the operator says which trial runs, since only one runs at a time and
+this one opens on 2026-08-24 by itself unless changed.
+
 # Part II — the method, as general as Part I needs
 
 ## 7. Declaring an experiment

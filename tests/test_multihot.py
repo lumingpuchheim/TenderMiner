@@ -177,6 +177,62 @@ class TrainsAndScores(unittest.TestCase):
         self.assertTrue(((p >= 0) & (p <= 1)).all())
 
 
+class TheMultihotBuild(unittest.TestCase):
+    """TRAINING.md 2026-08-17: `feature_build='multihot'` — every categorical
+    column, single-valued or list, becomes 0/1 columns with support; no
+    CatBoost categorical is left, so no cardinality wall exists."""
+
+    def setUp(self):
+        self.rng = np.random.default_rng(11)
+        self.tenders = frame(400, self.rng)
+        self.tenders['is_framework'] = self.rng.choice([True, False, None], len(self.tenders))
+        self.roles = dict(ROLES, is_framework='bool')
+        self.mh = sb.fit_multihot(self.tenders, self.roles, feature_build='multihot')
+        self.X, self.cats, self.nums, _ = sb.build_features(
+            self.tenders, self.roles, list_frame=self.tenders, multihot=self.mh,
+            feature_build='multihot')
+
+    def test_no_categorical_column_is_left(self):
+        self.assertEqual(self.cats, [])
+        sb.assert_pure_one_hot(self.X, self.cats)          # vacuous, never refuses
+
+    def test_cpv_main_is_multi_hot_per_level_and_procedure_type_and_bool_too(self):
+        self.assertIn('cpv_main__cpv3__has_452', self.nums)
+        self.assertIn('cpv_main__cpv8__has_45210000', self.nums)
+        self.assertIn('cpv_main__cpv4__n', self.nums)
+        self.assertIn('procedure_type__has_open', self.nums)
+        self.assertIn('is_framework__has_True', self.nums)
+        self.assertNotIn('cpv_main__cpv4', self.X.columns)
+        n = self.X['cpv_main__cpv4__n']
+        self.assertTrue(set(n.unique()) <= {0, 1})           # one main code per lot
+
+    def test_the_default_build_is_unchanged(self):
+        X, cats, _, _ = sb.build_features(self.tenders, self.roles, list_frame=self.tenders)
+        self.assertIn('cpv_main__cpv4', cats)                 # still one-hot there
+        self.assertIn('procedure_type', cats)
+
+    def test_open_lots_with_an_unseen_main_code_get_the_same_columns(self):
+        open_t = frame(20, self.rng)
+        open_t.loc[0, 'cpv_main'] = '99999999'
+        open_t['is_framework'] = True
+        Xo, _, _, _ = sb.build_features(open_t, self.roles, list_frame=self.tenders,
+                                        multihot=self.mh, feature_build='multihot')
+        self.assertEqual(list(Xo.columns), list(self.X.columns))
+        self.assertEqual(int(Xo.loc[0, 'cpv_main__cpv8__n_rare']), 1)
+        model = sb.train(self.X, self.rng.integers(0, 2, len(self.X)), np.ones(len(self.X)),
+                         self.cats, iterations=10)
+        self.assertEqual(len(sb.predict(model, Xo)), 20)
+
+    def test_support_is_a_share_with_a_floor(self):
+        self.assertEqual(sb.effective_support(20000), 30)          # 0.15% of 20k = 30 = floor
+        self.assertEqual(sb.effective_support(2_000_000), 3000)     # follows the store
+        self.assertEqual(sb.effective_support(400), 30)             # the floor protects small frames
+        self.assertEqual(sb.effective_support(400, share=0.1), 40)
+        self.assertEqual(self.mh['min_support'], 30)
+        self.assertEqual(self.mh['min_share'], sb.MULTIHOT_MIN_SHARE)
+        self.assertEqual(self.mh['n_lots'], 400)
+
+
 class DateSpans(unittest.TestCase):
     def test_a_buyers_impossible_date_is_missing_not_a_failed_cycle(self):
         """2026-08-17: one notice carried a deadline in the year 3032 and the

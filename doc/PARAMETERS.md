@@ -126,8 +126,10 @@ change proposed.
 | `--min-val-lots` | 30 | C | FROZEN | no |
 | `--min-shuffle-positives` | 20 | C | FROZEN | no |
 | `--iterations` | None | O (testing) | — | no |
-| `ONE_HOT_MAX_SIZE` | 1024 | C | FROZEN | no |
-| `MULTIHOT_MIN_SUPPORT` | 30 | C | LIVE (new 2026-08-16) | no |
+| `ONE_HOT_MAX_SIZE` | 1024 | C | FROZEN — inert under `FEATURE_BUILD='multihot'` (no categorical column left) | no |
+| `MULTIHOT_MIN_SHARE` | 0.0015 | C | LIVE (2026-08-17, on the queue) | `meta.json` `multihot.min_share` |
+| `MULTIHOT_MIN_SUPPORT` | 30 | C | FROZEN — the floor under the share (2026-08-17) | `meta.json` `multihot.min_support` |
+| `FEATURE_BUILD` | `default` | C | LIVE (2026-08-17, on the queue: `default` / `multihot`) | `meta.json` `feature_build` |
 | `SEED` | 42 | C | FROZEN | no |
 | `LABEL_MAX_TENDERS` | 1 | C — *the label definition* | FROZEN | no (implicit in every grade) |
 | `TOO_GOOD_ROC` | 0.85 | M | FROZEN | no |
@@ -874,4 +876,34 @@ keeps the clock quiet — the ledger, not a person, says whether the rollback
 was needed. Deleting is still a commit (constant, register row); the clock
 only makes the day visible. First due dates: the rollback ladder 2026-11-04,
 `nomination_bar` 2026-11-05, `evidence_nomination_min` 2026-11-14.
+
+## 16. The all-multi-hot build and the support share — 2026-08-17
+
+Operator, on the one-hot cap: "one hot is useless because I will have more
+and more tenders", and on the absolute support count: "today is good enough
+is a time bomb". Both fixed in `single_bidder.py`, specified in TRAINING.md
+("Every categorical column multi-hot"): `feature_build='multihot'` — every
+categorical column encoded as the list columns are, no CatBoost categorical
+left, no cardinality wall; and `MULTIHOT_MIN_SHARE` — support as a share of
+the lots with `MULTIHOT_MIN_SUPPORT` as the floor. Two rows moved in §2.4;
+`FEATURE_BUILD` and `MULTIHOT_MIN_SHARE` are on the queue (competitiveness,
+replay harness), `MULTIHOT_MIN_SUPPORT` left it as the floor.
+
+**Replay receipt, laptop store, 2026-08-17** — `rewind_all.py --step 14`, 23
+cutoffs, each build under its own override, `backplay.replay_read`:
+
+| build | flagged & graded | precision at the cutoff | recall |
+| --- | --- | --- | --- |
+| `default` (one hot for single-valued columns) | 871 | 0.178 | 0.278 |
+| `multihot` (no categorical column) | 883 | 0.181 | 0.287 |
+
+Week by week the two track each other (e.g. 2026-03-20: 0.204 vs 0.194;
+2026-05-01: 0.279 vs 0.269; 2026-06-12: 0.296 vs 0.364); the rejector says
+*survives*. Removing the wall costs nothing measurable on the past.
+
+The build becomes the cycle's default the way any competitiveness value
+moves: the replay says it costs nothing (below), an EXPERIMENTS.md arm
+confirms it on real predictions, then `FEATURE_BUILD = 'multihot'` in one
+commit. The encoding trial already open (one hot vs target statistics) asks a
+question this build makes moot; see the note in EXPERIMENTS.md.
 
