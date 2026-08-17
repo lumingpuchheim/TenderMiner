@@ -159,6 +159,9 @@ services:
     environment:
       TM_DOMAIN: ${TM_DOMAIN:-}
       TM_WWW_DOMAIN: ${TM_WWW_DOMAIN:-}
+      # basic auth for /admin (doc/ADMIN.md 5)
+      TM_ADMIN_USER: ${TM_ADMIN_USER:-murara}
+      TM_ADMIN_HASH: ${TM_ADMIN_HASH:-}
     volumes:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data          # certificates survive the container
