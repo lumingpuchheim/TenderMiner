@@ -17,7 +17,7 @@ must say), `CLAUDE.md` (storage access rules — binding).
 | capability tokens are the auth | see §3; nothing else authenticates anything |
 | no confirmation steps | the customer is never asked to confirm what we can verify ourselves |
 | German-language customer text | every customer-facing string; sober tone, no marketing fluff on functional pages |
-| no admin UI | the back office is the console `report` subcommand and the review queue; the app serves customers only |
+| ~~no admin UI~~ **reopened 2026-08-17 (operator): one operator page `/admin` behind basic auth at the edge — [`ADMIN.md`](ADMIN.md)** | the console stays; the page is an interface over the same functions; customers never see it |
 
 ## 1. Shape
 
