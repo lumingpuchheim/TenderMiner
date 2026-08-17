@@ -42,7 +42,7 @@ class Footer(Base):
         html, headers = mailer.footer(self.dir, 'beck', base_url='https://a')
         self.assertIn('https://a/s/', html)
         self.assertIn('https://a/c/', html)
-        self.assertIn('Abbestellen', html)
+        self.assertIn('abbestellen', html)
         self.assertIn('Art. 21', html)
         stop = headers['List-Unsubscribe'].strip('<>')
         self.assertTrue(stop.startswith('https://a/s/'))
@@ -63,7 +63,7 @@ class Footer(Base):
                     headers=headers, transport=self.transport)
         self.assertEqual(self.sent[0]['headers']['List-Unsubscribe-Post'],
                          'List-Unsubscribe=One-Click')
-        self.assertIn('Abbestellen', self.sent[0]['html'])
+        self.assertIn('abbestellen', self.sent[0]['html'])
 
     def test_one_click_unsubscribe_is_the_hard_stop(self):
         subscriptions.customer_update(self.dir, 'beck', contact_email='b@b.de')
@@ -91,7 +91,7 @@ class Report(Base):
         self.assertIn('Preis 70 / Qualität 30', page)
         self.assertEqual(page.count('Ja, unser Geschäft'), 2)
         self.assertEqual(page.count('Nein, nicht unser Geschäft'), 2)
-        self.assertIn('Abbestellen', page)
+        self.assertIn('abbestellen', page)
         self.assertNotIn('TenderMining', page)
         # an f link resolves to its lot and verdict, and works in the app
         import re
@@ -119,7 +119,7 @@ class Report(Base):
         page, _ = report_of(SUB, sel_of(ranked=picks, picks=picks),
                             feedback_link=link, footer_html=footer_html)
         self.assertNotIn('unser Geschäft', page)
-        self.assertNotIn('Abbestellen', page)
+        self.assertNotIn('abbestellen', page)
 
     def test_send_report_goes_out_and_is_ledgered(self):
         subscriptions.customer_update(self.dir, SUB['sub_id'],

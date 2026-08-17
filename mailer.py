@@ -96,16 +96,28 @@ def footer(home, sub_id, base_url=None):
     stop = f'{base}/s/{tokens.standing(home, "s", sub_id)}'
     recall = f'{base}/c/{tokens.standing(home, "c", sub_id)}'
     e = _html.escape
+    # Two blocks, never one line (operator, 2026-08-17): the recall box is a
+    # SERVICE and belongs to the content; Abbestellen is the objection and
+    # belongs to the legal footer, "clearly separated from content"
+    # (doc/APP.md 8). Side by side they read as one row of small print.
     html = (
-        '<hr style="margin-top:2em;border:0;border-top:1px solid #ccc">'
-        '<p style="font-size:90%;color:#555">'
-        f'<a href="{e(stop)}">Abbestellen</a> · '
-        f'<a href="{e(recall)}">Haben wir eine Ausschreibung übersehen? '
-        'Hier prüfen lassen</a></p>'
-        '<p style="font-size:85%;color:#555">Sie können der Verarbeitung '
-        'Ihrer Daten für diese Berichte jederzeit widersprechen (Art. 21 '
-        'DSGVO) — über den Link „Abbestellen" oder formlos per Antwort auf '
-        'diese E-Mail. Der Widerspruch wirkt sofort und dauerhaft.</p>')
+        '<div style="margin-top:2em;padding:12px 14px;background:#f4f7fa;'
+        'border-left:3px solid #6b93c0">'
+        '<p style="margin:0;font-size:95%">'
+        '<b>Haben wir eine Ausschreibung übersehen?</b><br>'
+        'Wenn Sie eine Ausschreibung gefunden haben, die nicht in dieser '
+        'Liste stand: '
+        f'<a href="{e(recall)}">Nummer oder Link hier prüfen lassen</a> — '
+        'wir sagen Ihnen, wie wir sie einschätzen.</p></div>'
+        '<hr style="margin-top:2.5em;border:0;border-top:1px solid #ccc">'
+        '<p style="font-size:85%;color:#555;margin-bottom:.4em">'
+        f'<a href="{e(stop)}" style="color:#555">Berichte abbestellen</a>'
+        '</p>'
+        '<p style="font-size:85%;color:#555;margin-top:0">Sie können der '
+        'Verarbeitung Ihrer Daten für diese Berichte jederzeit widersprechen '
+        '(Art. 21 DSGVO) — über den Link „Berichte abbestellen" oder formlos '
+        'per Antwort auf diese E-Mail. Der Widerspruch wirkt sofort und '
+        'dauerhaft.</p>')
     headers = {'List-Unsubscribe': f'<{stop}>',
                'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'}
     return html, headers
