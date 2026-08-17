@@ -3,7 +3,7 @@
 doc/ONBOARDING.md 9.2. Console tool; prints, writes no report files. Storage
 only through subscriptions.py, tokens.py and ledger.py (CLAUDE.md).
 
-    python invite.py add "Jens Dunkel Glas- und Bauelemente GmbH"
+    python invite.py add "Jens Dunkel Glas- und Bauelemente GmbH" [--channel linkedin]
     python invite.py reissue jens-dunkel-glas-und-bauelemente-gmbh
     python invite.py objection "Jens Dunkel Glas- und Bauelemente GmbH"
 
@@ -113,10 +113,15 @@ def _resolve(data_dir, key):
 
 # ------------------------------------------------------------------- commands
 
+CHANNELS = ('linkedin', 'linkedin-ads', 'xing', 'phone', 'other')
+
+
 def add(data_dir, company, *, sub_id=None, also_names=(), batch=None,
-        base_url=None, now=None):
+        channel='linkedin', base_url=None, now=None):
     """-> (sub_id, url). Raises InviteError rather than writing a half
     invitation; every check runs before the first write."""
+    if channel not in CHANNELS:
+        raise InviteError(f'channel {channel!r} is not one of {CHANNELS}')
     row = target_row(data_dir, company)
     name = row['company']
     sub_id = sub_id or slug(name)
@@ -153,7 +158,8 @@ def add(data_dir, company, *, sub_id=None, also_names=(), batch=None,
         **DRAFT_KNOBS})
     value = tokens.mint(data_dir, 't', sub_id, now=now)
     _event(data_dir, 'invited', sub_id,
-           detail=f'batch={batch or "-"} token={tokens.short(value)}')
+           detail=f'channel={channel} batch={batch or "-"} '
+                  f'token={tokens.short(value)}')
     return sub_id, f'{app_url(base_url)}/t/{value}'
 
 
@@ -207,6 +213,9 @@ def main(argv=None):
     a.add_argument('--also-name', action='append', default=[],
                    help='another winner spelling that is this firm')
     a.add_argument('--batch', help='batch label, e.g. 2026-08-24-452')
+    a.add_argument('--channel', default='linkedin', choices=CHANNELS,
+                   help='how the URL travels (GO_TO_MARKET.md, channel '
+                        'decision revised 2026-08-17); default linkedin')
     r = sub.add_parser('reissue', help='revoke and mint a new QR URL')
     r.add_argument('key', help='sub_id or company')
     o = sub.add_parser('objection', help='Art. 21: hard stop, forever')
@@ -218,7 +227,7 @@ def main(argv=None):
         if args.cmd == 'add':
             sub_id, url = add(data_dir, args.company, sub_id=args.sub_id,
                               also_names=args.also_name, batch=args.batch,
-                              base_url=args.url)
+                              channel=args.channel, base_url=args.url)
             print(f'{sub_id}\n{url}')
         elif args.cmd == 'reissue':
             sub_id, url = reissue(data_dir, args.key, base_url=args.url)

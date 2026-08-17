@@ -121,6 +121,9 @@ class Add(Base):
         ev = self.events('invited')
         self.assertEqual(len(ev), 1)
         self.assertIn('batch=b1', ev[0]['detail'])
+        self.assertIn('channel=linkedin', ev[0]['detail'])
+        with self.assertRaises(invite.InviteError):
+            invite.add(self.dir, 'Beispiel Bau GmbH', channel='fax')
         # the token is logged short, never in full
         value = url.rsplit('/', 1)[1]
         self.assertNotIn(value, ev[0]['detail'])
