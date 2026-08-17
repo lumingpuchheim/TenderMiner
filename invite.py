@@ -28,7 +28,6 @@ reads the lot text; `nuts_prefixes` come from the firm's won regions.
 """
 
 import argparse
-import os
 import re
 import sys
 import unicodedata
@@ -38,9 +37,8 @@ import config
 import ledger
 import subscriptions
 import tokens
+from mailer import APP_URL_ENV, DEFAULT_APP_URL, app_url
 
-APP_URL_ENV = 'TM_APP_URL'
-DEFAULT_APP_URL = 'https://app.murara.eu'
 MIN_REFS = 2
 
 # The draft version's knobs, copied from the live customers (2026-08-17).
@@ -70,10 +68,6 @@ def slug(name):
     if not s:
         raise InviteError(f'no slug can be made from {name!r}')
     return s
-
-
-def app_url(base=None):
-    return (base or os.environ.get(APP_URL_ENV) or DEFAULT_APP_URL).rstrip('/')
 
 
 # ------------------------------------------------------------- the target row

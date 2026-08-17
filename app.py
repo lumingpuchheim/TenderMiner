@@ -387,13 +387,15 @@ def post_signup(ctx, row, form):
            detail=detail)
     try:
         import mailer
+        footer_html, headers = mailer.footer(home, row['sub_id'])
         mailer.send(home, 'confirm', row['sub_id'],
                     'Ihre Anmeldung bei Murara',
                     f'<p>Ihre Anmeldung ist eingegangen. '
                     f'{"Der erste Bericht kommt, sobald es passende "
                        "Ausschreibungen gibt — wir prüfen wöchentlich."
                        if ok else
-                       "Wir richten Ihr Profil ein und melden uns."}</p>')
+                       "Wir richten Ihr Profil ein und melden uns."}</p>'
+                    + footer_html, headers=headers)
     except Exception as e:                                     # noqa: BLE001
         print(f'[app] confirm mail not sent ({e}); signup itself is recorded')
     return page('Angemeldet', f"""
@@ -449,9 +451,13 @@ def _preflight(home, sub_id):
 
 
 def get_feedback(ctx, row):
+    lot = _lots_by_key(ctx['data_dir']).get((row['procedure_id'], row['lot_id']))
+    ident = (f'{esc(lot.title or "")} — {esc(lot.buyer_name or "")}'
+             if lot is not None else
+             f"{esc(row['procedure_id'])} · {esc(row['lot_id'])}")
     return page('Rückmeldung', f"""
       <h1>Rückmeldung zu einer Ausschreibung</h1>
-      <dl><dt>Los</dt><dd>{esc(row['procedure_id'])} · {esc(row['lot_id'])}</dd>
+      <dl><dt>Ausschreibung</dt><dd>{ident}</dd>
           <dt>Ihre Angabe</dt><dd>{esc(row['verdict'])}</dd></dl>
       <form method="post"><p>
         <button type="submit">Bestätigen: {esc(row['verdict'])}</button>
@@ -487,7 +493,10 @@ def get_stop(ctx, row):
 
 def post_stop(ctx, row, form):
     home = ctx['data_dir']
-    hard = form.get('wahl') == 'alles'
+    # A mail client's own unsubscribe button POSTs `List-Unsubscribe=One-Click`
+    # (RFC 8058) to the List-Unsubscribe URL — no person chose between the two
+    # buttons, so it is the ambiguous signal LAUNCH.md 3 maps to HARD.
+    hard = form.get('wahl') == 'alles' or 'List-Unsubscribe' in form
     subscriptions.customer_update(
         home, row['sub_id'],
         contact_state='hard_stopped' if hard else 'soft_stopped')
@@ -509,7 +518,7 @@ def post_stop(ctx, row, form):
 
 # One cached view of the lot store for the recall box: pub number -> identity.
 # Reloaded when the parquet's mtime moves (the cycle rebuilds it weekly).
-_store_cache = {'mtime': None, 'by_pub': {}}
+_store_cache = {'mtime': None, 'by_pub': {}, 'by_key': {}}
 
 
 def _lots_by_pub(home):
@@ -523,11 +532,20 @@ def _lots_by_pub(home):
                                          'buyer_name', 'deadline_date',
                                          'publication_number', 'cpv_main',
                                          'place_nuts3'])
-        by = {}
-        for r in df.dropna(subset=['publication_number']).itertuples(index=False):
-            by[str(r.publication_number)] = r
-        _store_cache.update(mtime=mtime, by_pub=by)
+        by, by_key = {}, {}
+        for r in df.itertuples(index=False):
+            if r.publication_number == r.publication_number and r.publication_number:
+                by[str(r.publication_number)] = r
+            by_key.setdefault((r.procedure_id, r.lot_id), r)
+        _store_cache.update(mtime=mtime, by_pub=by, by_key=by_key)
     return _store_cache['by_pub']
+
+
+def _lots_by_key(home):
+    """(procedure_id, lot_id) -> lot identity, for the feedback page: the
+    token names the lot by key, the customer must see its title."""
+    _lots_by_pub(home)
+    return _store_cache['by_key']
 
 
 def get_recall(ctx, row):

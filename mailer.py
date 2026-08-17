@@ -23,6 +23,7 @@ fails loudly and the failure is in the ledger. Tests inject a fake transport
 and never touch the network.
 """
 
+import html as _html
 import json
 import os
 import urllib.request
@@ -30,12 +31,24 @@ from datetime import datetime, timezone
 
 import ledger
 import subscriptions
+import tokens
 
 API_URL = 'https://api.resend.com/emails'
 KEY_ENV = 'RESEND_API_KEY'
 FROM_ENV = 'TM_MAIL_FROM'      # e.g. "Murara <post@murara.eu>" — the sending
                                # domain must be verified at Resend first, or
                                # every send is refused by the API
+
+# Where the token links point (doc/APP.md 2). One place for every module
+# that writes a customer-facing URL — the report renderer, the footer,
+# invite.py — so a domain change is one environment variable.
+APP_URL_ENV = 'TM_APP_URL'
+DEFAULT_APP_URL = 'https://app.murara.eu'
+
+
+def app_url(base=None):
+    return (base or os.environ.get(APP_URL_ENV) or DEFAULT_APP_URL).rstrip('/')
+
 
 # kind -> contact states it may reach. THE table of this module.
 ALLOWED = {
@@ -68,12 +81,44 @@ def _resend(payload):
         return json.loads(r.read().decode('utf-8')).get('id')
 
 
-def send(home, kind, sub_id, subject, html, to=None, transport=None):
+def footer(home, sub_id, base_url=None):
+    """What every customer e-mail ends with (doc/APP.md 8) -> (html, headers).
+
+    The standing `s` and `c` tokens of this customer (minted on first ask,
+    reused after), as the Abbestellen link, the recall link, and the Art. 21
+    objection notice — visually separated from the content above. `headers`
+    carries `List-Unsubscribe` (+ the one-click POST form of RFC 8058) so a
+    mail client's own unsubscribe button lands on the same `/s/` page, where
+    the app maps a header-driven visit to the HARD stop (LAUNCH.md 3: every
+    ambiguous stop signal is hard). One function, called by everything that
+    assembles a mail, so no mail can be built without it."""
+    base = app_url(base_url)
+    stop = f'{base}/s/{tokens.standing(home, "s", sub_id)}'
+    recall = f'{base}/c/{tokens.standing(home, "c", sub_id)}'
+    e = _html.escape
+    html = (
+        '<hr style="margin-top:2em;border:0;border-top:1px solid #ccc">'
+        '<p style="font-size:90%;color:#555">'
+        f'<a href="{e(stop)}">Abbestellen</a> · '
+        f'<a href="{e(recall)}">Ausschreibung übersehen? Nummer oder Link '
+        'hier</a></p>'
+        '<p style="font-size:85%;color:#555">Sie können der Verarbeitung '
+        'Ihrer Daten für diese Berichte jederzeit widersprechen (Art. 21 '
+        'DSGVO) — über den Link „Abbestellen" oder formlos per Antwort auf '
+        'diese E-Mail. Der Widerspruch wirkt sofort und dauerhaft.</p>')
+    headers = {'List-Unsubscribe': f'<{stop}>',
+               'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'}
+    return html, headers
+
+
+def send(home, kind, sub_id, subject, html, to=None, transport=None,
+         headers=None):
     """Send one e-mail to one customer, if their contact_state allows `kind`.
 
     Returns the transport's message id. Raises MailerError on refusal or
     transport failure — callers show a page or log, they do not retry blind.
-    `to` defaults to the customer's stored contact_email."""
+    `to` defaults to the customer's stored contact_email. `headers`: extra
+    message headers (the footer's List-Unsubscribe pair)."""
     if kind == 'operator':
         # defect alerts to ourselves: no customer, no state, still ledgered
         mid = (transport or _resend)({'from': os.environ.get(FROM_ENV, ''),
@@ -107,9 +152,20 @@ def send(home, kind, sub_id, subject, html, to=None, transport=None):
                 f'refused and ledgered')
         raise MailerError(f'{kind!r} to {sub_id} refused: {why}')
 
-    mid = (transport or _resend)({
-        'from': os.environ.get(FROM_ENV, ''),
-        'to': [address], 'subject': subject, 'html': html})
+    payload = {'from': os.environ.get(FROM_ENV, ''),
+               'to': [address], 'subject': subject, 'html': html}
+    if headers:
+        payload['headers'] = dict(headers)
+    try:
+        mid = (transport or _resend)(payload)
+    except Exception as e:                                     # noqa: BLE001
+        # the transport, not the guard: no key, API down, domain unverified.
+        # Ledgered so a Monday with nothing delivered is visible in the record,
+        # not only in a log line.
+        ledger.append(home, 'app_events', [{
+            'ts': _now(), 'kind': 'send_failed', 'sub_id': sub_id,
+            'detail': f'{kind}: {e}'}])
+        raise MailerError(f'{kind!r} to {sub_id} failed: {e}') from e
     ledger.append(home, 'app_events', [{
         'ts': _now(), 'kind': 'send', 'sub_id': sub_id,
         'detail': f'{kind}: {subject!r}'}])

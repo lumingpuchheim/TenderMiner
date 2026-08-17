@@ -271,6 +271,9 @@ def main():
                      help='minimum positive val lots for the shuffled-label check to be meaningful')
     run.add_argument('--top-slice', type=float, default=0.2, dest='top_slice',
                      help='share of the ranking counted as "our picks" in rank-based metrics (default 0.2)')
+    run.add_argument('--no-mail', dest='mail', action='store_false',
+                     help='write the reports, mail nobody (a dry run; the '
+                          'cycle mails by default — delivering.py)')
     run.add_argument('--tier-high', type=float, default=0.10, dest='tier_high',
                      help='share of the weekly ranking tiered HIGH (default 0.10)')
     run.add_argument('--tier-medium', type=float, default=0.20, dest='tier_medium',

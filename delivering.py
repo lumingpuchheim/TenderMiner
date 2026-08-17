@@ -73,6 +73,72 @@ def learn_references(paths, tenders, awards, args):
         return []
 
 
+def criteria_of(paths, rows):
+    """[(award_criterion_kind, price_weight_pct)] per row, from the tender
+    store; (None, None) wherever the store cannot say. Any problem reading
+    the store reads as unknown — the criterion is a line in the report, not
+    a reason to fail the delivery."""
+    rows = list(rows)
+    try:
+        import pandas as pd
+        df = pd.read_parquet(paths.store_tenders,
+                             columns=['procedure_id', 'lot_id',
+                                      'award_criterion_kind',
+                                      'price_weight_pct'])
+        by = {}
+        for r in df.itertuples(index=False):
+            by.setdefault((r.procedure_id, r.lot_id),
+                          (r.award_criterion_kind if r.award_criterion_kind == r.award_criterion_kind else None,
+                           r.price_weight_pct if r.price_weight_pct == r.price_weight_pct else None))
+    except Exception as e:                                     # noqa: BLE001
+        print(f'[deliver] award criteria unavailable ({e}) — column stays empty')
+        return [(None, None)] * len(rows)
+    return [by.get((r['procedure_id'], r['lot_id']), (None, None)) for r in rows]
+
+
+def mail_links(home, sub_id):
+    """(feedback_link, footer_html, headers) for one customer, or
+    (None, '', None) when the report is written for the file only — no
+    address on record means no mail, and no tokens minted for a mail that
+    will not exist. Everything customer-facing points at `mailer.app_url()`."""
+    import mailer
+    import tokens
+    cust = subscriptions.customer_get(home, sub_id) or {}
+    if not cust.get('contact_email'):
+        return None, '', None
+    base = mailer.app_url()
+
+    def link(procedure_id, lot_id, verdict):
+        tok = tokens.mint(home, 'f', sub_id, procedure_id=procedure_id,
+                          lot_id=lot_id, verdict=verdict)
+        return f'{base}/f/{tok}'
+
+    footer_html, headers = mailer.footer(home, sub_id)
+    return link, footer_html, headers
+
+
+def send_report(home, sub, today, page, headers, transport=None):
+    """The report goes out (doc/ONBOARDING.md 9.3). Through the guarded
+    mailer, kind `report` (active customers only — the mailer refuses the
+    rest and ledgers why). Never raises: a mail that could not go is one
+    printed line and a `send_refused` row, not a failed cycle — the file on
+    disk is written either way. -> message id or None."""
+    import mailer
+    name = render.customer_name(sub)
+    subject = f'Murara-Bericht {render.date_de(today.isoformat())} — {name}'
+    try:
+        mid = mailer.send(home, 'report', sub['sub_id'], subject, page,
+                          headers=headers, transport=transport)
+        print(f"[deliver] {sub['sub_id']}: report mailed ({mid})")
+        return mid
+    except mailer.MailerError as e:
+        print(f"[deliver] {sub['sub_id']}: report NOT mailed — {e}")
+    except Exception as e:                                     # noqa: BLE001
+        print(f"[deliver] {sub['sub_id']}: report NOT mailed — "
+              f'transport error {e!r}')
+    return None
+
+
 def deliver(paths, scored, args):
     """The dispatcher: one run, many views. Filter this cycle's scored open
     lots per subscription, re-rank and re-tier WITHIN the slice, write the
@@ -100,6 +166,12 @@ def deliver(paths, scored, args):
                      if str(g['award_pub'])[:10] >= cutoff]
     # receipt fallback for delivery rows written before title/buyer were stamped
     pred_info = ledger.prediction_titles(paths.ledger_home)
+    # the award criterion per lot, for the report's „Zuschlag" line (APP.md 8):
+    # a prediction row does not carry it, the tender store does
+    for row, crit in zip(latest.values(),
+                         criteria_of(paths, latest.values())):
+        row.setdefault('award_criterion_kind', crit[0])
+        row.setdefault('price_weight_pct', crit[1])
     ts = util.now_utc().isoformat(timespec='seconds')
     # relevance gate (RELEVANCE.md phase 3): loaded once per cycle, only when a
     # subscription asks for it; unavailable sidecars degrade to ungated delivery
@@ -147,10 +219,17 @@ def deliver(paths, scored, args):
         # customer get", everything below is "where does it go".
         receipts = render.receipt_html(grades_recent,
                                        by_sub.get(sub['sub_id'], []), pred_info)
+        # `args.mail` False = the report is written for the file only: what
+        # preview_report.py wants (a tryout must not mint tokens or mail
+        # anyone), and what a dry run wants. The cycle leaves it True.
+        feedback_link, footer_html, headers = (
+            mail_links(paths.data, sub['sub_id'])
+            if getattr(args, 'mail', True) else (None, '', None))
         page, deliveries = render.customer_report(
             sub, sel, today=today, profile=profile, receipts=receipts,
             tier_high=args.tier_high, tier_medium=args.tier_medium,
-            ts=ts, already=already)
+            ts=ts, already=already, feedback_link=feedback_link,
+            footer_html=footer_html)
         annex_name, annex = render.market_annex(
             sub, sel, today=today, profile=profile, top_slice=args.top_slice)
         out = paths.reports / 'subscriptions' / sub['sub_id'] / f'report_{today.isoformat()}.html'
@@ -158,6 +237,10 @@ def deliver(paths, scored, args):
         (out.parent / annex_name).write_text(annex, encoding='utf-8')
         if page is not None:
             out.write_text(page, encoding='utf-8')
+            if feedback_link is not None:
+                # an address on record: the same HTML goes out by mail
+                # (ONBOARDING.md 9.3); no address -> file only, no attempt
+                send_report(paths.data, sub, today, page, headers)
         else:
             # nothing to recommend and nothing graded to look back on -> no
             # report this cycle (decision 2026-08-06); the annex above is

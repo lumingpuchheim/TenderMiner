@@ -269,7 +269,8 @@ def main():
     weeks = max(1, int((D2 - D).days / 7) + 2)
     render_args = argparse.Namespace(track_window=f'{weeks}w', top_slice=0.2,
                                      tier_high=0.10, tier_medium=0.20,
-                                     min_slice_grades=25)
+                                     min_slice_grades=25,
+                                     mail=False)   # a rewind mails nobody
 
     # ---- report #1: the prediction, rendered at D ---------------------------
     freeze_clock(D.date())

@@ -172,6 +172,18 @@ logged as a defect. Every send is a ledger event.
 - Backups are the database's problem (already handled by the cycle's
   environment), not the app's; the app holds no state outside `data/`.
 
+## 10e. Build status — 2026-08-17: the report goes out, every mail carries the footer
+
+§7–§8 closed: `mailer.footer` is the one block every mail ends with
+(Abbestellen → `/s/`, recall → `/c/`, Art. 21 line, `List-Unsubscribe` +
+one-click POST → hard stop in `post_stop`); the weekly report is sent by the
+cycle through `mailer.send('report')` with two `f` links per pick and the
+criterion line, only to customers with an address on record; the confirmation
+mail carries the same footer; the feedback page shows the lot's title. The
+compose file now passes `RESEND_API_KEY`, `TM_MAIL_FROM`, `TM_APP_URL` into
+the containers — before this the app could not have sent anything. Details
+and receipt: `ONBOARDING.md` §9.4.
+
 ## 10d. Style — 2026-08-11
 
 One stylesheet for both surfaces, [`style.py`](../style.py), blue (operator's

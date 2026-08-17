@@ -40,6 +40,14 @@ services:
       # has no key and /experiments/<key> does not exist (found 2026-08-16).
       # Empty stays empty: the route is then absent, by design.
       TM_EXPERIMENTS_KEY: ${TM_EXPERIMENTS_KEY:-}
+      # E-mail (mailer.py): the Resend key and the verified sender. Both the
+      # app (signup confirmation) and the cycle (the weekly report,
+      # delivering.py) send, and both extend this service. Empty = the mail
+      # is refused loudly and ledgered; nothing pretends to send.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      TM_MAIL_FROM: ${TM_MAIL_FROM:-}
+      # Where the token links in every mail point (doc/APP.md 2).
+      TM_APP_URL: ${TM_APP_URL:-https://app.murara.eu}
     volumes:
       # THE state directory. Defaults to ./data — today's behaviour, so a
       # container started in the checkout finds exactly what the laptop
@@ -78,7 +86,8 @@ services:
     # nothing, ever. See the comment in docker/crontab.
     #
     # The env dump: cron hands its jobs a bare environment, so the secrets
-    # compose read from .env (RESTIC_*, AWS_*) would never reach nightly.sh.
+    # compose read from .env (RESTIC_*, AWS_*, RESEND_*) would never reach
+    # nightly.sh or weekly.sh.
     # They are written once at container start to a file only `tm` can read,
     # and nightly.sh sources it. The file lives under /data so it never lands
     # in an image layer; it is rewritten on every recreate, so a rotated .env
@@ -86,7 +95,7 @@ services:
     # `export -p`, not `env`: it emits shell-quoted lines, so a password with
     # a space survives the round trip into nightly.sh's `.`.
     command: ["sh", "-c",
-              "umask 077 && { export -p | grep -E '^export (RESTIC_|AWS_)' || true; } > /data/.cron-env && chown tm:tm /data/.cron-env && cron -L 2 && exec tail -F /data/logs/cron.log"]
+              "umask 077 && { export -p | grep -E '^export (RESTIC_|AWS_|RESEND_|TM_MAIL_FROM|TM_APP_URL)' || true; } > /data/.cron-env && chown tm:tm /data/.cron-env && cron -L 2 && exec tail -F /data/logs/cron.log"]
     restart: unless-stopped
 
   # The customer-facing app (doc/APP.md). Same image, same /data — it reads the

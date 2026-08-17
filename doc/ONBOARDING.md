@@ -460,6 +460,24 @@ value; both `app.py` and `render.py` call it, so no mail can be assembled
 without it. Tested: a rendered report contains exactly one `/s/` link, its
 token resolves as `s` for that customer.
 
+**Built 2026-08-17 (9.3 + 9.4)** — `mailer.footer` (+ `headers` on
+`mailer.send`, `send_failed` ledgered when the transport fails), `render.py`
+(two `f` links per pick, the „Zuschlag" criterion column, the footer, brand
+„Murara-Bericht"), `delivering.py` (`mail_links` mints only when an address
+is on record; `send_report` never raises; the criterion joined from the tender
+store), `app.py` (confirmation mail carries the footer; a `List-Unsubscribe`
+one-click POST is the hard stop; the feedback page names the lot by title),
+compose + `weekly.sh` (the mail secrets and `TM_APP_URL` reach app AND cycle —
+they reached neither before). `loop.py run --no-mail`, `preview_report.py` and
+`rewind_report.py` mail nobody. Receipt on a copy of the live state, customer
+`beck` given an address: 3 picks → 6 `f` links, 1 `s` link, criterion
+„100 % Preis / Preis 60 / Qualität 40 / 100 % Preis", footer present, no
+„TenderMining"; with no key: `send_failed: RESEND_API_KEY is not set` in the
+ledger and one printed line, the file written regardless. No live customer
+has an address today, so the next Monday sends nothing until one signs up.
+Not in this row: near-misses in the report (the report shows picks; the
+annex stays the operator's).
+
 ### 9.5 The trial clock, the ask, the yes-link [BUILD]
 
 - **No new date field.** Trial start = `effective_from` of the first

@@ -190,14 +190,54 @@ def market_line(sub, profile):
 
 # ------------------------------------------------------- the weekly report
 
+def criterion_line(r):
+    """„100 % Preis" / „Preis 70 / Qualität 30" / '' — the award criterion of
+    a pick, stated (doc/APP.md 8): a lot may be recommended DESPITE a pure
+    price award because few bidders are expected, and the customer should
+    read that here, not discover it in the documents."""
+    kind = r.get('award_criterion_kind')
+    pct = r.get('price_weight_pct')
+    try:
+        pct = None if pct is None or pct != pct else int(round(float(pct)))
+    except (TypeError, ValueError):
+        pct = None
+    if pct is not None and pct >= 100:
+        return '100 % Preis'
+    if pct is not None:
+        return f'Preis {pct} / Qualität {100 - pct}'
+    if kind and 'price' in str(kind).lower():
+        return '100 % Preis'
+    if kind and 'quality' in str(kind).lower():
+        return 'Preis und Qualität'
+    return ''
+
+
+def feedback_cell(r, feedback_link):
+    """The two tokened links every shown lot carries (LAUNCH.md 3): one
+    question, relevance, answered by one click each. Empty when the report
+    is written for the file only."""
+    if feedback_link is None:
+        return ''
+    yes = feedback_link(r['procedure_id'], r['lot_id'], 'ist unser Geschäft')
+    no = feedback_link(r['procedure_id'], r['lot_id'], 'nicht unser Geschäft')
+    return (f'<td class="fb"><a href="{escape(yes)}">ist unser Geschäft</a>'
+            f'<br><a href="{escape(no)}">nicht unser Geschäft</a></td>')
+
+
 def customer_report(sub, sel, *, today, profile, receipts,
-                    tier_high, tier_medium, ts, already):
+                    tier_high, tier_medium, ts, already,
+                    feedback_link=None, footer_html=''):
     """The weekly report and this cycle's delivery rows.
 
     Returns `(html_or_None, deliveries)`. `None` means nothing to report —
     no picks and no graded outcome to look back on — in which case the cycle
     writes no report at all (decision 2026-08-06) and the annex still stands
     as the operator's lookup.
+
+    `feedback_link(procedure_id, lot_id, verdict) -> URL` mints the per-lot
+    `f` links (doc/APP.md 3); `footer_html` is `mailer.footer`'s block. Both
+    are supplied by the cycle, so the renderer stays free of tokens and
+    storage — the file on disk and the mail are the same HTML.
 
     The delivery rows are built in the same pass as the pick table on purpose:
     they are the frozen record of what this customer actually saw, and a row
@@ -215,7 +255,7 @@ def customer_report(sub, sel, *, today, profile, receipts,
     # — is there a recommendation this week, and how did the previous
     # recommendations end. No product prose, no market statistics, no warnings
     # list, no annex mention.
-    body = [f'<h1>{escape(name)} — TenderMining Wochenbericht — {date_de(today.isoformat())}</h1>',
+    body = [f'<h1>{escape(name)} — Murara-Bericht — {date_de(today.isoformat())}</h1>',
             f'<p class="muted">Ihr Markt: {escape(market_line(sub, profile))}.</p>',
             '<h2>Empfehlungen dieser Woche</h2>']
     if not top:
@@ -256,7 +296,9 @@ def customer_report(sub, sel, *, today, profile, receipts,
                         f"<td>{date_de(r.get('deadline_date'))}</td>"
                         f'<td>{buyer_cell(r)}</td>'
                         f'{why_cells}'
-                        f"<td>{escape(', '.join((r.get('why_lonely') or [])[:2]))}</td></tr>")
+                        f"<td>{escape(', '.join((r.get('why_lonely') or [])[:2]))}</td>"
+                        f'<td>{escape(criterion_line(r))}</td>'
+                        f'{feedback_cell(r, feedback_link)}</tr>')
         if (sub['sub_id'], r['procedure_id'], r['lot_id'], ts[:10]) not in already:
             deliveries.append({
                 'ts': ts, 'sub_id': sub['sub_id'], 'sub_version': sub.get('version', 1),
@@ -274,6 +316,9 @@ def customer_report(sub, sel, *, today, profile, receipts,
         if profile:
             headers.append('warum Ihr Geschäft')
         headers.append('warum wir wenige Bieter erwarten')
+        headers.append('Zuschlag')
+        if feedback_link is not None:
+            headers.append('Ihre Rückmeldung')
         body += [table_html(headers, pick_trs)]
     if receipts:
         body += ['<h2>Ihre Empfehlungen im Rückblick</h2>', receipts]
@@ -289,7 +334,9 @@ def customer_report(sub, sel, *, today, profile, receipts,
     # delivery rows are written any more (the ledger records what the customer
     # saw). Historical avoid rows stay and are excluded from the pick receipts
     # by receipt_html's kind filter.
-    page = (html_page(f'{name} — TenderMining Wochenbericht {date_de(today.isoformat())}',
+    if footer_html:
+        body.append(footer_html)
+    page = (html_page(f'{name} — Murara-Bericht {date_de(today.isoformat())}',
                       body)
             if (top or receipts) else None)
     return page, deliveries

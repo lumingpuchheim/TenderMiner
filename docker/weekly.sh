@@ -26,6 +26,15 @@ DATA="${TM_DATA_DIR:-/data}"
 LOGS="$DATA/logs"
 mkdir -p "$LOGS"
 
+# The mail secrets (RESEND_API_KEY, TM_MAIL_FROM, TM_APP_URL) reach this job
+# the way nightly.sh gets its backup secrets: via /data/.cron-env, written by
+# the scheduler service at start — cron itself hands out a bare environment.
+# Without the file the cycle still runs; the reports are written and every
+# send is refused loudly (delivering.py prints it, the ledger records it).
+if [ -f "$DATA/.cron-env" ]; then
+    . "$DATA/.cron-env"
+fi
+
 # Extra arguments for the cycle, empty on a normal Monday. This exists for the
 # two cases where re-fetching would be wrong: re-running a Monday that died
 # after the download (`--skip-download`, the runbook's advice), and any run
