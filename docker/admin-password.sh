@@ -112,21 +112,6 @@ read_value() {   # -> the password on stdout, from the manager or a prompt
     printf '%s' "$first"
 }
 
-connect() {
-    # Reach the server BEFORE asking for anything. ssh may want the key's
-    # passphrase, and two password prompts in a row with no way to tell them
-    # apart is what this ordering exists to prevent (operator, 2026-08-18):
-    # ssh asks first, labelled by ssh, and only then does this script ask.
-    printf '[admin-password] connecting to %s ...\n' "$TARGET" >&2
-    # -n: stdin stays untouched. Without it this ssh reads the very input the
-    # password is about to arrive on and forwards it to the remote command —
-    # which ate the piped password and would have eaten keystrokes too.
-    ssh -n "$TARGET" "test -f \"\$HOME/$DIR/$TARGET_FILE\"" \
-        || { say "cannot reach $TARGET, or $TARGET_FILE is not there"; exit 2; }
-    printf '[admin-password] connected.\n' >&2
-}
-
-
 cmd_status() {
     ssh "$TARGET" "DIR='$DIR' FILE='$TARGET_FILE' bash -s" <<'REMOTE'
 set -eu
@@ -150,14 +135,15 @@ printf 'edge:  %s
 REMOTE
 }
 
-# The remote half of `set`. It travels base64-encoded inside the ssh command
-# string, which leaves ssh's **stdin** free to carry the value — and, because
-# nothing here passes through a shell twice, quoting means what it says. (First version sent this as a heredoc — and then
-# `cat` on the far side read an already-consumed stdin and every write was a
-# silent no-op.)
+
 REMOTE_SET=$(cat <<'REMOTE'
 set -eu
 cd "$HOME/$DIR" || { echo "[admin-password] no checkout at ~/$DIR" >&2; exit 2; }
+[ -f "$FILE" ] || { echo "[admin-password] no $FILE at ~/$DIR" >&2; exit 2; }
+# The handshake: the caller waits for this line before it asks the operator
+# for anything, so "connected" is a fact and not a hope — and then blocks here
+# until the password arrives over the same connection.
+echo READY
 password="$(cat)"
 [ -n "$password" ] || { echo "[admin-password] empty; nothing written" >&2; exit 2; }
 case "$FILE" in
@@ -195,17 +181,60 @@ for s in $SERVICES; do
     printf "  %s: %s
 " "$s" "$(docker compose ps --format {{.Status}} $s | head -1)"
 done
+# The same summary `status` prints — from inside this one connection, so a
+# passphrase-protected key is never asked twice (operator, 2026-08-18).
+v="$(sed -n "s/^TM_ADMIN_HASH=//p" "$FILE" | tail -1)"
+printf "
+  file:  %s (mode %s, owner %s)
+" "$FILE" "$(stat -c %a "$FILE")" "$(stat -c %U "$FILE")"
+printf "  user:  %s
+" "$(sed -n "s/^TM_ADMIN_USER=//p" "$FILE" | tail -1 || true)murara"
+printf "  hash:  set, %s characters
+" "${#v}"
 REMOTE
 )
 
-cmd_set() {     # the PASSWORD arrives on stdin and only on stdin
+# One ssh, not two. The old shape opened a connection to check the server and
+# a second one to write, so a passphrase-protected key asked twice, once on
+# each side of the password prompt (operator, 2026-08-18). Now the connection
+# is opened ONCE as a coprocess: ssh asks for the passphrase at that moment,
+# the remote half answers READY over the same pipe, and only then does this
+# script ask for the password — which travels down that already-open pipe.
+#
+# (`ssh-add` once per session removes the passphrase prompt entirely; ssh
+# never reads a passphrase from stdin, always from the terminal, so the two
+# never mix.)
+cmd_set() {
+    local pw marker
+    printf '[admin-password] connecting to %s ...
+' "$TARGET" >&2
     local b64; b64="$(printf %s "$REMOTE_SET" | base64 | tr -d '
 ')"
-    ssh "$TARGET" "DIR='$DIR' FILE='$TARGET_FILE' SERVICES='$SERVICES'                    bash -c \"\$(printf %s '$b64' | base64 -d)\""
+    coproc SSH { ssh "$TARGET" "DIR='$DIR' FILE='$TARGET_FILE' SERVICES='$SERVICES'                                 bash -c \"\$(printf %s '$b64' | base64 -d)\"" 2>&1; }
+    # Blocks until the remote half is actually running — after any passphrase.
+    if ! IFS= read -r marker <&"${SSH[0]}" || [ "$marker" != READY ]; then
+        say "no connection to $TARGET (${marker:-no answer})"
+        wait "${SSH_PID:-}" 2>/dev/null || true
+        exit 2
+    fi
+    printf '[admin-password] connected.
+' >&2
+
+    pw="$(read_value "$KEY")" || exit 2
+    printf '%s
+' "$pw" >&"${SSH[1]}"
+    unset pw
+    eval "exec ${SSH[1]}>&-"          # EOF, so the remote `cat` returns
+    cat <&"${SSH[0]}" >&2             # whatever it printed: written / recreating
+    # The coprocess may already have reaped itself by now, and `set -u` turns
+    # a missing SSH_PID into a failure at the very last line of a successful
+    # run. Wait only if there is still something to wait for.
+    wait "${SSH_PID:-}" 2>/dev/null || true
 }
+
 
 case "$CMD" in
     status) cmd_status ;;
-    set)    connect; read_value "$KEY" | cmd_set; say 'now:'; cmd_status ;;
+    set)    cmd_set ;;
     *)      say "unknown command $CMD (status | set)"; exit 2 ;;
 esac

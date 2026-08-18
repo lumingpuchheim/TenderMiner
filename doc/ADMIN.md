@@ -111,9 +111,15 @@ TM_SERVER=<host> bash docker/admin-password.sh status   # which file, which mode
 TM_SERVER=<host> bash docker/admin-password.sh set      # hidden prompt, then the edge restarts
 ```
 
-It connects **first**, so that ssh's own passphrase prompt (if your key has
-one) comes before anything this script asks — two password prompts in a row
-with nothing to tell them apart is what that ordering prevents. Then a
+`set` opens **exactly one** ssh connection. It is opened first, so a
+passphrase-protected key asks for its passphrase there — labelled by ssh —
+and the remote half answers `READY` over that same connection before this
+script asks for anything; the password then travels down the pipe that is
+already open, and the confirmation comes back through it. Two connections
+(the earlier shape) meant two passphrase prompts with the password prompt
+between them, which is unusable. `ssh-add` once per session removes the
+passphrase prompt altogether — ssh always reads a passphrase from the
+terminal, never from stdin, so the two can never mix. Then a
 headed block names what is being set: the web page's password, not the SSH
 key. The prompt shows one `*` per character, takes backspace, asks a second
 time and refuses on a mismatch or under 12 characters — a prompt that shows
