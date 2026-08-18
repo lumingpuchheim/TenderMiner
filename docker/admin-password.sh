@@ -59,18 +59,48 @@ read_masked() {   # $1 prompt -> the typed value on stdout, one * per character
     # Not `read -rs`: a prompt that shows nothing at all leaves the operator
     # guessing whether the keyboard is even reaching it (operator, 2026-08-18).
     # One asterisk per character, backspace erases, Enter ends.
-    local prompt="$1" value='' ch src=/dev/stdin
+    #
+    # PASTING is the case this loop must survive, because the password comes
+    # from a password manager. A terminal in bracketed-paste mode wraps pasted
+    # text in ESC[200~ ... ESC[201~; readline strips those, a raw `read -n1`
+    # loop does not. Measured 2026-08-18: a 17-character password pasted into
+    # the old loop was captured as 29 characters, and with a trailing carriage
+    # return as 18 — invisible behind the asterisks, identical in the "Repeat"
+    # entry, so the confirmation matched and the hash was of a string the
+    # browser can never send. That is a wrong password nobody can see, and it
+    # cost the operator a morning.
+    #
+    # So: an escape sequence is swallowed to its terminator, a carriage return
+    # ends the entry exactly like Enter, and every other byte is kept —
+    # including the bytes of an umlaut, which arrive one at a time and must
+    # not be filtered as "not printable".
+    local prompt="$1" value='' ch src=0 esc=0
     # `[ -r /dev/tty ]` is not the test: the file can exist and still refuse to
     # open when there is no controlling terminal. Opening it IS the test.
+    # A FILE DESCRIPTOR, not a path: `/dev/stdin` does not resolve under
+    # `bash -c` on Git Bash for Windows, and the loop then read nothing at all
+    # while looking like an operator who typed nothing. `<&0` is always valid.
+    # TM_PASSWORD_STDIN=1 keeps the keystrokes on stdin, which is how
+    # tests/test_admin.py drives this loop with a simulated paste — the only
+    # way to prove in the suite that the markers a terminal wraps a paste in
+    # never reach the password.
     local opened=0
-    if { exec 3</dev/tty; } 2>/dev/null; then src=/dev/fd/3; opened=1; fi
+    if [ "${TM_PASSWORD_STDIN:-}" != 1 ] && { exec 3</dev/tty; } 2>/dev/null; then
+        src=3; opened=1
+    fi
     printf '%s' "$prompt" >&2
-    while IFS= read -rsn1 ch <"$src"; do
+    while IFS= read -rsn1 ch <&"$src"; do
+        if [ "$esc" = 1 ]; then          # inside ESC[...~ / ESC[...<letter>
+            case "$ch" in [a-zA-Z~]) esc=0 ;; esac
+            continue
+        fi
         case "$ch" in
             '')  break ;;                                        # Enter
-            $''|$'')                                       # Backspace
+            $'\r') break ;;                  # a paste that carried its newline
+            $'\033') esc=1 ;;                       # bracketed-paste wrapper
+            $'\177'|$'\b')                                       # Backspace
                  if [ -n "$value" ]; then
-                     value="${value%?}"; printf ' ' >&2
+                     value="${value%?}"; printf '\b \b' >&2
                  fi ;;
             *)   value="$value$ch"; printf '*' >&2 ;;
         esac
@@ -80,7 +110,10 @@ read_masked() {   # $1 prompt -> the typed value on stdout, one * per character
     # shell — silently, here, because of the 2>/dev/null. It ate everything
     # after this line whenever no terminal was attached.
     [ "$opened" = 1 ] && exec 3<&-
-    printf '\n' >&2
+    # The count is the only way a mangled paste shows itself before the hash
+    # is made: 17 characters when the manager holds 17 is the whole check.
+    printf ' (%s characters)
+' "${#value}" >&2
     printf '%s' "$value"
 }
 

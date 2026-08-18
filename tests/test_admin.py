@@ -2,6 +2,8 @@
 store; the app is driven through its WSGI callable, so the guard, the routing
 and the HTML are all exercised as a real request would."""
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -16,6 +18,12 @@ import invite                                                   # noqa: E402
 import subscriptions                                            # noqa: E402
 from tests.test_invite import DUNKEL, write_store               # noqa: E402
 
+
+NEWLINE = chr(10)
+LF = b'\n'
+CR = b'\r'
+ESC = bytes([27])
+DEL = bytes([127])
 
 def request(data_dir, path, method='GET', form=None, admin_header=True,
             query=''):
@@ -378,6 +386,57 @@ class TheCredentialIsAFileNotAnEnvironmentVariable(unittest.TestCase):
         # by Caddy itself, so a doubled hash would now be the WRONG hash.
         self.assertNotIn("sed 's/[$]/$$/g'", self.script)
         self.assertNotIn('$$2a', self.script)
+
+
+class ThePasswordPromptSurvivesAPaste(unittest.TestCase):
+    """The operator's password comes out of a password manager, so it is
+    PASTED. A terminal in bracketed-paste mode wraps pasted text in
+    ESC[200~ ... ESC[201~, and the masked prompt in docker/admin-password.sh
+    reads one byte at a time — it used to fold those markers into the
+    password. Measured 2026-08-18: 17 characters pasted, 29 captured, and the
+    "Repeat" entry was mangled identically so the confirmation matched. The
+    hash was then of a string no browser can ever send, and /admin refused the
+    right password for a morning.
+
+    The real function is lifted out of the shipped script and run under bash,
+    so this tests the code that runs and not a copy of it."""
+
+    PW = 'Mein-Passwort-123'
+
+    def setUp(self):
+        self.bash = shutil.which('bash')
+        if not self.bash:
+            self.skipTest('no bash on this machine')
+        script = (Path(__file__).resolve().parent.parent
+                  / 'docker' / 'admin-password.sh').read_text(encoding='utf-8')
+        start = script.index('read_masked() {')
+        end = script.index(NEWLINE + '}' + NEWLINE, start) + 3
+        self.fn = script[start:end]
+
+    def capture(self, keystrokes):
+        """-> exactly what read_masked would hand to `caddy hash-password`."""
+        prog = self.fn + NEWLINE + 'read_masked "" ' + NEWLINE
+        out = subprocess.run([self.bash, '-c', prog], input=keystrokes,
+                             env={**os.environ, 'TM_PASSWORD_STDIN': '1'},
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        return out.stdout.decode('utf-8')
+
+    def test_typed_by_hand(self):
+        self.assertEqual(self.capture(self.PW.encode() + LF), self.PW)
+
+    def test_pasted_in_a_bracketed_paste_terminal(self):
+        keys = ESC + b'[200~' + self.PW.encode() + ESC + b'[201~' + LF
+        self.assertEqual(self.capture(keys), self.PW)
+
+    def test_pasted_with_a_carriage_return(self):
+        self.assertEqual(self.capture(self.PW.encode() + CR + LF), self.PW)
+
+    def test_backspace_still_erases(self):
+        self.assertEqual(self.capture(b'Mein-Passwort-1234' + DEL + LF), self.PW)
+
+    def test_an_umlaut_survives_byte_by_byte(self):
+        pw = 'Gruess-Passwort-\u00fc9'
+        self.assertEqual(self.capture(pw.encode('utf-8') + LF), pw)
 
 
 if __name__ == '__main__':
