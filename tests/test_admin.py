@@ -522,7 +522,9 @@ class Message(Base):
                      base=0.10, recall=0.3, factor=1.63)
         m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today='2026-08-17')
         self.assertEqual(m['trade'], 'Blitzschutz und Erdung')
-        self.assertIn('Betriebe im Gewerk Blitzschutz und Erdung', m['short'])
+        self.assertIn('für das Gewerk Blitzschutz und Erdung', m['short'])
+        self.assertIn('Betriebe im Gewerk Blitzschutz und Erdung', m['long'])
+        self.assertNotIn('…', m['short'])           # nothing cut off mid-word
         self.assertIn('12 öffentliche Lose pro Monat', m['long'])
         self.assertIn('84.000 € wert', m['long'])
         self.assertIn('12 % der Lose bekommen höchstens ein Angebot', m['long'])

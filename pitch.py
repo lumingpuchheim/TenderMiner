@@ -43,6 +43,17 @@ def _short(text, n=TITLE_CHARS):
     return text if len(text) <= n else text[:n - 1].rstrip() + '…'
 
 
+def _buyer_head(name):
+    """'Landeshauptstadt Hannover - Fachbereich Gebäudemanagement' ->
+    'Landeshauptstadt Hannover': the department after the dash is what a
+    300-character note cannot afford, and the reader knows the city."""
+    s = ' '.join(str(name or '').split())
+    for sep in (' - ', ' – ', ', '):
+        if sep in s and len(s.split(sep, 1)[0]) >= 8:
+            return s.split(sep, 1)[0]
+    return s
+
+
 def draft_of(home, sub_id):
     """The newest subscription version of this firm, active or not — a
     prospect's draft never reaches `subscriptions.load`, which serves only
@@ -255,21 +266,28 @@ def message(home, sub_id, url, company=None, today=None):
               SIGNATURE]
     long = '\n'.join(lines)
 
-    lead = (f'Guten Tag, wir suchen für {who} die öffentlichen Aufträge, bei '
-            f'denen kaum jemand mitbietet – also hohe Zuschlagschance. ')
-    ask = ('Dürfen wir Ihnen einmal pro Woche drei solche Ausschreibungen '
-           'schicken? Kostenlos, ohne Konto.')
+    # The note: lead, one live example, the ask — and never a cut-off word.
+    # The example gives way first: its title and buyer shrink to what is
+    # left after lead and ask, and below a readable minimum it is dropped
+    # (a trade name like „Lüftung, Klima und Kälte" costs 25 characters).
+    lead = (f'Guten Tag, wir suchen für das Gewerk {trade or "Bau"} '
+            f'öffentliche Aufträge, bei denen kaum jemand mitbietet – hohe '
+            f'Zuschlagschance. ')
+    ask = ('Dürfen wir Ihnen wöchentlich drei davon schicken? Kostenlos, '
+           'ohne Konto.')
     example = ''
     if picks:
         p = picks[0]
-        fixed = len('Aktuell z. B.: , , Frist 00.00. ')
+        when = _de(p.get('deadline_date'))[:5]              # 08.09
+        fixed = len(f'Aktuell z. B.: , , Frist {when}. ')
         room = SHORT_LIMIT - len(lead) - len(ask) - fixed
-        title = _short(p.get('title'), max(20, room * 2 // 3))
-        buyer = _short(p.get('buyer_name'), max(12, room - len(title)))
-        example = (f'Aktuell z. B.: {title}, {buyer}, '
-                   f'Frist {_de(p.get("deadline_date"))[:6]}. ')
+        if room >= 40:
+            title = _short(p.get('title'), max(20, room * 3 // 5))
+            buyer = _short(_buyer_head(p.get('buyer_name')),
+                           max(16, room - len(title)))
+            example = f'Aktuell z. B.: {title}, {buyer}, Frist {when}. '
     short = lead + example + ask
-    if len(short) > SHORT_LIMIT:
+    if len(short) > SHORT_LIMIT:                             # belt and braces
         short = short[:SHORT_LIMIT - 1].rstrip() + '…'
     return {'short': short, 'long': long, 'picks': picks, 'win': win,
             'trade': trade, 'edge': v}
