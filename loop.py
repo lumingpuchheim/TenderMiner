@@ -240,18 +240,19 @@ def _run_cycle(paths, args):
         except Exception as e:                                 # noqa: BLE001
             print(f'[public] site build failed, cycle continues: {e!r}')
 
-    # The operator's page derives every winner's trade the way the gate
-    # derives a customer's (doc/ADMIN.md §4) — ~30 s over 5.5k firms, and it
-    # is only ever stale when the store has just moved, which is here. Warmed
-    # in the cycle so the first /admin search after a rebuild is a file read
-    # and not half a minute of tokenising. Non-fatal: a cold cache costs the
-    # operator one slow page, a failed cycle costs a customer their report.
+    # The operator's page reads a FILE and never derives (admin.py, module
+    # docstring): every winner's trade the way the gate derives a customer's
+    # (doc/ADMIN.md §4), minutes over the server store, and only ever stale
+    # when the store has just moved — which is here. The deploy writes the
+    # same file with the image it has just proved. Non-fatal: a missing file
+    # costs the operator the trade search until the next run, a failed cycle
+    # costs a customer their report.
     try:
         import admin
-        print(f'[admin] trade index warmed: {len(admin.index(paths.data))} '
-              f'firms -> {paths.data / admin.CORES_CACHE}')
+        path, n = admin.build_index(paths.data)
+        print(f'[admin] index built: {n} firms -> {path}')
     except Exception as e:                                     # noqa: BLE001
-        print(f'[admin] trade index not warmed ({e!r})')
+        print(f'[admin] index not built ({e!r})')
 
     housekeeping.prune_caches(paths)
 

@@ -53,8 +53,8 @@ def request(data_dir, path, method='GET', form=None, admin_header=True,
 def add_firm(d, company, titles, size='small'):
     """Give `company` one won lot per title in the miniature store, each with
     its own procedure and contract notice, so `admin.index` reads them as the
-    references the gate would build a profile from. Drops both caches, so the
-    next `index()` re-derives."""
+    references the gate would build a profile from, and rebuilds the index
+    file — a request never does that itself."""
     import pandas as pd
     store = d / 'store'
     aw, tn = (pd.read_parquet(store / 'awards.parquet'),
@@ -75,8 +75,7 @@ def add_firm(d, company, titles, size='small'):
         store / 'awards.parquet')
     pd.concat([tn, pd.DataFrame(t)], ignore_index=True).to_parquet(
         store / 'tenders.parquet')
-    (d / admin.CORES_CACHE).unlink(missing_ok=True)
-    admin._cache.update(mtime=None, firms=None)
+    admin.build_index(d)
 
 
 class Base(unittest.TestCase):
@@ -87,6 +86,7 @@ class Base(unittest.TestCase):
         import gc
         self.addCleanup(gc.collect)
         write_store(self.dir)
+        admin.build_index(self.dir)     # what the cycle and the deploy do
         admin._cache.update(mtime=None, firms=None)   # per-process index
         app._hits.clear()
 
@@ -222,51 +222,99 @@ class TheTradeIsTheOneTheReportsUse(Base):
         self.assertIn('Keine Firma gefunden', body)
 
 
-class TheTradeIndexIsCached(Base):
-    """~30 s over the real store's 5.5k winners, so it is written to
-    `<data>/admin_cores.json` and the cycle warms it. The cache is keyed by
-    the store's mtimes AND by the evidence rules — a knob moved by an
-    environment variable, or an edit to `cpv_trade_roots.txt`, must not be
-    answered from yesterday's derivation."""
+class ARequestNeverBuildsTheIndex(Base):
+    """2026-08-18: the first /admin after a deploy took 158 s on the server
+    — to list two customers — because `search()` derived every winner's
+    trade before looking at the query. Now the index is a FILE written only
+    by `build_index` (the cycle, the deploy, `python admin.py --build`); a
+    request reads it or, when it is missing, does without it. Every
+    assertion below is a way the 158 s could come back."""
 
-    def test_written_once_then_read_without_the_lot_texts(self):
-        cache = self.dir / admin.CORES_CACHE
-        self.assertFalse(cache.exists())
-        first = admin.index(self.dir)
-        self.assertTrue(cache.exists())
-        held = __import__('json').loads(cache.read_text(encoding='utf-8'))
-        self.assertEqual(sorted(held['firms']), sorted(first))
-        # the second build derives nothing: the lot texts are read inside
-        # `_cores` and a hit must never get there
+    def test_the_empty_query_does_not_open_the_index_at_all(self):
+        state = admin.state_of(self.dir)
+        with mock.patch.object(admin, 'index',
+                               side_effect=AssertionError('index opened')):
+            rows, _ = admin.search(self.dir, '', state)
+        self.assertEqual(rows, [])                       # no customers yet
+        invite.add(self.dir, DUNKEL)
+        state = admin.state_of(self.dir)
+        with mock.patch.object(admin, 'index', return_value={}):
+            rows, _ = admin.search(self.dir, '', state)
+        # the numbers still come — from the awards store, for that one name
+        self.assertEqual([(r['company'], r['wins']) for r in rows],
+                         [(DUNKEL, 3)])
+
+    def test_a_request_reads_the_file_and_never_derives(self):
+        with mock.patch.object(admin, 'build_index',
+                               side_effect=AssertionError('derived')),              mock.patch.object(admin, '_refs_of',
+                               side_effect=AssertionError('derived')):
+            admin._cache.update(mtime=None, firms=None)
+            idx = admin.index(self.dir)
+            self.assertIn(DUNKEL, idx)
+            self.assertIn('dach', idx[DUNKEL]['core'])
+            _, _, body = request(self.dir, '/admin', query='q=dachsanierung')
+            self.assertIn(DUNKEL, body)
+
+    def test_without_the_file_the_page_opens_and_says_so(self):
+        (self.dir / admin.INDEX_FILE).unlink()
         admin._cache.update(mtime=None, firms=None)
-        with mock.patch.object(admin, '_cores',
-                               side_effect=AssertionError('re-derived')):
-            again = admin.index(self.dir)
-        self.assertEqual({n: f['core'] for n, f in again.items()},
-                         {n: f['core'] for n, f in first.items()})
+        with mock.patch.object(admin, 'build_index',
+                               side_effect=AssertionError('derived')):
+            self.assertEqual(admin.index_state(self.dir), 'missing')
+            status, _, body = request(self.dir, '/admin')
+            self.assertEqual(status, '200 OK')
+            status, _, body = request(self.dir, '/admin', query='q=dach')
+            self.assertEqual(status, '200 OK')
+            self.assertIn('noch nicht bereit', body)
+            self.assertIn('admin.py --build', body)
+            # and the customers list still works, with numbers
+            invite.add(self.dir, DUNKEL)
+            _, _, body = request(self.dir, '/admin')
+            self.assertIn(DUNKEL, body)
+            self.assertIn('3 Aufträge', body)
 
-    def test_a_moved_knob_invalidates_it(self):
+    def test_the_file_is_what_the_cycle_and_the_deploy_write(self):
+        import json
+        path = self.dir / admin.INDEX_FILE
+        held = json.loads(path.read_text(encoding='utf-8'))
+        self.assertEqual(held['rules'], admin._rules_stamp())
+        self.assertEqual(held['stamp'], list(admin._mtimes(self.dir)))
+        names = {f['company'] for f in held['firms']}
+        self.assertIn(DUNKEL, names)
+        # the deploy calls the module: same file, same content
+        import subprocess
+        out = subprocess.run([sys.executable, 'admin.py', '--build',
+                              '--data-dir', str(self.dir)],
+                             cwd=Path(__file__).resolve().parents[1],
+                             capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn('index built', out.stdout)
+        again = json.loads(path.read_text(encoding='utf-8'))
+        self.assertEqual(again['firms'], held['firms'])
+
+    def test_a_file_from_another_store_or_other_rules_is_served_as_stale(self):
         import evidence
-        admin.index(self.dir)
-        stamp = admin._rules_stamp()
-        self.assertIsNotNone(admin._cores_held(self.dir))
+        self.assertEqual(admin.index_state(self.dir), 'current')
         with mock.patch.object(evidence, 'CORE_SHARE', 0.9):
-            self.assertNotEqual(admin._rules_stamp(), stamp)
-            self.assertIsNone(admin._cores_held(self.dir))
-        self.assertIsNotNone(admin._cores_held(self.dir))
-
-    def test_an_edited_root_vocabulary_invalidates_it_too(self):
-        # `evidence.rules_fingerprint` covers the CORE_* knobs but not the
-        # word list itself, and that file is edited by hand — a released
-        # change to it has to take effect on the day it ships
-        import evidence
-        admin.index(self.dir)
-        stamp = admin._rules_stamp()
+            self.assertEqual(admin.index_state(self.dir), 'stale')
         edited = self.dir / 'roots.txt'
         edited.write_bytes(evidence.ROOTS_FILE.read_bytes() + b'\nreetdach\n')
         with mock.patch.object(evidence, 'ROOTS_FILE', edited):
-            self.assertNotEqual(admin._rules_stamp(), stamp)
-            self.assertIsNone(admin._cores_held(self.dir))
+            self.assertEqual(admin.index_state(self.dir), 'stale')
+        # stale is still SERVED (a slightly old list beats none), and marked
+        with mock.patch.object(evidence, 'CORE_SHARE', 0.9):
+            _, _, body = request(self.dir, '/admin', query='q=dachsanierung')
+        self.assertIn(DUNKEL, body)
+        self.assertIn('älteren Stand', body)
+
+    def test_a_rewritten_file_is_picked_up_without_a_restart(self):
+        import time
+        idx = admin.index(self.dir)
+        self.assertNotIn('Neu Elektro GmbH', idx)
+        time.sleep(0.05)
+        add_firm(self.dir, 'Neu Elektro GmbH', ['Elektroarbeiten Schule'])
+        # a new mtime, no cache reset: the process notices on its own
+        self.assertIn('Neu Elektro GmbH', admin.index(self.dir))
 
 
 class Status(Base):

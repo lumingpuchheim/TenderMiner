@@ -227,6 +227,23 @@ build_site() {
         say "WARNING: site build failed — the previous site keeps serving;"
         say "         the Monday cycle will rebuild it. Deploy continues."
     fi
+    # The operator page's index (doc/ADMIN.md §4): every winner's trade,
+    # written to $STATE/admin_index.json. A request never derives it — on
+    # 2026-08-18 the first /admin after a deploy took 158 s to list two
+    # customers because it did. Built here with the proved image so the page
+    # is fast from the first click after this deploy, and rebuilt by every
+    # cycle. Same non-fatal rule as the site: the previous file keeps
+    # serving (marked as older on the page) until the next build.
+    say "building the operator page's index with $IMAGE:$tag -> $STATE/admin_index.json"
+    if docker run --rm \
+        -e "TZ=${TM_TZ:-Europe/Bucharest}" \
+        -v "$STATE:/data" \
+        "$IMAGE:$tag" python admin.py --build; then
+        say "admin index built"
+    else
+        say "WARNING: admin index build failed — /admin serves the previous"
+        say "         index, or name search only. Deploy continues."
+    fi
 }
 
 record() {

@@ -6,17 +6,20 @@ owns the *search index*, the *status vocabulary* and the *HTML*; `app.py`
 owns the routes and the guard. Nothing here writes storage directly —
 `invite.py`, `subscriptions.py`, `tokens.py`, `ledger.py` do.
 
-The index is the awards store joined to its lots' texts, cached per process
-and rebuilt when the parquet's mtime moves — the pattern the recall box
-already uses. Trades match on **words**, never on CPV (house rule: buyers
-file CPV wrongly).
-
 A firm's trade is not asked here. It is `evidence.core_keywords` over the
 firm's newest wins — the very lexicon `relevance.build_profile` gives the
 gate, so the trade the operator reads off this page is the trade the reports
-will treat as the firm's business. See doc/ADMIN.md §4 for why the earlier
-raw substring over every won title was a different question with the same
-spelling.
+will treat as the firm's business (doc/ADMIN.md §4).
+
+**A request never derives anything.** Deriving 15,000 trades takes minutes
+on the server, and on 2026-08-18 the first `/admin` after a deploy paid it
+in full — to list two customers. So the index is a FILE, `admin_index.json`,
+written only by `build_index()` — from the cycle (`loop.py`) and from every
+deploy (`docker/deploy.sh`) — and a request only ever reads it: once per
+process, ~15k small rows, well under a second. Missing file: the page still
+opens instantly with the customers and name search, and says the trade
+search is not ready yet. Trades match on **words**, never on CPV (house
+rule: buyers file CPV wrongly).
 """
 
 import hashlib
@@ -32,7 +35,7 @@ import subscriptions
 LIMIT = 100                    # rows per search; beyond it: "mehr eingrenzen"
 CHANNELS = ('linkedin', 'linkedin-ads', 'xing', 'phone', 'other')
 SHOW_ROOTS = 5                 # core roots printed on a row; the rest on hover
-CORES_CACHE = 'admin_cores.json'
+INDEX_FILE = 'admin_index.json'
 
 _cache = {'mtime': None, 'firms': None}
 
@@ -45,6 +48,17 @@ def _mtimes(data_dir):
         p = Path(data_dir) / 'store' / name
         out.append(p.stat().st_mtime if p.exists() else None)
     return tuple(out)
+
+
+def _rules_stamp():
+    """What the trades were derived under: the gate's rule fingerprint plus
+    the root vocabulary itself. The fingerprint covers every CORE_* knob
+    (`evidence.RULES`) but not `cpv_trade_roots.txt`, and that file is edited
+    by hand — a released change to it has to show on the page the day it
+    ships, which the deploy-time build guarantees only if the stamp moves."""
+    import evidence as evd
+    return (evd.rules_fingerprint() + ':'
+            + hashlib.sha256(evd.ROOTS_FILE.read_bytes()).hexdigest()[:10])
 
 
 def _refs_of(g, by_lot, max_refs):
@@ -75,41 +89,61 @@ def _refs_of(g, by_lot, max_refs):
     return texts, titles, dates
 
 
-def _cores_held(data_dir):
-    """The cached trades, or None when there are none for this store under
-    these rules. Read before the lot texts are, because a hit means they never
-    have to be loaded at all — that is the difference between a 3-second page
-    and a 0.3-second one."""
-    try:
-        held = json.loads((Path(data_dir) / CORES_CACHE)
-                          .read_text(encoding='utf-8'))
-        if (held.get('stamp') == list(_mtimes(data_dir))
-                and held.get('rules') == _rules_stamp()):
-            return held['firms']
-    except Exception:                                          # noqa: BLE001
-        pass
-    return None
+def _firm_rows(ex):
+    """{winner name: the numbers the row prints} — from the awards store
+    alone, no texts. Cheap (a groupby over the exploded awards) and the only
+    thing an EMPTY query ever needs, so it is what `customers_only` reads
+    when there is no index file yet."""
+    firms = {}
+    for name, g in ex.groupby('company'):
+        sizes = g['winner_size'].dropna()
+        firms[name] = {
+            'company': name,
+            'size': str(sizes.mode().iloc[0]) if len(sizes) else 'unknown',
+            'wins': int(len(g)),
+            'single_bid_wins': int((g['n_tenders'] <= 1).sum()),
+            'last_win': str(g['publication_date'].max())[:10],
+        }
+    return firms
 
 
-def _cores(data_dir, ex, by_lot):
-    """{winner name: {core, counts, name_roots, refs}} — every firm's trade,
-    derived exactly as the delivery gate derives its customers'.
+def build_index(data_dir, out=None):
+    """Derive every winner's trade the way the gate derives a customer's
+    and write the page's index file. THE ONLY WRITER. Called by the cycle
+    and by the deploy; never by a request. -> (path, n_firms).
 
-    Cached to `<data>/admin_cores.json` under the store's mtimes, because it
-    is the one expensive thing on this page: ~30 s over 5.5k winners, against
-    0.1 s for everything else. The cycle warms it (`loop.py`), so the operator
-    normally reads a file. A stale or unreadable cache is recomputed, never
-    served: the trade is what the page is for."""
+    The file holds exactly what a row prints — name, numbers, core roots
+    with their evidence — and nothing a request would have to compute:
+    no texts, no groupby. Written under the store's mtimes and the rules
+    stamp, so a reader can tell a stale file from a current one; replaced
+    by rename, because the app may be reading the old one at that moment.
+    Runs in minutes over the server store, which is exactly why it lives
+    here and not in `index()`."""
+    import pandas as pd
+    import pyarrow.parquet as pq
     import evidence as evd
     import outreach
-    cache = Path(data_dir) / CORES_CACHE
-    stamp, rules = list(_mtimes(data_dir)), _rules_stamp()
-    firms = {}
+    store = Path(data_dir) / 'store'
+    out = Path(out) if out else Path(data_dir) / INDEX_FILE
+    ex = outreach.winner_rows(store)
+    firms = _firm_rows(ex)
+    have = set(pq.read_schema(store / 'tenders.parquet').names)
+    cols = [c for c in ('procedure_id', 'lot_id', 'title', 'description',
+                        'publication_number') if c in have]
+    by_lot = {}
+    if 'title' in cols:
+        lots = pd.read_parquet(store / 'tenders.parquet', columns=cols)
+        d, p = 'description' in cols, 'publication_number' in cols
+        by_lot = {(r.procedure_id, r.lot_id):
+                  (r.title or '', (r.description or '') if d else '',
+                   r.publication_number if p else None)
+                  for r in lots.itertuples(index=False)}
+        del lots
     for name, g in ex.groupby('company'):
         texts, titles, dates = _refs_of(g, by_lot, outreach.MAX_PROFILE_REFS)
         core = evd.core_keywords(texts, firm=name, titles=titles, dates=dates)
         counts = evd.root_share(texts)
-        firms[name] = {
+        firms[name].update({
             'core': core,
             # how many of those references carry the root — the numbers behind
             # CORE_SHARE, shown so a 1-of-6 trade cannot pass for a 6-of-6 one
@@ -119,78 +153,82 @@ def _cores(data_dir, ex, by_lot):
             # a count and must not be printed as one
             'name_roots': evd.name_keywords(name),
             'refs': len(texts),
-        }
-    try:
-        tmp = cache.with_suffix('.json.tmp')
-        tmp.write_text(json.dumps({'stamp': stamp, 'rules': rules,
-                                   'firms': firms}), encoding='utf-8')
-        os.replace(tmp, cache)          # the app and the cycle both write it
-    except Exception as e:                                     # noqa: BLE001
-        print(f'[admin] core-root cache not written ({e})')
-    return firms
-
-
-def _rules_stamp():
-    """What the cached trades were derived under: the gate's rule fingerprint
-    plus the root vocabulary itself. The fingerprint covers every CORE_* knob
-    (`evidence.RULES`) but not `cpv_trade_roots.txt`, and that file is edited
-    by hand — a released change to it has to invalidate the cache on the day
-    it ships, not on the next store rebuild."""
-    import evidence as evd
-    return (evd.rules_fingerprint() + ':'
-            + hashlib.sha256(evd.ROOTS_FILE.read_bytes()).hexdigest()[:10])
+        })
+    doc = {'stamp': list(_mtimes(data_dir)), 'rules': _rules_stamp(),
+           'firms': list(firms.values())}
+    tmp = out.with_suffix('.json.tmp')
+    tmp.write_text(json.dumps(doc, ensure_ascii=False, separators=(',', ':')),
+                   encoding='utf-8')
+    os.replace(tmp, out)
+    return out, len(firms)
 
 
 def index(data_dir):
-    """{winner name: row} — one entry per exact winner spelling, with the
-    trade its wins recur on. Empty when the store is not there (a fresh
-    deployment); never raises."""
-    stamp = _mtimes(data_dir)
-    if _cache['mtime'] == stamp and _cache['firms'] is not None:
+    """{winner name: row} — the index FILE, read once per process and again
+    when it changes on disk. Never derives: a missing or unreadable file is
+    an empty index (the page then says the trade search is not ready), and a
+    file written for another store or under other rules is served but
+    reported as such through `index_state`, because a slightly old trade
+    list beats none while the deploy that follows a store move rebuilds it.
+    Never raises."""
+    p = Path(data_dir) / INDEX_FILE
+    try:
+        mtime = p.stat().st_mtime
+    except OSError:
+        _cache.update(mtime=None, firms=None)
+        return {}
+    if _cache['mtime'] == mtime and _cache['firms'] is not None:
         return _cache['firms']
     firms = {}
     try:
-        import pandas as pd
-        import outreach
-        store = Path(data_dir) / 'store'
-        ex = outreach.winner_rows(store)
-        cores = _cores_held(data_dir)
-        if cores is None:
-            # a store without lot texts (an old rebuild, a test fixture) still
-            # searches by name — the trade is simply missing, and that is
-            # visible in the results rather than fatal
-            import pyarrow.parquet as pq
-            have = set(pq.read_schema(store / 'tenders.parquet').names)
-            cols = [c for c in ('procedure_id', 'lot_id', 'title',
-                                'description', 'publication_number')
-                    if c in have]
-            by_lot = {}
-            if 'title' in cols:
-                lots = pd.read_parquet(store / 'tenders.parquet', columns=cols)
-                d, p = 'description' in cols, 'publication_number' in cols
-                by_lot = {(r.procedure_id, r.lot_id):
-                          (r.title or '', (r.description or '') if d else '',
-                           r.publication_number if p else None)
-                          for r in lots.itertuples(index=False)}
-                del lots
-            cores = _cores(data_dir, ex, by_lot) if by_lot else {}
-        for name, g in ex.groupby('company'):
-            sizes = g['winner_size'].dropna()
-            firms[name] = {
-                'company': name,
-                'size': sizes.mode().iloc[0] if len(sizes) else 'unknown',
-                'wins': int(len(g)),
-                'single_bid_wins': int((g['n_tenders'] <= 1).sum()),
-                'last_win': str(g['publication_date'].max())[:10],
-                'name_cf': name.casefold(),
-                **cores.get(name, {'core': [], 'counts': {},
-                                   'name_roots': [], 'refs': 0}),
-            }
+        doc = json.loads(p.read_text(encoding='utf-8'))
+        for f in doc['firms']:
+            f['name_cf'] = f['company'].casefold()
+            f.setdefault('core', [])
+            f.setdefault('counts', {})
+            f.setdefault('name_roots', [])
+            f.setdefault('refs', 0)
+            firms[f['company']] = f
+        _cache.update(mtime=mtime, firms=firms,
+                      stamp=doc.get('stamp'), rules=doc.get('rules'))
     except Exception as e:                                     # noqa: BLE001
-        print(f'[admin] search index unavailable ({e})')
-        firms = {}
-    _cache.update(mtime=stamp, firms=firms)
+        print(f'[admin] index file unreadable ({e})')
+        _cache.update(mtime=None, firms=None)
     return firms
+
+
+def index_state(data_dir):
+    """One of 'missing', 'stale', 'current' — for the line under the search
+    field. 'stale': the file exists but was built for another store or under
+    other rules; served, and the next cycle or deploy replaces it."""
+    if not index(data_dir):
+        return 'missing'
+    try:
+        current = (_cache.get('stamp') == list(_mtimes(data_dir))
+                   and _cache.get('rules') == _rules_stamp())
+    except Exception:                                          # noqa: BLE001
+        current = False
+    return 'current' if current else 'stale'
+
+
+def customers_only(data_dir, state):
+    """The rows for an EMPTY query — the customers we already have, with
+    their numbers. Straight from the awards store for those few names — a
+    0.1 s read — and the index is used only if this process already holds
+    it (then the rows carry the trade too). Never opens the index: the empty
+    page is the one the operator lands on, and it can never be slow again."""
+    names = sorted(set(state['name_of'].values()))
+    firms = dict(_cache['firms'] or {})
+    if not all(n in firms for n in names):
+        try:
+            import outreach
+            ex = outreach.winner_rows(Path(data_dir) / 'store')
+            firms.update(_firm_rows(ex[ex['company'].isin(names)]))
+        except Exception as e:                                 # noqa: BLE001
+            print(f'[admin] awards store unavailable ({e})')
+    return [firms.get(name, {'company': name, 'size': '—', 'wins': 0,
+                             'single_bid_wins': 0, 'last_win': '—'})
+            for name in names]
 
 
 def query_roots(q):
@@ -230,23 +268,21 @@ def trade_strength(f, roots):
 def search(data_dir, q, state, limit=LIMIT):
     """-> (rows, total). Firms whose **trade** is what `q` names, or whose
     name contains it, customers first. An empty query lists the customers we
-    already have, so the page is useful before anything is typed.
+    already have, so the page is useful before anything is typed — and does
+    not open the index at all.
 
-    The trade half is not a substring search over won-lot titles any more
+    The trade half is not a substring search over won-lot titles
     (doc/ADMIN.md §4): one lot of forty carrying the word made a general
     contractor an electrician, which is precisely the reading the delivery
     gate throws away. `q` becomes trade roots and the firms whose OWN trade
     recurs on one of them answer — strongest share first, so a 6-of-6
     electrician stands above a 1-of-6 one and the general contractor, whose
     trade this is not, does not appear at all."""
-    firms = index(data_dir)
     q = (q or '').strip().casefold()
     if not q:
-        rows = [firms.get(name, {'company': name, 'size': '—', 'wins': 0,
-                                 'single_bid_wins': 0, 'last_win': '—'})
-                for name in sorted(set(state['name_of'].values()))]
-        strength = {}
+        rows, strength = customers_only(data_dir, state), {}
     else:
+        firms = index(data_dir)
         roots = query_roots(q)
         rows, strength = [], {}
         for f in firms.values():
@@ -500,7 +536,17 @@ def list_html(data_dir, q, state, *, url=None, url_firm=None, error=None,
              'placeholder="Gewerk (z. B. blitzschutz) oder Firmenname" '
              'style="min-width:22em"> '
              '<button type="submit">Suchen</button></form>']
-    if (q or '').strip():
+    ready = index_state(data_dir) if (q or '').strip() else None
+    if ready == 'missing':
+        # a request never builds the index (module docstring); until the
+        # cycle or a deploy has written it, say so instead of searching
+        # nothing silently
+        parts.append('<p class="why">Die Suche über alle Firmen ist noch '
+                     'nicht bereit — der Index wird vom nächsten Lauf oder '
+                     'Deploy geschrieben (<code>python admin.py --build</code>'
+                     '). Bis dahin findet die Suche nichts; ohne Suchbegriff '
+                     'stehen die Kunden hier.</p>')
+    elif (q or '').strip():
         # what was actually searched for. The operator types a word; the page
         # says which trade that word is, and that the answer is the firm's
         # recurring trade rather than any lot it once happened to win
@@ -510,7 +556,10 @@ def list_html(data_dir, q, state, *, url=None, url_firm=None, error=None,
             'Berichten), stärkste zuerst; dazu Namenstreffer.'
             if roots else
             f'„{esc(q)}" ist kein Gewerkswort — gesucht wird nur im '
-            'Firmennamen.') + '</p>')
+            'Firmennamen.')
+            + (' <span class="muted">(Index von einem älteren Stand; der '
+               'nächste Lauf erneuert ihn.)</span>' if ready == 'stale' else '')
+            + '</p>')
     parts += ['<p class="counts">' + ' · '.join(
                  f'{k}: <b>{v}</b>' for k, v in c.items()) + '</p>',
              '<p class="muted"><a href="/admin/experiments">Experimente</a>'
@@ -540,3 +589,29 @@ def list_html(data_dir, q, state, *, url=None, url_firm=None, error=None,
         parts.append(f'<p class="muted">{total} Treffer, {len(rows)} '
                      'angezeigt — bitte weiter eingrenzen.</p>')
     return '\n'.join(parts)
+
+
+# ------------------------------------------------------------- the builder
+
+def main():
+    """`python admin.py --build` — write the index file. What the deploy runs
+    (docker/deploy.sh build_site) and what the cycle runs at its end; also
+    the thing to run by hand when the page says the index is missing."""
+    import argparse
+    import time
+    import config
+    ap = argparse.ArgumentParser(description="the operator page's index")
+    ap.add_argument('--data-dir', default=config.data_root())
+    ap.add_argument('--build', action='store_true',
+                    help="derive every winner's trade and write "
+                         f'<data-dir>/{INDEX_FILE}')
+    args = ap.parse_args()
+    if not args.build:
+        ap.error('nothing to do without --build')
+    t0 = time.time()
+    path, n = build_index(args.data_dir)
+    print(f'[admin] index built: {n} firms -> {path} in {time.time() - t0:.0f}s')
+
+
+if __name__ == '__main__':
+    main()

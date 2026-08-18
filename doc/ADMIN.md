@@ -150,13 +150,28 @@ are marked *ohne Gewerk* on the row. Almost all are blind framework slices
 whose titles name no work; that they cannot be found by trade is correct and
 consistent with the gate, which cannot build them a profile either.
 
-**Cost.** Deriving 5,476 trades takes ~34 s (it reads lot descriptions, which
-the old haystack did not). It is written to `data/admin_cores.json`, keyed by
-the store's mtimes plus a stamp over `evidence.rules_fingerprint()` and
-`cpv_trade_roots.txt`, and warmed at the end of every cycle by `loop.py` — so
-the operator's page reads a file (~3 s for the whole index) and only ever
-re-derives if it is asked before the cycle has run. A stale cache is never
-served: mtimes or rules that do not match mean recompute.
+**Cost, and the rule it forced (2026-08-18, same day).** Deriving the trades
+reads lot descriptions: 34 s over the laptop's 5,476 winners, **158 s over
+the server's 15,508**. The first cut ran that inside the first request that
+needed it, and the first `/admin` after a deploy took 158 s — to list two
+customers, because `search()` built the whole index before looking at the
+query. So:
+
+- **A request never derives.** The index is a file, `data/admin_index.json`,
+  holding exactly what a row prints (name, numbers, core roots with their
+  counts — no texts). Its only writer is `admin.build_index`, run by the
+  cycle (`loop.py`, after the store moved) and by every deploy
+  (`docker/deploy.sh build_site`, with the image just proved), or by hand:
+  `python admin.py --build`. A request reads it once per process (~0.05 s)
+  and again when its mtime moves.
+- **The empty query does not open the index at all.** The customers' numbers
+  come from the awards store for those few names (0.1 s); the index is
+  consulted only if the process already holds it.
+- **Missing file → the page still opens instantly** — customers and name
+  search — and says the trade search is not ready and how to build it.
+  **Stale file** (built for another store, or under other rules or another
+  `cpv_trade_roots.txt`) → served, marked *Index von einem älteren Stand*;
+  the next cycle or deploy replaces it. A slightly old list beats none.
 
 Result capped at 100 rows with a „mehr eingrenzen" note.
 
