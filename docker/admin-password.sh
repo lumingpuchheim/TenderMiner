@@ -195,13 +195,11 @@ unset password
 # Compose expands $ inside .env values; a bcrypt hash written raw arrives
 # mangled and no password ever matches (doc/ADMIN.md 5a). Quoted sed: the
 # unquoted version substitutes the shell PID and cost an outage.
-# Compose expands `$` in .env values but NOT in env_file ones, so the
-# doubling depends on where this lands (doc/SECRETS.md §2, settled with
-# `docker compose config` on 2026-08-18).
-case "$FILE" in
-    */*) : ;;
-    *)   value=$(printf %s "$value" | sed 's/[$]/$$/g') ;;
-esac
+# Compose expands `$` in env_file values EXACTLY as in .env — measured, not
+# assumed (doc/SECRETS.md §2; `X=$2a$14$abc…` in an env_file reaches the
+# container as `$2a$14`). So every `$` of the hash is doubled wherever it
+# lands, and a hash that arrives short is this line failing.
+value=$(printf %s "$value" | sed 's/[$]/$$/g')
 KEY=TM_ADMIN_HASH
 
 umask 077
@@ -213,7 +211,11 @@ mv "$FILE.new" "$FILE"
 chmod 600 "$FILE"
 echo "[admin-password] $KEY written to $FILE; recreating: $SERVICES"
 STATE=$(sed -n s/^TM_STATE=//p .env | tail -1)
-TM_TAG=$(cat "$STATE/deploy/current" 2>/dev/null || echo latest)     docker compose up -d --force-recreate $SERVICES >/dev/null 2>&1
+# --profile edge: the edge service is behind a profile, and without it
+# compose silently does nothing — the password was written and the edge kept
+# running with the old file, which reads exactly like a wrong password
+# (2026-08-18). Errors are shown, not swallowed.
+TM_TAG=$(cat "$STATE/deploy/current" 2>/dev/null || echo latest)     docker compose --profile edge up -d --force-recreate $SERVICES 2>&1     | grep -vi "warn\|Network\|Volume" || true
 for s in $SERVICES; do
     printf "  %s: %s
 " "$s" "$(docker compose ps --format {{.Status}} $s | head -1)"
@@ -224,8 +226,9 @@ v="$(sed -n "s/^TM_ADMIN_HASH=//p" "$FILE" | tail -1)"
 printf "
   file:  %s (mode %s, owner %s)
 " "$FILE" "$(stat -c %a "$FILE")" "$(stat -c %U "$FILE")"
+u="$(sed -n "s/^TM_ADMIN_USER=//p" "$FILE" | tail -1)"
 printf "  user:  %s
-" "$(sed -n "s/^TM_ADMIN_USER=//p" "$FILE" | tail -1 || true)murara"
+" "${u:-murara}"
 printf "  hash:  set, %s characters
 " "${#v}"
 REMOTE

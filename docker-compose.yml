@@ -166,8 +166,8 @@ services:
     # business and nobody else's, so it lives in its own file and only this
     # service reads it. `required: false` — a laptop without the file still
     # starts, and the placeholder above then answers 401 to everything.
-    # Values here are NOT interpolated by compose, so the hash is stored raw:
-    # no `$` doubling, unlike in .env (doc/ADMIN.md §5a).
+    # Compose interpolates `$` in these values exactly as in .env, so the
+    # hash is stored with every `$` doubled (measured 2026-08-18).
     env_file:
       - path: /etc/murara/env.d/admin.env
         required: false

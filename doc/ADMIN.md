@@ -146,6 +146,34 @@ port is loopback-bound, HOSTING.md). Without the header: the neutral
 page is reachable with `TM_ADMIN_OPEN=1` for development, never set on the
 server.
 
+### 5b. Where the credential lives — 2026-08-18
+
+Not in `.env`. `/etc/murara/env.d/admin.env` (doc/SECRETS.md §1), mode 600,
+read by the **edge alone** through `env_file: [{path: …, required: false}]`.
+The cycle and the app no longer have the admin hash in their environment at
+all, and a laptop without the file still starts.
+
+Three things this cost, all now in the files:
+
+1. **`environment:` overrides `env_file:`.** A placeholder written in the
+   compose `environment:` block won over `admin.env` permanently. There is
+   no TM_ADMIN_* in `environment:` any more; the closed-door default lives in
+   the Caddyfile.
+2. **The closed-door default must be a valid bcrypt string.** Caddy
+   base64-decodes the hash while *loading* its config, so the friendly
+   placeholder `kein-passwort-gesetzt` did not fail closed — it failed to
+   parse and took the whole edge down, app and public site with it. The
+   default is now a bcrypt hash of 30 random bytes nobody holds: an unarmed
+   machine answers 401 and still starts.
+3. **Compose interpolates `$` in `env_file` values exactly as in `.env`** —
+   measured, not assumed: `X=$2a$14$abc…` in an env_file reaches the
+   container as `$2a$14`. Every `$` of the hash is doubled wherever it is
+   written, and `admin-password.sh` does it.
+
+Also: recreating the edge needs `--profile edge`, or compose silently does
+nothing and the old password keeps working — which reads exactly like a
+password that did not take.
+
 ### 5a. What the edge taught us — 2026-08-17
 
 Two traps, both found by taking the site down for four minutes and both now
