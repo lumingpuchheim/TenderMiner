@@ -159,14 +159,9 @@ services:
     environment:
       TM_DOMAIN: ${TM_DOMAIN:-}
       TM_WWW_DOMAIN: ${TM_WWW_DOMAIN:-}
-      # NOT `${TM_ADMIN_HASH:-}`: an EMPTY hash is a Caddyfile parse error
-      # ("username and password cannot be empty"), and a config that does not
-      # parse takes the whole edge down — the app and the public site with it
-      # (found the hard way, 2026-08-17). A non-empty placeholder keeps the
-      # config valid and lets no password through, which is the safe
-      # direction: /admin answers 401 until a real hash is set. admin.env
-      # below overrides it whenever a real hash exists.
-      TM_ADMIN_HASH: kein-passwort-gesetzt
+    # No TM_ADMIN_* here on purpose: `environment:` OVERRIDES `env_file:`,
+    # so a placeholder written here would win over admin.env for ever — which
+    # is exactly what happened, with a value Caddy could not parse.
     # The first layer of doc/SECRETS.md §1: the admin credential is the edge's
     # business and nobody else's, so it lives in its own file and only this
     # service reads it. `required: false` — a laptop without the file still

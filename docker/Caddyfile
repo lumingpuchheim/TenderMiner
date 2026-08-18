@@ -20,14 +20,20 @@
 	# terminates TLS. The app additionally refuses /admin unless this header
 	# is present — the app port is loopback-bound, so nothing else can set
 	# it, and an edge without this block hides the page instead of exposing
-	# it. TM_ADMIN_USER / TM_ADMIN_HASH come from .env; the hash is made
-	# with `docker run --rm caddy caddy hash-password --plaintext '…'`.
+	# it. TM_ADMIN_USER / TM_ADMIN_HASH come from
+	# /etc/murara/env.d/admin.env — the edge's own file, nobody else's
+	# (doc/SECRETS.md §1) — and are written by
+	# `bash docker/admin-password.sh set` (doc/ADMIN.md §5).
 	@admin path /admin /admin/*
 	basic_auth @admin {
-		{$TM_ADMIN_USER:murara} {$TM_ADMIN_HASH:kein-passwort-gesetzt}
-		# ^ the placeholder is deliberate: no password can match a
-		#   non-bcrypt string, so an unset TM_ADMIN_HASH means 401
-		#   rather than an edge that will not start.
+		{$TM_ADMIN_USER:murara} {$TM_ADMIN_HASH:$2a$14$B6sAonPyQQzco9Hs10NXROiVar8leTRMPlx9JJnZn68Jnf1OMjYE.}
+		# ^ the default is a bcrypt hash of 30 random bytes that nobody
+		#   has: with no admin.env on the machine, /admin answers 401 to
+		#   every password and the edge still starts. It must be a VALID
+		#   bcrypt string — Caddy base64-decodes the hash while loading
+		#   its config, and a friendly word like "kein-passwort-gesetzt"
+		#   fails there and takes the whole edge down, app and public
+		#   site with it (2026-08-18, the third such outage).
 	}
 	handle @admin {
 		reverse_proxy app:8000 {
