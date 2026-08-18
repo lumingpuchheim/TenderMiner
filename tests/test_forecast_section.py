@@ -60,6 +60,20 @@ class NoReceipt(unittest.TestCase):
         self.assertIn('behaupten wir dazu nichts', html)
         self.assertNotIn('%', html)
 
+    def test_the_conventional_file_on_the_state_volume_is_found(self):
+        """2026-08-18: the deploy and the cycle build without flags, so the
+        operator's replay reaches the pages through one conventional path,
+        `<data>/replay/latest.json`. `--replay` still wins when given; a
+        missing file is still no claim."""
+        self.assertIsNone(tp.replay_path(self.dir))
+        f = self.dir / tp.REPLAY_FILE
+        f.parent.mkdir()
+        f.write_text(json.dumps(receipt([('p', 'L', True, 1)])),
+                     encoding='utf-8')
+        self.assertEqual(tp.replay_path(self.dir), f)
+        self.assertEqual(tp.replay_path(self.dir, 'other.json'), 'other.json')
+        self.assertIsNotNone(tp.load_replay(tp.replay_path(self.dir)))
+
     def test_a_missing_file_is_treated_as_absent(self):
         """Named but not there: the forecast section goes quiet, the market
         pages still build. A bad path must not cost the whole site."""

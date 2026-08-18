@@ -163,13 +163,31 @@ def figures(lots, sel, covered, mature):
 MIN_CHECKED = market.SMALL_SAMPLE
 
 
+# The one conventional place, on the state volume: the deploy and the cycle
+# build the site without flags, and the operator's replay is meant to reach
+# every visitor (2026-08-18: "the pages don't mention the lift — add it").
+# `python rewind_all.py --out <data>/replay/latest.json` puts it there; the
+# next deploy or cycle prints the forecast section on every page. Nothing
+# writes this file but the operator's own replay run.
+REPLAY_FILE = Path('replay') / 'latest.json'
+
+
+def replay_path(data_dir, given=None):
+    """`--replay PATH` wins; otherwise `<data>/replay/latest.json` if it
+    exists; otherwise None (no claim, and the console says so)."""
+    if given:
+        return given
+    p = Path(data_dir) / REPLAY_FILE
+    return p if p.exists() else None
+
+
 def load_replay(path):
     """A replay document from `rewind_all.py`, or None when there is none.
 
-    There is no default path and no conventional filename on purpose: the
-    replay is produced by `python rewind_all.py > somewhere.json`, the operator
-    names that file, and this program is told where it is. No argument means
-    no forecast claim, which is the state on a fresh checkout and the correct
+    The replay is produced by `python rewind_all.py --out somewhere.json` and
+    this program is told where it is — by `--replay`, or by the conventional
+    `<data>/replay/latest.json` (`replay_path`). No document means no
+    forecast claim, which is the state on a fresh checkout and the correct
     one — the pages then say so in words.
 
     A **bad** document is also None, because an optional section must never
@@ -541,7 +559,11 @@ def build(data_dir, out=None, dry_run=False, site=SITE, replay=None):
     lots = market.add_text(market.load_lots(data_dir))
     trades = market.load_trades()
     covered, mature, _ = market.coverage(lots)
+    replay = replay_path(data_dir, replay)
     receipt = load_replay(replay)
+    if receipt:
+        print(f'[trades] forecast section from {replay} '
+              f'(replay of {receipt.get("generated", "?")})')
 
     built, skipped, pages = [], [], {}
     for name, trade in sorted(trades.items()):
@@ -589,8 +611,9 @@ def main():
     ap.add_argument('--dry-run', action='store_true',
                     help='report who qualifies, write nothing')
     ap.add_argument('--replay', default=None, metavar='PATH',
-                    help='a `python rewind_all.py > PATH` document; without it '
-                         'the pages make no forecast claim')
+                    help='a `python rewind_all.py --out PATH` document; '
+                         'default <data-dir>/replay/latest.json if present, '
+                         'else the pages make no forecast claim')
     args = ap.parse_args()
     out = Path(args.out) if args.out else Path(args.data_dir) / 'public'
     built, skipped = build(args.data_dir, out, args.dry_run,
@@ -598,7 +621,9 @@ def main():
     print(f'[trades] {len(built)} trade pages'
           + (' (dry run, nothing written)' if args.dry_run else
              f'; site built -> {out / CURRENT}')
-          + ('' if args.replay else '; no --replay, so no forecast section'))
+          + ('' if replay_path(args.data_dir, args.replay)
+             else f'; no replay document ({REPLAY_FILE}), so no forecast '
+                  'section'))
     if skipped:
         print(f'[trades] {len(skipped)} below the floor of {MIN_AWARDED} '
               f'awarded lots, no page:')

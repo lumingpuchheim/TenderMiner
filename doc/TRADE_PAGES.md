@@ -214,8 +214,24 @@ python rewind_all.py > run-2026-08-11.json
 python trade_pages.py --replay run-2026-08-11.json
 ```
 
-Without `--replay` there is no forecast claim and every page says so. That is
-the state on a fresh checkout, and it is the correct one.
+Without a document there is no forecast claim and every page says so. That
+is the state on a fresh checkout, and it is the correct one.
+
+**The conventional file (2026-08-18).** The deploy and the cycle build the
+site without flags, and until then no live page had ever carried the
+forecast section — the operator noticed on the Elektroinstallation page
+("doesn't mention the lift"). So `trade_pages.py` now looks in one place
+when `--replay` is not given: **`<data>/replay/latest.json`**
+(`trade_pages.REPLAY_FILE`). Refreshing the number is therefore:
+
+```
+python rewind_all.py --out data/replay/latest.json     # ~35 min, laptop store
+scp data/replay/latest.json <server>:tm-state/replay/latest.json
+```
+
+and the next deploy or Monday cycle prints it on every page, with the
+document's own date. `--replay PATH` still overrides it. Nothing but the
+operator's replay run writes that file.
 
 **Run the replay once, slice it many times.** The document is the reason the
 replay is worth its half hour: it used to keep per-lot facts in memory and
