@@ -148,23 +148,26 @@ SIGNATURE = 'Freundliche Grüße\nMurara · murara.eu'
 
 
 def trade_of(home, company):
-    """The firm's trade page and its verdict — (trade name, verdict) from
-    the operator index (`admin.build_index` stores the firm's trade pages)
-    and the last site build (`trade_pages.forecasts`). (None, {}) when the
-    firm sits on no page or nothing has been built yet: the message then
-    carries no market figures and no forecast claim, and says nothing false.
+    """The firm's trade page and its verdict, and the overall record —
+    (trade name, verdict, overall) from the operator index
+    (`admin.build_index` stores the firm's trade pages) and the last site
+    build (`trade_pages.forecasts`; the overall under `trade_pages.ALL`).
+    (None, {}, {}) when nothing has been built yet: the message then carries
+    no market figures and no forecast claim, and says nothing false.
     """
     try:
         import admin
         import trade_pages
         firm = admin.index(home).get(company) or {}
         verdicts = trade_pages.forecasts(home)
+        overall = verdicts.get(trade_pages.ALL) or {}
         for t in firm.get('trades') or ():
             if t in verdicts:
-                return t, verdicts[t]
+                return t, verdicts[t], overall
+        return None, {}, overall
     except Exception as e:                                     # noqa: BLE001
         print(f'[pitch] trade facts unavailable ({e})')
-    return None, {}
+    return None, {}, {}
 
 
 def facts_block(trade, v):
@@ -190,21 +193,35 @@ def facts_block(trade, v):
     return lines
 
 
-def edge_block(trade, v):
-    """The forecast's edge in this trade — ONLY when it beats guessing on
-    enough checked alarms (`trade_pages.level` state 'beats'). Any other
-    state prints nothing: the operator does not write to those firms
-    (2026-08-18), and a message must never carry a number the page would
-    not."""
-    if v.get('state') != 'beats' or not v.get('factor'):
-        return []
+def edge_block(trade, v, overall=None):
+    """What we are good at, in numbers: the overall record first (all
+    trades, the one figure with a real sample), then the trade's own line —
+    each ONLY when it beats guessing on enough checked alarms
+    (`trade_pages.level` state 'beats'). A trade without an edge prints
+    nothing of its own; the operator does not write to those firms
+    (2026-08-18), and a message never carries a number the page would not.
+    """
     from trade_pages import factor_de, pct_de
-    return [f'Diese Lose suchen wir – und wir prüfen, wie gut das klappt: '
-            f'Jeder Hinweis wird gegen das später veröffentlichte Ergebnis '
-            f'geprüft. Im Gewerk {trade} endeten von {v["checked"]} geprüften '
-            f'Hinweisen {pct_de(v["precision"])} mit höchstens einem Angebot; '
-            f'ohne Auswahl sind es {pct_de(v["base"])}. Also das '
-            f'{factor_de(v["factor"])}-Fache.']
+
+    def beats(lv):
+        return lv and lv.get('state') == 'beats' and lv.get('factor')
+
+    if not beats(overall) and not beats(v):
+        return []
+    out = ['Diese Lose suchen wir – und wir prüfen, wie gut das klappt: '
+           'Jeder Hinweis wird gegen das später veröffentlichte Ergebnis '
+           'geprüft.']
+    if beats(overall):
+        out.append(f'Über alle Gewerke endeten von {overall["checked"]} '
+                   f'geprüften Hinweisen {pct_de(overall["precision"])} mit '
+                   f'höchstens einem Angebot; ohne Auswahl sind es '
+                   f'{pct_de(overall["base"])} – also das '
+                   f'{factor_de(overall["factor"])}-Fache.')
+    if beats(v):
+        out.append(f'Im Gewerk {trade}: von {v["checked"]} geprüften '
+                   f'Hinweisen {pct_de(v["precision"])} statt '
+                   f'{pct_de(v["base"])}, das {factor_de(v["factor"])}-Fache.')
+    return [' '.join(out)]
 
 
 def message(home, sub_id, url, company=None, today=None):
@@ -225,7 +242,7 @@ def message(home, sub_id, url, company=None, today=None):
     company = company or (sub or {}).get('name') or sub_id
     picks = picks_for(home, sub, today) if sub else []
     win = own_win(home, company)
-    trade, v = trade_of(home, company)
+    trade, v, overall = trade_of(home, company)
     who = (f'Betriebe im Gewerk {trade}' if trade
            else 'Handwerks- und Baubetriebe')
 
@@ -240,12 +257,13 @@ def message(home, sub_id, url, company=None, today=None):
     facts = facts_block(trade, v) if trade else []
     if facts:
         lines += facts + ['']
-    edge = edge_block(trade, v) if trade else []
+    edge = edge_block(trade, v, overall)
     if edge:
         lines += edge
     if facts or edge:
-        lines += [f'Alle Zahlen und wie sie entstehen: '
-                  f'{SITE_URL}/gewerke/{v.get("slug")}/', '']
+        where = (f'{SITE_URL}/gewerke/{v["slug"]}/' if v.get('slug')
+                 else f'{SITE_URL}/gewerke/')
+        lines += [f'Alle Zahlen und wie sie entstehen: {where}', '']
     if picks:
         n = len(picks)
         word = {1: 'Ein Los, das', 2: 'Zwei Lose, die'}.get(n, 'Drei Lose, die')
@@ -290,4 +308,4 @@ def message(home, sub_id, url, company=None, today=None):
     if len(short) > SHORT_LIMIT:                             # belt and braces
         short = short[:SHORT_LIMIT - 1].rstrip() + '…'
     return {'short': short, 'long': long, 'picks': picks, 'win': win,
-            'trade': trade, 'edge': v}
+            'trade': trade, 'edge': v, 'overall': overall}

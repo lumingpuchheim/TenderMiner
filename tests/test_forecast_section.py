@@ -183,6 +183,25 @@ class ThreeStates(unittest.TestCase):
         self.assertEqual(tp.level(None), {'state': 'none'})
         self.assertEqual(tp.level_tile(tp.level(None)), '')
 
+    def test_the_overall_record_stands_under_every_state(self):
+        """2026-08-18: a trade with too few checked alarms still belongs to
+        a product with a measured record, so the all-trades line is printed
+        under every state — and only when the overall itself beats chance."""
+        all_fc = self._stats(180, 860, 380, 4570)   # 17 % vs 9 %, 1042 checked
+        line = 'Über alle Gewerke zusammen: von 1040 geprüften Hinweisen'
+        for fc in (None, self._stats(5, 5, 10, 80), self._stats(20, 20, 10, 150),
+                   self._stats(4, 36, 40, 20)):
+            html = tp.forecast_section(fc, all_fc)
+            self.assertIn(line, html)
+            self.assertIn('-Fache', html)
+            self.assertNotIn(line, tp.forecast_section(fc))
+        weak = self._stats(4, 36, 40, 20)
+        self.assertNotIn('Über alle Gewerke', tp.forecast_section(None, weak))
+        rec = receipt([('p1', 'L1', True, 1), ('p1', 'L2', True, 9)] * 20
+                      + [('p2', 'L1', False, 1)] * 5 + [('p2', 'L2', False, 9)] * 95)
+        self.assertEqual(tp.forecast_all(rec)[0]['flagged'], 40)
+        self.assertIsNone(tp.forecast_all(None))
+
     def test_a_forecast_that_does_not_beat_chance_says_so(self):
         """The operator's call: print it rather than drop the section. A page
         that admits this is auditable; a silently missing section is not."""

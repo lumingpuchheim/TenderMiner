@@ -476,9 +476,10 @@ class Message(Base):
         super().setUp()
         self.sub_id, self.url = invite.add(self.dir, DUNKEL)
 
-    def verdict(self, **lv):
+    def verdict(self, overall=None, **lv):
         """The last site build's file, synthesised: the fixture firm sits on
-        the page „Blitzschutz und Erdung" (its wins say so)."""
+        the page „Blitzschutz und Erdung" (its wins say so). `overall` is
+        the all-trades record under trade_pages.ALL."""
         import json
         import trade_pages
         doc = {'Blitzschutz und Erdung': {
@@ -487,6 +488,8 @@ class Message(Base):
                         'year_scope': 12.1e6, 'low_bid': 0.12,
                         'median_bidders': 3.0, 'months': 25},
             **lv}}
+        if overall:
+            doc[trade_pages.ALL] = overall
         (self.dir / trade_pages.FORECAST_FILE).write_text(
             json.dumps(doc), encoding='utf-8')
 
@@ -528,8 +531,9 @@ class Message(Base):
         self.assertIn('12 öffentliche Lose pro Monat', m['long'])
         self.assertIn('84.000 € wert', m['long'])
         self.assertIn('12 % der Lose bekommen höchstens ein Angebot', m['long'])
-        self.assertIn('von 43 geprüften Hinweisen 16 %', m['long'])
-        self.assertIn('das 1,6-Fache', m['long'])
+        self.assertIn('Im Gewerk Blitzschutz und Erdung: von 43 geprüften '
+                      'Hinweisen 16 % statt 10 %, das 1,6-Fache', m['long'])
+        self.assertNotIn('Über alle Gewerke', m['long'])   # no overall given
         self.assertIn('murara.eu/gewerke/blitzschutz-und-erdung/', m['long'])
         # not better than guessing: the figures stay, the claim goes
         self.verdict(state='no_better', checked=43, hits=3, precision=0.07,
@@ -538,6 +542,33 @@ class Message(Base):
         self.assertIn('12 öffentliche Lose pro Monat', m['long'])
         self.assertNotIn('geprüften Hinweisen', m['long'])
         self.assertNotIn('-Fache', m['long'])
+
+    def test_the_overall_record_leads_and_the_trade_follows(self):
+        """Operator, 2026-08-18: 'show what we are doing, what we are good
+        at'. The all-trades record is the one with a real sample; it comes
+        first, the trade's own line after it — each only when it beats
+        guessing."""
+        import pitch
+        all_ = {'state': 'beats', 'checked': 1042, 'hits': 183,
+                'precision': 0.176, 'base': 0.094, 'recall': 0.32,
+                'factor': 1.86, 'generated': '2026-08-18'}
+        # trade thin, overall strong: the overall line alone
+        self.verdict(overall=all_, state='thin', checked=14, hits=2,
+                     precision=0.14, base=0.10, recall=0.1)
+        m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today='2026-08-17')
+        self.assertIn('Über alle Gewerke endeten von 1042 geprüften Hinweisen '
+                      '18 % mit höchstens einem Angebot; ohne Auswahl sind es '
+                      '9 % – also das 1,9-Fache.', m['long'])
+        self.assertNotIn('Im Gewerk Blitzschutz', m['long'])
+        self.assertEqual(m['overall']['checked'], 1042)
+        # both: overall first, trade second, in one paragraph
+        self.verdict(overall=all_, state='beats', checked=43, hits=7,
+                     precision=0.163, base=0.10, recall=0.3, factor=1.63)
+        m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today='2026-08-17')
+        i = m['long'].index('Über alle Gewerke')
+        j = m['long'].index('Im Gewerk Blitzschutz')
+        self.assertLess(i, j)
+        self.assertNotIn('\n', m['long'][i:j])
 
     def test_the_message_page_and_the_row_show_the_edge_verdict(self):
         """The operator writes only where there is an edge (2026-08-18), so

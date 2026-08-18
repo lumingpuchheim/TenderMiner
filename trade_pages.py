@@ -209,6 +209,26 @@ def load_replay(path):
         return None
 
 
+def forecast_all(receipt):
+    """-> (stats, generated) over the WHOLE replay, every trade together —
+    the product's record. Same statistic, same function, no slice. The
+    per-trade slices are thin (5 hits in 43 is what a trade's number can
+    rest on); this is the one figure with a real sample behind it, and the
+    one the message leads with (operator, 2026-08-18: 'show what we are
+    doing, what we are good at')."""
+    if not receipt:
+        return None
+    rows = [{'flag': r['flag'], 'label': int(r['n_tenders'] <= 1)}
+            for r in receipt['lots'] if r['n_tenders'] is not None]
+    if not rows:
+        return None
+    from grading import flag_stats
+    return flag_stats(rows), receipt.get('generated', '?')
+
+
+ALL = '_all'        # the key of the overall record in FORECAST_FILE
+
+
 def forecast_for(receipt, lots, sel):
     """-> (stats, generated) for this trade's slice of the replay, or None.
 
@@ -304,19 +324,34 @@ def trades_of_titles(titles, trades=None):
     return out
 
 
-def forecast_section(fc):
-    """Three states, and the page says which one it is in.
+def overall_html(lv):
+    """One sentence on the whole record, all trades together — printed in
+    every state of the section, because a trade with too few checked
+    alarms still belongs to a product with a measured record. Nothing when
+    the overall itself is thin or absent."""
+    if not lv or lv.get('state') != 'beats':
+        return ''
+    return (f'<p>Über alle Gewerke zusammen: von {lv["checked"]} geprüften '
+            f'Hinweisen endeten {pct_de(lv["precision"])} mit höchstens einem '
+            f'Angebot, ohne Einschätzung {pct_de(lv["base"])} — das '
+            f'{factor_de(lv["factor"])}-Fache.</p>')
+
+
+def forecast_section(fc, all_fc=None):
+    """Three states, and the page says which one it is in; under each, the
+    overall record (`overall_html`).
 
     The unflattering one is printed rather than dropped (operator's call,
     2026-08-11): a page that shows the market and then admits the forecast is
     not beating the base rate here is auditable, and silent omission is not.
     It also says something true — in that trade the value is the coverage,
     not the forecast."""
+    overall = overall_html(level(all_fc))
     if fc is None:
         return ('<h2>Wie gut trifft unsere Einschätzung?</h2>'
                 '<p>Für dieses Gewerk liegen noch nicht genug ausgewertete '
                 'Hinweise vor, um das zu belegen. Solange das so ist, '
-                'behaupten wir dazu nichts.</p>')
+                'behaupten wir dazu nichts.</p>' + overall)
     st, generated = fc
     checked, hits = st['flagged'], st['tp']
     if checked < MIN_CHECKED or st['precision'] is None:
@@ -324,7 +359,7 @@ def forecast_section(fc):
                 f'<p>Bisher konnten erst {checked} unserer Hinweise in diesem '
                 f'Gewerk gegen ein veröffentlichtes Ergebnis geprüft werden — '
                 f'zu wenige für eine belastbare Quote. Wir nennen sie erst ab '
-                f'{MIN_CHECKED}.</p>')
+                f'{MIN_CHECKED}.</p>' + overall)
     prec, base = st['precision'], st['base']
     lead = (f'<p>Von {checked} Hinweisen, die wir in diesem Gewerk gegeben '
             f'haben und deren Ergebnis inzwischen veröffentlicht ist, endeten '
@@ -346,7 +381,7 @@ def forecast_section(fc):
            f'allen Losen dieses Gewerks, die mit höchstens einem Angebot '
            f'endeten, hatten wir {pct_de(st["recall"])} vorher genannt.</p>')
     return ('<h2>Wie gut trifft unsere Einschätzung?</h2>' + lead + verdict
-            + rec +
+            + rec + overall +
             f'<p class="muted">Grundlage ist ein Rücktest: die Historie wird '
             f'so nachgespielt, wie das System sie damals gesehen hätte, und '
             f'jede Einschätzung gegen das später veröffentlichte Ergebnis '
@@ -384,7 +419,7 @@ def dist_table(dist, n_awarded):
             f'<tbody>{rows}</tbody></table>')
 
 
-def page(name, slug, f, fc=None):
+def page(name, slug, f, fc=None, all_fc=None):
     """One trade page. Short on purpose: a page of four true numbers ranks
     safely, a padded one is what gets a domain demoted (TRADE_PAGES.md 5)."""
     today = date.today()
@@ -424,7 +459,7 @@ def page(name, slug, f, fc=None):
         f'<p>Im Mittel bewerben sich {f["median_bidders"]:.0f} Bieter auf ein '
         f'Los dieses Gewerks. So verteilt sich das:</p>\n'
         f'{dist_table(f["dist"], f["n_awarded"])}\n\n'
-        f'{forecast_section(fc)}\n\n'
+        f'{forecast_section(fc, all_fc)}\n\n'
         f'<h2>Woher die Zahlen kommen</h2>\n'
         f'<p>Quelle ist <em>Tenders Electronic Daily</em> (TED), das '
         f'Amtsblatt der EU für öffentliche Vergaben. Ein Los zählt zu diesem '
@@ -637,6 +672,8 @@ def build(data_dir, out=None, dry_run=False, site=SITE, replay=None):
               f'(replay of {receipt.get("generated", "?")})')
 
     built, skipped, pages, verdicts = [], [], {}, {}
+    all_fc = forecast_all(receipt)
+    verdicts[ALL] = level(all_fc)
     for name, trade in sorted(trades.items()):
         sel = market.match(lots, trade, 'core')
         f = figures(lots, sel, covered, mature)
@@ -648,7 +685,7 @@ def build(data_dir, out=None, dry_run=False, site=SITE, replay=None):
         slug = slugify(name)
         built.append((name, slug))
         fc = forecast_for(receipt, lots, sel)
-        pages[slug] = page(name, slug, f, fc)
+        pages[slug] = page(name, slug, f, fc, all_fc)
         # the level AND the page's market figures: the invitation message
         # quotes both, and a request must not recompute them
         verdicts[name] = {**level(fc), 'slug': slug,
