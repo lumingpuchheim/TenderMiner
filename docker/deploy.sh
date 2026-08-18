@@ -39,6 +39,20 @@ PROBE_DEADLINE=60                    # seconds, per OPERATIONS.md 2 step 2
 say() { printf '[deploy] %s\n' "$*"; }
 die() { printf '[deploy] FAILED: %s\n' "$*" >&2; exit 1; }
 
+# Every deploy repairs the mode of the credential files. Setting it once by
+# hand is worthless: a fresh server, a restored file or an editor that writes
+# a new inode brings 644 back, and nothing would notice (operator,
+# 2026-08-18). Cheap, idempotent, and it says so when it had to act.
+tighten() {
+    for f in "$REPO/.env" "$STATE/.cron-env"; do
+        [ -f "$f" ] || continue
+        m="$(stat -c %a "$f" 2>/dev/null || true)"
+        if [ -n "$m" ] && [ "$m" != 600 ]; then
+            chmod 600 "$f" && say "tightened $f (was $m)"
+        fi
+    done
+}
+
 # ---------------------------------------------------------------- the gate
 #
 # What the probe accepts, and why it is NOT simply "200 from /healthz".
@@ -248,6 +262,7 @@ cmd_deploy() {
     [ -d "$STATE" ] || die "state directory $STATE does not exist"
 
     git rev-parse --git-dir >/dev/null 2>&1 || die "not a git checkout: $REPO"
+    tighten
     check_state_matches_running
     local tag
     tag="$(git rev-parse --short HEAD)"

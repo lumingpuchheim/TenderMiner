@@ -95,6 +95,10 @@ cd "$DIR"
 # Started, never overwritten: a re-run must not wipe the Resend key an
 # operator already typed in.
 [ -f .env ] || cp .env.example .env
+# .env holds credentials; the default umask makes it world-readable, and a
+# file created loose stays loose on every later machine (operator,
+# 2026-08-18). Unconditional, so a re-run repairs an existing one too.
+chmod 600 .env
 set_env() {
     # Fill a key only when absent or empty — an operator's explicit value
     # survives every re-run. (A deliberately empty value does NOT survive;

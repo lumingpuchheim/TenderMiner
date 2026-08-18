@@ -127,6 +127,27 @@ the cycle.
 an earlier night is a data operation (§3), deliberately separate: rolling
 back code must never silently roll back customer data with it.
 
+## 2a. Credential files are tightened by the deploy, not by hand
+
+`.env` and `/data/.cron-env` hold credentials, and both are created by
+something that does not think about modes: `cp .env.example .env` under the
+login shell's umask (664 — world-readable), and the scheduler's env dump
+(which does use `umask 077`). A `chmod` typed once is worth nothing: the
+next server, a restored file, or an editor that writes a new inode brings the
+loose mode back, and nothing notices.
+
+So the repair lives in the scripts, in two places, both idempotent:
+
+- [`bootstrap.sh`](../docker/bootstrap.sh) `chmod 600 .env` right where it
+  creates it — every new machine starts correct;
+- [`deploy.sh`](../docker/deploy.sh) `tighten()`, run at the start of every
+  deploy — a machine that drifts is repaired within one push, and the deploy
+  log says `tightened … (was 664)` so the drift is visible rather than
+  silent.
+
+Found 2026-08-18: the live server's `.env` was 664 with the Resend key and
+the admin hash in it, since the day `bootstrap.sh` created it.
+
 ## 3. Backups: automatic, machine-to-machine, no laptop
 
 Operator decision 2026-08-13: the laptop is out of the loop. Two
