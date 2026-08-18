@@ -94,6 +94,14 @@ mkdir -p "$STATE" "$STATE/public" "$STATE/logs"
 cd "$DIR"
 # Started, never overwritten: a re-run must not wipe the Resend key an
 # operator already typed in.
+# doc/SECRETS.md §1: credentials live one file per concern under env.d/,
+# owned by the deploy user, readable by nobody else. Created here because it
+# needs root exactly once; the files themselves are written by the operator's
+# tools (docker/admin-password.sh, secrets.sh) and never by this script.
+if [ ! -d /etc/murara/env.d ]; then
+    sudo -n install -d -m 700 -o "$(id -un)" -g "$(id -gn)" /etc/murara /etc/murara/env.d         || echo "[bootstrap] could not create /etc/murara/env.d (needs root once): sudo install -d -m 700 -o $(id -un) /etc/murara/env.d"
+fi
+
 [ -f .env ] || cp .env.example .env
 # .env holds credentials; the default umask makes it world-readable, and a
 # file created loose stays loose on every later machine (operator,

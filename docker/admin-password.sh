@@ -38,7 +38,11 @@ DIR="${TM_SERVER_DIR:-TenderMiner}"
 # Where the hash is written, and what must be recreated to see it. After the
 # env.d/ migration (doc/SECRETS.md §1) this becomes admin.env; the script
 # changes by one line and nothing else.
-TARGET_FILE="${TM_ADMIN_ENV_FILE:-.env}"
+# doc/SECRETS.md §1: one file per concern, and the admin credential is the
+# edge's. Absolute path, created by bootstrap.sh; TM_ADMIN_ENV_FILE overrides
+# it for a machine that has not been migrated (the value then needs its `$`
+# doubled, which is what the ENV_DOUBLE case below decides).
+TARGET_FILE="${TM_ADMIN_ENV_FILE:-/etc/murara/env.d/admin.env}"
 SERVICES=edge
 
 say() { printf '[admin-password] %s\n' "$*"; }
@@ -162,7 +166,12 @@ REMOTE
 REMOTE_SET=$(cat <<'REMOTE'
 set -eu
 cd "$HOME/$DIR" || { echo "[admin-password] no checkout at ~/$DIR" >&2; exit 2; }
-[ -f "$FILE" ] || { echo "[admin-password] no $FILE at ~/$DIR" >&2; exit 2; }
+case "$FILE" in
+    */*) d="$(dirname "$FILE")"
+         [ -d "$d" ] || { echo "[admin-password] $d does not exist - run bootstrap.sh" >&2; exit 2; }
+         [ -f "$FILE" ] || { umask 077; : > "$FILE"; } ;;
+    *)   [ -f "$FILE" ] || { echo "[admin-password] no $FILE at ~/$DIR" >&2; exit 2; } ;;
+esac
 # The handshake: the caller waits for this line before it asks the operator
 # for anything, so "connected" is a fact and not a hope — and then blocks here
 # until the password arrives over the same connection.
@@ -170,7 +179,8 @@ echo READY
 password="$(cat)"
 [ -n "$password" ] || { echo "[admin-password] empty; nothing written" >&2; exit 2; }
 case "$FILE" in
-    .env) git check-ignore -q .env || { echo "[admin-password] .env is not gitignored - refusing" >&2; exit 2; } ;;
+    */*) : ;;      # an absolute path: env.d, outside the checkout
+    *)   git check-ignore -q "$FILE" || { echo "[admin-password] $FILE is not gitignored - refusing" >&2; exit 2; } ;;
 esac
 
 # The password itself never lands anywhere: Caddy hashes it (bcrypt) and only
@@ -185,8 +195,12 @@ unset password
 # Compose expands $ inside .env values; a bcrypt hash written raw arrives
 # mangled and no password ever matches (doc/ADMIN.md 5a). Quoted sed: the
 # unquoted version substitutes the shell PID and cost an outage.
+# Compose expands `$` in .env values but NOT in env_file ones, so the
+# doubling depends on where this lands (doc/SECRETS.md §2, settled with
+# `docker compose config` on 2026-08-18).
 case "$FILE" in
-    .env) value=$(printf %s "$value" | sed 's/[$]/$$/g') ;;
+    */*) : ;;
+    *)   value=$(printf %s "$value" | sed 's/[$]/$$/g') ;;
 esac
 KEY=TM_ADMIN_HASH
 

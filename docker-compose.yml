@@ -159,15 +159,23 @@ services:
     environment:
       TM_DOMAIN: ${TM_DOMAIN:-}
       TM_WWW_DOMAIN: ${TM_WWW_DOMAIN:-}
-      # basic auth for /admin (doc/ADMIN.md 5)
-      TM_ADMIN_USER: ${TM_ADMIN_USER:-murara}
       # NOT `${TM_ADMIN_HASH:-}`: an EMPTY hash is a Caddyfile parse error
       # ("username and password cannot be empty"), and a config that does not
       # parse takes the whole edge down — the app and the public site with it
       # (found the hard way, 2026-08-17). A non-empty placeholder keeps the
       # config valid and lets no password through, which is the safe
-      # direction: /admin answers 401 until a real hash is set.
-      TM_ADMIN_HASH: ${TM_ADMIN_HASH:-kein-passwort-gesetzt}
+      # direction: /admin answers 401 until a real hash is set. admin.env
+      # below overrides it whenever a real hash exists.
+      TM_ADMIN_HASH: kein-passwort-gesetzt
+    # The first layer of doc/SECRETS.md §1: the admin credential is the edge's
+    # business and nobody else's, so it lives in its own file and only this
+    # service reads it. `required: false` — a laptop without the file still
+    # starts, and the placeholder above then answers 401 to everything.
+    # Values here are NOT interpolated by compose, so the hash is stored raw:
+    # no `$` doubling, unlike in .env (doc/ADMIN.md §5a).
+    env_file:
+      - path: /etc/murara/env.d/admin.env
+        required: false
     volumes:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data          # certificates survive the container
