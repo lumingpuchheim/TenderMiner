@@ -1,12 +1,13 @@
 #!/bin/sh
-# The Monday cycle, as the Windows scheduled task "TenderMining weekly loop"
-# has run it since 2026-08-01. That task's action is one cmd.exe line:
+# The cycle — the update — followed, only if it succeeded, by the simulation
+# scorecard. Cron runs it Monday 07:00 (docker/crontab); it may also be run by
+# hand any day, since nothing in it mails anyone (RUNBOOK 1). The sending is
+# docker/deliver.sh, 90 minutes later.
 #
-#   python loop.py run --last 7d          >> data\logs\loop_scheduled.log 2>&1
-#   && (echo === %date% === >> data\logs\simcheck.log)
-#   && python simulation.py check         >> data\logs\simcheck.log 2>&1
-#
-# Three things about it are load-bearing and are reproduced here:
+# Until 2026-08-18 this file was weekly.sh and its cycle (then loop.py) also
+# delivered every customer at the end. The shape is the Windows scheduled
+# task's action line from 2026-08-01, and three things about it are
+# load-bearing and are reproduced here:
 #
 #   1. The `&&`. The simulation check runs ONLY if the cycle succeeded. A failed
 #      cycle that still appended a scorecard block would put a dated heading in
@@ -26,15 +27,6 @@ DATA="${TM_DATA_DIR:-/data}"
 LOGS="$DATA/logs"
 mkdir -p "$LOGS"
 
-# The mail secrets (RESEND_API_KEY, TM_MAIL_FROM, TM_APP_URL) reach this job
-# the way nightly.sh gets its backup secrets: via /data/.cron-env, written by
-# the scheduler service at start — cron itself hands out a bare environment.
-# Without the file the cycle still runs; the reports are written and every
-# send is refused loudly (delivering.py prints it, the ledger records it).
-if [ -f "$DATA/.cron-env" ]; then
-    . "$DATA/.cron-env"
-fi
-
 # Extra arguments for the cycle, empty on a normal Monday. This exists for the
 # two cases where re-fetching would be wrong: re-running a Monday that died
 # after the download (`--skip-download`, the runbook's advice), and any run
@@ -43,13 +35,13 @@ fi
 # quietly replaces a 22 MB store with an 810 KB one and then dies in
 # single_bidder with `KeyError: 'n_tenders'`. That is not a hypothetical; it is
 # what the first test of this script did.
-EXTRA="${TM_WEEKLY_ARGS:-}"
+EXTRA="${TM_CYCLE_ARGS:-${TM_WEEKLY_ARGS:-}}"
 
 started=$(date '+%Y-%m-%d %H:%M:%S %Z')
-echo "[cron] weekly cycle starting $started${EXTRA:+ (extra args: $EXTRA)}"
+echo "[cron] cycle starting $started${EXTRA:+ (extra args: $EXTRA)}"
 
 # shellcheck disable=SC2086  # EXTRA is a deliberate word-split argument list
-if python /app/loop.py run --last 7d $EXTRA >> "$LOGS/loop_scheduled.log" 2>&1; then
+if python /app/cycle.py run --last 7d $EXTRA >> "$LOGS/cycle.log" 2>&1; then
     echo "[cron] cycle ok — appending the simulation scorecard"
     # `date` unquoted-formatted like cmd.exe's %date% would look; the point is a
     # legible separator, not a parseable field.
@@ -66,9 +58,10 @@ else
     # Deliberately loud and deliberately not retried: a failed cycle is
     # idempotent to re-run by hand (`--skip-download` if the archive is fine),
     # and a cron loop retrying a cycle that trains a model is how two of them
-    # end up training at once.
+    # end up training at once. deliver.sh at 08:30 will find last week's
+    # predictions, refuse, and say so.
     echo "[cron] CYCLE FAILED (exit $status) — simulation check skipped."
-    echo "[cron] tail -50 $LOGS/loop_scheduled.log"
-    tail -50 "$LOGS/loop_scheduled.log" 2>/dev/null
+    echo "[cron] tail -50 $LOGS/cycle.log"
+    tail -50 "$LOGS/cycle.log" 2>/dev/null
     exit $status
 fi

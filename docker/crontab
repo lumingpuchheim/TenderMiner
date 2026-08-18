@@ -1,8 +1,12 @@
-# /etc/cron.d/tendermining — the weekly cycle. doc/RUNBOOK.md §1c.
+# /etc/cron.d/tendermining — the schedule. doc/RUNBOOK.md §1, §1c.
 #
-# Monday 08:15, matching the Windows task this replaces. Note the fifth field:
-# cron's day-of-week 1 is Monday (0 and 7 are both Sunday), which is NOT the
-# same numbering as the Windows trigger's DaysOfWeek=2.
+# Two Monday jobs since 2026-08-18: the CYCLE at 07:00 (download, grade,
+# train, predict, report — mails nobody) and the DELIVERY at 08:30 (render
+# and send every customer from what the cycle wrote). Before that date it was
+# one job at 08:15 doing both, and a cycle could not be run mid-week to see
+# something without also mailing everyone. Note the fifth field: cron's
+# day-of-week 1 is Monday (0 and 7 are both Sunday), which is NOT the same
+# numbering as the Windows trigger's DaysOfWeek=2.
 #
 # CRON_TZ makes the schedule explicit rather than inherited. Without it the
 # daemon uses the container's TZ, which is the same value today — but the two
@@ -50,13 +54,22 @@ PYTHONUNBUFFERED=1
 # evidence with it.
 #
 # m  h  dom mon dow  user  command
-  15 8  *   *   1    tm    /app/docker/weekly.sh >> /data/logs/cron.log 2>&1
+   0 7  *   *   1    tm    /app/docker/cycle.sh   >> /data/logs/cron.log 2>&1
+  30 8  *   *   1    tm    /app/docker/deliver.sh >> /data/logs/cron.log 2>&1
+
+# Ninety minutes apart, and the gap is not a guess: the cycle takes 30–75
+# minutes and may first wait up to an hour behind a replay on the heavy lock.
+# The delivery takes the same lock with the same wait, so a cycle that
+# overruns 08:30 delays the mail rather than skipping it — and a cycle that
+# died leaves last week's predictions, which deliver.py refuses (--max-age
+# 1d) with a loud line in cron.log and no mail. The order of the two lines
+# is the order of the day; nothing else enforces it.
 
 # The nightly backup (OPERATIONS.md 3): export always, off-site push when
 # restic is configured, Sunday self-verification. 02:30 keeps clear of the
-# Monday 08:15 cycle by six hours — the export reads the database the app and
-# cycle write, and WAL means readers never block, but a backup and a cycle
-# racing for disk bandwidth on the same box is still worth six hours of space.
+# Monday 07:00 cycle by four and a half hours — the export reads the database
+# the app and cycle write, and WAL means readers never block, but a backup and
+# a cycle racing for disk bandwidth on the same box is still worth the space.
   30 2  *   *   *    tm    /app/docker/nightly.sh >> /data/logs/cron.log 2>&1
 
 # The backplay rejector (doc/PARAMETERS.md §10-11): measures the queue's
@@ -65,7 +78,7 @@ PYTHONUNBUFFERED=1
 # or Monday's store is measured the next night; cheap most nights because the
 # job re-measures only when the evidence moved (benchmark blob, store files,
 # champion fingerprint) and otherwise prints what it stood on and exits. 04:00
-# is ninety minutes after the backup and four hours before the Monday cycle;
+# is ninety minutes after the backup and three hours before the Monday cycle;
 # it takes the heavy lock, so the separation is politeness and the lock is
 # the guarantee.
    0 4  *   *   *    tm    /app/docker/backplay.sh >> /data/logs/cron.log 2>&1

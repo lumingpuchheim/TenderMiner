@@ -11,7 +11,7 @@ this small change".
 - Make every commit on the worktree's branch, then merge or open a PR from
   there. `master` in the primary checkout stays clean and buildable.
 - This applies to documentation-only and one-line changes too. The rule
-  exists so an in-progress edit never blocks a scheduled `loop.py` run
+  exists so an in-progress edit never blocks a scheduled `cycle.py` run
   reading the working tree, and so a half-finished change is never what
   `master` has.
 
@@ -32,7 +32,7 @@ Two things are not covered by that, because they reach outside the worktree:
 - **The real `data/`.** A fresh worktree has no `data/` at all (it is
   gitignored), so anything touching real records has to be pointed at the
   primary checkout's copy explicitly — and that copy is shared with scheduled
-  `loop.py` runs. Reading it is fine; writing to `data/tendermining.db` or a
+  `cycle.py` runs. Reading it is fine; writing to `data/tendermining.db` or a
   live ledger is still a question first.
 - **`git push`, and the deny-list.** Pushing, `reset --hard`, force-push and
   the rest stay gated wherever you are.

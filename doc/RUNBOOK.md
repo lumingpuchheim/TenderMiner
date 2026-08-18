@@ -5,26 +5,51 @@ What to type, when, and what you get back. Component internals live in
 ([`ONLINE_LEARNING.md`](ONLINE_LEARNING.md), [`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md),
 [`RELEVANCE.md`](RELEVANCE.md)); this file is only about running things.
 
-## 1. The routine: one command
+## 1. The routine: two commands
 
 ```
-python loop.py run --last 7d
+python cycle.py run --last 7d       # update: any day, as often as you like — mails nobody
+python deliver.py run               # send:   once a week, from what the last cycle wrote
 ```
 
-One cycle does everything, in order: download the window's notices → rebuild
-the store → **update the embedding sidecar** (new lots only, ~5 min) → grade
-outcomes → retrain/promote the model → score open lots → write the operator
-report → **render every active customer** → **simulate every winner company**
-(picks to `data/ledger/simulations.jsonl`, ~2 s, see
-[`SIMULATION.md`](SIMULATION.md)) → refresh the dashboard.
+**Until 2026-08-18 this was one command, `loop.py run`,** and the sending was
+welded to the training: the customer reports were rendered from the scores
+still in memory at the end of the same process. That meant a cycle could not
+be run mid-week to *see* something — a new arm's first training, a changed
+gate, the experiments page filling in — without also mailing every customer.
+The two halves now stand apart, and the split follows one line: **everything
+that produces state runs any time; the one step that reaches a person runs on
+the schedule.**
 
-- Run it on the cadence you already use (weekly `--last 7d`; daily `--last 2d`
-  also works — deliveries are idempotent per day, nothing double-sends).
+**`cycle.py run`** does, in order: download the window's notices → rebuild the
+store → **update the embedding sidecar** (new lots only, ~5 min) → open or
+advance the A/B trial → grade outcomes → retrain/promote (once per arm during a
+trial) → score open lots into the ledger → drift monitors, trial verdict,
+knob lines → write the operator report → **simulate every winner company**
+(~2 s, [`SIMULATION.md`](SIMULATION.md)) → dashboard, public site, admin
+index, cache pruning. Nothing in it sends mail; nothing in it writes a
+delivery row.
+
+**`deliver.py run`** does the rest: reads **the delivering model's latest
+prediction per lot still open** from the ledger (the same rows the report
+just listed), learns each customer's own wins as references, slices per
+subscription, gates, renders, mails, appends the delivery rows and turns the
+trial-ask clock. It trains nothing and downloads nothing. It **refuses** when
+the newest prediction is older than `--max-age` (default `1d`) — a Monday
+whose 07:00 cycle died gets a loud line and no mail, never a mail job that
+quietly retrains — and it waits behind a running cycle on the heavy lock
+rather than reading half-written predictions.
+
+- Run `cycle.py` on any cadence (weekly `--last 7d`; daily `--last 2d` also
+  works). Predictions dedup by notice and model, so a second run in a week
+  costs an hour of CatBoost and changes nothing a customer sees.
+- Run `deliver.py` weekly. It is idempotent per day: a second run the same
+  day finds every lot already on record for every customer and sends nothing.
 - Everything customer-facing lands under
   `data/reports/subscriptions/<sub_id>/report_<date>.html` (+ annex).
 - Operator artifacts: `data/reports/report_<date>.md`, `data/reports/dashboard.html`.
 - **You never schedule the embedding or the gate separately** — they ride
-  inside the cycle. If the sidecar is somehow broken, the cycle prints
+  inside the cycle. If the sidecar is somehow broken, `deliver.py` prints
   `[deliver] relevance gate unavailable … delivering ungated` and continues;
   fix at leisure, nothing is lost.
 - **`[knobs] GATE MISMATCH` stops delivery on purpose**
@@ -102,34 +127,39 @@ TM_GATE_OVERRIDE='{"NOMINATION_BAR": 0.60}' python evidence.py --judge
 A key no constant answers to stops the run. That is on purpose — an ignored
 override would measure the champion and print the candidate's name.
 
-Re-run a cycle without re-downloading (e.g. after editing a subscription):
+Re-run a cycle without re-downloading (e.g. after a code change):
 
 ```
-python loop.py run --last 7d --skip-download
+python cycle.py run --last 7d --skip-download
 ```
 
-**Scheduled on this laptop** (Windows Task Scheduler, task
-`TenderMining weekly loop`): every **Monday 08:15**, the cycle above
-followed by the simulation scorecard —
+Render every customer's report to disk without mailing anyone (what
+`preview_report.py` does for one customer):
 
 ```
-python loop.py run --last 7d          >> data\logs\loop_scheduled.log
-python simulation.py check           >> data\logs\simcheck.log
+python deliver.py run --no-mail
 ```
 
-The simcheck log accumulates one dated block per week; watch the hit rate
-firm up there as awards publish (~90-day median lag). Nothing else is
-scheduled by design: calibration and backtests are event-driven (§4, §3),
-and the embedding sidecar rides inside the cycle.
+**Scheduled** ([`docker/crontab`](../docker/crontab), §1c): every **Monday
+07:00** the cycle, followed by the simulation scorecard; every **Monday
+08:30** the delivery. Ninety minutes apart because the cycle takes 30–75
+minutes and may wait up to an hour behind a replay on the heavy lock; the
+delivery waits behind the cycle on the same lock, so an early cycle overrun
+delays the mail rather than skipping it, and a dead cycle stops it. The
+simcheck log accumulates one dated block per week; watch the hit rate firm
+up there as awards publish (~90-day median lag). Nothing else is scheduled by
+design: calibration and backtests are event-driven (§4, §3), and the
+embedding sidecar rides inside the cycle.
 
-## 1b. The same cycle, in a container
+## 1b. The same two commands, in a container
 
-Same command, same outputs, none of the laptop's Python. Why it exists is
+Same commands, same outputs, none of the laptop's Python. Why it exists is
 [`STORAGE.md`](STORAGE.md) 6.5; what to type is here.
 
 ```
 docker compose build
-docker compose run --rm tm python loop.py run --last 7d
+docker compose run --rm tm python cycle.py run --last 7d
+docker compose run --rm tm python deliver.py run
 ```
 
 Every command in this runbook works with `docker compose run --rm tm` in front
@@ -149,7 +179,7 @@ what the laptop finds. Point it at an absolute path outside the checkout and
 nothing else changes — that is what 6.1 bought:
 
 ```
-TM_STATE=C:\Users\user\workspace\tm-state docker compose run --rm tm python loop.py run --last 7d
+TM_STATE=C:\Users\user\workspace\tm-state docker compose run --rm tm python cycle.py run --last 7d
 ```
 
 **Seed the model cache from this laptop rather than downloading it.** The model
@@ -168,16 +198,27 @@ to compare against. Harmless; the vectors are byte-identical to the laptop's.
 **Without compose**, which is what a host like Render or Railway will run:
 
 ```
-docker run --rm -v C:\Users\user\workspace\tm-state:/data -v tm-model-cache:/models_cache tendermining:latest python loop.py run --last 7d
+docker run --rm -v C:\Users\user\workspace\tm-state:/data -v tm-model-cache:/models_cache tendermining:latest python cycle.py run --last 7d
 ```
 
-## 1c. Monday 08:15, in the container
+## 1c. Monday 07:00 and 08:30, in the container
 
-The weekly schedule exists twice now, and **only one of them may be switched
-on.** Both run the same thing — [`docker/weekly.sh`](../docker/weekly.sh), which
-reproduces the Windows task's action line exactly: the cycle, then, *only if it
-succeeded*, a dated heading and the simulation scorecard, both appended to
-`data/logs/loop_scheduled.log` and `data/logs/simcheck.log`.
+Two scheduled jobs ([`docker/crontab`](../docker/crontab)), since 2026-08-18:
+
+| when | script | what | log |
+| --- | --- | --- | --- |
+| Monday 07:00 | [`docker/cycle.sh`](../docker/cycle.sh) | `cycle.py run --last 7d`, then — *only if it succeeded* — a dated heading and the simulation scorecard | `data/logs/cycle.log`, `data/logs/simcheck.log` |
+| Monday 08:30 | [`docker/deliver.sh`](../docker/deliver.sh) | `deliver.py run` — render, mail, record | `data/logs/deliver.log` |
+
+Both append to `data/logs/cron.log` as well, which is what
+`docker compose logs scheduler` tails. `deliver.sh` exits 2 when `deliver.py`
+refused for staleness (no cycle within `--max-age`); cron.log then says
+`DELIVERY REFUSED` and nobody was mailed — run `cycle.sh` by hand, then
+`deliver.sh`, and the day is whole. Before 2026-08-18 there was one job,
+`weekly.sh` at 08:15, doing both; `data/logs/loop_scheduled.log` is that
+job's log, frozen where it stopped.
+
+The schedule exists twice, and **only one of them may be switched on.**
 
 **Option A — cron inside a container** ([`docker/crontab`](../docker/crontab)):
 
@@ -188,11 +229,11 @@ docker compose stop scheduler
 ```
 
 **Option B — the Windows task keeps the trigger, the container does the work.**
-One `docker run` replaces the task's whole action line, because the chaining now
-lives in `weekly.sh`:
+Two `docker run`s replace the task's action line, one per script:
 
 ```
-docker run --rm -v C:\Users\user\workspace\TenderMining\data:/data -v tm-model-cache:/models_cache tendermining:latest /app/docker/weekly.sh
+docker run --rm -v C:\Users\user\workspace\TenderMining\data:/data -v tm-model-cache:/models_cache tendermining:latest /app/docker/cycle.sh
+docker run --rm -v C:\Users\user\workspace\TenderMining\data:/data -v tm-model-cache:/models_cache tendermining:latest /app/docker/deliver.sh
 ```
 
 **On this laptop, B is the better one**, and it is not close. The existing task
@@ -284,18 +325,19 @@ otherwise. Omitting it entirely disables the relevance gate for that customer
 append the same `sub_id` with `version: n+1` and a new `effective_from`.
 **Deactivate** — append a version with `"active": false`.
 
-**Render** — rendering is not a separate program: the next `loop.py run`
-renders every active subscription (all of them, in milliseconds — one run,
-many views). To see a customer's report *now* after editing their line:
+**Render** — rendering is `deliver.py`'s job, and it renders every active
+subscription (all of them, in milliseconds — one run, many views). To see a
+customer's report *now* after editing their line, without mailing anyone:
 
 ```
-python loop.py run --last 7d --skip-download
+python deliver.py run --no-mail
 ```
 
 and open `data/reports/subscriptions/<sub_id>/report_<date>.html`. There is
 deliberately no per-customer switch: every render also appends the delivery
 ledger rows that make the track record auditable, and those must stay
-complete for every active customer.
+complete for every active customer. (For one customer against a sandbox,
+`preview_report.py`, §3.)
 
 ## 3. Testing a change against the pilot
 
@@ -384,7 +426,7 @@ committed output; nothing waits on them.
 
 | When | Run | Writes |
 | --- | --- | --- |
-| automatically each cycle | (inside `loop.py run`) | new lot vectors, `data/embeddings/<tag>/` |
+| automatically each cycle | (inside `cycle.py run`) | new lot vectors, `data/embeddings/<tag>/` |
 | after changing the embedding model; after a big backfill; else ~monthly | `python calibrate.py` | `calibration_<tag>.md`, `trusted_codes_<tag>.json` (committed result lines) |
 | curiosity / sales prep | `python calibrate.py --fingerprint "Firma GmbH"` | console only: the firm's named trades |
 
@@ -444,7 +486,7 @@ template noise the corroboration cannot see.
 | `data/reports/…` | operator report, dashboard, customer HTML | no |
 | `calibration_<tag>.md`, `trusted_codes_<tag>.json` | study result lines | **yes** |
 | `cpv_2008_de.csv` | official CPV dictionary (German) | yes |
-| `embed.py` / `calibrate.py` / `relevance.py` / `loop.py` / `simulation.py` | the programs | yes |
+| `embed.py` / `calibrate.py` / `relevance.py` / `cycle.py` / `deliver.py` / `simulation.py` | the programs | yes |
 | `preview_report.py` / `explain_verdict.py` / `rewind_win.py` / `rewind_all.py` | the test tools (§3) | yes |
 | `outreach.py` | target-list builder (§7) | yes |
 | `data/tryout/`, `data/asof/` | disposable test sandboxes (as-of worlds: `asof.py`) | no |

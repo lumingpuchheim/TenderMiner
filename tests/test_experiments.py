@@ -29,7 +29,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import db
 import experiments as ex
 import ledger
-import loop
 import single_bidder as sb
 import util
 import grading

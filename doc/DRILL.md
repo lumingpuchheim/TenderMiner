@@ -73,7 +73,7 @@ curl -s localhost:8000/healthz                              # cycle_age_days fro
    ─ clock A stops: "serving" ─
 # 5b. rebuilt (unattended; hours)
 TM_STATE="$DRILL" docker compose run --rm --network none tm \
-    python loop.py run --last 7d                            # store, embeddings, champion, picks
+    python cycle.py run --last 7d                            # store, embeddings, champion, picks
    ─ clock B stops: "rebuilt" ─
 diff <(picks from the drill) <(picks the server made the same week)   # same inputs → same list
 ```

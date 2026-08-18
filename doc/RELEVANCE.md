@@ -912,7 +912,7 @@ the one-time validation pass is tens of dollars.
 ## Phase 8e — the flip: `GATE_MODE = 'evidence'` (operator decision 2026-08-06)
 
 The evidence gate is now the **live** gate. `GATE_MODE`'s committed
-default is `'evidence'`, so the scheduled `loop.py` run picks it up with
+default is `'evidence'`, so the scheduled `deliver.py` run picks it up with
 **no change to how cron calls it** — that was the operator's constraint.
 
 **Shipped configuration**: nomination bar 0.55, witness rule **K>=2**,
@@ -988,7 +988,7 @@ the receipts show beats the coin on *both* axes (see phase 8d).
 
 One constant: `GATE_MODE = 'embedding'` restores the previous gate
 exactly (tag `gate-v1-embedding`) — no retraining, no rebuild, sidecars
-and champion model untouched. `GATE_MODE=embedding python loop.py run`
+and champion model untouched. `GATE_MODE=embedding python deliver.py run`
 does it for a single run without a commit.
 
 ## Phase 9 — learned references: the customer's own wins (implemented 2026-08-06)
@@ -1020,7 +1020,7 @@ replay path that forgets its cutoff *understates* the profile. It cannot
 pull a future win into a historical world, which is the one direction
 that would silently flatter every backtest ("we predicted the win" using
 knowledge of that win). Only `Gate(dir, as_of='YYYY-MM-DD')` unions
-references with `learned_at <= as_of`; `loop.py` passes today.
+references with `learned_at <= as_of`; `deliver.py` passes today.
 
 **Error handling is deliberately asymmetric.** An operator-written
 `profile_ref` that does not resolve in the sidecar still raises — a typo
@@ -2156,7 +2156,7 @@ otherwise the reason. It is consulted in two places:
 
 ```
 python relevance.py --check-profiles      # on demand, per live subscription
-python loop.py run                        # every cycle, at delivery
+python deliver.py run                     # every delivery
 ```
 
 The check prints each subscription's lexicon and core roots, and a

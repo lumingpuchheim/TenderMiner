@@ -1,8 +1,11 @@
 # ONLINE_LEARNING — the predict → grade → retrain loop
 
-Status: implemented in [`loop.py`](../loop.py) (all four phases, including the
-trust checks and drift monitors). The customer-facing layer on top of the loop
-is specified separately in [`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md).
+Status: implemented in [`cycle.py`](../cycle.py) (all four phases, including
+the trust checks and drift monitors). The customer-facing layer on top of it —
+the sending — is [`deliver.py`](../deliver.py), specified in
+[`SUBSCRIPTIONS.md`](SUBSCRIPTIONS.md) and operated per [`RUNBOOK.md`](RUNBOOK.md)
+§1. Until 2026-08-18 both were one file, `loop.py`, and a cycle could not be
+run mid-week without also mailing every customer.
 
 Turns the one-off training notebook
 ([`train_single_bidder.ipynb`](../train_single_bidder.ipynb), recipe in
@@ -32,12 +35,12 @@ TRAINING.md carries over unchanged; the loop just runs it repeatedly.
                            └───────────┘
 ```
 
-**The interval is a parameter, never a constant.** The loop is invoked as
+**The interval is a parameter, never a constant.** The cycle is invoked as
 
 ```bash
-python loop.py run --last 7d      # download the last 7 days of tenders
-python loop.py run --last 2w      # …or 2 weeks
-python loop.py run --last 3m      # …or 3 months (e.g. first backfill)
+python cycle.py run --last 7d      # download the last 7 days of tenders
+python cycle.py run --last 2w      # …or 2 weeks
+python cycle.py run --last 3m      # …or 3 months (e.g. first backfill)
 ```
 
 `--last X` (days/weeks/months) sets the download window; the checkpoint guarantees
@@ -262,8 +265,9 @@ fails silently.
 
 ## Where it runs
 
-A single idempotent entry point — `python loop.py run` — that executes the five
-steps and is safe to re-run. Scheduler-agnostic by design: Windows Task Scheduler
+A single idempotent entry point — `python cycle.py run` — that executes the
+five steps and is safe to re-run; the sending, `python deliver.py run`, is a
+second entry point that reads what the first wrote and is idempotent per day. Scheduler-agnostic by design: Windows Task Scheduler
 on the current machine is enough to start (the whole cycle is minutes of CPU;
 Colab is not needed — training at this size is faster locally than the notebook
 round-trip). A hosted runner is a deployment choice for later; note the repo is
@@ -289,7 +293,7 @@ one, `tier` simply null until Phase 4 shipped).
 
 ## Open decisions (defaults proposed, none blocking Phase 1)
 
-- **Cadence** — how often the scheduler invokes `loop.py run --last X`; weekly
+- **Cadence** — how often the scheduler invokes `cycle.py run --last X`; weekly
   with `--last 7d` proposed as the starting default.
 - **Flag rule** — fixed threshold vs. "top N per week": tiers (Phase 4) largely
   dissolve this; until then, threshold 0.5 as in the notebook.

@@ -271,7 +271,7 @@ def ensure_embeddings(data_dir, tenders):
     # Deliberately does NOT unload here. The caller decides, because the
     # weekly cycle has a second job for the open model straight after this one
     # — the single words of `embed_vocab.top_up` — and opening the model is
-    # the ~1.2 GB, not using it. `loop.py` unloads once both are done.
+    # the ~1.2 GB, not using it. `cycle.py` unloads once both are done.
     return len(todo)
 
 

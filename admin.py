@@ -14,7 +14,7 @@ will treat as the firm's business (doc/ADMIN.md §4).
 **A request never derives anything.** Deriving 15,000 trades takes minutes
 on the server, and on 2026-08-18 the first `/admin` after a deploy paid it
 in full — to list two customers. So the index is a FILE, `admin_index.json`,
-written only by `build_index()` — from the cycle (`loop.py`) and from every
+written only by `build_index()` — from the cycle (`cycle.py`) and from every
 deploy (`docker/deploy.sh`) — and a request only ever reads it: once per
 process, ~15k small rows, well under a second. Missing file: the page still
 opens instantly with the customers and name search, and says the trade

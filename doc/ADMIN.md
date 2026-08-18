@@ -160,7 +160,7 @@ query. So:
 - **A request never derives.** The index is a file, `data/admin_index.json`,
   holding exactly what a row prints (name, numbers, core roots with their
   counts — no texts). Its only writer is `admin.build_index`, run by the
-  cycle (`loop.py`, after the store moved) and by every deploy
+  cycle (`cycle.py`, after the store moved) and by every deploy
   (`docker/deploy.sh build_site`, with the image just proved), or by hand:
   `python admin.py --build`. A request reads it once per process (~0.05 s)
   and again when its mtime moves.

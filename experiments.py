@@ -341,7 +341,7 @@ def arm_champion(models_dir, arm_id):
 def shadow_models(models_dir, data_dir):
     """Model ids that never delivered: every registry row with an arm stamp
     whose arm is not (or was not) its experiment's delivering arm. The report
-    shortlist and the drift monitor leave these out (loop.py)."""
+    shortlist and the drift monitor leave these out (cycle.py)."""
     reg = Path(models_dir) / 'registry.jsonl'
     if not reg.exists():
         return set()

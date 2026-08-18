@@ -1,7 +1,7 @@
 # TenderMining — one image, one cycle. doc/STORAGE.md 6.5.
 #
 #   docker compose build
-#   docker compose run --rm tm python loop.py run --last 7d
+#   docker compose run --rm tm python cycle.py run --last 7d
 #
 # The claim this file has to earn: a week's reports come out with nothing from
 # the operator's laptop involved except the state directory that is mounted in.
@@ -32,7 +32,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Dependencies before code: the 900 MB wheel layer is cached and re-used for
-# every code change, so an edit to loop.py rebuilds in seconds.
+# every code change, so an edit to cycle.py rebuilds in seconds.
 COPY requirements.txt ./
 RUN pip install -r requirements.txt
 
@@ -57,7 +57,7 @@ ENV FASTEMBED_CACHE_PATH=/models_cache \
     HF_HOME=/models_cache/huggingface
 
 # The operator's laptop clock, which is what the cycle has always been dated by.
-# loop.py's own report names come from now_utc() and do not care — but bulk.py
+# cycle.py's own report names come from now_utc() and do not care — but bulk.py
 # and download.py pick the download window with date.today(), rewind_all.py and
 # calibrate.py name their receipts the same way, and the weekly schedule fires
 # at 08:15 local. A UTC container would shift all of those by two or three hours
@@ -78,10 +78,11 @@ RUN useradd --create-home --uid 1000 tm \
 # The exec bit is set here rather than relied on from the build context: the
 # checkout is on Windows, which does not carry one.
 RUN install -m 0644 -o root -g root /app/docker/crontab /etc/cron.d/tendermining \
- && chmod 0755 /app/docker/weekly.sh /app/docker/nightly.sh /app/docker/backplay.sh
+ && chmod 0755 /app/docker/cycle.sh /app/docker/deliver.sh /app/docker/nightly.sh /app/docker/backplay.sh
 
 USER tm
 
 # One cycle, the RUNBOOK's routine command. Override freely:
-#   docker compose run --rm tm python loop.py run --last 2d --skip-download
-CMD ["python", "loop.py", "run", "--last", "7d"]
+#   docker compose run --rm tm python cycle.py run --last 2d --skip-download
+# The delivery is its own command: docker compose run --rm tm python deliver.py run
+CMD ["python", "cycle.py", "run", "--last", "7d"]

@@ -457,7 +457,7 @@ def main():
             print(line)
         return
     # a cycle by hand: the last prediction per open lot, as the cycle's
-    # `scored` would be (the cycle itself calls run() from loop.py)
+    # `scored` would be (the cycle itself calls run() from cycle.py)
     scored = list(ledger.prediction_latest_per_lot(paths.ledger_home).values())
     for line in run(paths, scored):
         print(line)

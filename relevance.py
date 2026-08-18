@@ -82,7 +82,7 @@ TRADE_BRANCHES = ('453', '454')
 # ladder exactly as shipped (tag gate-v1-embedding). 'evidence' = the
 # evidence gate — trade keywords convict, similarity and codes only
 # nominate. FLIPPED TO 'evidence' by explicit operator decision
-# (2026-08-06) so the scheduled loop.py run uses it with no change to how
+# (2026-08-06) so the scheduled cycle.py run uses it with no change to how
 # cron calls it. Live configuration: bar 0.55 + K>=2 witnesses, band
 # guess OFF. Receipt (evidence.py --judge, end to end, vs the embedding
 # gate it replaces): recall 51.5% (was 44.5%), leakage 2.7% (was 1.9%),

@@ -4,7 +4,7 @@ Written 2026-08-16 from the operator's questions in this session and the brief
 "One Hot vs Target Statistics". This is the **spec** for the first experiment
 and for `experiments.py`, which is exactly as general as that experiment
 needs and no more. **Status: built 2026-08-16** — `experiments.py`, the two
-tables in `db.py`, the arm hooks in `loop.py`, the `/admin/experiments` route
+tables in `db.py`, the arm hooks in `cycle.py` (then `loop.py`), the `/admin/experiments` route
 in `app.py`, `tests/test_experiments.py` (19 tests) and `tests/test_multihot.py`
 (10). The trial opens on its declared Monday, 2026-08-24, by itself.
 Companions: [`ONLINE_LEARNING.md`](ONLINE_LEARNING.md) (the cycle the arms run

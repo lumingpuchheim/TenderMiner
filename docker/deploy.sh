@@ -212,7 +212,7 @@ $tag, but TLS may be down; check 'docker compose --profile edge ps edge'"
 # moment the new edge starts. trade_pages.release makes the rebuild
 # all-or-nothing (a new directory, one link rename, old directory removed).
 #
-# Non-fatal, by the same rule loop.py applies: the image is proved and the
+# Non-fatal, by the same rule cycle.py applies: the image is proved and the
 # code is what this deploy is for; a page-build failure keeps the previous
 # site serving and is retried by the cycle. It says so loudly, though.
 build_site() {

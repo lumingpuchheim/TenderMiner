@@ -1,7 +1,8 @@
 # TenderMining — the cycle, containerised. doc/STORAGE.md 6.5.
 #
 #   docker compose build
-#   docker compose run --rm tm python loop.py run --last 7d
+#   docker compose run --rm tm python cycle.py run --last 7d
+#   docker compose run --rm tm python deliver.py run
 #   docker compose run --rm tm python -m unittest discover -t . -s tests
 #
 # Compose exists here for one reason: to write the two mounts down once. The
@@ -86,7 +87,7 @@ services:
     #
     # The env dump: cron hands its jobs a bare environment, so the secrets
     # compose read from .env (RESTIC_*, AWS_*, RESEND_*) would never reach
-    # nightly.sh or weekly.sh.
+    # nightly.sh or deliver.sh.
     # They are written once at container start to a file only `tm` can read,
     # and nightly.sh sources it. The file lives under /data so it never lands
     # in an image layer; it is rewritten on every recreate, so a rotated .env

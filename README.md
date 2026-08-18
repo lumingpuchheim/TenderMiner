@@ -21,19 +21,20 @@ experiment, fully explained in plain language).
 ## The production pipeline — what runs and how
 
 ```
-loop.py  (the weekly cycle — the ONE command you run)
+cycle.py    (the update — any day, mails nobody)
    ├─ calls bulk.py       download new notices from TED packages
    ├─ calls features.py   parse notice XML -> the two parquet tables
    └─ imports single_bidder.py   train / evaluate / predict functions
+deliver.py  (the sending — once a week, from what the cycle wrote)
 ```
 
-### loop.py — the weekly cycle
+### cycle.py — the update
 
 One command executes the whole predict → grade → retrain cycle described in
 [`ONLINE_LEARNING.md`](doc/ONLINE_LEARNING.md):
 
 ```bash
-python loop.py run --last 7d
+python cycle.py run --last 7d
 ```
 
 What one run does, in order:
@@ -53,15 +54,28 @@ What one run does, in order:
 6. **Report**: write `data/reports/report_<date>.md` — track record first, then
    the ranked list of open lots, then a health footer.
 
+Nothing in it mails a customer. That is the second command:
+
+### deliver.py — the sending
+
+```bash
+python deliver.py run
+```
+
+Reads the delivering model's latest prediction per open lot from the ledger,
+renders every active customer's report, mails it, and records what each
+customer saw. It trains nothing; if the newest prediction is older than
+`--max-age` (default 1d) it refuses and says which cycle to run first.
+Idempotent per day. Until 2026-08-18 the two were one command, `loop.py`.
+
 Useful options (all windows are parameters, nothing is hard-coded):
 `--cpv 45` scope (default construction) · `--country DEU` · `--threshold 0.5`
 flag cut-off · `--val-window 8w` promotion-gate window · `--track-window 12w`
 track-record window · `--skip-download` offline run on the existing store ·
 `--data-dir` / `--models-dir` alternative locations.
 
-Scheduled on this machine as Windows task **"TenderMining weekly loop"**
-(Mondays 08:15, catches up if the machine was off; output appends to
-`data/logs/loop_scheduled.log`).
+Scheduled on the server by cron ([`docker/crontab`](docker/crontab)): the
+cycle Mondays 07:00, the delivery Mondays 08:30 — [`RUNBOOK.md`](doc/RUNBOOK.md) §1.
 
 ### bulk.py — bulk notice download from TED packages
 
@@ -103,7 +117,7 @@ python features.py --xml-dir data/raw/xml --cpv 45 \
 ### single_bidder.py — the model logic (importable module, no CLI)
 
 The training/estimation/prediction functions used by both the notebook and
-loop.py: `load_with_roles`, `assemble` (label + source firewall),
+cycle.py: `load_with_roles`, `assemble` (label + source firewall),
 `build_features` (role-driven), `temporal_split` (group-aware, 1/k weights),
 `train` / `predict` / `metrics`, `cpv4_baseline`, the tripwire helpers, and
 `open_tenders`. Import it; don't run it:
@@ -174,7 +188,7 @@ does), `--region DE2`, `--since 2026-01`, `--sort`, `--min-lots`, `--top`.
 
 - **Python 3** (tested on 3.13).
 - The **exploration scripts** below need only the standard library.
-- The **production pipeline** (`loop.py`, `features.py`, `single_bidder.py`)
+- The **production pipeline** (`cycle.py`, `deliver.py`, `features.py`, `single_bidder.py`)
   additionally needs `pip install -r requirements.txt` — the exact versions the
   cycle runs on, so a rebuild months from now is the same system.
 - Internet access; all TED endpoints are public, **no API key**.
@@ -187,7 +201,7 @@ does), `--region DE2`, `--since 2026-01`, `--sort`, `--min-lots`, `--top`.
 in it, and the cycle runs against a mounted state directory:
 
 ```bash
-docker compose build && docker compose run --rm tm python loop.py run --last 7d
+docker compose build && docker compose run --rm tm python cycle.py run --last 7d
 ```
 
 See [`RUNBOOK.md`](doc/RUNBOOK.md) §1b for the mounts and the plain `docker run`
