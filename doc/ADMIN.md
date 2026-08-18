@@ -153,7 +153,7 @@ consistent with the gate, which cannot build them a profile either.
 **Cost.** Deriving 5,476 trades takes ~34 s (it reads lot descriptions, which
 the old haystack did not). It is written to `data/admin_cores.json`, keyed by
 the store's mtimes plus a stamp over `evidence.rules_fingerprint()` and
-`cpv_trade_roots.txt`, and warmed at the end of every cycle by `loop.py` — so
+`cpv_trade_roots.txt`, and warmed at the end of every cycle by `cycle.py` — so
 the operator's page reads a file (~3 s for the whole index) and only ever
 re-derives if it is asked before the cycle has run. A stale cache is never
 served: mtimes or rules that do not match mean recompute.

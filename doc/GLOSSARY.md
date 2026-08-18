@@ -115,7 +115,7 @@ another. Far fewer lots are needed for a trustworthy verdict, and the
 3,942 lots already scored by two or more models are such a set.
 
 **Confidence interval / Wilson interval** — the range a rate could plausibly
-be in, given how few cases it rests on. `loop.py` prints one beside every
+be in, given how few cases it rests on. `cycle.py` prints one beside every
 rate so "3 of 4" never reads like "300 of 400".
 
 **Underpowered** — too few cases for the comparison to tell the arms apart
@@ -177,7 +177,7 @@ operator's.
 
 **Orchestrator** — a program that only *sequences* other modules (paths,
 checkpoint, call this then that, the CLI) and holds no logic of its own.
-PARAMETERS.md §9 wants `loop.py` to become one.
+PARAMETERS.md §9 wanted `loop.py` (now `cycle.py`) to become one.
 
 **Verdict / ready** — EXPERIMENTS.md's software-computed line saying whether
 the picture is clear enough to decide; the decision itself is the

@@ -117,14 +117,14 @@ class Excludes(unittest.TestCase):
         self.assertIn('second', after)
 
 
-class OnlyTheThree(unittest.TestCase):
+class OnlyTheFour(unittest.TestCase):
     """Property 5: the customer-facing app never waits behind batch work."""
 
     def test_app_does_not_take_the_lock(self):
         self.assertNotIn('heavy_lock', (REPO / 'app.py').read_text(encoding='utf-8'))
 
-    def test_the_three_heavy_jobs_do(self):
-        for name in ('loop.py', 'rewind_all.py', 'embed_vocab.py'):
+    def test_the_four_heavy_jobs_do(self):
+        for name in ('cycle.py', 'deliver.py', 'rewind_all.py', 'embed_vocab.py'):
             self.assertIn('heavy_lock', (REPO / name).read_text(encoding='utf-8'),
                           f'{name} can collide with the others unguarded')
 

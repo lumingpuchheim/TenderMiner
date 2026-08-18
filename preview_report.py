@@ -24,7 +24,6 @@ import pandas as pd
 
 import config
 import ledger
-import loop
 import subscriptions
 from util import Paths, read_jsonl
 import util

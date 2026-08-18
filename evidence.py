@@ -1605,7 +1605,7 @@ class SynonymTier:
         try:
             tmp_v.replace(self.vec_path)
         except OSError as e:
-            # another process (a scheduled loop.py) holds the mapping; the
+            # another process (a scheduled cycle.py) holds the mapping; the
             # words we embedded are lost, the run's results are not
             print(f'[synonym] cache not saved ({e}); '
                   f'{len(self.extra)} new words will be embedded again')

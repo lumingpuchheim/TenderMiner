@@ -159,7 +159,7 @@ def _embed_missing(syn, missing, log=print):
 def top_up(data_dir, progress=True, log=print):
     """Embed the words the store has and the cache lacks — for the cycle.
 
-    Called from `loop.py` immediately after the lots are embedded, and that
+    Called from `cycle.py` immediately after the lots are embedded, and that
     timing is the whole point. **Opening the model costs ~1.2 GB whether it is
     then handed 278 tender texts or one word.** The cycle already opens it for
     the lots; the words tier 3 falls back on ride along in the same open.

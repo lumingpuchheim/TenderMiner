@@ -17,8 +17,10 @@ Added 2026-08-11, from the operator's observation that it was not obvious
 where a number comes from; rewritten 2026-08-12 as the question × direction
 grid when the view programs were renamed (REFACTOR.md phase 5 step 4).
 
-**The architecture in one rule: one writer, many readers.** `loop.py` is the
-single scheduled writer — it downloads, scores, delivers, grades and learns.
+**The architecture in one rule: one writer, many readers.** `cycle.py` is the
+scheduled writer — it downloads, scores, grades and learns; `deliver.py`, the
+only other scheduled program, reads what it wrote and adds the delivery
+record (RUNBOOK.md §1).
 Every other program is a read-only view, and every view answers one question
 at one zoom level, in one time direction. Same predictor and same gate
 everywhere; what differs is when knowledge is frozen, and whether the outcome

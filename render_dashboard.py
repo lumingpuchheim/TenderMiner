@@ -206,7 +206,7 @@ def main(data_dir=None, models_dir=None):
     # config.data_root / config.models_root, not REPO / '...': the state's
     # location is a deployment's choice, not a fact about where the code
     # happens to sit (doc/STORAGE.md 6.1, and 6.5 for the registry).
-    # loop.py always passes both explicitly.
+    # cycle.py always passes both explicitly.
     data = Path(data_dir) if data_dir else config.data_root()
     models = Path(models_dir) if models_dir else config.models_root()
     out = data / 'reports' / 'dashboard.html'

@@ -235,6 +235,21 @@ def prediction_latest_per_lot(home, exclude_models=()):
     return out
 
 
+def predictions_by_model(home, model_id):
+    """Every prediction row `model_id` wrote, in append order — what
+    `deliver.py` reads instead of the scores a cycle once held in memory
+    (RUNBOOK 1): the delivering champion's rows, later narrowed to the lots
+    still open. A WHERE on the model column, not a scan of 98,000 rows."""
+    import db
+    kind, path = storage(home, 'predictions')
+    if kind == 'jsonl':
+        return [r for r in _read_file(path) if r['model'] == model_id]
+    con = db.connect(home, create=False)
+    return [json.loads(db.unpack(r['raw'])) for r in
+            con.execute('SELECT raw FROM prediction WHERE model = ? ORDER BY seq',
+                        (model_id,))]
+
+
 def prediction_scores_since(home, cutoff_ts, exclude_models=()):
     """Scores appended on or after `cutoff_ts` (an ISO timestamp), for the
     score-distribution drift monitor. The monitor wants a trailing window, and

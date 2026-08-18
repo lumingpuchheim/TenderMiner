@@ -25,7 +25,7 @@ class OneOpen(unittest.TestCase):
                          'unloading here reopens the model for the words')
 
     def test_the_cycle_unloads_after_both_jobs(self):
-        src = (REPO / 'loop.py').read_text(encoding='utf-8')
+        src = (REPO / 'cycle.py').read_text(encoding='utf-8')
         self.assertIn('embed_vocab.top_up', src,
                       'the word job must ride along with the lot job')
         lots = src.index('embed.ensure_embeddings')
@@ -65,7 +65,7 @@ class OneOpen(unittest.TestCase):
         self.assertTrue(any('current' in s for s in said), said)
 
     def test_unload_is_safe_when_the_model_was_never_opened(self):
-        """`loop.py` calls it in a `finally`, including on the path where
+        """`cycle.py` calls it in a `finally`, including on the path where
         ensure_embeddings raised before opening anything."""
         embed.unload_model()
         embed.unload_model()

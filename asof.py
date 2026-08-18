@@ -37,7 +37,7 @@ reads an outcome at all — that split is what makes it auditable.
 
 Scratch homes: one parent, one subdirectory per program (`data/asof/all`,
 `data/asof/win`, `data/asof/report`), so two rewinds can run at once and a
-half-hour run is never lost to a collision. `loop.py`'s housekeeping sweeps
+half-hour run is never lost to a collision. `cycle.py`'s housekeeping sweeps
 the parent by age.
 """
 

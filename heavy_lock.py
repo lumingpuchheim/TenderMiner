@@ -1,6 +1,6 @@
-"""One lock, so the three heavy jobs never run at the same time.
+"""One lock, so the heavy jobs never run at the same time.
 
-The weekly cycle, the replay and the vocabulary backfill each peak between
+The cycle, the replay and the vocabulary backfill each peak between
 1.0 and 3.0 GB (`doc/HOSTING.md` §0a). Any one of them fits a 4 GB machine.
 Any two of them at once do not — and the loser is whichever allocates second,
 which on a Monday morning is the cycle, halfway through writing a customer's
@@ -23,16 +23,19 @@ Five properties, each removing one way that could happen.
    so the classic case is impossible by construction rather than by care.
    Adding a second lock to this repository would undo that.
 
-3. **Every wait is bounded.** Nothing blocks indefinitely: the cycle waits
-   with a ceiling and then gives up loudly, and the manual jobs do not wait
-   at all.
+3. **Every wait is bounded.** Nothing blocks indefinitely: the cycle and
+   the delivery wait with a ceiling and then give up loudly, and the manual
+   jobs do not wait at all.
 
 4. **The policy is asymmetric, so nothing is silently skipped.** The cycle
-   waits (`wait=3600`) because a missed Monday is a missed delivery. The
-   replay and the backfill fail immediately, because they are manual, cheap
+   waits (`wait=3600`) because a missed Monday is a week of stale
+   predictions; the delivery (`deliver.py`, 90 minutes later) waits the same
+   way, so a cycle that overruns delays the mail rather than skipping it —
+   and never reads predictions the cycle is still writing. The replay and
+   the backfill fail immediately, because they are manual, cheap
    to repeat, and their operator is sitting right there.
 
-5. **Only these three take it.** `app.py` must never wait behind batch work —
+5. **Only these four take it.** `app.py` must never wait behind batch work —
    a customer clicking a link at 08:20 on a Monday is not part of this. And
    each job takes the lock *before* it opens the database and releases it
    *after*, so the lock is always outermost: no holder ever waits on SQLite

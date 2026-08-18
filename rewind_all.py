@@ -51,7 +51,6 @@ import pandas as pd
 import asof
 import config
 import heavy_lock
-import loop
 import relevance as rel
 import selection
 import single_bidder as sb

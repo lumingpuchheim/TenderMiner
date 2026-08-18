@@ -1,6 +1,6 @@
 #!/bin/sh
 # The nightly backup — doc/OPERATIONS.md 3, layer 2. Fired by docker/crontab at
-# 02:30 as user `tm`; everything echoes to the cron log the same way weekly.sh
+# 02:30 as user `tm`; everything echoes to the cron log the same way cycle.sh and deliver.sh
 # does, because a backup whose failures are silent is a hope, not a backup.
 #
 # Two halves, deliberately ordered:

@@ -227,7 +227,7 @@ ssh "$TARGET" "cd $DIR && TM_TAG=$TAG docker compose --profile scheduler --profi
 # and this script does not wait for it. Progress: tail the log below.
 #
 # The cycle deliberately does NOT --skip-download: the store parquets are
-# rebuilt by features.py INSIDE the loop's download stage (loop.py), so
+# rebuilt by features.py INSIDE the cycle's download stage (cycle.py), so
 # skipping it on a store-less machine crashes at the first parquet read.
 # The re-download it implies is pennies — bulk.py skips complete packages.
 #
@@ -248,7 +248,7 @@ BACKFILL_FROM="${TM_BACKFILL_FROM:-20240801}"
 say "seeding the archive from $BACKFILL_FROM (detached; this is hours of work)"
 ssh "$TARGET" "mkdir -p $STATE/logs && cd $DIR && TM_TAG=$TAG nohup docker compose run --rm -T tm \
   sh -c 'python bulk.py --from $BACKFILL_FROM --to \$(date +%Y%m%d) --country DEU --cpv 45 \
-      && python loop.py run --last 7d \
+      && python cycle.py run --last 7d \
       && python embed.py --labels \
       && cd /data && python /app/calibrate.py' \
   > $STATE/logs/backfill.log 2>&1 & echo '  backfill pid on server:' \$!"

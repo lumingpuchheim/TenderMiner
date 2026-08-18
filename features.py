@@ -1378,7 +1378,7 @@ def log_dir(xml_dir):
     The relative `'data/logs'` this replaces worked only because the laptop
     happens to run the cycle from the checkout. In the container the working
     directory is `/app`, owned by root, and the cycle runs as `tm`: creating a
-    relative `data/` there raises PermissionError, and since `loop.py` runs
+    relative `data/` there raises PermissionError, and since `cycle.py` runs
     this module with `check=True`, that took the entire weekly cycle down with
     it — after the store had been rewritten, before anything was graded,
     trained or delivered.

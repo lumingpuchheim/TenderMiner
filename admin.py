@@ -97,7 +97,7 @@ def _cores(data_dir, ex, by_lot):
 
     Cached to `<data>/admin_cores.json` under the store's mtimes, because it
     is the one expensive thing on this page: ~30 s over 5.5k winners, against
-    0.1 s for everything else. The cycle warms it (`loop.py`), so the operator
+    0.1 s for everything else. The cycle warms it (`cycle.py`), so the operator
     normally reads a file. A stale or unreadable cache is recomputed, never
     served: the trade is what the page is for."""
     import evidence as evd

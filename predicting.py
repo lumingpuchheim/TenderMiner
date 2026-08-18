@@ -123,6 +123,38 @@ def explain_rows(model, X, cat_cols, k=3):
 
 # -------------------------------------------------------------- step 4: predict
 
+def open_scored(paths, tenders, aw):
+    """The delivering champion's prediction per lot still open, read back from
+    the ledger — `deliver.py`'s stand-in for the `scored` list `predict_open`
+    returns to the process that ran it (RUNBOOK 1).
+
+    Same population as predict_open scores: `sb.open_tenders` (no award yet)
+    with a deadline today or later, or none. Same reduction deliver() has
+    always applied: one row per lot, the latest publication. Same rows: what
+    predict_open appended, tier and flag and title already stamped — so a
+    customer's report renders from exactly what the cycle wrote, and
+    switching the delivering arm (`experiments.py deliver`) makes the next
+    delivery read the other arm's rows without a cycle in between.
+
+    Returns (rows, newest_ts) — the newest `ts` among the rows is what the
+    staleness check reads; None when there is nothing to deliver from."""
+    champ = training.current_champion(paths)
+    if champ is None:
+        print('[deliver] no champion model — nothing to deliver from')
+        return [], None
+    open_t = sb.open_tenders(tenders, aw)
+    today = util.now_utc().date().isoformat()
+    deadline = pd.to_datetime(open_t.get('deadline_date'), errors='coerce')
+    open_t = open_t[(deadline.isna()) | (deadline.dt.date.astype(str) >= today)]
+    open_keys = set(map(tuple, open_t[sb.KEY].values))
+    rows = [r for r in ledger.predictions_by_model(paths.ledger_home, champ['model_id'])
+            if (r['procedure_id'], r['lot_id']) in open_keys]
+    newest = max((str(r.get('ts', '')) for r in rows), default=None)
+    print(f'[deliver] {len(rows)} prediction rows for {len(open_keys)} open lots, '
+          f'model {champ["model_id"]}, newest {newest or "-"}')
+    return rows, newest
+
+
 def predict_open(paths, tenders, roles, aw, args, arm=None, plan=None):
     """Score every open lot with the champion; append new rows to the ledger.
     Returns (new_ledger_rows, all_scores_this_cycle, scored) — the full score

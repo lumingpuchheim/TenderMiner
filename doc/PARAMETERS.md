@@ -42,7 +42,7 @@ it; §6 says what to add there once it has merged) and
 
 | place | count | mechanism | stamped? |
 | --- | --- | --- | --- |
-| `loop.py run` CLI args | 27 | argparse defaults; cron passes none | `threshold` on every prediction row; the rest not at all |
+| `cycle.py run` / `deliver.py run` CLI args | 27 | argparse defaults; cron passes none | `threshold` on every prediction row; the rest not at all |
 | `relevance.py` constants → `GateConfig` | 17 | dataclass with fingerprint; three read env vars at import | yes — `gate_config` on delivery rows since 2026-08-08 |
 | `evidence.py` constants | ~20 | module globals | **no** — not in the fingerprint |
 | `calibrate.py` constants | 10 | module globals; produce the trust list | indirectly (trust list file *name* is in the fingerprint, its contents are not) |
@@ -116,7 +116,7 @@ output is the committed `trusted_codes_<tag>.json`; git history is the record
 of its contents (as `GateConfig.fingerprint`'s docstring already says). No
 change proposed.
 
-### 2.4 Competitiveness — `loop.py run` and `single_bidder.py`
+### 2.4 Competitiveness — `cycle.py run` and `single_bidder.py`
 
 | knob | value | bucket | status | stamped |
 | --- | --- | --- | --- | --- |
@@ -222,8 +222,8 @@ set, the 2473/25600 synthetic sample) stay — but a receipt that mixes them
 in one row is not a receipt. No new file: the benchmark is already committed;
 this only makes every number say which one it stands on.
 
-**4.3 Live-config assertion — done 2026-08-16.** `loop.py` prints
-`[config] gate: <describe()>` at the top of every cycle; `/healthz` shows
+**4.3 Live-config assertion — done 2026-08-16.** `cycle.py` and `deliver.py` print
+`[config] gate: <describe()>` at the top of every run; `/healthz` shows
 `gate_config=<fingerprint>` read from the gate-config ledger (what customers
 were last served under — the app image does not carry the gate's
 dependencies, and recomputing would answer a different question). Purpose: the three env-driven knobs can be flipped by a stray
