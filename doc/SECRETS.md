@@ -155,6 +155,39 @@ is copied as is, and the app's own "no mail could be sent" line is where a
 misnamed key is found. That is a deliberate loss against the 2026-08-15
 design and the price of not carrying a key list.
 
+## 3a. Built — 2026-08-18
+
+[`docker/secrets.sh`](../docker/secrets.sh) does `list`, `diff`, `push`,
+`pull` as specified. Four departures from §3, each forced by what the
+machines actually are:
+
+- **tar over ssh, not rsync.** Neither this laptop nor the server has rsync.
+  The property §3 wanted from it — file bodies never in a process list on
+  either machine — is what the stream gives, so nothing is lost but the
+  `--chmod` flag (the receiving side sets `umask 077` and chmods).
+- **The service map is read from `docker-compose.yml`, not from
+  `docker compose config`.** The resolved config does not contain `env_file`
+  at all; it merges the files away. An `awk` over the compose file's
+  `env_file:` blocks answers "who reads this file", so a newly wired file
+  needs no change here.
+- **Every restart names every profile.** `docker compose up -d edge` without
+  `--profile edge` silently does nothing, and the old file stays loaded —
+  which reads exactly like a push that worked.
+- **Remote code travels base64-encoded** inside the ssh command string, so
+  quoting is decided once and never re-interpreted by a second shell.
+
+*Receipts, against the live server:* `pull` brought `admin.env` down;
+`diff` reported `same` for both keys, then `DIFFERS` for exactly the one key
+edited locally, naming no value; `push zz-probe.env` said „no service lists
+these files — nothing recreated"; `push admin.env` recreated the edge and
+`/admin` answered 200 with the current password and 401 with a wrong one;
+`pull` refused a local file newer than the server's.
+
+**One caveat on Windows:** `chmod 600` on the laptop's copy does not stick on
+NTFS under Git Bash — `~/.murara/env.d` files show as 644. The durable copy
+is the password manager (§0), and the server side is 600, but a laptop is not
+a place to leave these files lying around.
+
 ## 4. Where it fits
 
 - **`bootstrap.sh`** creates `/etc/murara/env.d` (0700, deploy user) and ends
