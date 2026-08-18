@@ -139,12 +139,19 @@ def build_index(data_dir, out=None):
                    r.publication_number if p else None)
                   for r in lots.itertuples(index=False)}
         del lots
+    import trade_pages
+    trade_words = trade_pages.market.load_trades()
     for name, g in ex.groupby('company'):
         texts, titles, dates = _refs_of(g, by_lot, outreach.MAX_PROFILE_REFS)
         core = evd.core_keywords(texts, firm=name, titles=titles, dates=dates)
         counts = evd.root_share(texts)
         firms[name].update({
             'core': core,
+            # the trade PAGES this firm belongs to (trades.txt names, by the
+            # same title match that builds a page) — what the forecast
+            # verdict is looked up by (doc/ADMIN.md 3b)
+            'trades': [t for t, _ in
+                       trade_pages.trades_of_titles(titles, trade_words)],
             # how many of those references carry the root — the numbers behind
             # CORE_SHARE, shown so a 1-of-6 trade cannot pass for a 6-of-6 one
             'counts': {r: int(counts.get(r, 0)) for r in core},
@@ -188,6 +195,7 @@ def index(data_dir):
             f.setdefault('counts', {})
             f.setdefault('name_roots', [])
             f.setdefault('refs', 0)
+            f.setdefault('trades', [])
             firms[f['company']] = f
         _cache.update(mtime=mtime, firms=firms,
                       stamp=doc.get('stamp'), rules=doc.get('rules'))
@@ -456,6 +464,10 @@ STYLE = """
   .counts { color: #555; font-size: .93rem }
   .adm .trade { font-size: .85rem; color: #24578c; cursor: help }
   .adm .trade.none { color: #999; font-style: italic }
+  .adm .edge { font-size: .85rem; cursor: help }
+  .edge-yes  { color: #1d6b39; font-weight: 600 }
+  .edge-no   { color: #8c2424 }
+  .edge-thin { color: #777 }
   .why { color: #555; font-size: .9rem; margin: .3rem 0 1rem }
 </style>
 """
@@ -482,6 +494,51 @@ def _trade_html(f, roots=()):
     if len(core) > SHOW_ROOTS:
         shown += f' +{len(core) - SHOW_ROOTS}'
     return f'<span class="trade" title="{esc(why)}">{shown}</span>'
+
+
+def edge_of(f, verdicts):
+    """The forecast's edge for this firm — the verdict of the strongest trade
+    page it belongs to (doc/ADMIN.md 3b). The operator writes only to firms
+    whose trade shows an advantage over guessing (2026-08-18), so this is
+    read before anything else on the row.
+
+    -> {'state', 'trade', 'text', 'cls', ...level fields} — state as
+    trade_pages.level: 'beats' · 'no_better' · 'thin' · 'none' — or
+    'no_page' when none of the firm's trades has a page."""
+    import trade_pages
+    for trade in f.get('trades') or ():
+        lv = verdicts.get(trade)
+        if not lv:
+            continue
+        st = lv.get('state', 'none')
+        if st == 'beats':
+            text = (f'{trade_pages.factor_de(lv["factor"])}-fach — '
+                    f'{trade_pages.pct_de(lv["precision"])} statt '
+                    f'{trade_pages.pct_de(lv["base"])}, '
+                    f'{lv["checked"]} geprüft')
+            cls = 'edge-yes'
+        elif st == 'no_better':
+            text = (f'kein Vorsprung — {trade_pages.pct_de(lv["precision"])} '
+                    f'statt {trade_pages.pct_de(lv["base"])}, '
+                    f'{lv["checked"]} geprüft')
+            cls = 'edge-no'
+        elif st == 'thin':
+            text = f'erst {lv["checked"]} geprüft, Quote ab 30'
+            cls = 'edge-thin'
+        else:
+            text = 'kein Rücktest'
+            cls = 'edge-thin'
+        return {**lv, 'state': st, 'trade': trade, 'text': text, 'cls': cls}
+    return {'state': 'no_page', 'trade': None, 'text': 'kein Gewerk mit Seite',
+            'cls': 'edge-thin'}
+
+
+def _edge_html(edge):
+    t = edge.get('trade')
+    label = f'{esc(t)}: ' if t else ''
+    return (f'<span class="edge {edge["cls"]}" title="Rücktest-Vorsprung des '
+            f'Gewerks (www.murara.eu/gewerke/{esc(edge.get("slug") or "")})">'
+            f'{label}{esc(edge["text"])}</span>')
 
 
 def _action(label, href, *, primary=False):
@@ -517,8 +574,9 @@ def row_actions(st):
     return [('E-Mail ändern', f'/admin/email?{q}', False), stop]
 
 
-def _row_html(f, st, url_for, roots=()):
+def _row_html(f, st, url_for, roots=(), verdicts=None):
     """One table row: the firm, what we know, what can be done to it."""
+    edge = edge_of(f, verdicts or {})
     sub_id, label = st['sub_id'], st['label']
     mail = st['email']
     masked = ('—' if not mail else
@@ -540,7 +598,7 @@ def _row_html(f, st, url_for, roots=()):
             f'<br><span class="muted">{esc(str(f.get("size") or ""))} · '
             f'{f.get("wins", 0)} Aufträge · {f.get("single_bid_wins", 0)} mit '
             f'einem Bieter · zuletzt {esc(str(f.get("last_win") or "—"))}'
-            f'</span><br>{_trade_html(f, roots)}</td>'
+            f'</span><br>{_trade_html(f, roots)} · {_edge_html(edge)}</td>'
             f'<td><span class="st {st["cls"]}">{esc(label)}</span></td>'
             f'<td>{masked}</td>'
             f'<td class="act">{" ".join(acts)}</td></tr>')
@@ -602,7 +660,10 @@ def list_html(data_dir, q, state, *, url=None, url_firm=None, error=None,
                      'muss ein Gewerk nennen, das die Aufträge einer Firma '
                      'wiederholt tragen, oder im Firmennamen vorkommen.</p>')
         return '\n'.join(parts)
-    body = ''.join(_row_html(f, status_of(state, f['company']), None, roots)
+    import trade_pages
+    verdicts = trade_pages.forecasts(data_dir)
+    body = ''.join(_row_html(f, status_of(state, f['company']), None, roots,
+                             verdicts)
                    for f in rows)
     parts.append('<table class="adm"><thead><tr><th>Firma / Gewerk</th>'
                  '<th>Status</th><th>E-Mail</th><th></th></tr></thead>'

@@ -234,6 +234,76 @@ def forecast_for(receipt, lots, sel):
     return flag_stats(rows), receipt.get('generated', '?')
 
 
+def level(fc):
+    """The forecast's standing in one trade, as a small dict the page tile,
+    the operator page and the invitation message all read (2026-08-18: the
+    operator writes only to firms whose trade shows an advantage over
+    guessing, so the same verdict must be visible on all three).
+
+    state: 'none' (no replay) · 'thin' (fewer than MIN_CHECKED checked) ·
+    'beats' (enough, and better than chance) · 'no_better'."""
+    if fc is None:
+        return {'state': 'none'}
+    st, generated = fc
+    out = {'checked': st['flagged'], 'hits': st['tp'],
+           'precision': st['precision'], 'base': st['base'],
+           'recall': st['recall'], 'generated': generated}
+    if st['flagged'] < MIN_CHECKED or st['precision'] is None:
+        return {**out, 'state': 'thin'}
+    out['factor'] = (st['precision'] / st['base']) if st['base'] else None
+    return {**out, 'state': 'beats' if st['beats_base'] else 'no_better'}
+
+
+def level_tile(lv):
+    """The fifth figure — only when there is an advantage to show. A trade
+    without one keeps four tiles and the section below says why."""
+    if lv.get('state') != 'beats' or not lv.get('factor'):
+        return ''
+    return fig(f'{factor_de(lv["factor"])}-fach',
+               'so oft trifft unser Hinweis, verglichen mit Zufall')
+
+
+# Where the site build leaves the per-trade verdicts for the operator page and
+# the invitation message: one small file beside the data, rewritten by every
+# build. Read with `forecasts(data_dir)`; never computed at request time (the
+# replay slice needs the whole lot table).
+FORECAST_FILE = 'trade_forecast.json'
+
+
+def forecasts(data_dir):
+    """{trade name: level dict + 'slug'} from the last site build, or {}."""
+    p = Path(data_dir) / FORECAST_FILE
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding='utf-8'))
+    except ValueError:
+        return {}
+
+
+def trades_of_titles(titles, trades=None):
+    """Which trade pages a firm belongs to, from the titles of its reference
+    wins: a trade counts when its words hit at least half of the titles —
+    the same title word-match (`market.match`, scope 'core') that puts a lot
+    on a page, applied to the firm's own lots. Strongest first.
+    -> [(trade name, hits)]"""
+    trades = trades if trades is not None else market.load_trades()
+    folded = [market.ev.fold(str(t or '').casefold()) for t in titles or ()]
+    folded = [t for t in folded if t]
+    if not folded:
+        return []
+    need = max(1, (len(folded) + 1) // 2)
+    out = []
+    for name, t in trades.items():
+        hits = sum(1 for s in folded
+                   if any(w in s for w in t['terms'])
+                   and not any(x in s for x in t['exclude']))
+        if hits >= need:
+            out.append((name, hits))
+    out.sort(key=lambda x: (-x[1], x[0]))
+    return out
+
+
 def forecast_section(fc):
     """Three states, and the page says which one it is in.
 
@@ -324,6 +394,7 @@ def page(name, slug, f, fc=None):
         fig(f'{money_de(f["median_award"])} €', 'Median-Auftragswert'),
         fig(f'{100 * f["low_bid"]:.0f} %', 'höchstens ein Angebot'),
         fig(f'{money_de(f["year_scope"])} €', 'Volumen pro Jahr, überschlägig'),
+        level_tile(level(fc)),
     ])
     return (
         f'<!doctype html>\n<html lang="de">\n<head>\n'
@@ -565,7 +636,7 @@ def build(data_dir, out=None, dry_run=False, site=SITE, replay=None):
         print(f'[trades] forecast section from {replay} '
               f'(replay of {receipt.get("generated", "?")})')
 
-    built, skipped, pages = [], [], {}
+    built, skipped, pages, verdicts = [], [], {}, {}
     for name, trade in sorted(trades.items()):
         sel = market.match(lots, trade, 'core')
         f = figures(lots, sel, covered, mature)
@@ -576,7 +647,12 @@ def build(data_dir, out=None, dry_run=False, site=SITE, replay=None):
             continue
         slug = slugify(name)
         built.append((name, slug))
-        pages[slug] = page(name, slug, f, forecast_for(receipt, lots, sel))
+        fc = forecast_for(receipt, lots, sel)
+        pages[slug] = page(name, slug, f, fc)
+        # the level AND the page's market figures: the invitation message
+        # quotes both, and a request must not recompute them
+        verdicts[name] = {**level(fc), 'slug': slug,
+                          'figures': {k: v for k, v in f.items() if k != 'dist'}}
 
     if dry_run:
         return built, skipped
@@ -596,6 +672,9 @@ def build(data_dir, out=None, dry_run=False, site=SITE, replay=None):
         (root / 'sitemap.xml').write_text(sitemap(built), encoding='utf-8')
 
     release(out, write)
+    # the operator's copy of the verdicts, beside the data (FORECAST_FILE)
+    (Path(data_dir) / FORECAST_FILE).write_text(
+        json.dumps(verdicts, ensure_ascii=False, indent=1), encoding='utf-8')
     return built, skipped
 
 

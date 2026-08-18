@@ -476,14 +476,86 @@ class Message(Base):
         super().setUp()
         self.sub_id, self.url = invite.add(self.dir, DUNKEL)
 
-    def test_the_message_leads_with_the_firms_own_win(self):
+    def verdict(self, **lv):
+        """The last site build's file, synthesised: the fixture firm sits on
+        the page „Blitzschutz und Erdung" (its wins say so)."""
+        import json
+        import trade_pages
+        doc = {'Blitzschutz und Erdung': {
+            'slug': 'blitzschutz-und-erdung', 'generated': '2026-08-18',
+            'figures': {'per_month': 12.0, 'median_award': 84000.0,
+                        'year_scope': 12.1e6, 'low_bid': 0.12,
+                        'median_bidders': 3.0, 'months': 25},
+            **lv}}
+        (self.dir / trade_pages.FORECAST_FILE).write_text(
+            json.dumps(doc), encoding='utf-8')
+
+    def test_the_message_says_who_we_are_and_carries_the_links(self):
+        """Drafted with the operator 2026-08-18: 'wir', no person's name,
+        no own-win paragraph, TED link under every pick, a signature."""
         import pitch
         m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today='2026-08-17')
-        self.assertIn('Dachsanierung', m['long'])      # the fixture's own win
+        self.assertIn('Wir sind Murara', m['long'])
+        self.assertNotIn('Dachsanierung', m['long'])   # the own win is gone
+        self.assertNotIn(' ich ', m['long'].lower())
+        self.assertNotIn('Herr', m['long'])
         self.assertIn('https://a/t/x', m['long'])
         self.assertIn('Datenschutz', m['long'])
+        self.assertIn(pitch.SIGNATURE, m['long'])
+        for p in m['picks']:
+            if p.get('publication_number'):
+                self.assertIn(pitch.TED_URL.format(pn=p['publication_number']),
+                              m['long'])
         self.assertLessEqual(len(m['short']), pitch.SHORT_LIMIT)
         self.assertNotIn('http', m['short'])           # no link in the note
+        self.assertTrue(m['short'].startswith('Guten Tag, wir suchen'))
+
+    def test_the_trade_figures_and_the_edge_come_from_the_site_build(self):
+        """The message quotes the trade page's numbers and — only when the
+        forecast beats guessing there — its edge. No file: no figures, no
+        claim, nothing false."""
+        import pitch
+        m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today='2026-08-17')
+        self.assertIsNone(m['trade'])
+        self.assertNotIn('Zahlen zu Ihrem Markt', m['long'])
+        self.verdict(state='beats', checked=43, hits=7, precision=0.163,
+                     base=0.10, recall=0.3, factor=1.63)
+        m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today='2026-08-17')
+        self.assertEqual(m['trade'], 'Blitzschutz und Erdung')
+        self.assertIn('Betriebe im Gewerk Blitzschutz und Erdung', m['short'])
+        self.assertIn('12 öffentliche Lose pro Monat', m['long'])
+        self.assertIn('84.000 € wert', m['long'])
+        self.assertIn('12 % der Lose bekommen höchstens ein Angebot', m['long'])
+        self.assertIn('von 43 geprüften Hinweisen 16 %', m['long'])
+        self.assertIn('das 1,6-Fache', m['long'])
+        self.assertIn('murara.eu/gewerke/blitzschutz-und-erdung/', m['long'])
+        # not better than guessing: the figures stay, the claim goes
+        self.verdict(state='no_better', checked=43, hits=3, precision=0.07,
+                     base=0.10, recall=0.1, factor=0.7)
+        m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today='2026-08-17')
+        self.assertIn('12 öffentliche Lose pro Monat', m['long'])
+        self.assertNotIn('geprüften Hinweisen', m['long'])
+        self.assertNotIn('-Fache', m['long'])
+
+    def test_the_message_page_and_the_row_show_the_edge_verdict(self):
+        """The operator writes only where there is an edge (2026-08-18), so
+        the verdict stands on the row and above the texts."""
+        _, _, body = request(self.dir, '/admin/message',
+                             query=f'sub_id={self.sub_id}')
+        self.assertIn('Kein Vorsprung nachweisbar', body)
+        self.verdict(state='beats', checked=43, hits=7, precision=0.163,
+                     base=0.10, recall=0.3, factor=1.63)
+        _, _, body = request(self.dir, '/admin/message',
+                             query=f'sub_id={self.sub_id}')
+        self.assertIn('Vorsprung im Gewerk', body)
+        self.assertIn('1,6-fach', body)
+        _, _, body = request(self.dir, '/admin', query='q=dunkel')
+        self.assertIn('edge-yes', body)
+        self.assertIn('1,6-fach — 16 % statt 10 %, 43 geprüft', body)
+        self.verdict(state='thin', checked=9, hits=1, precision=0.11,
+                     base=0.10, recall=0.1)
+        _, _, body = request(self.dir, '/admin', query='q=dunkel')
+        self.assertIn('erst 9 geprüft, Quote ab 30', body)
 
     def test_a_lot_without_a_deadline_is_never_offered(self):
         import ledger

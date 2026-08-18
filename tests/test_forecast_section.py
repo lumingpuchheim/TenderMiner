@@ -166,6 +166,23 @@ class ThreeStates(unittest.TestCase):
         self.assertRegex(html, r'\d,\d-Fache')
         self.assertNotRegex(html, r'\d\.\d-Fache')
 
+    def test_the_level_is_a_tile_only_when_it_beats_chance(self):
+        """2026-08-18: 'show the level when our prediction is better than
+        guessing'. One verdict dict feeds the tile, the operator page and
+        the message; a trade without an edge gets no tile."""
+        lv = tp.level(self._stats(20, 20, 10, 150))
+        self.assertEqual(lv['state'], 'beats')
+        self.assertAlmostEqual(lv['factor'], 0.5 / 0.15, places=3)
+        self.assertIn('3,3-fach', tp.level_tile(lv))
+        self.assertIn('verglichen mit Zufall', tp.level_tile(lv))
+        self.assertEqual(tp.level(self._stats(4, 36, 40, 20))['state'],
+                         'no_better')
+        self.assertEqual(tp.level_tile(tp.level(self._stats(4, 36, 40, 20))),
+                         '')
+        self.assertEqual(tp.level(self._stats(5, 5, 10, 80))['state'], 'thin')
+        self.assertEqual(tp.level(None), {'state': 'none'})
+        self.assertEqual(tp.level_tile(tp.level(None)), '')
+
     def test_a_forecast_that_does_not_beat_chance_says_so(self):
         """The operator's call: print it rather than drop the section. A page
         that admits this is auditable; a silently missing section is not."""

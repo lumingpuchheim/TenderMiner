@@ -251,8 +251,19 @@ reason to spend that when the figure moves quarterly at best.
 | --- | --- |
 | no `--replay` (or an unreadable one) | „…noch nicht genug ausgewertete Hinweise… behaupten wir dazu nichts" |
 | fewer than `SMALL_SAMPLE` checked alarms | names the count and refuses to quote a rate |
-| enough, and it beats the base rate | both denominators, the factor, and the recall line |
-| enough, and it does **not** | **says so plainly** |
+| enough, and it beats the base rate | both denominators, the factor, and the recall line — **and a fifth figure tile at the top, „1,2-fach — so oft trifft unser Hinweis, verglichen mit Zufall"** (2026-08-18: „show the level when our prediction is better than guessing") |
+| enough, and it does **not** | **says so plainly**; no tile |
+
+The same verdict, per trade, goes to `<data>/trade_forecast.json` for the
+operator page and the invitation message (`trade_pages.level`,
+`trade_pages.forecasts`; ADMIN.md 3b). First real replay, 2026-08-18 over the
+2026-08-10 store (46 cutoffs, 1 042 checked alarms, 18 % vs 9 % overall):
+9 of 32 pages have ≥30 checked alarms; 7 of those beat chance (Elektro
+1,2×, Heizung 1,5×, Lüftung 1,6×, Gleisbau 1,2×, Tischler 1,2×,
+Wärmedämmung 1,1×, Stahlbau 1,0×), Aufzüge and Fenster do not; the other
+23 pages say „zu wenige". The per-trade slices are thin — 5 of 43 is what
+Elektro's 12 % rests on — and the page prints the count so a reader can
+weigh it.
 
 The last row is the operator's call (2026-08-11), and it is the one worth
 defending: a page that shows the market and then admits the forecast is not

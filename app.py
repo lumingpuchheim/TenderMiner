@@ -807,9 +807,12 @@ def post_admin_sent(ctx, form):
 
 
 def get_admin_message(ctx, environ):
-    """The text to paste into LinkedIn (doc/ONBOARDING.md 9.2a): live picks
-    for this firm, its own win, the link. Two versions — the 300-character
-    connection note, and the message after the contact is accepted."""
+    """The text to paste into LinkedIn (doc/ONBOARDING.md 9.2a): who we
+    are, the trade's market figures, the forecast's edge when it has one,
+    live picks with their TED links, the invitation link. Two versions — the
+    300-character connection note, and the message after the contact is
+    accepted. Above both: the edge verdict of the firm's trade, because the
+    operator writes only where there is one (doc/ADMIN.md 3b)."""
     import mailer
     import pitch
     home = ctx['data_dir']
@@ -841,12 +844,33 @@ def get_admin_message(ctx, environ):
             f'<form method="post" action="/admin/sent" style="display:inline">'
             f'{hidden}<button type="submit">Als verschickt markieren</button>'
             '</form> ')
+    import admin
+    import trade_pages
+    edge = admin.edge_of(admin.index(home).get(firm) or {},
+                         trade_pages.forecasts(home))
+    if edge['state'] == 'beats':
+        verdict = (f'<div class="ok">Vorsprung im Gewerk <b>{esc(edge["trade"])}'
+                   f'</b>: {esc(edge["text"])} — die Nachricht nennt ihn.</div>')
+    else:
+        why = {'no_better': 'unser Hinweis trifft hier nicht besser als '
+                            'Zufall',
+               'thin': 'zu wenige geprüfte Hinweise für eine Quote',
+               'none': 'kein Rücktest gebaut (replay/latest.json fehlt)',
+               'no_page': 'die Firma sitzt auf keinem Gewerk mit Seite'
+               }.get(edge['state'], '')
+        verdict = ('<div class="err"><b>Kein Vorsprung nachweisbar</b>'
+                   + (f' im Gewerk {esc(edge["trade"])}' if edge.get('trade')
+                      else '')
+                   + f': {esc(edge["text"])} — {why}. Die Nachricht nennt '
+                   'keine Quote; laut Regel vom 18.08.2026 wird diese Firma '
+                   'nicht angeschrieben.</div>')
     return page('Nachricht', f"""
+      {admin.STYLE}
       <h1>Nachricht für {esc(firm)}</h1>
+      {verdict}
       {warn}
       <p class="muted">{n} passende offene Ausschreibung{'' if n == 1 else 'en'}
-         gefunden{'' if n else '; die Nachricht führt dann mit dem eigenen '
-                               'Auftrag der Firma'}.</p>
+         gefunden{'' if n else '; die Nachricht enthält dann keine Liste'}.</p>
       <h2>Kontaktanfrage (max. 300 Zeichen)</h2>
       <textarea rows="5" style="width:100%" onclick="this.select()"
          readonly>{esc(m['short'])}</textarea>

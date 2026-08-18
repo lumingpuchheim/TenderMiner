@@ -123,6 +123,34 @@ from the status alone, and the rule is:
 | angemeldet / zurückgestellt / gefragt / Kunde | — | E-Mail ändern · Stoppen |
 | gestoppt / Widerspruch | — | — |
 
+### 3b. The edge — who gets written to at all (2026-08-18)
+
+Operator's rule: **a firm is written to only when the forecast has a
+measured advantage over guessing in its trade.** The number is the one the
+trade page prints (TRADE_PAGES.md, „Wie gut trifft unsere Einschätzung?"),
+so the row, the message page and the message itself all read one verdict:
+
+- `trade_pages.build` writes **`<data>/trade_forecast.json`** beside the
+  data on every site build — per trade page: the level
+  (`trade_pages.level`: `beats` / `no_better` / `thin` / `none`), its
+  numbers, and the page's market figures.
+- `admin.build_index` stores each firm's **trade pages** (`trades`:
+  trades.txt names whose words hit at least half of the firm's reference
+  titles — `trade_pages.trades_of_titles`, the same title match that puts a
+  lot on a page). A request never derives either.
+- `admin.edge_of(firm, verdicts)` picks the firm's strongest page and says,
+  on the row after the trade: **„Elektroinstallation: 1,2-fach — 12 % statt
+  10 %, 43 geprüft"** (green) · „kein Vorsprung — 6 % statt 7 %, 32
+  geprüft" (red) · „erst 14 geprüft, Quote ab 30" · „kein Rücktest" · „kein
+  Gewerk mit Seite" (grey).
+- `/admin/message` opens with the same verdict as a green or red box; red
+  says the firm is not written to. `pitch.message` quotes the trade's
+  figures always and the edge **only in state `beats`** — a message never
+  carries a number the page would not.
+
+The verdicts are as good as the replay: `python rewind_all.py --out
+<data>/replay/latest.json`, then a deploy or cycle (TRADE_PAGES.md 6).
+
 ## 4. Search — the trade is the one the reports use
 
 Revised 2026-08-18. Until then this page answered a different question from

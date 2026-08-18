@@ -54,6 +54,26 @@ class Slugs(unittest.TestCase):
                          'klempner-spengler-flaschner')
 
 
+class FirmsOnPages(unittest.TestCase):
+    """`trades_of_titles`: which page a firm belongs to, from the titles of
+    its reference wins — the same title match that puts a lot on the page,
+    so the operator page and the message quote the right page's figures."""
+
+    def test_half_the_titles_must_carry_the_trade(self):
+        t = tp.trades_of_titles(['Blitzschutzarbeiten Schule Nord',
+                                 'Blitzschutz und Erdung Rathaus',
+                                 'Malerarbeiten Turnhalle'])
+        self.assertEqual(t[0][0], 'Blitzschutz und Erdung')
+        self.assertEqual(t[0][1], 2)
+        self.assertNotIn('Maler- und Lackierarbeiten', [n for n, _ in t])
+        self.assertEqual(tp.trades_of_titles([]), [])
+        self.assertEqual(tp.trades_of_titles(['Neubau Kita, Los 3']), [])
+
+    def test_the_words_are_matched_folded_like_the_pages(self):
+        t = tp.trades_of_titles(['Fußbodenbelagsarbeiten Bauteil A'])
+        self.assertIn('Bodenbelagsarbeiten', [n for n, _ in t])
+
+
 def frame(n_awarded, low_bid=5):
     """A minimal lots frame: `n_awarded` resolved lots in one mature month."""
     return pd.DataFrame({
