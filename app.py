@@ -864,6 +864,16 @@ def get_admin_message(ctx, environ):
                    + f': {esc(edge["text"])} — {why}. Die Nachricht nennt '
                    'keine Quote; laut Regel vom 18.08.2026 wird diese Firma '
                    'nicht angeschrieben.</div>')
+    # A textarea shows a URL as text (operator, 2026-08-18: "why no links?"),
+    # so every link the message carries is repeated below it, clickable —
+    # to open each tender and the invitation before sending, not to copy.
+    found = re.findall(r'https?://\S+', m['long'])
+    links = ''.join(f'<li><a href="{esc(u)}" target="_blank" '
+                    f'rel="noopener">{esc(u)}</a></li>' for u in found)
+    links_html = (f'<p class="muted" style="margin-bottom:.2rem">Links in '
+                  f'dieser Nachricht — zum Prüfen vor dem Versand:</p>'
+                  f'<ul class="plain" style="margin-top:0;font-size:.9rem">'
+                  f'{links}</ul>' if found else '')
     return page('Nachricht', f"""
       {admin.STYLE}
       <h1>Nachricht für {esc(firm)}</h1>
@@ -878,6 +888,7 @@ def get_admin_message(ctx, environ):
       <h2>Nachricht nach dem Kontakt</h2>
       <textarea rows="18" style="width:100%" onclick="this.select()"
          readonly>{esc(m['long'])}</textarea>
+      {links_html}
       <p>{sent}{reissue if url else ''}</p>
       <p><a href="/admin?q={esc(firm)}">zurück zur Liste</a></p>""")
 

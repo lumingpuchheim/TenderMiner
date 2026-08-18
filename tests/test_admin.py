@@ -607,6 +607,16 @@ class Message(Base):
         self.assertIn('Kontaktanfrage', body)
         self.assertIn('Nachricht nach dem Kontakt', body)
         self.assertIn(self.url.rsplit('/', 1)[1], body)   # the real token
+        # every URL in the text is repeated as a clickable anchor below it
+        # (a textarea shows a URL as text): the invitation, each TED link
+        self.assertIn('Links in dieser Nachricht', body)
+        self.assertIn(f'<a href="{self.url}" target="_blank"', body)
+        import pitch
+        m = pitch.message(self.dir, self.sub_id, self.url)
+        for p in m['picks']:
+            if p.get('publication_number'):
+                u = pitch.TED_URL.format(pn=p['publication_number'])
+                self.assertIn(f'<a href="{u}" target="_blank"', body)
         # after a hard stop the link is revoked -> the page says so
         import tokens
         tokens.revoke_all(self.dir, self.sub_id)
