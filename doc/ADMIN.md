@@ -111,8 +111,11 @@ TM_SERVER=<host> bash docker/admin-password.sh status   # which file, which mode
 TM_SERVER=<host> bash docker/admin-password.sh set      # hidden prompt, then the edge restarts
 ```
 
-The password is typed at a hidden prompt (or read from the password manager
-via `TM_SECRET_SOURCE`, doc/SECRETS.md), travels over ssh's **stdin only** —
+The prompt shows one `*` per character, takes backspace, asks a second time
+and refuses on a mismatch or under 12 characters — a prompt that shows
+nothing at all leaves you guessing whether the keyboard is reaching it
+(operator, 2026-08-18). The password (or the password manager's value via
+`TM_SECRET_SOURCE`, doc/SECRETS.md) travels over ssh's **stdin only** —
 no process list, no history, no temporary file — is hashed **on the server**
 by `caddy hash-password`, and only the hash is written, with every `$`
 doubled (§5a) and `.env` left at mode 600. The plaintext lives in the

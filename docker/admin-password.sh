@@ -43,17 +43,67 @@ SERVICES=edge
 
 say() { printf '[admin-password] %s\n' "$*"; }
 
+MIN_CHARS=12
+
+read_masked() {   # $1 prompt -> the typed value on stdout, one * per character
+    # Not `read -rs`: a prompt that shows nothing at all leaves the operator
+    # guessing whether the keyboard is even reaching it (operator, 2026-08-18).
+    # One asterisk per character, backspace erases, Enter ends.
+    local prompt="$1" value='' ch src=/dev/stdin
+    # `[ -r /dev/tty ]` is not the test: the file can exist and still refuse to
+    # open when there is no controlling terminal. Opening it IS the test.
+    if { exec 3</dev/tty; } 2>/dev/null; then src=/dev/fd/3; fi
+    printf '%s' "$prompt" >&2
+    while IFS= read -rsn1 ch <"$src"; do
+        case "$ch" in
+            '')  break ;;                                        # Enter
+            $''|$'')                                       # Backspace
+                 if [ -n "$value" ]; then
+                     value="${value%?}"; printf ' ' >&2
+                 fi ;;
+            *)   value="$value$ch"; printf '*' >&2 ;;
+        esac
+    done
+    exec 3<&- 2>/dev/null || true
+    printf '
+' >&2
+    printf '%s' "$value"
+}
+
 read_value() {   # -> the password on stdout, from the manager or a prompt
     local key="$1"
     if [ -n "${TM_SECRET_SOURCE:-}" ]; then
         # `$1` inside TM_SECRET_SOURCE is the key name — the convention that
-        # keeps this script free of manager-specific code (SECRETS.md §2).
+        # keeps this script free of manager-specific code (SECRETS.md).
         bash -c "$TM_SECRET_SOURCE" _ "$key"
-    else
-        printf '[admin-password] %s (input hidden): ' "$key" >&2
-        local v; read -rs v </dev/tty; printf '\n' >&2
-        printf '%s' "$v"
+        return
     fi
+    {
+        printf '
+[admin-password] New password for /admin (user: %s).
+'                "${TM_ADMIN_USER:-murara}"
+        printf '  - at least %s characters
+' "$MIN_CHARS"
+        printf '  - stored NOWHERE in plain text: the server keeps a bcrypt
+'
+        printf '    hash, so save it in your password manager now
+
+'
+    } >&2
+    local first second
+    first="$(read_masked '  Password:        ')"
+    if [ "${#first}" -lt "$MIN_CHARS" ]; then
+        say "too short (${#first} of $MIN_CHARS characters) - nothing changed"
+        exit 2
+    fi
+    second="$(read_masked '  Repeat:          ')"
+    if [ "$first" != "$second" ]; then
+        say 'the two entries differ - nothing changed'
+        exit 2
+    fi
+    printf '
+' >&2
+    printf '%s' "$first"
 }
 
 cmd_status() {
