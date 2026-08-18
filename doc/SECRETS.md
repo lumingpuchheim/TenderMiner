@@ -244,13 +244,13 @@ is the design, and it is not a stopgap: it is complete on its own.
 
 | decision | note |
 | --- | --- |
-| **may a plain working copy live on the laptop** (`~/.murara/env.d/`)? | The 2026-08-15 version said no ("the laptop is out of every recovery path", 2026-08-13). Stage 1 as sketched keeps one, because `push` from a directory is what makes it easy. The alternative that keeps the old rule: `push` reads each file from the manager (`TM_SECRET_SOURCE` printing a whole file for `$1`=filename, streamed to rsync's stdin) and the laptop keeps nothing at rest. Same commands, one variable more, no directory. |
+| ~~may a plain working copy live on the laptop (`~/.murara/env.d/`)?~~ **Decided 2026-08-18: yes** — the operator relaxed the 2026-08-15 rule ("the laptop is out of every recovery path"). The laptop directory is the working copy, mode 0600, and the password manager stays the durable one (§0.2); the laptop is still not a *recovery* source — a rebuild pulls from the manager, then `push`. The alternative that would have kept the old rule (`push` reading each file from the manager via `TM_SECRET_SOURCE`, nothing at rest on the laptop) is not built. | closed |
 | which password manager | decides only whether the alternative above is a one-liner; the file-per-entry convention is manager-agnostic |
 | are the `env.d/` files backed up off-site by anything | this spec says no (rule 2); the manager is the copy. If yes, the manager stops being authoritative and the whole of §0.2 changes |
 
 ## 8. Order of work
 
-1. Operator answers §7 row 1.
+1. ~~Operator answers §7 row 1.~~ Done 2026-08-18: laptop working copy allowed.
 2. `docker compose version` on the server (§5.1).
 3. `docker/secrets.sh` — `list` first (read-only, tested against the live
    server), then `pull`, `diff`, `push`.
