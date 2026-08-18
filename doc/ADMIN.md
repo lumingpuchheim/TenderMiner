@@ -111,8 +111,12 @@ TM_SERVER=<host> bash docker/admin-password.sh status   # which file, which mode
 TM_SERVER=<host> bash docker/admin-password.sh set      # hidden prompt, then the edge restarts
 ```
 
-The prompt shows one `*` per character, takes backspace, asks a second time
-and refuses on a mismatch or under 12 characters — a prompt that shows
+It connects **first**, so that ssh's own passphrase prompt (if your key has
+one) comes before anything this script asks — two password prompts in a row
+with nothing to tell them apart is what that ordering prevents. Then a
+headed block names what is being set: the web page's password, not the SSH
+key. The prompt shows one `*` per character, takes backspace, asks a second
+time and refuses on a mismatch or under 12 characters — a prompt that shows
 nothing at all leaves you guessing whether the keyboard is reaching it
 (operator, 2026-08-18). The password (or the password manager's value via
 `TM_SECRET_SOURCE`, doc/SECRETS.md) travels over ssh's **stdin only** —

@@ -80,13 +80,19 @@ read_value() {   # -> the password on stdout, from the manager or a prompt
     fi
     {
         printf '
-[admin-password] New password for /admin (user: %s).
-'                "${TM_ADMIN_USER:-murara}"
-        printf '  - at least %s characters
-' "$MIN_CHARS"
-        printf '  - stored NOWHERE in plain text: the server keeps a bcrypt
+  ------------------------------------------------------
 '
-        printf '    hash, so save it in your password manager now
+        printf '  NEW PASSWORD FOR THE WEB PAGE https://app.murara.eu/admin
+'
+        printf '  (user %s). This is NOT your SSH key passphrase.
+'                "${TM_ADMIN_USER:-murara}"
+        printf '  ------------------------------------------------------
+'
+        printf '  - you choose it now; at least %s characters
+' "$MIN_CHARS"
+        printf '  - it is stored NOWHERE in plain text: the server keeps
+'
+        printf '    only a bcrypt hash, so save it in your password manager
 
 '
     } >&2
@@ -105,6 +111,21 @@ read_value() {   # -> the password on stdout, from the manager or a prompt
 ' >&2
     printf '%s' "$first"
 }
+
+connect() {
+    # Reach the server BEFORE asking for anything. ssh may want the key's
+    # passphrase, and two password prompts in a row with no way to tell them
+    # apart is what this ordering exists to prevent (operator, 2026-08-18):
+    # ssh asks first, labelled by ssh, and only then does this script ask.
+    printf '[admin-password] connecting to %s ...\n' "$TARGET" >&2
+    # -n: stdin stays untouched. Without it this ssh reads the very input the
+    # password is about to arrive on and forwards it to the remote command —
+    # which ate the piped password and would have eaten keystrokes too.
+    ssh -n "$TARGET" "test -f \"\$HOME/$DIR/$TARGET_FILE\"" \
+        || { say "cannot reach $TARGET, or $TARGET_FILE is not there"; exit 2; }
+    printf '[admin-password] connected.\n' >&2
+}
+
 
 cmd_status() {
     ssh "$TARGET" "DIR='$DIR' FILE='$TARGET_FILE' bash -s" <<'REMOTE'
@@ -185,6 +206,6 @@ cmd_set() {     # the PASSWORD arrives on stdin and only on stdin
 
 case "$CMD" in
     status) cmd_status ;;
-    set)    read_value "$KEY" | cmd_set; say 'now:'; cmd_status ;;
+    set)    connect; read_value "$KEY" | cmd_set; say 'now:'; cmd_status ;;
     *)      say "unknown command $CMD (status | set)"; exit 2 ;;
 esac
