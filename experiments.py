@@ -107,7 +107,7 @@ EXPERIMENTS = (
                  'string per level — which CatBoost reads with target '
                  'statistics — sort 0/1-bidder lots from the rest better than '
                  'the all-multi-hot build, on real predictions?',
-        opened='2026-08-24', deadline='2027-01-31',
+        opened='2026-08-18', deadline='2027-01-31',
         arms=(Arm('mh', 'multi-hot', feature_build='multihot'),
               # one_hot_max_size=1 is what makes this arm target statistics
               # rather than a lottery on the store size. Measured 2026-08-18 on

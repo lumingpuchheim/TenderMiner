@@ -6,7 +6,7 @@ and for `experiments.py`, which is exactly as general as that experiment
 needs and no more. **Status: built 2026-08-16** — `experiments.py`, the two
 tables in `db.py`, the arm hooks in `cycle.py` (then `loop.py`), the `/admin/experiments` route
 in `app.py`, `tests/test_experiments.py` (19 tests) and `tests/test_multihot.py`
-(10). The trial opens on its declared Monday, 2026-08-24, by itself.
+(10). The trial opened 2026-08-18 — a Tuesday, by hand: the cycle and the delivery had just been split (RUNBOOK 1), so a cycle could be run to open it without mailing anyone, and the operator wanted to see it rather than wait for the Monday.
 Companions: [`ONLINE_LEARNING.md`](ONLINE_LEARNING.md) (the cycle the arms run
 in), [`TRAINING.md`](TRAINING.md) (leakage rules and tripwires every arm keeps),
 [`APP.md`](APP.md) (the web area the overview page joins).
@@ -77,10 +77,10 @@ graded for *both* arms. Recall secondary. Training-time PR-AUC is background.
 
 ## 2. What happens, Monday by Monday
 
-**Monday 1 (opened, 2026-08-24).** The cycle finds the experiment declared
+**Day 1 (opened, 2026-08-18; then every Monday).** The cycle finds the experiment declared
 and open. `learn` runs twice — once per arm. `mh` gates against the champion
 the cycle already has; `cts` has none of its own, so it promotes on passing
-its checks: `models/m2026-08-24-…-mh/` and `models/m2026-08-24-…-cts/`, each
+its checks: `models/m2026-08-18-…-mh/` and `models/m2026-08-18-…-cts/`, each
 with `model.cbm` + `meta.json`; `models/arms/mh/CURRENT` and
 `models/arms/cts/CURRENT` point at them; `models/CURRENT` is rewritten to the
 **mh** model, because `mh` is the delivering arm. `predict` scores every open
@@ -293,7 +293,7 @@ Done the same day, operator: "do it" — the trial is now `onehot` vs `mh`
 with `mh` delivering, deadline 2027-01-31 (awards lag ~90 days; the November
 date would have turned red while still collecting), and
 `single_bidder.FEATURE_BUILD = 'multihot'` is the cycle's default outside a
-trial. It opens on 2026-08-24 by itself.
+trial. It was to open on 2026-08-24 by itself; the split of 2026-08-18 let it open that day instead (§2c).
 
 ---
 
@@ -361,7 +361,7 @@ EXPERIMENTS = (
                  'string per level — which CatBoost reads with target '
                  'statistics — sort 0/1-bidder lots from the rest better than '
                  'the all-multi-hot build, on real predictions?',
-        opened='2026-08-24', deadline='2027-01-31',
+        opened='2026-08-18', deadline='2027-01-31',
         arms=(Arm('mh', 'multi-hot', feature_build='multihot'),
               Arm('cts', 'target statistics',
                   feature_build='cpv_additional_target_statistics',
