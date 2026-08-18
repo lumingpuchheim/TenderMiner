@@ -99,8 +99,12 @@ class Search(Base):
 
 class Status(Base):
     def test_the_words_follow_the_record(self):
-        def label():
-            return admin.status_of(admin.state_of(self.dir), DUNKEL)['label']
+        # `today` is pinned: the trial day is counted from the version's
+        # effective_from, so a fixture written on one day started failing on
+        # the next ("Tag 2 von 28") until this argument existed.
+        def label(today='2026-08-17'):
+            return admin.status_of(admin.state_of(self.dir, today=today),
+                                   DUNKEL)['label']
 
         self.assertEqual(label(), 'nicht eingeladen')
         sub_id, url = invite.add(self.dir, DUNKEL, channel='xing')

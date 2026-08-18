@@ -103,8 +103,27 @@ basic_auth @admin {
 reverse_proxy app:8000 { header_up X-Murara-Admin "1" }   # on @admin only
 ```
 
-`TM_ADMIN_HASH` is a bcrypt hash (`caddy hash-password`), in `.env` like the
-other secrets; the plaintext lives in the password manager. The app serves
+`TM_ADMIN_HASH` is a bcrypt hash, and **never written by hand** —
+[`docker/admin-password.sh`](../docker/admin-password.sh), built 2026-08-17:
+
+```
+TM_SERVER=<host> bash docker/admin-password.sh status   # which file, which mode, is one set
+TM_SERVER=<host> bash docker/admin-password.sh set      # hidden prompt, then the edge restarts
+```
+
+The password is typed at a hidden prompt (or read from the password manager
+via `TM_SECRET_SOURCE`, doc/SECRETS.md), travels over ssh's **stdin only** —
+no process list, no history, no temporary file — is hashed **on the server**
+by `caddy hash-password`, and only the hash is written, with every `$`
+doubled (§5a) and `.env` left at mode 600. The plaintext lives in the
+password manager and nowhere else.
+
+Why not `secrets.sh`: that tool moves whole files and deliberately never
+parses a value (doc/SECRETS.md §3); this one must, because the password may
+not be stored at all — only a hash of it. `TM_ADMIN_ENV_FILE` points it at
+`env.d/admin.env` when the layered layout lands; nothing else changes.
+*Receipt, live:* password set through the tool, `/admin` 200 with it and 401
+without, `.env` 664 → 600, app and site untouched. The app serves
 `/admin*` only when `X-Murara-Admin: 1` is present **and** the request came
 from the compose network (the header can be set only by the edge — the app
 port is loopback-bound, HOSTING.md). Without the header: the neutral
