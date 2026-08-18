@@ -36,7 +36,9 @@ password once.
    built a lightning system is not in the list at all. Jebsen GmbH is
    *Kunde · aktiv · Tag 11 von 28*; twelve others are *nicht eingeladen*.
 2. Types **Jens Dunkel Glas- und Bauelemente GmbH** — the list shows that
-   one firm: *eingeladen · linkedin · 17.08.* with a button **URL zeigen**.
+   one firm: *Link erzeugt · linkedin · 17.08.* with the one filled button
+   **Nachricht anzeigen** and, as plain links, *E-Mail eintragen · Stoppen*
+   (§3a).
 3. On a *nicht eingeladen* row presses **Einladen** (channel select:
    linkedin / linkedin-ads / xing / phone / other). The row becomes
    *eingeladen*, and the invitation URL is shown once in a copy box —
@@ -47,7 +49,7 @@ password once.
    address and the consent, runs the pre-flight, activates (or holds), and
    the row becomes *Kunde · aktiv · Tag 1 von 28* (or *zurückgestellt*).
    The trial clock starts. Confirmation mail goes out as after a self-signup.
-5. A customer phones: no more mails. On its row presses **Abmelden** → one
+5. A customer phones: no more mails. On its row presses **Stoppen** → one
    confirmation page with the two buttons the customer page has („keine
    Berichte mehr" / „keine E-Mails mehr"); the operator picks the one the
    customer said. Row becomes *gestoppt (Berichte)* or *gestoppt (alles)*.
@@ -62,8 +64,8 @@ password once.
 | `/admin/invite` | — | `company`, `channel` → `invite.add`; re-renders the list with the URL box on that row (URL shown once) |
 | `/admin/reissue` | — | `sub_id` → `invite.reissue`; URL box |
 | `/admin/email` | form for `sub_id` (`?sub_id=`): e-mail, Einwilligung | writes `contact_email`, `consent_at`, `contact_note` += „Einwilligung: …"; runs the same pre-flight/activation as `POST /t/` (`app._preflight`, moved to a shared function); event `signup` / `signup_held` with `detail=admin: <consent text>`; confirmation mail |
-| `/admin/sent` | — | `sub_id` → `invite_sent` event with the channel copied from the invitation; the row becomes *angeschrieben* |
-| `/admin/message` | the two texts to paste (ONBOARDING.md 9.2a): connection note ≤300 chars, and the message with picks, own win and the live invitation link | — |
+| `/admin/sent` | — | `sub_id` → `invite_sent` event with the channel copied from the invitation; the row becomes *angeschrieben*. Posted from the button **Als verschickt markieren** on `/admin/message` |
+| `/admin/message` | the two texts to paste (ONBOARDING.md 9.2a): connection note ≤300 chars, and the message with picks, own win and the live invitation link; below them **Als verschickt markieren** (until the row is *angeschrieben*) and **Neuen Link erzeugen** (`/admin/reissue`) | — |
 | `/admin/stop` | confirmation page for `sub_id`, two buttons | `wahl` = berichte / alles → the same writes as `post_stop` (soft/hard, tokens revoked on hard); event `stop_soft` / `stop_hard` with `detail=admin` |
 | `/admin/experiments` | the A/B overview (doc/EXPERIMENTS.md §9): open experiments with verdict line and per-arm tables, closed ones, the constants; read-only, links back to the list | — |
 
@@ -87,6 +89,39 @@ included in the access log like every path.
 
 The e-mail is shown masked (`m…@firma.de`), full on the row's own edit
 form only.
+
+### 3a. Row actions — one next step, the rest quiet (2026-08-18)
+
+Until then a row without an address carried five controls in three
+markups: *Nachricht*, *verschickt*, *URL neu*, *E-Mail eintragen*, *Abmelden*
+— two filled, three outlined, some `<a><button>`, some forms, one label a
+noun, one a participle, one no phrase at all. Now `admin.row_actions` decides
+from the status alone, and the rule is:
+
+- **At most one filled button per row**: the next step of the funnel
+  (ONBOARDING §9). *Link erzeugt* → **Nachricht anzeigen**; *angeschrieben*
+  → **E-Mail eintragen**; a served row → none.
+- **Everything else is a plain link** in the same cell: *E-Mail eintragen* /
+  *E-Mail ändern*, *Nachricht anzeigen*, *Stoppen*. Stopped rows offer
+  nothing.
+- **Every label is an infinitive**, the operator's action, never a status
+  word. *Abmelden* became **Stoppen** (the operator stops delivery for a
+  firm; *abmelden* is what a customer does to itself, and matches the status
+  *gestoppt*).
+- **Marking as sent and re-minting the link live on the message page**, next
+  to the text that was (or could not be) sent: **Als verschickt markieren**
+  (shown until `invite_sent`) and **Neuen Link erzeugen**. They are
+  consequences of using the message, not row concerns; the missing-link
+  warning on that page carries the re-mint button itself.
+
+| status | filled | links |
+| --- | --- | --- |
+| nicht eingeladen | `[channel] Einladen` | — |
+| Link erzeugt | Nachricht anzeigen | E-Mail eintragen · Stoppen |
+| angeschrieben | E-Mail eintragen | Nachricht anzeigen · Stoppen |
+| aktiv · ohne Adresse | E-Mail eintragen | Stoppen |
+| angemeldet / zurückgestellt / gefragt / Kunde | — | E-Mail ändern · Stoppen |
+| gestoppt / Widerspruch | — | — |
 
 ## 4. Search — the trade is the one the reports use
 

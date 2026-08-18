@@ -438,7 +438,13 @@ STYLE = """
   .st-held { background: #fde8e8; color: #8c2424 }
   .st-stop { background: #eee; color: #777; text-decoration: line-through }
   .adm form { display: inline; margin: 0 }
-  .adm .act button { font-size: .85rem; padding: 3px 9px; margin: 1px 0 }
+  .adm .act { white-space: nowrap }
+  .adm .act button, .adm .act a.btn {
+    font-size: .85rem; padding: 3px 9px; margin: 1px 0; line-height: 1.4;
+    display: inline-block; background: var(--blue); color: #fff;
+    border: 0; border-radius: 8px; text-decoration: none; font-weight: 550 }
+  .adm .act a:not(.btn) { font-size: .85rem }
+  .adm .act a.btn { margin-right: .7em }
   .urlbox { background: #f4f7fa; border-left: 3px solid #6b93c0;
             padding: 10px 12px; margin: 1rem 0 }
   .urlbox input { width: 100%; font-family: monospace; font-size: .9rem;
@@ -478,42 +484,58 @@ def _trade_html(f, roots=()):
     return f'<span class="trade" title="{esc(why)}">{shown}</span>'
 
 
+def _action(label, href, *, primary=False):
+    """One row action, a GET link. `primary` draws it as the row's one filled
+    button — the next funnel step; the rest are plain links (doc/ADMIN.md 3a)."""
+    cls = ' class="btn"' if primary else ''
+    return f'<a{cls} href="{href}">{esc(label)}</a>'
+
+
+def row_actions(st):
+    """Which actions a row offers, from its status alone: at most one primary
+    (the next step of ONBOARDING §9's funnel), then quiet links. Everything
+    the row does not offer — marking the message as sent, a new link — lives
+    on the firm's message page, where the message is (doc/ADMIN.md 3a).
+    Returns [(label, href, primary)]."""
+    sub_id, label = st['sub_id'], st['label']
+    if sub_id is None:
+        return []
+    q = f'sub_id={esc(sub_id)}'
+    message = ('Nachricht anzeigen', f'/admin/message?{q}')
+    stop = ('Stoppen', f'/admin/stop?{q}', False)
+    if label.startswith('gestoppt') or label == 'Widerspruch':
+        return []
+    if label.startswith('Link erzeugt'):
+        return [(*message, True), ('E-Mail eintragen', f'/admin/email?{q}',
+                                   False), stop]
+    if label.startswith('angeschrieben'):
+        return [('E-Mail eintragen', f'/admin/email?{q}', True),
+                (*message, False), stop]
+    if not st['email']:
+        # served, but no address on file yet (the pilot rows)
+        return [('E-Mail eintragen', f'/admin/email?{q}', True), stop]
+    return [('E-Mail ändern', f'/admin/email?{q}', False), stop]
+
+
 def _row_html(f, st, url_for, roots=()):
     """One table row: the firm, what we know, what can be done to it."""
     sub_id, label = st['sub_id'], st['label']
     mail = st['email']
     masked = ('—' if not mail else
               f"{esc(mail.split('@')[0][:1])}…@{esc(mail.split('@')[-1])}")
-    acts = []
     if sub_id is None:
         opts = ''.join(f'<option value="{c}">{c}</option>' for c in CHANNELS)
-        acts.append(
+        acts = [
             '<form method="post" action="/admin/invite">'
             f'<input type="hidden" name="company" value="{esc(f["company"])}">'
             f'<select name="channel">{opts}</select> '
-            '<button type="submit">Einladen</button></form>')
+            '<button type="submit">Einladen</button></form>']
     else:
-        if not st['email']:
-            acts.append(f'<a href="/admin/message?sub_id={esc(sub_id)}">'
-                        '<button type="button">Nachricht</button></a>')
-            if not st['label'].startswith('angeschrieben'):
-                acts.append(
-                    '<form method="post" action="/admin/sent">'
-                    f'<input type="hidden" name="sub_id" value="{esc(sub_id)}">'
-                    '<button type="submit" class="secondary">verschickt'
-                    '</button></form>')
-            acts.append('<form method="post" action="/admin/reissue">'
-                        f'<input type="hidden" name="sub_id" value="{esc(sub_id)}">'
-                        '<button type="submit" class="secondary">URL neu</button>'
-                        '</form>')
-        acts.append(f'<a href="/admin/email?sub_id={esc(sub_id)}">'
-                    f'<button type="button">E-Mail eintragen</button></a>')
-        if label.startswith('gestoppt') or label == 'Widerspruch':
-            pass
-        else:
-            acts.append(f'<a href="/admin/stop?sub_id={esc(sub_id)}">'
-                        '<button type="button" class="secondary">Abmelden'
-                        '</button></a>')
+        offered = row_actions(st)
+        acts = [_action(l, h, primary=True) for l, h, p in offered if p]
+        links = [_action(l, h) for l, h, p in offered if not p]
+        if links:
+            acts.append(' · '.join(links))
     return (f'<tr><td class="firm">{esc(f["company"])}'
             f'<br><span class="muted">{esc(str(f.get("size") or ""))} · '
             f'{f.get("wins", 0)} Aufträge · {f.get("single_bid_wins", 0)} mit '

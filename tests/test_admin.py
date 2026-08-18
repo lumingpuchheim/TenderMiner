@@ -534,17 +534,46 @@ class Sent(Base):
         c = admin.counts(admin.state_of(self.dir))
         self.assertEqual((c['Link erzeugt'], c['angeschrieben']), (1, 1))
 
-    def test_the_button_is_offered_once_and_the_event_is_ledgered(self):
+    def test_the_button_is_on_the_message_page_once_and_the_event_is_ledgered(self):
+        """doc/ADMIN.md 3a: „Als verschickt markieren" sits under the text
+        that was sent, not on the list row; it disappears once pressed."""
         import ledger
+        q = f'sub_id={self.sub_id}'
         _, _, body = request(self.dir, '/admin', query='q=dunkel')
-        self.assertIn('verschickt', body)
+        self.assertNotIn('verschickt', body)         # not a row action
+        _, _, body = request(self.dir, '/admin/message', query=q)
+        self.assertIn('Als verschickt markieren', body)
+        self.assertIn('Neuen Link erzeugen', body)
         request(self.dir, '/admin/sent', 'POST', {'sub_id': self.sub_id})
-        _, _, body = request(self.dir, '/admin', query='q=dunkel')
-        self.assertNotIn('verschickt', body)         # already marked
+        _, _, body = request(self.dir, '/admin/message', query=q)
+        self.assertNotIn('verschickt markieren', body)   # already marked
         evs = [e for e in ledger.read(self.dir, 'app_events')
                if e['kind'] == 'invite_sent']
         self.assertEqual(len(evs), 1)
         self.assertIn('channel=xing', evs[0]['detail'])
+
+    def test_the_row_offers_one_next_step_and_quiet_links(self):
+        """doc/ADMIN.md 3a: one filled button per row — the next funnel
+        step — the rest plain links, every label an infinitive."""
+        def acts(status_prefix):
+            st = admin.status_of(admin.state_of(self.dir), DUNKEL)
+            self.assertTrue(st['label'].startswith(status_prefix), st['label'])
+            return admin.row_actions(st)
+        a = acts('Link erzeugt')
+        self.assertEqual([(l, p) for l, _, p in a],
+                         [('Nachricht anzeigen', True),
+                          ('E-Mail eintragen', False), ('Stoppen', False)])
+        request(self.dir, '/admin/sent', 'POST', {'sub_id': self.sub_id})
+        a = acts('angeschrieben')
+        self.assertEqual([(l, p) for l, _, p in a],
+                         [('E-Mail eintragen', True),
+                          ('Nachricht anzeigen', False), ('Stoppen', False)])
+        self.assertEqual(sum(p for _, _, p in a), 1)
+        _, _, body = request(self.dir, '/admin', query='q=dunkel')
+        self.assertNotIn('<a><button', body.replace('\n', ''))
+        self.assertNotIn('URL neu', body)
+        self.assertNotIn('Abmelden', body)
+        self.assertIn('class="btn"', body)
 
     def test_an_unknown_firm_is_not_marked(self):
         status, _, _ = request(self.dir, '/admin/sent', 'POST',

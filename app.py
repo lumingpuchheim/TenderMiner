@@ -822,11 +822,25 @@ def get_admin_message(ctx, environ):
     m = pitch.message(home, sub_id, url or f'{mailer.app_url()}/t/…',
                       company=firm)
     n = len(m['picks'])
+    hidden = f'<input type="hidden" name="sub_id" value="{esc(sub_id)}">'
+    reissue = (f'<form method="post" action="/admin/reissue" '
+               f'style="display:inline">{hidden}'
+               '<button type="submit" class="secondary">Neuen Link erzeugen'
+               '</button></form>')
     warn = ('' if url else
             '<p style="background:#fde8e8;border-left:3px solid #c44;'
             'padding:10px 12px">Für diese Firma gibt es keinen offenen '
-            'Einladungslink mehr — mit „URL neu" einen erzeugen, sonst zeigt '
-            'die Nachricht nur Punkte.</p>')
+            'Einladungslink mehr — sonst zeigt die Nachricht nur Punkte. '
+            f'{reissue}</p>')
+    # marking as sent belongs next to the text that was sent (doc/ADMIN.md
+    # 3a); offered until the row is `angeschrieben`, then no longer
+    already = any(e['kind'] == 'invite_sent'
+                  for e in ledger.read(home, 'app_events')
+                  if e['sub_id'] == sub_id)
+    sent = ('' if already else
+            f'<form method="post" action="/admin/sent" style="display:inline">'
+            f'{hidden}<button type="submit">Als verschickt markieren</button>'
+            '</form> ')
     return page('Nachricht', f"""
       <h1>Nachricht für {esc(firm)}</h1>
       {warn}
@@ -840,6 +854,7 @@ def get_admin_message(ctx, environ):
       <h2>Nachricht nach dem Kontakt</h2>
       <textarea rows="18" style="width:100%" onclick="this.select()"
          readonly>{esc(m['long'])}</textarea>
+      <p>{sent}{reissue if url else ''}</p>
       <p><a href="/admin?q={esc(firm)}">zurück zur Liste</a></p>""")
 
 
@@ -908,8 +923,8 @@ def get_admin_stop(ctx, environ):
     cust, firm = _admin_firm(home, sub_id)
     if not cust:
         return not_found(ctx)
-    return page('Abmelden', f"""
-      <h1>Abmelden</h1>
+    return page('Stoppen', f"""
+      <h1>Stoppen</h1>
       <p><strong>{esc(firm)}</strong> — was hat die Firma gesagt?</p>
       <form method="post" action="/admin/stop">
         <input type="hidden" name="sub_id" value="{esc(sub_id)}">
