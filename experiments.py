@@ -82,21 +82,52 @@ class Experiment:
 
 EXPERIMENTS = (
     Experiment(
-        # Re-declared 2026-08-17 (EXPERIMENTS.md 2b): the `ts` arm (CatBoost
-        # target statistics for the additional codes) was overtaken by the
-        # all-multi-hot build before the trial opened. The question that
-        # matters is whether removing the one-hot wall costs precision on real
-        # predictions; multi-hot delivers, because the replay said it costs
-        # nothing and the operator ruled one-hot out for the store to come.
-        # Deadline moved to January: awards lag ~90 days, so November would
-        # have turned red while still collecting.
+        # Re-declared 2026-08-18, on the operator's reading of what the replay
+        # can and cannot settle. Multi-hot delivers today because the replay
+        # measured it costing nothing — and the replay could measure it because
+        # a multi-hot column is a fact about the notice population, fitted
+        # without ever consulting a label. Target statistics are the opposite:
+        # CatBoost builds the encoding OUT OF the labels of the rows it trains
+        # on, so a harness that re-scores rows whose awards the encoding has
+        # already seen flatters the arm. That is not a bias the replay can
+        # subtract; it is the replay grading its own answer. So `cts` cannot be
+        # measured backwards at all — neither promoted (EXPERIMENTS.md §0
+        # forbids that for every arm) nor rejected (PARAMETERS.md §0.5 would
+        # allow it for an honest harness, and this one is not). The only place
+        # the two encodings can be compared is forward, on lots predicted
+        # before the award exists. That is this trial, and it is the reason
+        # the trial exists rather than a knob in knobs.KNOBS.
+        #
+        # The `onehot` arm is gone (operator, 2026-08-18): one hot IS
+        # replayable, so the FEATURE_BUILD knob already answers default vs
+        # multihot, and a second live arm would only spend a Monday's training
+        # on a question the replay can have for free.
         id='cpv-additional-encoding',
-        question='Does the all-multi-hot build (no categorical column, no '
-                 'cardinality wall) sort 0/1-bidder lots from the rest as well '
-                 'as one hot for the single-valued columns, on real predictions?',
-        opened='2026-08-18', deadline='2027-01-31',
-        arms=(Arm('onehot', 'one hot', feature_build='default'),
-              Arm('mh', 'multi-hot', feature_build='multihot')),
+        question='Does encoding the additional-CPV codes as one combination '
+                 'string per level — which CatBoost reads with target '
+                 'statistics — sort 0/1-bidder lots from the rest better than '
+                 'the all-multi-hot build, on real predictions?',
+        opened='2026-08-24', deadline='2027-01-31',
+        arms=(Arm('mh', 'multi-hot', feature_build='multihot'),
+              # one_hot_max_size=1 is what makes this arm target statistics
+              # rather than a lottery on the store size. Measured 2026-08-18 on
+              # the laptop store: the cpv4 combination has 1,728 distinct values
+              # across all 28,973 notices but only 653 on the 8,282 rows that
+              # carry a label — and the cap is applied to the TRAINING frame.
+              # At the stock cap of 1024 CatBoost would therefore one-hot all
+              # three columns today, i.e. the arm would not test target
+              # statistics at all, and would silently start testing them the
+              # week the labeled frame crosses ~1024 distinct combinations —
+              # changing what the arm means in the middle of its own trial.
+              # A cap of 1 pins it: every one of these three columns is read
+              # with ordered target statistics from the first Monday to the
+              # last. They are the only categoricals this build leaves, so the
+              # cap reaches nothing else.
+              Arm('cts', 'target statistics',
+                  feature_build='cpv_additional_target_statistics',
+                  catboost=(('one_hot_max_size', 1),),
+                  guard_exempt=('cpv_additional__cpv2', 'cpv_additional__cpv3',
+                                'cpv_additional__cpv4'))),
         default_delivering='mh',
     ),
 )

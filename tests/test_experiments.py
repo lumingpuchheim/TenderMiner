@@ -91,18 +91,18 @@ class Home(unittest.TestCase):
 class State(Home):
 
     def test_no_row_before_opened_and_a_row_from_opened_on(self):
-        self.assertEqual(ex.ensure_state(self.data, '2026-08-17'), [])
-        self.assertFalse(ex.plan(self.data, '2026-08-17').is_trial)
-        self.assertEqual(ex.ensure_state(self.data, '2026-08-18'), ['cpv-additional-encoding'])
+        self.assertEqual(ex.ensure_state(self.data, '2026-08-23'), [])
+        self.assertFalse(ex.plan(self.data, '2026-08-23').is_trial)
+        self.assertEqual(ex.ensure_state(self.data, '2026-08-24'), ['cpv-additional-encoding'])
         row = ex.state(self.data)['cpv-additional-encoding']
         self.assertEqual((row['status'], row['delivering']), ('open', 'mh'))
-        p = ex.plan(self.data, '2026-08-25')
+        p = ex.plan(self.data, '2026-08-31')
         self.assertTrue(p.is_trial)
-        self.assertEqual([a.id for a in p.arms], ['onehot', 'mh'])
+        self.assertEqual([a.id for a in p.arms], ['mh', 'cts'])
         self.assertTrue(p.is_delivering(EXP.arm('mh')))
-        self.assertFalse(p.is_delivering(EXP.arm('onehot')))
+        self.assertFalse(p.is_delivering(EXP.arm('cts')))
         # a second call creates nothing more
-        self.assertEqual(ex.ensure_state(self.data, '2026-08-25'), [])
+        self.assertEqual(ex.ensure_state(self.data, '2026-08-31'), [])
 
     def test_a_jsonl_only_home_never_gets_a_database(self):
         plain = self.tmp / 'plain'
@@ -149,16 +149,16 @@ class ArmGrading(Home):
 
     def setUp(self):
         super().setUp()
-        ex.ensure_state(self.data, '2026-08-18')
-        self.plan = ex.plan(self.data, '2026-08-25')
+        ex.ensure_state(self.data, '2026-08-24')
+        self.plan = ex.plan(self.data, '2026-08-31')
         lots = [('p1', 'L1'), ('p2', 'L1'), ('p3', 'L1'), ('p4', 'L1')]
-        # p1, p2: both arms scored; p3: only ts scored; p4: pre-trial row only
+        # p1, p2: both arms scored; p3: only multi-hot scored; p4: pre-trial row only
         rows = [
-            pred('p1', 'L1', 'm1-onehot', 0.8, '2026-08-18T06:00:00', 'onehot', EXP.id),
-            pred('p1', 'L1', 'm1-mh', 0.3, '2026-08-18T06:00:01', 'mh', EXP.id),
-            pred('p2', 'L1', 'm1-onehot', 0.2, '2026-08-18T06:00:00', 'onehot', EXP.id),
-            pred('p2', 'L1', 'm1-mh', 0.9, '2026-08-18T06:00:01', 'mh', EXP.id),
-            pred('p3', 'L1', 'm1-mh', 0.6, '2026-08-18T06:00:01', 'mh', EXP.id),
+            pred('p1', 'L1', 'm1-cts', 0.8, '2026-08-24T06:00:00', 'cts', EXP.id),
+            pred('p1', 'L1', 'm1-mh', 0.3, '2026-08-24T06:00:01', 'mh', EXP.id),
+            pred('p2', 'L1', 'm1-cts', 0.2, '2026-08-24T06:00:00', 'cts', EXP.id),
+            pred('p2', 'L1', 'm1-mh', 0.9, '2026-08-24T06:00:01', 'mh', EXP.id),
+            pred('p3', 'L1', 'm1-mh', 0.6, '2026-08-24T06:00:01', 'mh', EXP.id),
             pred('p4', 'L1', 'm0', 0.6, '2026-08-01T06:00:00'),
         ]
         ledger.append(self.data, 'predictions', rows)
@@ -171,9 +171,9 @@ class ArmGrading(Home):
             grading.grade(self.paths, self.tenders, self.aw, ARGS, self.plan)
         by = ex.rows_by_arm(self.data, EXP.id)
         self.assertEqual({a: sorted(r['procedure_id'] for r in rows) for a, rows in by.items()},
-                         {'onehot': ['p1', 'p2'], 'mh': ['p1', 'p2', 'p3']})
-        r = next(r for r in by['onehot'] if r['procedure_id'] == 'p1')
-        self.assertEqual((r['label'], r['flag'], r['score'], r['model']), (1, True, 0.8, 'm1-onehot'))
+                         {'cts': ['p1', 'p2'], 'mh': ['p1', 'p2', 'p3']})
+        r = next(r for r in by['cts'] if r['procedure_id'] == 'p1')
+        self.assertEqual((r['label'], r['flag'], r['score'], r['model']), (1, True, 0.8, 'm1-cts'))
         with contextlib.redirect_stdout(io.StringIO()):
             grading.grade(self.paths, self.tenders, self.aw, ARGS, self.plan)
         self.assertEqual(sum(len(v) for v in ex.rows_by_arm(self.data, EXP.id).values()), 5)
@@ -182,7 +182,7 @@ class ArmGrading(Home):
         with contextlib.redirect_stdout(io.StringIO()):
             grading.grade(self.paths, self.tenders, self.aw, ARGS, self.plan)
         grades = {g['procedure_id']: g for g in ledger.read(self.data, 'grades')}
-        # multi-hot delivers (re-declared 2026-08-17): its rows are the record
+        # multi-hot delivers (re-declared 2026-08-18): its rows are the record
         self.assertEqual(grades['p1']['model'], 'm1-mh')
         self.assertEqual(grades['p2']['model'], 'm1-mh')
         # p3: only the delivering arm scored it — it IS a customer record now
@@ -193,7 +193,7 @@ class ArmGrading(Home):
     def test_paired_restriction(self):
         with contextlib.redirect_stdout(io.StringIO()):
             grading.grade(self.paths, self.tenders, self.aw, ARGS, self.plan)
-        pr, common = ex.paired(ex.rows_by_arm(self.data, EXP.id), ['onehot', 'mh'])
+        pr, common = ex.paired(ex.rows_by_arm(self.data, EXP.id), ['mh', 'cts'])
         self.assertEqual(sorted(p for p, _ in common), ['p1', 'p2'])
         self.assertEqual(len(pr['mh']), 2)      # p3 is in neither comparison
 
@@ -268,8 +268,8 @@ class Commands(Home):
 
     def setUp(self):
         super().setUp()
-        ex.ensure_state(self.data, '2026-08-18')
-        for a in ('onehot', 'mh'):
+        ex.ensure_state(self.data, '2026-08-24')
+        for a in ('mh', 'cts'):
             p = ex.arm_current_path(self.models, a)
             p.parent.mkdir(parents=True)
             p.write_text(f'm1-{a}\n')
@@ -283,23 +283,23 @@ class Commands(Home):
         return code, out.getvalue()
 
     def test_deliver_rewrites_current_and_nothing_else(self):
-        code, out = self.run_cli('deliver', 'cpv-additional-encoding', 'onehot')
+        code, out = self.run_cli('deliver', 'cpv-additional-encoding', 'cts')
         self.assertEqual(code, 0)
-        self.assertEqual((self.models / 'CURRENT').read_text().strip(), 'm1-onehot')
+        self.assertEqual((self.models / 'CURRENT').read_text().strip(), 'm1-cts')
         self.assertEqual(ex.arm_current_path(self.models, 'mh').read_text().strip(), 'm1-mh')
         self.assertEqual((self.models / 'other.txt').read_text(), 'untouched')
-        self.assertEqual(ex.state(self.data)['cpv-additional-encoding']['delivering'], 'onehot')
-        self.assertIn('one hot', out)
+        self.assertEqual(ex.state(self.data)['cpv-additional-encoding']['delivering'], 'cts')
+        self.assertIn('target statistics', out)
 
     def test_close_records_and_hints_but_does_not_switch(self):
-        code, out = self.run_cli('close', 'cpv-additional-encoding', '--winner', 'onehot',
+        code, out = self.run_cli('close', 'cpv-additional-encoding', '--winner', 'cts',
                                  '--note', 'clear after 12 weeks')
         self.assertEqual(code, 0)
         row = ex.state(self.data)['cpv-additional-encoding']
         self.assertEqual(row['status'], 'closed')
         dec = json.loads(row['decision'])
-        self.assertEqual((dec['winner'], dec['note']), ('onehot', 'clear after 12 weeks'))
-        self.assertIn('deliver cpv-additional-encoding onehot', out)
+        self.assertEqual((dec['winner'], dec['note']), ('cts', 'clear after 12 weeks'))
+        self.assertIn('deliver cpv-additional-encoding cts', out)
         self.assertEqual((self.models / 'CURRENT').read_text().strip(), 'm1-mh')
         # closed -> the next plan is the plain single-arm cycle
         self.assertFalse(ex.plan(self.data, '2026-12-01').is_trial)
@@ -313,21 +313,21 @@ class Commands(Home):
         self.assertIn('cpv-additional-encoding: collecting', out)
         code, out = self.run_cli('show', 'cpv-additional-encoding')
         self.assertEqual(code, 0)
-        self.assertIn('one hot', out)
+        self.assertIn('target statistics', out)
         self.assertIn('multi-hot', out)
 
 
 class ShadowModels(Home):
 
     def test_only_non_delivering_arms_models_are_shadows(self):
-        ex.ensure_state(self.data, '2026-08-18')
+        ex.ensure_state(self.data, '2026-08-24')
         util.append_jsonl(self.models / 'registry.jsonl', [
             {'model_id': 'm0', 'promoted': True},
-            {'model_id': 'm1-onehot', 'arm': 'onehot', 'experiment': EXP.id},
+            {'model_id': 'm1-cts', 'arm': 'cts', 'experiment': EXP.id},
             {'model_id': 'm1-mh', 'arm': 'mh', 'experiment': EXP.id},
         ])
-        self.assertEqual(ex.shadow_models(self.models, self.data), {'m1-onehot'})
-        ex.set_delivering(self.data, EXP.id, 'onehot', self.models)
+        self.assertEqual(ex.shadow_models(self.models, self.data), {'m1-cts'})
+        ex.set_delivering(self.data, EXP.id, 'cts', self.models)
         self.assertEqual(ex.shadow_models(self.models, self.data), {'m1-mh'})
 
 
@@ -356,7 +356,7 @@ class AdminPage(Home):
         import app
         self.app = app
         self.wsgi = app.make_app(self.data)
-        ex.ensure_state(self.data, '2026-08-18')
+        ex.ensure_state(self.data, '2026-08-24')
 
     def get(self, path, marked=True):
         status = {}
@@ -376,7 +376,7 @@ class AdminPage(Home):
         try:
             s, body = self.get('/admin/experiments')
             self.assertTrue(s.startswith('200'), s)
-            self.assertIn('one hot', body)
+            self.assertIn('target statistics', body)
             self.assertIn('multi-hot', body)
             self.assertIn('cpv-additional-encoding', body)
             self.assertIn('MIN_PAIRED', body)

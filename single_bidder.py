@@ -158,17 +158,24 @@ if _OVERRIDDEN:
     print('[single_bidder] override: '
           + ', '.join(f'{k}={v!r}' for k, v in sorted(_OVERRIDDEN.items())))
 
-# Named feature builds (doc/EXPERIMENTS.md §3). `default` is the build the
-# cycle runs; the others exist so an A/B arm can differ from it in exactly one
-# named way. `cpv_additional_combination`: the additional-CPV codes stay one
-# combination string per level (the pre-2026-08-16 encoding, the "target
-# statistics" arm) while every other list column is multi-hot as in `default`.
+# Named feature builds (doc/EXPERIMENTS.md §3). `multihot` is the build the
+# cycle runs (FEATURE_BUILD above); the others exist so an A/B arm can differ
+# from it in exactly one named way.
 # `multihot`: every categorical column — list or single-valued, categorical,
 # hierarchical (cpv_main at cpv3/4/6/8) or bool — becomes 0/1 columns for the
 # values with support, plus n_rare and n; no CatBoost categorical feature is
 # left, so `assert_pure_one_hot` has nothing to refuse and ONE_HOT_MAX_SIZE
 # is not a wall (1,323 cpv4 classes across all trades would breach it).
-FEATURE_BUILDS = ('default', 'cpv_additional_combination', 'multihot')
+# `default`: list columns multi-hot, single-valued categoricals one-hot under
+# the 1024 cap — the pre-2026-08-17 build, and the other value of the
+# FEATURE_BUILD knob the replay measures (knobs.py).
+# `cpv_additional_target_statistics`: `multihot` in every respect EXCEPT
+# `cpv_additional`, which stays one combination string per level and so reaches
+# CatBoost as a high-cardinality categorical — target statistics, the `cts` arm
+# of the live trial. It layers on `multihot` and not on `default` on purpose:
+# an arm must differ from the delivering build in exactly one way, or the
+# comparison answers two questions at once and neither of them cleanly.
+FEATURE_BUILDS = ('default', 'multihot', 'cpv_additional_target_statistics')
 
 
 def effective_support(n_lots, share=None, floor=None):
@@ -203,7 +210,9 @@ def _multihot_levels(roles, frame, feature_build=None):
     _check_build(feature_build)
     out = {}
     for col, role in roles.items():
-        if feature_build == 'multihot':
+        if feature_build in ('multihot', 'cpv_additional_target_statistics'):
+            if feature_build == 'cpv_additional_target_statistics' and col == 'cpv_additional':
+                continue  # stays a combination string per level (build_features)
             # every categorical column, whatever its shape (TRAINING.md)
             if role in ('categorical', 'bool'):
                 out[col] = [(None, None)]
@@ -212,8 +221,6 @@ def _multihot_levels(roles, frame, feature_build=None):
             continue
         if not _is_list_col(frame, col):
             continue
-        if feature_build == 'cpv_additional_combination' and col == 'cpv_additional':
-            continue  # stays a combination string per level (build_features)
         if role == 'categorical':
             out[col] = [(None, None)]
         elif role == 'hierarchical' and _hier_levels(col) is not None:
@@ -343,10 +350,10 @@ def build_features(df, roles, list_frame=None, multihot=None, feature_build=None
             for lname, n in levels:
                 new = f'{col}__{lname}'
                 if is_list[col]:
-                    # only under feature_build='cpv_additional_combination':
+                    # only under feature_build='cpv_additional_target_statistics':
                     # one combination string per level, the encoding the
-                    # rule-4 guard outgrew — kept as the "target statistics"
-                    # arm of doc/EXPERIMENTS.md, never the default
+                    # rule-4 guard outgrew — the "target statistics" (`cts`)
+                    # arm of doc/EXPERIMENTS.md, never the delivering build
                     X[new] = s.map(lambda v, n=n: '|'.join(sorted(_codes_at(v, n))) or NA)
                 else:
                     X[new] = s.map(lambda v, n=n: NA if v is None or (isinstance(v, float) and np.isnan(v))

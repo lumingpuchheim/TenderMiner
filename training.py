@@ -60,9 +60,16 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint, arm=None, plan=None
     if arm:
         gate['arm'] = arm.id
 
+    # the cap the GUARD checks against is the cap the MODEL will use — an arm
+    # may override one_hot_max_size (the cts arm pins it to 1 so its three
+    # combination columns always take target statistics), and a guard that
+    # kept quoting the module constant would promise a property the fitted
+    # model does not have, in either direction
+    cap = (int(arm.overrides.get('one_hot_max_size', sb.ONE_HOT_MAX_SIZE))
+           if arm else sb.ONE_HOT_MAX_SIZE)
     try:
-        card = sb.assert_pure_one_hot(X, cat_cols, exempt=exempt)
-        ctr = sb.ctr_columns(card, exempt)
+        card = sb.assert_pure_one_hot(X, cat_cols, one_hot_max_size=cap, exempt=exempt)
+        ctr = sb.ctr_columns(card, exempt, cap)
         checked = card.drop(labels=[c for c in exempt if c in card.index])
         # under the multihot build there is no categorical column at all
         # (TRAINING.md 2026-08-17): the check passes vacuously and says so
@@ -70,6 +77,7 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint, arm=None, plan=None
         gate['checks']['pure_one_hot'] = (
             (f'passed (max cardinality {checked_max}' if len(card)
              else 'passed (no categorical column — every one multi-hot')
+            + (f'; cap {cap}' if cap != sb.ONE_HOT_MAX_SIZE else '')
             + (f'; CTR columns: ' + ', '.join(f'{c} {n}' for c, n in ctr.items()) if ctr else '')
             + ')')
     except AssertionError as e:

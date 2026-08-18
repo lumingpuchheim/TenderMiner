@@ -262,6 +262,21 @@ Enforceable rules, in order of application:
    fallback can never happen. `buyer_name` (1,561
    buyers, most with a single lot) cannot be one-hot — 1,561 columns would just
    memorize labels — so it is EXCLUDED from v1 features.
+   **The one exemption (2026-08-18):** the `cts` arm of the encoding trial
+   (EXPERIMENTS.md §2c) declares `guard_exempt` for
+   `cpv_additional__cpv2/3/4` and so lets CatBoost use target statistics on
+   exactly those three columns. It is a SHADOW arm — trained, scored, graded,
+   never delivered unless the operator switches it — and the exemption is
+   named in the declaration and printed in the gate line, which is the whole
+   difference between an exemption and the silent fallback this rule forbids.
+   The arm also pins `one_hot_max_size=1` for itself, so those columns take
+   target statistics from the first Monday instead of crossing the 1024 cap
+   mid-trial (measured: 653 distinct cpv4 combinations on the labeled frame,
+   1,728 across the store), and `training.learn` runs the guard against the
+   cap the model will actually use.
+   The same property that makes it worth testing makes it untestable
+   backwards: the encoding is made out of the labels, so no replay can judge
+   it, only forward predictions can.
 5. **Outcome-availability (governs v2's buyer history).** "This buyer's past
    single-bid rate" is the strongest known predictor and v2 should add it — but
    "past" must mean *outcome was public*, not *tender happened earlier*. A March

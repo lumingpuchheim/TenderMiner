@@ -236,7 +236,13 @@ KNOBS = (
     Knob('single_bidder.FEATURE_BUILD', 'competitiveness', 'default', 'multihot', 1,
          'Does the all-multi-hot build (no categorical column, no cardinality wall) '
          "cost precision against today's build?", metric='precision', harness='replay',
-         note='TRAINING.md 2026-08-17; the encoding an all-trades store needs',
+         note='TRAINING.md 2026-08-17; the encoding an all-trades store needs. '
+              'Two values on purpose: both are fitted without consulting a '
+              'label, so the replay can judge them. The third build, '
+              'cpv_additional_target_statistics, must never be added here — '
+              'CatBoost builds that encoding out of the training labels, so a '
+              'replay would grade its own answer. It is the cts arm of the '
+              'live trial instead (doc/EXPERIMENTS.md)',
          values=('default', 'multihot')),
 )
 
