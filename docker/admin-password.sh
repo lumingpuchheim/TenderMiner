@@ -290,13 +290,34 @@ docker compose --profile edge exec -T edge \
 # whole reason this section exists. On 2026-08-18 a `set` wrote the hash at
 # 08:22 and the edge kept the old one until a deploy recreated it at 08:47;
 # in between, the page refused the new password and accepted the old one, and
-# nothing anywhere said so. So the run ends by asking the live edge, over TLS
-# on the real name, with the password it has just hashed — through
-# `--config -` on stdin, because `-u user:pass` would put the password in the
-# process list, which is the one thing this script exists to avoid.
+# nothing anywhere said so.
+#
+# TWO checks, in this order, because they fail for different reasons:
+#
+#   1. Password-free, and the one that decides: the hash the RUNNING edge has
+#      loaded, read from its own admin API, against the hash in the file. Equal
+#      means the edge is serving THIS file — which is exactly what "the file is
+#      the truth" has to mean.
+#   2. End to end: ask the live edge for /admin with the password just hashed.
+#
+# Check 2 alone was the first version of this, and it lied: `curl --config -`
+# treats a backslash and a double quote inside a quoted value as escapes, so a password
+# containing either was sent mangled or not at all, and the run reported a
+# wrong password against a door that opened perfectly (measured 2026-08-18,
+# after telling the operator exactly that). Hence the escaping below, and
+# hence a failure here no longer overrides check 1.
+curl_config_line() {          # $1 user, $2 password -> one curl config line
+    printf 'user = "%s:%s"\n' "$1" \
+        "$(printf %s "$2" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
+}
+
+infile="$(awk 'NF && $1 !~ /^#/ {print $2; exit}' "$FILE")"
+loaded="$(docker compose --profile edge exec -T edge \
+              sh -c 'wget -qO- http://127.0.0.1:2019/config/' 2>/dev/null |
+          tr ',' '\n' | sed -n 's/.*"password":"\([^"]*\)".*/\1/p' | head -1)"
 HOST="$(sed -n 's/^TM_DOMAIN=//p' .env | tail -1)"
 HOST="${HOST:-app.murara.eu}"
-code="$(printf 'user = "%s:%s"\n' "$user" "$password" |
+code="$(curl_config_line "$user" "$password" |
         curl -s -o /dev/null -w '%{http_code}' --max-time 20 --config - \
              --resolve "$HOST:443:127.0.0.1" "https://$HOST/admin" || true)"
 unset password
@@ -304,18 +325,31 @@ printf '\n  file:  %s (mode %s, owner %s)\n' \
        "$FILE" "$(stat -c %a "$FILE")" "$(stat -c %U "$FILE")"
 printf '  user:  %s\n' "$user"
 printf '  hash:  %s characters\n' "${#value}"
+
+if [ -n "$loaded" ] && [ "$loaded" != "$infile" ]; then
+    printf '  door:  NOT IN FORCE - the running edge serves a DIFFERENT hash\n' >&2
+    printf '         Reload it by hand and run status again:\n' >&2
+    printf '         docker compose --profile edge exec edge caddy reload \\\n' >&2
+    printf '           --config /etc/caddy/Caddyfile --adapter caddyfile\n' >&2
+    exit 3
+elif [ -n "$loaded" ]; then
+    printf '  door:  IN FORCE - the running edge serves exactly this file\n'
+else
+    printf '  door:  the edge did not answer its admin API; falling back to\n'
+    printf '         the login test below\n'
+fi
+
 case "$code" in
-    200) printf '  door:  IN FORCE - the live edge accepts the new password\n' ;;
-    401) printf '  door:  NOT IN FORCE - the edge still refuses it\n' >&2
-         printf '         The credential is in %s but the running edge has\n' "$FILE" >&2
-         printf '         another one. Reload it by hand and run status again:\n' >&2
-         printf '         docker compose --profile edge exec edge \\n' >&2
-         printf '           caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile\n' >&2
-         exit 3 ;;
-    *)   printf '  door:  UNPROVEN - the edge answered %s, not 200 or 401\n' "${code:-nothing}" >&2
-         printf '         The credential is written; whether it is in force is\n' >&2
-         printf '         unknown. Check https://%s/admin by hand.\n' "$HOST" >&2
-         exit 3 ;;
+    200) printf '  login: the new password opened /admin\n' ;;
+    401) printf '  login: /admin refused it (401)\n' >&2
+         if [ -n "$loaded" ]; then
+             printf '         The edge IS serving this file, so the credential is\n' >&2
+             printf '         in force. Try the page in a private window before\n' >&2
+             printf '         changing anything - a browser re-sends the old one.\n' >&2
+         else
+             exit 3
+         fi ;;
+    *)   printf '  login: unproven - the edge answered %s, not 200 or 401\n' "${code:-nothing}" >&2 ;;
 esac
 REMOTE
 )

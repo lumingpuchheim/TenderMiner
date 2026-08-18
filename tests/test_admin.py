@@ -2,11 +2,14 @@
 store; the app is driven through its WSGI callable, so the guard, the routing
 and the HTML are all exercised as a real request would."""
 import os
+import base64
+import threading
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest import mock
 
@@ -437,6 +440,96 @@ class ThePasswordPromptSurvivesAPaste(unittest.TestCase):
     def test_an_umlaut_survives_byte_by_byte(self):
         pw = 'Gruess-Passwort-\u00fc9'
         self.assertEqual(self.capture(pw.encode('utf-8') + LF), pw)
+
+
+class TheInForceCheckSurvivesTheOperatorsPassword(unittest.TestCase):
+    """`admin-password.sh set` ends by asking the live edge for /admin with the
+    password it just hashed, through `curl --config -` so the password never
+    reaches a process list. curl's config parser treats a backslash and a
+    double quote inside a quoted value as escapes: a password containing
+    either was sent mangled, or not sent at all, curl got 401, and the run
+    announced NOT IN FORCE against a door that opened perfectly — measured
+    2026-08-18, after it had told the operator exactly that.
+
+    The escaping function is lifted out of the shipped script, run under bash,
+    and the line it produces is handed to a real curl aimed at a listener that
+    records the Authorization header. What curl SENDS is what is asserted."""
+
+    PASSWORDS = ('simple-pass-1234',
+                 'has spaces in it 12',
+                 'has' + chr(34) + 'a-double-quote1',
+                 'has' + chr(92) + 'a-backslash-12',
+                 'both' + chr(34) + 'and' + chr(92) + 'together',
+                 'has#a-hash-mark-12',
+                 'hat-Umlaute-uoa-12')
+
+    def setUp(self):
+        self.bash = shutil.which('bash')
+        self.curl = shutil.which('curl')
+        if not self.bash or not self.curl:
+            self.skipTest('needs bash and curl')
+        script = (Path(__file__).resolve().parent.parent
+                  / 'docker' / 'admin-password.sh').read_text(encoding='utf-8')
+        start = script.index('curl_config_line() {')
+        end = script.index(NEWLINE + '}' + NEWLINE, start) + 3
+        self.fn = script[start:end]
+
+        seen = []
+        test = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append(self.headers.get('Authorization', ''))
+                self.send_response(200)
+                self.send_header('Content-Length', '2')
+                self.end_headers()
+                self.wfile.write(b'ok')
+
+            def log_message(self, *a):
+                pass
+
+        self.seen = seen
+        self.server = HTTPServer(('127.0.0.1', 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.shutdown)
+
+    def line_for(self, user, password):
+        # Through the ENVIRONMENT, not argv: on Windows the argument vector is
+        # rebuilt into a command line and re-parsed by MSYS bash, which eats
+        # exactly the backslashes and quotes this test is about.
+        prog = self.fn + NEWLINE + 'curl_config_line "$TM_U" "$TM_P"' + NEWLINE
+        out = subprocess.run([self.bash, '-s'], input=prog.encode(),
+                             env={**os.environ, 'TM_U': user, 'TM_P': password},
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        return out.stdout.decode('utf-8')
+
+    def sent_credentials(self, user, password):
+        """-> the user:password curl actually put on the wire, or None."""
+        del self.seen[:]
+        line = self.line_for(user, password)
+        port = self.server.server_address[1]
+        subprocess.run([self.curl, '--config', '-', '-s', '-o', os.devnull,
+                        '--max-time', '5',
+                        'http://127.0.0.1:' + str(port) + '/admin'],
+                       input=line.encode(), stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL)
+        if not self.seen or not self.seen[0].startswith('Basic '):
+            return None
+        raw = base64.b64decode(self.seen[0].split(' ', 1)[1])
+        return raw.decode('utf-8')
+
+    def test_every_password_reaches_the_edge_unchanged(self):
+        for pw in self.PASSWORDS:
+            with self.subTest(password=pw):
+                self.assertEqual(self.sent_credentials('murara', pw),
+                                 'murara:' + pw)
+
+    def test_the_line_escapes_a_backslash_and_a_double_quote(self):
+        pw = 'has' + chr(92) + 'and' + chr(34) + 'in-it-12'
+        line = self.line_for('murara', pw)
+        self.assertIn(chr(92) + chr(92), line)      # backslash doubled
+        self.assertIn(chr(92) + chr(34), line)      # quote escaped
+        self.assertTrue(line.startswith('user = "murara:'), line)
 
 
 if __name__ == '__main__':
