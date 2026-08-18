@@ -240,6 +240,85 @@ class TheMultihotBuild(unittest.TestCase):
         self.assertEqual(self.mh['n_lots'], 400)
 
 
+class TheTargetStatisticsBuild(unittest.TestCase):
+    """`feature_build='cpv_additional_target_statistics'` — the `cts` arm of
+    doc/EXPERIMENTS.md. It is the multi-hot build in every respect but one:
+    cpv_additional keeps its combination string per level, which is what
+    reaches CatBoost as a high-cardinality categorical. The arm exists because
+    that encoding is fitted from the labels, so no replay can judge it —
+    only forward predictions can."""
+
+    def setUp(self):
+        self.rng = np.random.default_rng(17)
+        self.tenders = frame(400, self.rng)
+        self.tenders['is_framework'] = self.rng.choice([True, False, None], len(self.tenders))
+        self.roles = dict(ROLES, is_framework='bool')
+        self.build = 'cpv_additional_target_statistics'
+        self.mh = sb.fit_multihot(self.tenders, self.roles, feature_build=self.build)
+        self.X, self.cats, self.nums, _ = sb.build_features(
+            self.tenders, self.roles, list_frame=self.tenders, multihot=self.mh,
+            feature_build=self.build)
+
+    def test_only_cpv_additional_is_categorical_everything_else_multi_hot(self):
+        self.assertEqual(sorted(self.cats), ['cpv_additional__cpv2',
+                                             'cpv_additional__cpv3',
+                                             'cpv_additional__cpv4'])
+        # the one difference from the delivering build, and only that one
+        self.assertIn('cpv_main__cpv8__has_45210000', self.nums)
+        self.assertIn('procedure_type__has_open', self.nums)
+        self.assertIn('is_framework__has_True', self.nums)
+        self.assertIn('selection_criteria_types__has_slc-abil', self.nums)
+        self.assertNotIn('cpv_additional__cpv4__n', self.X.columns)
+
+    def test_the_combination_string_is_the_lots_codes_joined(self):
+        codes = self.tenders['cpv_additional'].iloc[0]
+        want = '|'.join(sorted({str(c)[:4] for c in codes})) or sb.NA
+        self.assertEqual(self.X['cpv_additional__cpv4'].iloc[0], want)
+
+    def test_the_arm_gets_target_statistics_whatever_the_store_size(self):
+        """The arm is named for target statistics, so it must not depend on the
+        training frame's cardinality to get them. Measured 2026-08-18: the cpv4
+        combination has 1,728 distinct values across the store but only 653 on
+        the labeled rows the cap is applied to — at the stock cap of 1024
+        CatBoost would one-hot all three columns today and silently switch to
+        target statistics mid-trial as the store grew. The arm pins the cap."""
+        import experiments as ex
+        arm = ex.DECLARED['cpv-additional-encoding'].arm('cts')
+        cap = arm.overrides['one_hot_max_size']
+        self.assertEqual(cap, 1)
+        card = sb.assert_pure_one_hot(self.X, self.cats,
+                                      one_hot_max_size=cap, exempt=arm.guard_exempt)
+        self.assertEqual(sorted(card.index), sorted(arm.guard_exempt))
+        # every one of them is above the arm's cap, so every one is read with
+        # target statistics — and ctr_columns names them for the gate line
+        self.assertEqual(sorted(sb.ctr_columns(card, arm.guard_exempt, cap)),
+                         sorted(arm.guard_exempt))
+        self.assertTrue(all(card[c] > cap for c in arm.guard_exempt), dict(card))
+        # without the exemption the same cap refuses: the guard is not asleep
+        with self.assertRaises(AssertionError):
+            sb.assert_pure_one_hot(self.X, self.cats, one_hot_max_size=cap)
+
+    def test_it_differs_from_the_delivering_build_in_exactly_those_columns(self):
+        Xm, cats_m, nums_m, _ = sb.build_features(
+            self.tenders, self.roles, list_frame=self.tenders, feature_build='multihot')
+        only_cts = set(self.X.columns) - set(Xm.columns)
+        only_mh = set(Xm.columns) - set(self.X.columns)
+        self.assertEqual(only_cts, {'cpv_additional__cpv2', 'cpv_additional__cpv3',
+                                    'cpv_additional__cpv4'})
+        self.assertTrue(all(c.startswith('cpv_additional__') for c in only_mh), only_mh)
+        self.assertEqual(cats_m, [])
+
+    def test_catboost_trains_and_scores_on_it(self):
+        y = self.rng.integers(0, 2, len(self.X))
+        model = sb.train(self.X, y, np.ones(len(self.X)), self.cats, iterations=10)
+        open_t = frame(20, self.rng)
+        open_t['is_framework'] = True
+        Xo, _, _, _ = sb.build_features(open_t, self.roles, list_frame=self.tenders,
+                                        multihot=self.mh, feature_build=self.build)
+        self.assertEqual(list(Xo.columns), list(self.X.columns))
+        self.assertEqual(len(sb.predict(model, Xo)), 20)
+
+
 class DateSpans(unittest.TestCase):
     def test_a_buyers_impossible_date_is_missing_not_a_failed_cycle(self):
         """2026-08-17: one notice carried a deadline in the year 3032 and the

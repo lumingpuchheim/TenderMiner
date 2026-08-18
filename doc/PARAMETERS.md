@@ -126,10 +126,10 @@ change proposed.
 | `--min-val-lots` | 30 | C | FROZEN | no |
 | `--min-shuffle-positives` | 20 | C | FROZEN | no |
 | `--iterations` | None | O (testing) | — | no |
-| `ONE_HOT_MAX_SIZE` | 1024 | C | FROZEN — inert under `FEATURE_BUILD='multihot'` (no categorical column left) | no |
+| `ONE_HOT_MAX_SIZE` | 1024 | C | FROZEN — inert under `FEATURE_BUILD='multihot'` (no categorical column left); the `cts` arm overrides it to 1 for its own model (EXPERIMENTS.md §3) | no |
 | `MULTIHOT_MIN_SHARE` | 0.0015 | C | LIVE (2026-08-17, on the queue) | `meta.json` `multihot.min_share` |
 | `MULTIHOT_MIN_SUPPORT` | 30 | C | FROZEN — the floor under the share (2026-08-17) | `meta.json` `multihot.min_support` |
-| `FEATURE_BUILD` | `multihot` (since 2026-08-17) | C | LIVE (on the queue: `default` / `multihot`) | `meta.json` `feature_build` |
+| `FEATURE_BUILD` | `multihot` (since 2026-08-17) | C | LIVE (on the queue: `default` / `multihot` — never `cpv_additional_target_statistics`, §16) | `meta.json` `feature_build` |
 | `SEED` | 42 | C | FROZEN | no |
 | `LABEL_MAX_TENDERS` | 1 | C — *the label definition* | FROZEN | no (implicit in every grade) |
 | `TOO_GOOD_ROC` | 0.85 | M | FROZEN | no |
@@ -908,4 +908,17 @@ opens 2026-08-24 is re-declared `onehot` vs `mh` with multi-hot delivering
 principle, so it can be reversed on numbers if they say so. This is the one
 move today that went straight to production on a replay receipt: the
 operator's ground was structural (the wall), not the metric.
+
+**Amendment, operator, 2026-08-18.** The receipt above is evidence about
+`default` vs `multihot` and about nothing else. Both builds are fitted
+without consulting a label, which is precisely why the replay can weigh
+them; CatBoost's target statistics are built out of the labels, so the same
+harness would grade its own answer. The third registered build,
+`cpv_additional_target_statistics`, therefore **never** joins this knob's
+grid — not to promote it (§0.5 forbids that for any knob) and not to reject
+it either, which §0.5 would otherwise allow. It is the `cts` arm of the live
+trial instead, against `mh`; `onehot` left the trial the same day, because a
+replayable question does not need a Monday's training. The rule in one line:
+*a knob is for what a replay can measure honestly; an arm is for what only
+the future can settle.*
 
