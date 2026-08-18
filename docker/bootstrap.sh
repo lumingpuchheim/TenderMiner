@@ -101,6 +101,14 @@ cd "$DIR"
 if [ ! -d /etc/murara/env.d ]; then
     sudo -n install -d -m 700 -o "$(id -un)" -g "$(id -gn)" /etc/murara /etc/murara/env.d         || echo "[bootstrap] could not create /etc/murara/env.d (needs root once): sudo install -d -m 700 -o $(id -un) /etc/murara/env.d"
 fi
+# caddy.d/ is the same idea for the one credential that is NOT an environment
+# variable: the edge imports /etc/murara/caddy.d/admin.caddy as Caddy config
+# and re-reads it on every reload (doc/ADMIN.md §5c). Its own directory
+# because compose mounts the whole directory into the edge — env.d must never
+# be that mount, or the mail and payment keys would ride along.
+if [ ! -d /etc/murara/caddy.d ]; then
+    sudo -n install -d -m 700 -o "$(id -un)" -g "$(id -gn)" /etc/murara /etc/murara/caddy.d         || echo "[bootstrap] could not create /etc/murara/caddy.d (needs root once): sudo install -d -m 700 -o $(id -un) /etc/murara/caddy.d"
+fi
 
 [ -f .env ] || cp .env.example .env
 # .env holds credentials; the default umask makes it world-readable, and a

@@ -39,9 +39,20 @@ here is built yet except where a line says so. Companions:
                     TM_PRICE_LINE, TM_IMPRESSUM        — configuration, no secret in it
   mail.env          RESEND_API_KEY
   payments.env      TM_STRIPE_URL, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET   (the last two once they exist)
-  admin.env         TM_ADMIN_USER, TM_ADMIN_HASH
   backup.env        RESTIC_REPOSITORY, RESTIC_PASSWORD, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
 ```
+
+**One credential is not here, on purpose**: the operator's `/admin`
+password. It lives in `/etc/murara/caddy.d/admin.caddy` as one line of Caddy
+config (`<user> <bcrypt>`), because the edge *imports* it instead of reading
+an environment variable — an environment variable is a snapshot taken when
+the container is created, and a password that is only true until the next
+recreate is two truths, not one (doc/ADMIN.md §5c). Compose mounts that
+directory read-only into the edge; `env.d` must never be mounted anywhere,
+which is why the file has a directory of its own rather than sitting next to
+these. It is written on the server by `docker/admin-password.sh set` and is
+not carried by `secrets.sh` (which moves `*.env` files): the hash is
+generated on the machine that serves it and is needed nowhere else.
 
 Naming rule: the file is named after the *service the credential belongs to*
 (the party that issued it), not after the consumer. `RESEND_API_KEY` is
@@ -89,8 +100,6 @@ edge:
   env_file:
     - path: /etc/murara/env.d/site.env
       required: false
-    - path: /etc/murara/env.d/admin.env
-      required: false
 ```
 
 - Later files override earlier ones; that is the layering. Order within one
@@ -105,11 +114,11 @@ edge:
   The grep pattern in [`docker-compose.yml`](../docker-compose.yml) is the
   one place that still lists prefixes; a new backup or mail variable with a
   new prefix has to be added there — noted in the file→keys table (§4).
-- **The `$$` trap.** Today `TM_ADMIN_HASH` needs every `$` doubled because
-  compose expands `$` in `.env`. Whether values in `env_file` are expanded
-  too is *not* assumed either way: §5 step 4 settles it with
-  `docker compose config` and the doc line in `admin.env`'s header says
-  which it is.
+- **The `$$` trap — settled, then removed.** Compose expands `$` in
+  `env_file` values exactly as in `.env` (measured 2026-08-18), so every `$`
+  of a bcrypt hash had to be doubled on the way in. It no longer applies to
+  the admin credential, which left the environment altogether (doc/ADMIN.md
+  §5c); it still applies to any *new* value here that contains a `$`.
 
 ## 3. The tool: `docker/secrets.sh` (to build)
 
@@ -142,7 +151,7 @@ bash docker/secrets.sh list            # server side: file, key, set|EMPTY, firs
 mail.env         RESEND_API_KEY          set  r…    app, scheduler restarted 12:04
 backup.env       RESTIC_REPOSITORY       set  s…
 backup.env       RESTIC_PASSWORD         EMPTY
-admin.env        TM_ADMIN_HASH           set  $…    edge restarted 12:04
+payments.env     TM_STRIPE_URL           set  h…
 ```
 
 What it never does: echo a value; put one on a command line (rsync over ssh

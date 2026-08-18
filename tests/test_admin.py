@@ -332,5 +332,53 @@ class Sent(Base):
         self.assertEqual(status, '404 Not Found')
 
 
+class TheCredentialIsAFileNotAnEnvironmentVariable(unittest.TestCase):
+    """doc/ADMIN.md 5c. The edge imports the operator's credential from
+    /etc/murara/caddy.d/admin.caddy and re-reads it on `caddy reload`, so the
+    file is the only truth about the password.
+
+    It used to be TM_ADMIN_HASH in the edge's environment — a copy taken when
+    the container was created. On 2026-08-18 that produced two truths at once:
+    a hash written to the file at 08:22 and a different one in force until a
+    deploy recreated the edge at 08:47, with the operator locked out in
+    between and every check of the file saying "correct". These assertions are
+    the shape of the fix; each one is a way that bug could come back."""
+
+    def setUp(self):
+        self.root = Path(__file__).resolve().parent.parent
+        self.caddyfile = (self.root / 'docker' / 'Caddyfile').read_text(encoding='utf-8')
+        self.compose = (self.root / 'docker-compose.yml').read_text(encoding='utf-8')
+        self.script = (self.root / 'docker' / 'admin-password.sh').read_text(encoding='utf-8')
+
+    def test_the_caddyfile_imports_the_credential_and_reads_no_variable(self):
+        self.assertIn('import /etc/caddy/secrets/admin*.caddy', self.caddyfile)
+        # the placeholder form, not the name: the comment above the block
+        # tells the story of why it is gone, and should keep telling it
+        self.assertNotIn('{$TM_ADMIN_HASH:', self.caddyfile)
+        self.assertNotIn('{$TM_ADMIN_USER:', self.caddyfile)
+
+    def test_compose_mounts_the_directory_read_only_and_passes_no_credential(self):
+        # The DIRECTORY: the writer replaces the file with a rename, and a
+        # single-file bind mount would keep pointing at the old inode.
+        self.assertIn('/etc/caddy/secrets:ro', self.compose)
+        self.assertIn('caddy.d', self.compose)
+        self.assertNotIn('admin.env', self.compose)
+        self.assertNotIn('TM_ADMIN_HASH', self.compose)
+
+    def test_setting_a_password_reloads_and_proves_it_is_in_force(self):
+        self.assertIn('caddy reload', self.script)
+        self.assertIn('caddy validate', self.script)      # before it is in place
+        self.assertIn('IN FORCE', self.script)
+        self.assertIn('--config -', self.script)          # never -u user:pass
+        # A recreate is what made the gap possible; nothing here does one.
+        self.assertNotIn('--force-recreate', self.script)
+
+    def test_no_dollar_doubling_survives_anywhere(self):
+        # Only compose interpolation ever required it. A Caddy snippet is read
+        # by Caddy itself, so a doubled hash would now be the WRONG hash.
+        self.assertNotIn("sed 's/[$]/$$/g'", self.script)
+        self.assertNotIn('$$2a', self.script)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -147,12 +147,65 @@ port is loopback-bound, HOSTING.md). Without the header: the neutral
 page is reachable with `TM_ADMIN_OPEN=1` for development, never set on the
 server.
 
-### 5b. Where the credential lives — 2026-08-18
+### 5c. The file is the truth — 2026-08-18
 
-Not in `.env`. `/etc/murara/env.d/admin.env` (doc/SECRETS.md §1), mode 600,
-read by the **edge alone** through `env_file: [{path: …, required: false}]`.
-The cycle and the app no longer have the admin hash in their environment at
-all, and a laptop without the file still starts.
+The credential is no longer an environment variable. It is one line of Caddy
+config in `/etc/murara/caddy.d/admin.caddy`:
+
+```
+murara $2a$14$<hash>
+```
+
+`docker/Caddyfile` imports it (`import /etc/caddy/secrets/admin*.caddy`
+inside the `basic_auth` block); compose mounts `/etc/murara/caddy.d`
+read-only into the edge as `/etc/caddy/secrets`. `admin-password.sh set`
+writes that file and runs `caddy reload` — no recreate, no deploy, no
+restart.
+
+**Why it had to change.** An environment variable is a copy handed to a
+process when it is created. With `{$TM_ADMIN_HASH}` the password *in force*
+was whatever `admin.env` said the last time the edge container was created,
+which is not the same thing as what the file says. On 2026-08-18 a `set`
+wrote a new hash at 08:22, the edge kept the old one, the browser kept
+working with the old password — and an unrelated deploy at 08:47 recreated
+the edge, put the 08:22 password in force, and the operator was asked for a
+password whose change he had made half an hour earlier. Every inspection in
+between said "the file is correct", and every one of them was right. Two
+truths, one password.
+
+With the credential imported from a file: a deploy cannot change what is in
+force (it recreates the edge, which re-reads the same file and arrives at the
+same answer), and a `set` cannot leave a gap (it reloads, then proves it).
+
+**What `set` now does, in order**: hash the password inside Caddy's own image
+· write `<user> <hash>` to a staged file · `caddy validate` the real
+Caddyfile against it, so a malformed credential is refused *before* the next
+container recreate could pick it up · move it into place · `caddy reload` ·
+ask the live edge for `/admin` with that password over TLS on the real name,
+and report **IN FORCE** or exit non-zero. The password is never in a process
+list, a file, or the shell history — it travels on stdin, both to
+`hash-password` and to `curl --config -`.
+
+**Measured, not assumed** (throwaway containers, 2026-08-18): no credential
+file at all → the import glob matches nothing, the block is empty, `/admin`
+answers **401 to every password and the edge starts normally**; an empty file
+and a comment-only file behave the same; a replaced file (new inode) is
+picked up by `caddy reload` because the mount is the *directory*; a malformed
+file makes `reload` refuse and the edge keeps serving the config it has.
+
+The `$`-doubling is gone with the environment variable — nothing interpolates
+a Caddy snippet, so the hash is stored exactly as `caddy hash-password`
+printed it.
+
+### 5b. Where the credential lived until §5c — 2026-08-18
+
+Superseded the same day by §5c, and kept because its three lessons are why
+the file-imported credential looks the way it does.
+
+`/etc/murara/env.d/admin.env` (doc/SECRETS.md §1), mode 600, read by the
+**edge alone** through `env_file: [{path: …, required: false}]`. The cycle
+and the app never had the admin hash in their environment, and a laptop
+without the file still started.
 
 Three things this cost, all now in the files:
 

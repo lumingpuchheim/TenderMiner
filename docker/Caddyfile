@@ -20,20 +20,30 @@
 	# terminates TLS. The app additionally refuses /admin unless this header
 	# is present — the app port is loopback-bound, so nothing else can set
 	# it, and an edge without this block hides the page instead of exposing
-	# it. TM_ADMIN_USER / TM_ADMIN_HASH come from
-	# /etc/murara/env.d/admin.env — the edge's own file, nobody else's
-	# (doc/SECRETS.md §1) — and are written by
-	# `bash docker/admin-password.sh set` (doc/ADMIN.md §5).
+	# it.
+	#
+	# The credential is IMPORTED FROM A FILE, not read from the
+	# environment (doc/ADMIN.md §5c). An environment variable is a copy
+	# handed to the process at birth: with `{$TM_ADMIN_HASH}` the password
+	# in force was whatever admin.env said the last time the container was
+	# CREATED, so a `set` could sit in the file unapplied until the next
+	# deploy happened to recreate the edge — and then the browser asked
+	# for a password the operator had changed half an hour earlier
+	# (2026-08-18). Caddy re-reads this file on every `caddy reload`, so
+	# the file is the only truth and putting a new password in force is a
+	# reload, not a restart.
+	#
+	# /etc/murara/caddy.d/admin.caddy holds ONE line, `<user> <bcrypt>`,
+	# written by `bash docker/admin-password.sh set` (doc/ADMIN.md §5).
+	# The glob is deliberate: no file (a laptop, a fresh server) matches
+	# nothing, the block stays empty and /admin answers 401 to EVERY
+	# password while the edge starts normally — measured, not assumed.
+	# A malformed file is refused by `caddy reload`, which keeps serving
+	# the config it already has; only a container recreate can be taken
+	# down by one, which is why the writer validates before it reloads.
 	@admin path /admin /admin/*
 	basic_auth @admin {
-		{$TM_ADMIN_USER:murara} {$TM_ADMIN_HASH:$2a$14$B6sAonPyQQzco9Hs10NXROiVar8leTRMPlx9JJnZn68Jnf1OMjYE.}
-		# ^ the default is a bcrypt hash of 30 random bytes that nobody
-		#   has: with no admin.env on the machine, /admin answers 401 to
-		#   every password and the edge still starts. It must be a VALID
-		#   bcrypt string — Caddy base64-decodes the hash while loading
-		#   its config, and a friendly word like "kein-passwort-gesetzt"
-		#   fails there and takes the whole edge down, app and public
-		#   site with it (2026-08-18, the third such outage).
+		import /etc/caddy/secrets/admin*.caddy
 	}
 	handle @admin {
 		reverse_proxy app:8000 {

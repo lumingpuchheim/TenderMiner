@@ -154,20 +154,22 @@ services:
     environment:
       TM_DOMAIN: ${TM_DOMAIN:-}
       TM_WWW_DOMAIN: ${TM_WWW_DOMAIN:-}
-    # No TM_ADMIN_* here on purpose: `environment:` OVERRIDES `env_file:`,
-    # so a placeholder written here would win over admin.env for ever — which
-    # is exactly what happened, with a value Caddy could not parse.
-    # The first layer of doc/SECRETS.md §1: the admin credential is the edge's
-    # business and nobody else's, so it lives in its own file and only this
-    # service reads it. `required: false` — a laptop without the file still
-    # starts, and the placeholder above then answers 401 to everything.
-    # Compose interpolates `$` in these values exactly as in .env, so the
-    # hash is stored with every `$` doubled (measured 2026-08-18).
-    env_file:
-      - path: /etc/murara/env.d/admin.env
-        required: false
+    # No TM_ADMIN_* anywhere here — not in `environment:`, not in
+    # `env_file:`. The admin credential does not travel through compose at
+    # all any more (doc/ADMIN.md §5c): the edge imports it from a file it
+    # re-reads on every `caddy reload`, so the file is the only truth and a
+    # recreate can no longer put a different password in force than the one
+    # that was already running. Two bugs die with that: the environment
+    # snapshot frozen at container creation, and the `$`-doubling this file's
+    # interpolation forced on every bcrypt hash.
     volumes:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      # The operator's credential, one file, read-only, the edge's alone.
+      # A DIRECTORY, not the file: `admin-password.sh` replaces it with a
+      # rename, and a single-file bind mount would still point at the old
+      # inode. Missing on this machine (a laptop) is fine — the Caddyfile's
+      # import glob then matches nothing and /admin refuses every password.
+      - ${TM_CADDY_D:-/etc/murara/caddy.d}:/etc/caddy/secrets:ro
       - caddy-data:/data          # certificates survive the container
       # The public site, written by every deploy and every weekly cycle,
       # served here as plain files (the Caddyfile serves `current/` inside
