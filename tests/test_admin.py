@@ -50,6 +50,35 @@ def request(data_dir, path, method='GET', form=None, admin_header=True,
     return captured['status'], captured['headers'], b''.join(body).decode('utf-8')
 
 
+def add_firm(d, company, titles, size='small'):
+    """Give `company` one won lot per title in the miniature store, each with
+    its own procedure and contract notice, so `admin.index` reads them as the
+    references the gate would build a profile from. Drops both caches, so the
+    next `index()` re-derives."""
+    import pandas as pd
+    store = d / 'store'
+    aw, tn = (pd.read_parquet(store / 'awards.parquet'),
+              pd.read_parquet(store / 'tenders.parquet'))
+    slug = ''.join(ch for ch in company.casefold() if ch.isalnum())[:10]
+    a, t = [], []
+    for i, title in enumerate(titles):
+        pid = f'{slug}{i}'
+        a.append({'procedure_id': pid, 'lot_id': 'LOT-0001',
+                  'publication_number': f'0099{i}000-2026',
+                  'publication_date': f'2026-04-0{i + 1}', 'buyer_nuts': 'DE3',
+                  'n_tenders': 3.0, 'winner_names': [company],
+                  'winner_size': size, 'source_file': 'missing.xml'})
+        t.append({'procedure_id': pid, 'lot_id': 'LOT-0001',
+                  'place_nuts3': None, 'title': title,
+                  'buyer_name': 'Stadt Musterhausen'})
+    pd.concat([aw, pd.DataFrame(a)], ignore_index=True).to_parquet(
+        store / 'awards.parquet')
+    pd.concat([tn, pd.DataFrame(t)], ignore_index=True).to_parquet(
+        store / 'tenders.parquet')
+    (d / admin.CORES_CACHE).unlink(missing_ok=True)
+    admin._cache.update(mtime=None, firms=None)
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -106,6 +135,138 @@ class Search(Base):
         self.assertIn('nicht eingeladen', body)
         self.assertIn('3 Aufträge', body)
         self.assertIn('Einladen', body)
+
+
+class TheTradeIsTheOneTheReportsUse(Base):
+    """doc/ADMIN.md §4. The page asks the same question the delivery gate
+    asks — `evidence.core_keywords` over the firm's newest wins — instead of
+    a substring over every title it ever won. Three firms, one word:
+
+      Zange & Söhne      three electrical lots, nothing else   — an electrician
+      Generalbau Meier   three concrete lots and ONE electrical — not one
+      Halb & Halb        two electrical, two painting          — half one
+
+    The old search returned all three, in that order (Meier first: it had the
+    most wins). Every assertion below is a way that could come back."""
+
+    def setUp(self):
+        super().setUp()
+        # the name never says the trade — this is the TEXT deciding, and it
+        # says "Elektroarbeiten" where the operator types "Elektroinstallation"
+        add_firm(self.dir, 'Zange & Söhne GmbH',
+                 ['Elektroarbeiten Neubau Turnhalle',
+                  'Elektroarbeiten Sanierung Kita',
+                  'Elektroarbeiten Verwaltungsgebäude'])
+        add_firm(self.dir, 'Generalbau Meier GmbH',
+                 ['Betonarbeiten Turnhalle', 'Betonarbeiten Parkhaus',
+                  'Betonarbeiten Brücke', 'Elektroarbeiten Turnhalle'])
+        add_firm(self.dir, 'Halb & Halb GmbH',
+                 ['Elektroarbeiten Rathaus', 'Elektroarbeiten Schule',
+                  'Malerarbeiten Rathaus', 'Malerarbeiten Schule'])
+        self.state = admin.state_of(self.dir)
+
+    def found(self, q):
+        rows, _ = admin.search(self.dir, q, self.state)
+        return [r['company'] for r in rows]
+
+    def test_the_trade_is_derived_not_read_off_one_title(self):
+        idx = admin.index(self.dir)
+        self.assertIn('elektro', idx['Zange & Söhne GmbH']['core'])
+        self.assertNotIn('elektro', idx['Generalbau Meier GmbH']['core'])
+        self.assertIn('beton', idx['Generalbau Meier GmbH']['core'])
+        self.assertIn('elektro', idx['Halb & Halb GmbH']['core'])
+
+    def test_a_word_the_firm_never_wrote_still_finds_its_trade(self):
+        # "Elektroinstallation" appears in no title of Zange & Söhne; the root
+        # `elektro` is what both words are
+        self.assertEqual(admin.query_roots('Elektroinstallation'), ['elektro'])
+        self.assertIn('Zange & Söhne GmbH', self.found('Elektroinstallation'))
+
+    def test_the_general_contractor_is_not_an_electrician(self):
+        # not even under the exact word its own lot carries — one lot of four
+        # is context, and the gate would never deliver electrical work to it
+        for q in ('Elektroinstallation', 'Elektroarbeiten', 'elektro'):
+            self.assertNotIn('Generalbau Meier GmbH', self.found(q),
+                             f'still matched on {q!r}')
+        self.assertIn('Generalbau Meier GmbH', self.found('Betonarbeiten'))
+
+    def test_the_firm_whose_trade_this_most_is_first(self):
+        found = self.found('Elektroinstallation')
+        self.assertLess(found.index('Zange & Söhne GmbH'),   # 3 of 3
+                        found.index('Halb & Halb GmbH'))     # 2 of 4
+        self.assertEqual(
+            admin.trade_strength(admin.index(self.dir)['Zange & Söhne GmbH'],
+                                 ['elektro']), (1.0, 3))
+        self.assertEqual(
+            admin.trade_strength(admin.index(self.dir)['Halb & Halb GmbH'],
+                                 ['elektro']), (0.5, 2))
+
+    def test_a_name_search_is_still_a_plain_substring(self):
+        # not every search is a trade: the operator pastes a company name off
+        # a LinkedIn profile, and no root vocabulary can help with that
+        self.assertEqual(admin.query_roots('Generalbau Meier'), [])
+        self.assertEqual(self.found('generalbau meier'),
+                         ['Generalbau Meier GmbH'])
+
+    def test_the_row_prints_the_trade_and_the_page_says_what_it_searched(self):
+        _, _, body = request(self.dir, '/admin', query='q=Elektroinstallation')
+        self.assertIn('Zange &amp; Söhne GmbH', body)
+        self.assertIn('<b>elektro</b>', body)             # matched root, bold
+        self.assertIn('Gewerk', body)
+        self.assertIn('3 von 3 Referenzen', body)         # the evidence, hover
+        self.assertNotIn('Generalbau Meier', body)
+
+    def test_a_word_that_names_no_trade_says_so_instead_of_guessing(self):
+        _, _, body = request(self.dir, '/admin', query='q=xyzquatsch')
+        self.assertIn('kein Gewerkswort', body)
+        self.assertIn('Keine Firma gefunden', body)
+
+
+class TheTradeIndexIsCached(Base):
+    """~30 s over the real store's 5.5k winners, so it is written to
+    `<data>/admin_cores.json` and the cycle warms it. The cache is keyed by
+    the store's mtimes AND by the evidence rules — a knob moved by an
+    environment variable, or an edit to `cpv_trade_roots.txt`, must not be
+    answered from yesterday's derivation."""
+
+    def test_written_once_then_read_without_the_lot_texts(self):
+        cache = self.dir / admin.CORES_CACHE
+        self.assertFalse(cache.exists())
+        first = admin.index(self.dir)
+        self.assertTrue(cache.exists())
+        held = __import__('json').loads(cache.read_text(encoding='utf-8'))
+        self.assertEqual(sorted(held['firms']), sorted(first))
+        # the second build derives nothing: the lot texts are read inside
+        # `_cores` and a hit must never get there
+        admin._cache.update(mtime=None, firms=None)
+        with mock.patch.object(admin, '_cores',
+                               side_effect=AssertionError('re-derived')):
+            again = admin.index(self.dir)
+        self.assertEqual({n: f['core'] for n, f in again.items()},
+                         {n: f['core'] for n, f in first.items()})
+
+    def test_a_moved_knob_invalidates_it(self):
+        import evidence
+        admin.index(self.dir)
+        stamp = admin._rules_stamp()
+        self.assertIsNotNone(admin._cores_held(self.dir))
+        with mock.patch.object(evidence, 'CORE_SHARE', 0.9):
+            self.assertNotEqual(admin._rules_stamp(), stamp)
+            self.assertIsNone(admin._cores_held(self.dir))
+        self.assertIsNotNone(admin._cores_held(self.dir))
+
+    def test_an_edited_root_vocabulary_invalidates_it_too(self):
+        # `evidence.rules_fingerprint` covers the CORE_* knobs but not the
+        # word list itself, and that file is edited by hand — a released
+        # change to it has to take effect on the day it ships
+        import evidence
+        admin.index(self.dir)
+        stamp = admin._rules_stamp()
+        edited = self.dir / 'roots.txt'
+        edited.write_bytes(evidence.ROOTS_FILE.read_bytes() + b'\nreetdach\n')
+        with mock.patch.object(evidence, 'ROOTS_FILE', edited):
+            self.assertNotEqual(admin._rules_stamp(), stamp)
+            self.assertIsNone(admin._cores_held(self.dir))
 
 
 class Status(Base):

@@ -18,18 +18,23 @@ page drives), [`GO_TO_MARKET.md`](GO_TO_MARKET.md) „Channel decision, revised"
 | **Basic auth at the edge** (operator, 2026-08-17) | Caddy asks for user + password on `/admin*`; the app itself stays login-free; the app additionally refuses `/admin` unless the request carries the header Caddy sets after auth, so a mis-configured edge cannot expose it |
 | **No subscription management** (operator) | no profile, knob or version editing on the page; the profile is built automatically from the firm's won lots, as `invite.py add` does |
 | **The page writes only through the modules** | `invite.py`, `subscriptions.py`, `tokens.py`, `ledger.py`; nothing new touches storage |
-| Search by **trade word or exact name**, over the awards store | „blitzschutz" → every winner whose won-lot titles carry the word; „Jebsen GmbH" → that firm. Trades are title words, never CPV (house rule) |
+| Search by **trade or name**, over the awards store | „blitzschutz" → every winner whose *own trade* is that; „Jebsen GmbH" → that firm. Trades are words, never CPV (house rule) |
+| **The trade is the gate's**, not this page's (2026-08-18) | a firm's trade is `evidence.core_keywords` over its newest wins — the identical derivation `relevance.build_profile` hands the delivery gate. The operator therefore reads the firm the way the product will serve it, and there is no second definition to drift (§4) |
 
 ## 1. The concrete case
 
 The operator opens `https://app.murara.eu/admin`, the browser asks for the
 password once.
 
-1. Types **blitzschutz** in the one search field. The list shows every firm
-   in the awards store whose won lots carry that word in the title —
-   exact winner spelling, city, wins, single-bid wins, last win, and the
-   **status** column (§3). Jebsen GmbH is *Kunde · aktiv · Tag 11 von 28*;
-   twelve others are *nicht eingeladen*.
+1. Types **blitzschutz** in the one search field. The page says which trade
+   that word is (`blitzschutz`) and lists every firm in the awards store
+   whose *own* trade recurs on it — exact winner spelling, wins, single-bid
+   wins, last win, **the firm's trade** (`blitzschutz · fangstang · erder`,
+   with the evidence on hover: „blitzschutz: 4 von 6 Referenzen"), and the
+   **status** column (§3). Strongest first: a firm with 6 of 6 lightning
+   lots stands above one with 2 of 6, and a general contractor who once
+   built a lightning system is not in the list at all. Jebsen GmbH is
+   *Kunde · aktiv · Tag 11 von 28*; twelve others are *nicht eingeladen*.
 2. Types **Jens Dunkel Glas- und Bauelemente GmbH** — the list shows that
    one firm: *eingeladen · linkedin · 17.08.* with a button **URL zeigen**.
 3. On a *nicht eingeladen* row presses **Einladen** (channel select:
@@ -83,14 +88,77 @@ included in the access log like every path.
 The e-mail is shown masked (`m…@firma.de`), full on the row's own edit
 form only.
 
-## 4. Search
+## 4. Search — the trade is the one the reports use
 
-`outreach.winner_rows` (awards store) joined to won-lot titles from the
-tender store; cached per process and refreshed when the parquet's mtime
-moves (the same cache pattern as the recall box). Match: case-insensitive
-substring on the winner name **or** on any won-lot title. Result capped at
-100 rows with a „mehr eingrenzen" note; sorted by status (customers first),
-then wins.
+Revised 2026-08-18. Until then this page answered a different question from
+the product, in the same words.
+
+**What it did.** `outreach.winner_rows` joined to every won-lot title, folded
+into one string per firm, and `q in haystack`. One occurrence anywhere, raw
+substring, no vocabulary, no recurrence, no distinction between a title and a
+description. That is precisely the *context* the delivery gate throws away:
+a general contractor with one electrical lot in forty is an electrician by
+that rule, and its report would never contain electrical work.
+
+**What it does.** The same derivation the gate uses, per firm:
+
+1. **The references** — the firm's newest `outreach.MAX_PROFILE_REFS` (6)
+   wins, deduped onto their contract notices, read through
+   `evidence.leistung_text` (`admin._refs_of`). The window
+   `relevance.build_profile` builds a customer's profile from.
+2. **The trade** — `evidence.core_keywords` over those references: roots from
+   the person-reviewed `cpv_trade_roots.txt`, kept when they recur in at
+   least `CORE_SHARE` of the root-bearing references, with the single-
+   reference title rule, the family pass and the title fallback that
+   doc/RELEVANCE.md phases 8o–9f argue for, plus any root in the firm's own
+   name. Nothing new is decided here; if the rule changes there, it changes
+   here in the same commit.
+3. **The query** — `admin.query_roots` puts the typed word through
+   `evidence.roots_in`: „Elektroinstallation" → `elektro`. A firm answers when
+   one of those roots is in its core. A word the vocabulary does not know
+   returns nothing and the page says so, rather than silently searching a
+   substring.
+4. **The order** — `admin.trade_strength`: the largest share of the firm's
+   references carrying a matched root (a root off the firm's own name counts
+   1.0, because it is on every reference by definition), then how many
+   references that was, then wins. Customers still sort first.
+
+Name search is unchanged and deliberately still a substring: the operator
+pastes a company name off a LinkedIn profile, and no root vocabulary helps
+there. A query matches on **either** half.
+
+**The consequences, measured over the 2026-08-10 store** (5,476 winner
+spellings, `q=Elektroinstallation`):
+
+| | firms |
+|---|---|
+| before — substring in name + every won title | 100 |
+| after — firms whose own trade recurs on `elektro` | 428 |
+| in both | 98 |
+| dropped: matched the letters, not their trade | 2 |
+| added: their trade, but never those 19 letters in a title | 330 |
+
+The two dropped are Gebrüder Peters Gebäudetechnik SE (13 wins, core
+`beton · mauer · lueftung · trockenbau`) and ABRAX Sicherheitstechnik (core
+`brandmelde`) — both firms the gate would never send an electrical lot to.
+The 330 added are firms that write „Elektroarbeiten" or „Elektrische Anlagen"
+where the operator typed „Elektroinstallation"; the root is the same word for
+all of them, which is the whole point of a vocabulary.
+
+**Firms with no trade at all** (200 of 5,476) appear under no trade word and
+are marked *ohne Gewerk* on the row. Almost all are blind framework slices
+whose titles name no work; that they cannot be found by trade is correct and
+consistent with the gate, which cannot build them a profile either.
+
+**Cost.** Deriving 5,476 trades takes ~34 s (it reads lot descriptions, which
+the old haystack did not). It is written to `data/admin_cores.json`, keyed by
+the store's mtimes plus a stamp over `evidence.rules_fingerprint()` and
+`cpv_trade_roots.txt`, and warmed at the end of every cycle by `loop.py` — so
+the operator's page reads a file (~3 s for the whole index) and only ever
+re-derives if it is asked before the cycle has run. A stale cache is never
+served: mtimes or rules that do not match mean recompute.
+
+Result capped at 100 rows with a „mehr eingrenzen" note.
 
 ## 5. Protection
 

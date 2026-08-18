@@ -1,17 +1,27 @@
 """The operator's page — doc/ADMIN.md.
 
-Search the awards store for a firm (by a trade word in its won lots, or by
-name), see where it stands, invite it, enter an e-mail it gave us by phone,
-stop it. This module owns the *search index*, the *status vocabulary* and the
-*HTML*; `app.py` owns the routes and the guard. Nothing here writes storage
-directly — `invite.py`, `subscriptions.py`, `tokens.py`, `ledger.py` do.
+Search the awards store for a firm (by its trade, or by name), see where it
+stands, invite it, enter an e-mail it gave us by phone, stop it. This module
+owns the *search index*, the *status vocabulary* and the *HTML*; `app.py`
+owns the routes and the guard. Nothing here writes storage directly —
+`invite.py`, `subscriptions.py`, `tokens.py`, `ledger.py` do.
 
-The index is the awards store joined to its lots' titles, cached per process
+The index is the awards store joined to its lots' texts, cached per process
 and rebuilt when the parquet's mtime moves — the pattern the recall box
-already uses. Trades match on **title words**, never on CPV (house rule:
-buyers file CPV wrongly).
+already uses. Trades match on **words**, never on CPV (house rule: buyers
+file CPV wrongly).
+
+A firm's trade is not asked here. It is `evidence.core_keywords` over the
+firm's newest wins — the very lexicon `relevance.build_profile` gives the
+gate, so the trade the operator reads off this page is the trade the reports
+will treat as the firm's business. See doc/ADMIN.md §4 for why the earlier
+raw substring over every won title was a different question with the same
+spelling.
 """
 
+import hashlib
+import json
+import os
 from datetime import date
 from html import escape as esc
 from pathlib import Path
@@ -21,6 +31,8 @@ import subscriptions
 
 LIMIT = 100                    # rows per search; beyond it: "mehr eingrenzen"
 CHANNELS = ('linkedin', 'linkedin-ads', 'xing', 'phone', 'other')
+SHOW_ROOTS = 5                 # core roots printed on a row; the rest on hover
+CORES_CACHE = 'admin_cores.json'
 
 _cache = {'mtime': None, 'firms': None}
 
@@ -35,10 +47,104 @@ def _mtimes(data_dir):
     return tuple(out)
 
 
+def _refs_of(g, by_lot, max_refs):
+    """One firm's newest wins as the gate reads them — (texts, titles, dates),
+    newest first, one entry per contract notice, capped at `max_refs`.
+
+    The same window `outreach.refs_for` hands `relevance.build_profile`:
+    several won lots of one procedure were announced by one notice and count
+    once, and a win whose notice is not in the tender store yields nothing.
+    `evidence.leistung_text` is what makes the body half the Leistung section
+    rather than the project prose — the gate's own reading of a lot."""
+    import evidence as evd
+    gs = g.sort_values('publication_date', ascending=False)
+    texts, titles, dates, seen = [], [], [], set()
+    for p, l, d in zip(gs['procedure_id'], gs['lot_id'], gs['publication_date']):
+        row = by_lot.get((p, l))
+        if row is None:
+            continue
+        key = row[2] or (p, l)         # a store without publication numbers
+        if key in seen:                # (an old rebuild) dedupes per lot
+            continue
+        seen.add(key)
+        texts.append((evd.leistung_text(row[0], row[1]), None))
+        titles.append(row[0])
+        dates.append(str(d)[:10])
+        if len(texts) >= max_refs:
+            break
+    return texts, titles, dates
+
+
+def _cores_held(data_dir):
+    """The cached trades, or None when there are none for this store under
+    these rules. Read before the lot texts are, because a hit means they never
+    have to be loaded at all — that is the difference between a 3-second page
+    and a 0.3-second one."""
+    try:
+        held = json.loads((Path(data_dir) / CORES_CACHE)
+                          .read_text(encoding='utf-8'))
+        if (held.get('stamp') == list(_mtimes(data_dir))
+                and held.get('rules') == _rules_stamp()):
+            return held['firms']
+    except Exception:                                          # noqa: BLE001
+        pass
+    return None
+
+
+def _cores(data_dir, ex, by_lot):
+    """{winner name: {core, counts, name_roots, refs}} — every firm's trade,
+    derived exactly as the delivery gate derives its customers'.
+
+    Cached to `<data>/admin_cores.json` under the store's mtimes, because it
+    is the one expensive thing on this page: ~30 s over 5.5k winners, against
+    0.1 s for everything else. The cycle warms it (`loop.py`), so the operator
+    normally reads a file. A stale or unreadable cache is recomputed, never
+    served: the trade is what the page is for."""
+    import evidence as evd
+    import outreach
+    cache = Path(data_dir) / CORES_CACHE
+    stamp, rules = list(_mtimes(data_dir)), _rules_stamp()
+    firms = {}
+    for name, g in ex.groupby('company'):
+        texts, titles, dates = _refs_of(g, by_lot, outreach.MAX_PROFILE_REFS)
+        core = evd.core_keywords(texts, firm=name, titles=titles, dates=dates)
+        counts = evd.root_share(texts)
+        firms[name] = {
+            'core': core,
+            # how many of those references carry the root — the numbers behind
+            # CORE_SHARE, shown so a 1-of-6 trade cannot pass for a 6-of-6 one
+            'counts': {r: int(counts.get(r, 0)) for r in core},
+            # a root off the firm's OWN NAME is core unconditionally
+            # (evidence.name_keywords) and recurs by definition, so it is not
+            # a count and must not be printed as one
+            'name_roots': evd.name_keywords(name),
+            'refs': len(texts),
+        }
+    try:
+        tmp = cache.with_suffix('.json.tmp')
+        tmp.write_text(json.dumps({'stamp': stamp, 'rules': rules,
+                                   'firms': firms}), encoding='utf-8')
+        os.replace(tmp, cache)          # the app and the cycle both write it
+    except Exception as e:                                     # noqa: BLE001
+        print(f'[admin] core-root cache not written ({e})')
+    return firms
+
+
+def _rules_stamp():
+    """What the cached trades were derived under: the gate's rule fingerprint
+    plus the root vocabulary itself. The fingerprint covers every CORE_* knob
+    (`evidence.RULES`) but not `cpv_trade_roots.txt`, and that file is edited
+    by hand — a released change to it has to invalidate the cache on the day
+    it ships, not on the next store rebuild."""
+    import evidence as evd
+    return (evd.rules_fingerprint() + ':'
+            + hashlib.sha256(evd.ROOTS_FILE.read_bytes()).hexdigest()[:10])
+
+
 def index(data_dir):
-    """{winner name: row} — one entry per exact winner spelling, its won
-    lots' titles folded into a searchable haystack. Empty when the store is
-    not there (a fresh deployment); never raises."""
+    """{winner name: row} — one entry per exact winner spelling, with the
+    trade its wins recur on. Empty when the store is not there (a fresh
+    deployment); never raises."""
     stamp = _mtimes(data_dir)
     if _cache['mtime'] == stamp and _cache['firms'] is not None:
         return _cache['firms']
@@ -48,20 +154,27 @@ def index(data_dir):
         import outreach
         store = Path(data_dir) / 'store'
         ex = outreach.winner_rows(store)
-        # a store without titles (an old rebuild, a test fixture) still
-        # searches by name — the trade words are simply missing, and that is
-        # visible in the results rather than fatal
-        import pyarrow.parquet as pq
-        have = set(pq.read_schema(store / 'tenders.parquet').names)
-        cols = [c for c in ('procedure_id', 'lot_id', 'title') if c in have]
-        by_lot = {}
-        if 'title' in cols:
-            titles = pd.read_parquet(store / 'tenders.parquet', columns=cols)
-            by_lot = {(r.procedure_id, r.lot_id): (r.title or '')
-                      for r in titles.itertuples(index=False)}
+        cores = _cores_held(data_dir)
+        if cores is None:
+            # a store without lot texts (an old rebuild, a test fixture) still
+            # searches by name — the trade is simply missing, and that is
+            # visible in the results rather than fatal
+            import pyarrow.parquet as pq
+            have = set(pq.read_schema(store / 'tenders.parquet').names)
+            cols = [c for c in ('procedure_id', 'lot_id', 'title',
+                                'description', 'publication_number')
+                    if c in have]
+            by_lot = {}
+            if 'title' in cols:
+                lots = pd.read_parquet(store / 'tenders.parquet', columns=cols)
+                d, p = 'description' in cols, 'publication_number' in cols
+                by_lot = {(r.procedure_id, r.lot_id):
+                          (r.title or '', (r.description or '') if d else '',
+                           r.publication_number if p else None)
+                          for r in lots.itertuples(index=False)}
+                del lots
+            cores = _cores(data_dir, ex, by_lot) if by_lot else {}
         for name, g in ex.groupby('company'):
-            words = ' '.join(by_lot.get((p, l), '')
-                             for p, l in zip(g['procedure_id'], g['lot_id']))
             sizes = g['winner_size'].dropna()
             firms[name] = {
                 'company': name,
@@ -69,7 +182,9 @@ def index(data_dir):
                 'wins': int(len(g)),
                 'single_bid_wins': int((g['n_tenders'] <= 1).sum()),
                 'last_win': str(g['publication_date'].max())[:10],
-                'haystack': f'{name} {words}'.casefold(),
+                'name_cf': name.casefold(),
+                **cores.get(name, {'core': [], 'counts': {},
+                                   'name_roots': [], 'refs': 0}),
             }
     except Exception as e:                                     # noqa: BLE001
         print(f'[admin] search index unavailable ({e})')
@@ -78,20 +193,72 @@ def index(data_dir):
     return firms
 
 
+def query_roots(q):
+    """The trade roots a search term names, in the gate's own vocabulary:
+    "Elektroinstallation" -> ['elektro']. A word the reviewed root list does
+    not know returns nothing, and the search then only reads names."""
+    try:
+        import evidence as evd
+        return sorted({r for w in evd.tokens(str(q or '').casefold())
+                       for r in evd.roots_in(w)})
+    except Exception as e:                                     # noqa: BLE001
+        print(f'[admin] trade vocabulary unavailable ({e})')
+        return []
+
+
+def trade_strength(f, roots):
+    """How firmly a firm answers a trade query: the largest share of its
+    references carrying one of `roots`, and how many that was.
+
+    A root off the firm's own name scores 1.0 — it is on every reference the
+    firm has ever had, which is exactly why `core_keywords` admits it without
+    counting. -> (share, count) or None when the firm's trade is not this."""
+    best = None
+    for r in roots:
+        if r not in f.get('core', ()):
+            continue
+        n = f.get('refs') or 0
+        if r in f.get('name_roots', ()):
+            hit = (1.0, n)
+        else:
+            c = f.get('counts', {}).get(r, 0)
+            hit = (c / n if n else 0.0, c)
+        best = hit if best is None else max(best, hit)
+    return best
+
+
 def search(data_dir, q, state, limit=LIMIT):
-    """-> (rows, total). Firms whose name or won-lot titles contain `q`,
-    customers first. An empty query lists the customers we already have, so
-    the page is useful before anything is typed."""
+    """-> (rows, total). Firms whose **trade** is what `q` names, or whose
+    name contains it, customers first. An empty query lists the customers we
+    already have, so the page is useful before anything is typed.
+
+    The trade half is not a substring search over won-lot titles any more
+    (doc/ADMIN.md §4): one lot of forty carrying the word made a general
+    contractor an electrician, which is precisely the reading the delivery
+    gate throws away. `q` becomes trade roots and the firms whose OWN trade
+    recurs on one of them answer — strongest share first, so a 6-of-6
+    electrician stands above a 1-of-6 one and the general contractor, whose
+    trade this is not, does not appear at all."""
     firms = index(data_dir)
     q = (q or '').strip().casefold()
     if not q:
         rows = [firms.get(name, {'company': name, 'size': '—', 'wins': 0,
                                  'single_bid_wins': 0, 'last_win': '—'})
                 for name in sorted(set(state['name_of'].values()))]
+        strength = {}
     else:
-        rows = [f for f in firms.values() if q in f['haystack']]
+        roots = query_roots(q)
+        rows, strength = [], {}
+        for f in firms.values():
+            hit = trade_strength(f, roots) if roots else None
+            if hit is None and q not in f['name_cf']:
+                continue
+            rows.append(f)
+            strength[f['company']] = hit or (0.0, 0)
     total = len(rows)
     rows.sort(key=lambda f: (0 if state['sub_of'].get(f['company']) else 1,
+                             -strength.get(f['company'], (0.0, 0))[0],
+                             -strength.get(f['company'], (0.0, 0))[1],
                              -f.get('wins', 0), f['company']))
     return rows[:limit], total
 
@@ -245,11 +412,37 @@ STYLE = """
   .ok  { background: #e6f4ea; border-left: 3px solid #2a7; padding: 10px 12px;
          margin: 1rem 0 }
   .counts { color: #555; font-size: .93rem }
+  .adm .trade { font-size: .85rem; color: #24578c; cursor: help }
+  .adm .trade.none { color: #999; font-style: italic }
+  .why { color: #555; font-size: .9rem; margin: .3rem 0 1rem }
 </style>
 """
 
 
-def _row_html(f, st, url_for):
+def _trade_html(f, roots=()):
+    """The firm's trade, as the reports will read it: its core roots, the
+    matched one first. The hover text carries the evidence — how many of the
+    references the gate builds a profile from carry each root."""
+    core = list(f.get('core') or ())
+    if not core:
+        return ('<span class="trade none" title="Keine wiederkehrenden '
+                'Gewerkswörter in den letzten Aufträgen — diese Firma '
+                'erscheint unter keinem Gewerk">ohne Gewerk</span>')
+    core.sort(key=lambda r: r not in (roots or ()))
+    n = f.get('refs') or 0
+    why = ', '.join(
+        f'{r}: Firmenname' if r in (f.get('name_roots') or ())
+        else f'{r}: {f.get("counts", {}).get(r, 0)} von {n} Referenzen'
+        for r in core)
+    shown = ' · '.join(
+        f'<b>{esc(r)}</b>' if r in (roots or ()) else esc(r)
+        for r in core[:SHOW_ROOTS])
+    if len(core) > SHOW_ROOTS:
+        shown += f' +{len(core) - SHOW_ROOTS}'
+    return f'<span class="trade" title="{esc(why)}">{shown}</span>'
+
+
+def _row_html(f, st, url_for, roots=()):
     """One table row: the firm, what we know, what can be done to it."""
     sub_id, label = st['sub_id'], st['label']
     mail = st['email']
@@ -289,7 +482,7 @@ def _row_html(f, st, url_for):
             f'<br><span class="muted">{esc(str(f.get("size") or ""))} · '
             f'{f.get("wins", 0)} Aufträge · {f.get("single_bid_wins", 0)} mit '
             f'einem Bieter · zuletzt {esc(str(f.get("last_win") or "—"))}'
-            f'</span></td>'
+            f'</span><br>{_trade_html(f, roots)}</td>'
             f'<td><span class="st {st["cls"]}">{esc(label)}</span></td>'
             f'<td>{masked}</td>'
             f'<td class="act">{" ".join(acts)}</td></tr>')
@@ -299,14 +492,26 @@ def list_html(data_dir, q, state, *, url=None, url_firm=None, error=None,
               note=None):
     """The whole page body: search field, counts, the table."""
     rows, total = search(data_dir, q, state)
+    roots = query_roots(q)
     c = counts(state)
     parts = [STYLE, '<h1>Firmen</h1>',
              '<form method="get" action="/admin">'
              f'<input type="search" name="q" value="{esc(q or "")}" '
              'placeholder="Gewerk (z. B. blitzschutz) oder Firmenname" '
              'style="min-width:22em"> '
-             '<button type="submit">Suchen</button></form>',
-             '<p class="counts">' + ' · '.join(
+             '<button type="submit">Suchen</button></form>']
+    if (q or '').strip():
+        # what was actually searched for. The operator types a word; the page
+        # says which trade that word is, and that the answer is the firm's
+        # recurring trade rather than any lot it once happened to win
+        parts.append('<p class="why">' + (
+            f'Gewerk <b>{esc(" · ".join(roots))}</b> — Firmen, deren '
+            'wiederkehrendes Gewerk das ist (dieselbe Ableitung wie in den '
+            'Berichten), stärkste zuerst; dazu Namenstreffer.'
+            if roots else
+            f'„{esc(q)}" ist kein Gewerkswort — gesucht wird nur im '
+            'Firmennamen.') + '</p>')
+    parts += ['<p class="counts">' + ' · '.join(
                  f'{k}: <b>{v}</b>' for k, v in c.items()) + '</p>',
              '<p class="muted"><a href="/admin/experiments">Experimente</a>'
              ' — die laufenden A/B-Tests</p>']
@@ -323,13 +528,13 @@ def list_html(data_dir, q, state, *, url=None, url_firm=None, error=None,
             'onclick="this.select()"></div>')
     if not rows:
         parts.append('<p class="muted">Keine Firma gefunden. Der Suchbegriff '
-                     'muss im Firmennamen oder im Titel eines gewonnenen '
-                     'Auftrags vorkommen.</p>')
+                     'muss ein Gewerk nennen, das die Aufträge einer Firma '
+                     'wiederholt tragen, oder im Firmennamen vorkommen.</p>')
         return '\n'.join(parts)
-    body = ''.join(_row_html(f, status_of(state, f['company']), None)
+    body = ''.join(_row_html(f, status_of(state, f['company']), None, roots)
                    for f in rows)
-    parts.append('<table class="adm"><thead><tr><th>Firma</th><th>Status</th>'
-                 '<th>E-Mail</th><th></th></tr></thead>'
+    parts.append('<table class="adm"><thead><tr><th>Firma / Gewerk</th>'
+                 '<th>Status</th><th>E-Mail</th><th></th></tr></thead>'
                  f'<tbody>{body}</tbody></table>')
     if total > len(rows):
         parts.append(f'<p class="muted">{total} Treffer, {len(rows)} '
