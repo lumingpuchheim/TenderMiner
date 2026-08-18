@@ -121,8 +121,10 @@ between them, which is unusable. `ssh-add` once per session removes the
 passphrase prompt altogether — ssh always reads a passphrase from the
 terminal, never from stdin, so the two can never mix. Then a
 headed block names what is being set: the web page's password, not the SSH
-key. The prompt shows one `*` per character, takes backspace, asks a second
-time and refuses on a mismatch or under 12 characters — a prompt that shows
+key. The prompt shows one `*` per character, takes backspace, and asks a second
+time. Too short, or the two entries differing, is a **retry** — three tries
+on the one open connection, rather than an exit that throws away the
+connection and the passphrase with it — a prompt that shows
 nothing at all leaves you guessing whether the keyboard is reaching it
 (operator, 2026-08-18). The password (or the password manager's value via
 `TM_SECRET_SOURCE`, doc/SECRETS.md) travels over ssh's **stdin only** —

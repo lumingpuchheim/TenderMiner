@@ -52,7 +52,8 @@ read_masked() {   # $1 prompt -> the typed value on stdout, one * per character
     local prompt="$1" value='' ch src=/dev/stdin
     # `[ -r /dev/tty ]` is not the test: the file can exist and still refuse to
     # open when there is no controlling terminal. Opening it IS the test.
-    if { exec 3</dev/tty; } 2>/dev/null; then src=/dev/fd/3; fi
+    local opened=0
+    if { exec 3</dev/tty; } 2>/dev/null; then src=/dev/fd/3; opened=1; fi
     printf '%s' "$prompt" >&2
     while IFS= read -rsn1 ch <"$src"; do
         case "$ch" in
@@ -64,9 +65,12 @@ read_masked() {   # $1 prompt -> the typed value on stdout, one * per character
             *)   value="$value$ch"; printf '*' >&2 ;;
         esac
     done
-    exec 3<&- 2>/dev/null || true
-    printf '
-' >&2
+    # Only close what was opened: `exec 3<&-` on an fd that was never opened
+    # is a redirection error, and a redirection error in `exec` KILLS the
+    # shell — silently, here, because of the 2>/dev/null. It ate everything
+    # after this line whenever no terminal was attached.
+    [ "$opened" = 1 ] && exec 3<&-
+    printf '\n' >&2
     printf '%s' "$value"
 }
 
@@ -96,19 +100,38 @@ read_value() {   # -> the password on stdout, from the manager or a prompt
 
 '
     } >&2
-    local first second
-    first="$(read_masked '  Password:        ')"
-    if [ "${#first}" -lt "$MIN_CHARS" ]; then
-        say "too short (${#first} of $MIN_CHARS characters) - nothing changed"
-        exit 2
-    fi
-    second="$(read_masked '  Repeat:          ')"
-    if [ "$first" != "$second" ]; then
-        say 'the two entries differ - nothing changed'
-        exit 2
-    fi
-    printf '
+    # Ask again instead of exiting: a password typed one character short cost
+    # the whole run, ssh connection and passphrase included (operator,
+    # 2026-08-18). Three tries, then stop; nothing is written either way.
+    local first second tries=0
+    while : ; do
+        tries=$((tries + 1))
+        first="$(read_masked '  Password:        ')"
+        if [ -z "$first" ]; then
+            say 'nothing typed - stopped, nothing changed'
+            exit 2
+        elif [ "${#first}" -lt "$MIN_CHARS" ]; then
+            printf '  -> too short: %s of %s characters.
+
+'                    "${#first}" "$MIN_CHARS" >&2
+        else
+            second="$(read_masked '  Repeat:          ')"
+            if [ "$first" = "$second" ]; then
+                break
+            fi
+            printf '  -> the two entries differ.
+
 ' >&2
+        fi
+        if [ "$tries" -ge 3 ]; then
+            say 'three tries, stopped - nothing changed'
+            exit 2
+        fi
+        printf '  Please try again.
+
+' >&2
+    done
+    printf '\n' >&2
     printf '%s' "$first"
 }
 
