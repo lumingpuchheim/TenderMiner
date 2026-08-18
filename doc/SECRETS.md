@@ -41,7 +41,6 @@ here is built yet except where a line says so. Companions:
   payments.env      TM_STRIPE_URL, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET   (the last two once they exist)
   admin.env         TM_ADMIN_USER, TM_ADMIN_HASH
   backup.env        RESTIC_REPOSITORY, RESTIC_PASSWORD, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
-  experiments.env   TM_EXPERIMENTS_KEY
 ```
 
 Naming rule: the file is named after the *service the credential belongs to*
@@ -77,8 +76,6 @@ app:
     - path: /etc/murara/env.d/mail.env
       required: false
     - path: /etc/murara/env.d/payments.env
-      required: false
-    - path: /etc/murara/env.d/experiments.env
       required: false
 scheduler:
   env_file:                             # nightly/weekly need mail + backup, nothing else

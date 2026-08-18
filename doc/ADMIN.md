@@ -60,6 +60,7 @@ password once.
 | `/admin/sent` | — | `sub_id` → `invite_sent` event with the channel copied from the invitation; the row becomes *angeschrieben* |
 | `/admin/message` | the two texts to paste (ONBOARDING.md 9.2a): connection note ≤300 chars, and the message with picks, own win and the live invitation link | — |
 | `/admin/stop` | confirmation page for `sub_id`, two buttons | `wahl` = berichte / alles → the same writes as `post_stop` (soft/hard, tokens revoked on hard); event `stop_soft` / `stop_hard` with `detail=admin` |
+| `/admin/experiments` | the A/B overview (doc/EXPERIMENTS.md §9): open experiments with verdict line and per-arm tables, closed ones, the constants; read-only, links back to the list | — |
 
 Errors from the modules (`InviteError`, `SubscriptionError`) render as one
 red line above the list, never a stack trace. All routes `noindex`, CSP as
@@ -223,6 +224,17 @@ Two things the building settled:
 Receipt against a copy of the live store: `q=blitzschutz` → 39 firms,
 customers first; `q=Jebsen GmbH` → 1; no query → the 9 customers; the e-mail
 and stop forms render for a named firm.
+
+## 6b. The experiments page moved in — 2026-08-18
+
+`/experiments/<key>` became `/admin/experiments`. It had its own value,
+`TM_EXPERIMENTS_KEY`, and was an unlisted URL rather than a door: anybody
+who ever saw the link kept it, and rotating it meant editing `.env`,
+compose, `SECRETS.md` and the server. It is the same reader — the operator
+— behind the same edge, so it is now one more `ADMIN_ROUTES` entry under
+the one credential of §5b. `TM_EXPERIMENTS_KEY` is gone from `app.py`,
+`docker-compose.yml`, `.env.example` and `SECRETS.md`'s `env.d` layout;
+`/admin` carries the link to the page, the page a link back.
 
 ## 7. Order of work
 

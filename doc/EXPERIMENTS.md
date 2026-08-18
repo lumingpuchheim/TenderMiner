@@ -4,7 +4,7 @@ Written 2026-08-16 from the operator's questions in this session and the brief
 "One Hot vs Target Statistics". This is the **spec** for the first experiment
 and for `experiments.py`, which is exactly as general as that experiment
 needs and no more. **Status: built 2026-08-16** — `experiments.py`, the two
-tables in `db.py`, the arm hooks in `loop.py`, the `/experiments/<key>` route
+tables in `db.py`, the arm hooks in `loop.py`, the `/admin/experiments` route
 in `app.py`, `tests/test_experiments.py` (19 tests) and `tests/test_multihot.py`
 (10). The trial opens on its declared Monday, 2026-08-18, by itself.
 Companions: [`ONLINE_LEARNING.md`](ONLINE_LEARNING.md) (the cycle the arms run
@@ -181,7 +181,7 @@ because these are numeric. The `ts` arm's `meta.json` carries the same
 | customer track record | table `grade`, unchanged — delivering arm only |
 | arm-vs-arm outcomes | table `arm_grade` (§6) |
 | what customers saw | table `delivery`, unchanged (rows carry the model id) |
-| the page | `/experiments/<key>` (§9) |
+| the page | `/admin/experiments` (§9) |
 
 ## 5. What the operator sees, exactly
 
@@ -368,13 +368,14 @@ python experiments.py close <id> --winner <arm|none> --note "..."
 delivering arm it says so and prints the `deliver` line. Every command
 prints; none writes a report file.
 
-**The page**: one GET route in `app.py`, `/experiments/<key>`, `<key>` =
-`TM_EXPERIMENTS_KEY` from `.env` (`secrets.token_urlsafe(24)`, generated
-once; empty default in `.env.example`; a configuration line, not one of
-`SECRETS.md`'s four credentials). Unset → 404 like any unknown path. An
-unlisted URL, not authentication (operator: "not yet"); `robots.txt`
-already disallows everything. Rendered with `render.py` helpers like the
-customer pages. Sections: last cycle date (from the loop checkpoint, as
+**The page**: one GET route in `app.py`, `/admin/experiments`, an entry in
+`ADMIN_ROUTES` like every other operator route. It is protected the way the
+rest of `/admin` is (doc/ADMIN.md 5): the TLS edge asks for basic auth and
+marks the request; an unmarked request gets the same 404 as any unknown
+path. **No key of its own** — the unlisted URL and its `TM_EXPERIMENTS_KEY`
+were dropped 2026-08-18 in favour of the one credential the operator
+already types. `/admin` links to it; the page links back. Rendered with
+`render.py` helpers like the customer pages. Sections: last cycle date (from the loop checkpoint, as
 `/healthz` does) · **Open** — one card per experiment: question, opened →
 deadline (red when past), delivering arm, the verdict line, the §5 tables ·
 **Closed** — question, winner label, note, closed date, verdict at close ·

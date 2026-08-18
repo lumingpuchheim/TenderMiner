@@ -938,6 +938,20 @@ def post_admin_stop(ctx, form):
                        'möglich.')))
 
 
+def get_experiments(ctx, environ):
+    """The operator's A/B overview (doc/EXPERIMENTS.md §9): open experiments
+    with their verdict line and per-arm tables, closed ones, the constants.
+    Behind the same door as the rest of /admin — the edge's basic auth, one
+    credential for the operator's whole page. Read-only, GET only."""
+    import experiments
+    from datetime import date
+    stamp, _age = _freshness(ctx['data_dir'])
+    body = experiments.render_html(ctx['data_dir'], config.models_root(),
+                                   date.today().isoformat(), last_cycle=stamp)
+    return page('Experimente',
+                body + '<p><a href="/admin">zurück zur Liste</a></p>')
+
+
 ADMIN_ROUTES = {
     'invite': (None, post_admin_invite),
     'reissue': (None, post_admin_reissue),
@@ -945,6 +959,7 @@ ADMIN_ROUTES = {
     'message': (get_admin_message, None),
     'sent': (None, post_admin_sent),
     'stop': (get_admin_stop, post_admin_stop),
+    'experiments': (get_experiments, None),
 }
 
 
@@ -999,27 +1014,6 @@ def rate_limited(ctx):
                 status='429 Too Many Requests')
 
 
-def get_experiments(ctx):
-    """The operator's A/B overview (doc/EXPERIMENTS.md §9): open experiments
-    with their verdict line and per-arm tables, closed ones, the constants.
-    An UNLISTED URL, not authentication — the path segment is
-    TM_EXPERIMENTS_KEY; unset, the route does not exist. Read-only, GET only."""
-    import experiments
-    from datetime import date
-    stamp, _age = _freshness(ctx['data_dir'])
-    body = experiments.render_html(ctx['data_dir'], config.models_root(),
-                                   date.today().isoformat(), last_cycle=stamp)
-    return page('Experimente', body)
-
-
-EXPERIMENTS_KEY_VAR = 'TM_EXPERIMENTS_KEY'
-
-
-def _experiments_key():
-    k = os.environ.get(EXPERIMENTS_KEY_VAR, '').strip()
-    return k if len(k) >= 16 else None       # too short to be unlisted is not set
-
-
 def route(ctx, method, path, environ=None):
     """-> (status, content_type, body). The only place a request becomes a
     page, and the only place the GET/POST rule is enforced."""
@@ -1047,11 +1041,6 @@ def route(ctx, method, path, environ=None):
             return on_post(ctx, _form(environ or {}))
         return not_yet(ctx)
 
-    key = _experiments_key()
-    if len(parts) == 2 and parts[0] == 'experiments' and key and parts[1] == key:
-        if method != 'GET':
-            return not_yet(ctx)
-        return get_experiments(ctx)
     if len(parts) == 2 and parts[0] in TOKEN_ROUTES:
         # the brake sits before resolve(), so enumeration attempts pay it too
         ip = (environ or {}).get('REMOTE_ADDR', '?')

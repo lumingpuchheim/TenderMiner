@@ -307,7 +307,9 @@ def list_html(data_dir, q, state, *, url=None, url_firm=None, error=None,
              'style="min-width:22em"> '
              '<button type="submit">Suchen</button></form>',
              '<p class="counts">' + ' · '.join(
-                 f'{k}: <b>{v}</b>' for k, v in c.items()) + '</p>']
+                 f'{k}: <b>{v}</b>' for k, v in c.items()) + '</p>',
+             '<p class="muted"><a href="/admin/experiments">Experimente</a>'
+             ' — die laufenden A/B-Tests</p>']
     if error:
         parts.append(f'<div class="err">{esc(error)}</div>')
     if note:

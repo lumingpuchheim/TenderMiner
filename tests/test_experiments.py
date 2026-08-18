@@ -346,7 +346,10 @@ class ZeroOpen(Home):
 
 # ---------------------------------------------------------------- the page
 
-class HiddenPage(Home):
+class AdminPage(Home):
+    """The page lives at /admin/experiments, behind the same door as the rest
+    of the operator's page (doc/ADMIN.md 5): the header the TLS edge sets
+    after basic auth. No second credential, no unlisted URL."""
 
     def setUp(self):
         super().setUp()
@@ -355,45 +358,51 @@ class HiddenPage(Home):
         self.wsgi = app.make_app(self.data)
         ex.ensure_state(self.data, '2026-08-18')
 
-    def get(self, path):
+    def get(self, path, marked=True):
         status = {}
         env = {'REQUEST_METHOD': 'GET', 'PATH_INFO': path, 'REMOTE_ADDR': '127.0.0.1'}
+        if marked:
+            env['HTTP_X_MURARA_ADMIN'] = '1'
         body = b''.join(self.wsgi(env, lambda s, h: status.setdefault('s', s)))
         return status['s'], body.decode('utf-8')
 
-    def test_no_key_no_route(self):
-        os.environ.pop('TM_EXPERIMENTS_KEY', None)
-        s, _ = self.get('/experiments/anything-at-all-here')
-        self.assertTrue(s.startswith('404'))
+    def test_unmarked_request_does_not_see_it(self):
+        s, body = self.get('/admin/experiments', marked=False)
+        self.assertTrue(s.startswith('404'), s)
+        self.assertNotIn('MIN_PAIRED', body)
 
-    def test_key_serves_the_page_with_labels_verbatim(self):
-        os.environ['TM_EXPERIMENTS_KEY'] = 'k' * 24
+    def test_marked_request_gets_the_page_with_labels_verbatim(self):
         os.environ['TM_MODELS_DIR'] = str(self.models)
         try:
-            s, body = self.get('/experiments/' + 'k' * 24)
+            s, body = self.get('/admin/experiments')
             self.assertTrue(s.startswith('200'), s)
             self.assertIn('one hot', body)
             self.assertIn('multi-hot', body)
             self.assertIn('cpv-additional-encoding', body)
             self.assertIn('MIN_PAIRED', body)
-            s, _ = self.get('/experiments/' + 'x' * 24)
-            self.assertTrue(s.startswith('404'))
+            self.assertIn('/admin', body)          # the way back to the list
         finally:
-            os.environ.pop('TM_EXPERIMENTS_KEY', None)
             os.environ.pop('TM_MODELS_DIR', None)
 
+    def test_the_old_unlisted_url_is_gone(self):
+        s, _ = self.get('/experiments/' + 'k' * 24, marked=False)
+        self.assertTrue(s.startswith('404'), s)
+        s, _ = self.get('/experiments/' + 'k' * 24)
+        self.assertTrue(s.startswith('404'), s)
 
-class ComposeForwardsTheKey(unittest.TestCase):
-    """A .env line reaches the app container only through docker-compose.yml's
-    environment block. Found 2026-08-16: the key was in .env.example and the
-    route in app.py, and the server still had no page."""
 
-    def test_docker_compose_forwards_tm_experiments_key(self):
+class NoSecondCredential(unittest.TestCase):
+    """The page used to hang off TM_EXPERIMENTS_KEY, an unlisted URL with its
+    own value in .env, compose and SECRETS.md. Dropped 2026-08-18 — one
+    credential for the operator's whole page. A leftover mention is a
+    half-removed door, so the tree is checked for the name itself."""
+
+    def test_the_key_is_nowhere_any_more(self):
         root = Path(__file__).resolve().parent.parent
-        compose = (root / 'docker-compose.yml').read_text(encoding='utf-8')
-        self.assertIn('TM_EXPERIMENTS_KEY: ${TM_EXPERIMENTS_KEY:-}', compose)
-        example = (root / '.env.example').read_text(encoding='utf-8')
-        self.assertIn('TM_EXPERIMENTS_KEY=', example)
+        for rel in ('app.py', 'docker-compose.yml', '.env.example',
+                    'doc/SECRETS.md'):          # EXPERIMENTS.md names it as history
+            text = (root / rel).read_text(encoding='utf-8')
+            self.assertNotIn('TM_EXPERIMENTS_KEY', text, rel)
 
 
 if __name__ == '__main__':

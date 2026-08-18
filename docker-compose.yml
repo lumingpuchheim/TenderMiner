@@ -35,11 +35,6 @@ services:
       RESTIC_PASSWORD: ${RESTIC_PASSWORD:-}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
-      # The operator's A/B overview page (doc/EXPERIMENTS.md §9). A .env line
-      # reaches the container ONLY through this block — without it the app
-      # has no key and /experiments/<key> does not exist (found 2026-08-16).
-      # Empty stays empty: the route is then absent, by design.
-      TM_EXPERIMENTS_KEY: ${TM_EXPERIMENTS_KEY:-}
       # E-mail (mailer.py): the Resend key and the verified sender. Both the
       # app (signup confirmation) and the cycle (the weekly report,
       # delivering.py) send, and both extend this service. Empty = the mail
