@@ -141,12 +141,23 @@ chosen() {   # the files this run is about: those named, else all there are
     if [ "${#FILES[@]}" -gt 0 ]; then printf '%s\n' "${FILES[@]}"; else "$1"; fi
 }
 
-services_for() {   # file -> services whose env_file names it
+services_for() {   # file -> services whose env_file names it, or that extend one
+    # `extends:` is followed one level (2026-08-18): site.env is listed on the
+    # base `tm`, and app/scheduler inherit it — restarting `tm` alone would
+    # recreate nothing that runs and read exactly like a push that worked.
     awk -v want="$1" '
         /^  [a-z][a-z0-9_-]*:/ { svc = $1; sub(":", "", svc) }
+        /^    extends: / && svc != "" { base[svc] = $2 }
         /path: .*env\.d\// {
             n = split($0, p, "/")
-            if (p[n] == want && svc != "") print svc
+            if (p[n] == want && svc != "") has[svc] = 1
+        }
+        END {
+            # `tm` itself is the base nothing runs as: its image CMD is a
+            # full cycle, so `up -d tm` would START one. Only the services
+            # that extend it are ever recreated.
+            for (s in has) if (s != "tm") print s
+            for (s in base) if (base[s] in has) print s
         }' "$COMPOSE" | sort -u | tr '\n' ' '
 }
 

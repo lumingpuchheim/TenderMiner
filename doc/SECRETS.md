@@ -36,7 +36,10 @@ here is built yet except where a line says so. Companions:
 ~/.murara/env.d/             on the laptop, the working copy (see §7 before relying on it)
 
   site.env          TM_DOMAIN, TM_WWW_DOMAIN, TM_APP_URL, TM_TZ, TM_MAIL_FROM,
-                    TM_PRICE_LINE, TM_IMPRESSUM        — configuration, no secret in it
+                    TM_PRICE_LINE, TM_IMPRESSUM,
+                    TM_SALES_OWNER / TM_SALES_OWNERS    — configuration, no secret in it
+                    (the salesman's address, doc/SALES.md 3 — the first key
+                    that went through env.d instead of .env, 2026-08-18)
   mail.env          RESEND_API_KEY
   payments.env      TM_STRIPE_URL, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET   (the last two once they exist)
   backup.env        RESTIC_REPOSITORY, RESTIC_PASSWORD, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
@@ -160,6 +163,33 @@ temporary file; edit `.env`. A key with a typo is not its problem — the file
 is copied as is, and the app's own "no mail could be sent" line is where a
 misnamed key is found. That is a deliberate loss against the 2026-08-15
 design and the price of not carrying a key list.
+
+## 2a. Built so far — site.env is wired (2026-08-18)
+
+`docker-compose.yml` lists `/etc/murara/env.d/site.env` (`required: false`)
+as the `env_file` of the base service `tm`; `app` and `scheduler` inherit it
+through `extends`, and `secrets.sh`'s service map follows that one level
+(and never recreates `tm` itself, whose image CMD is a whole cycle). The
+rest of §2 — `mail.env`, `backup.env`, `payments.env` as further layers,
+and the `environment:` interpolations leaving the compose file — is the
+migration of §5, still to do, one file at a time along the same line.
+
+**The rule that made the first key work:** a key that moves into env.d must
+leave the `environment:` block, because `environment:` overrides `env_file`
+— `TM_SALES_OWNER: ${TM_SALES_OWNER:-}` would have pinned it to empty
+however the file read.
+
+To set the salesman's address (the whole procedure, laptop side):
+
+```
+mkdir -p ~/.murara/env.d
+printf 'TM_SALES_OWNER=you@example.org\n' >> ~/.murara/env.d/site.env
+bash docker/secrets.sh push site.env      # copies, chmod 600, recreates app + scheduler, prints `list`
+```
+
+Expected last lines: `recreating: app scheduler` and a `list` row
+`site.env  TM_SALES_OWNER  set  y…`. The `.cron-env` dump already carries
+`TM_SALES_*` to the cycle's cron job. Nothing is written to `.env`.
 
 ## 3a. Built — 2026-08-18
 

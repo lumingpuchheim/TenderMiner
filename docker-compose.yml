@@ -21,6 +21,17 @@ services:
     # artifact that served yesterday has to still exist, unchanged, to go back to.
     image: tendermining:${TM_TAG:-latest}
     init: true                       # so Ctrl-C reaches python, not PID 1
+    # The first env.d layer of doc/SECRETS.md 1-2: site.env, the per-machine
+    # configuration that is not secret and not in git (the salesman's
+    # address TM_SALES_OWNER lives there — operator, 2026-08-18: "not in
+    # .env again"). Optional, so a laptop without the directory runs as
+    # before. Anything listed in `environment:` below would OVERRIDE the
+    # file, so a key that moves into env.d must leave that block. The rest
+    # of the migration (mail.env, backup.env, payments.env; SECRETS.md 5)
+    # follows the same line, one file at a time.
+    env_file:
+      - path: /etc/murara/env.d/site.env
+        required: false
     environment:
       # Which day the container thinks it is; the download window and the
       # dated receipts depend on it. Default is the operator's laptop zone.
@@ -44,11 +55,6 @@ services:
       TM_MAIL_FROM: ${TM_MAIL_FROM:-}
       # Where the token links in every mail point (doc/APP.md 2).
       TM_APP_URL: ${TM_APP_URL:-https://app.murara.eu}
-      # The salesman's address (doc/SALES.md 3): who a `Vormerken` files a
-      # firm under, and who gets the "Heute schreiben" mail. Empty = the
-      # watch list has no owner, so no mail is due and none is sent.
-      TM_SALES_OWNER: ${TM_SALES_OWNER:-}
-      TM_SALES_OWNERS: ${TM_SALES_OWNERS:-}
       # The yes-page (doc/ONBOARDING.md 9.5): price line and payment link,
       # both empty until decided.
       TM_PRICE_LINE: ${TM_PRICE_LINE:-}

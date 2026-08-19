@@ -82,11 +82,13 @@ mint it. New status word:
 **vorgemerkt · Inhaber: \<owner\>**. Rows of medium/large firms offer no
 Vormerken (grey hint „nicht klein"); `Einladen` stays for the odd exception.
 
-**Owner**: a new column on `customer` — `owner`, an e-mail — set from the
-logged-in operator (the edge's basic-auth user maps to an address in
-`SALES_OWNERS`, env, `user=mail,user=mail`; one user today). Shown on the
-row; changeable on the firm's e-mail page. Everything the mail does is
-keyed by it.
+**Owner**: a new column on `customer` — `owner`, an e-mail — filed from
+`TM_SALES_OWNER` (one address) or `TM_SALES_OWNERS` (`user=mail,…`, the
+edge's basic-auth users; one today). The address is configuration, not
+secret, and **not in `.env`**: it lives in `/etc/murara/env.d/site.env` and
+reaches the containers as the first env.d layer (SECRETS.md 2a), set with
+`bash docker/secrets.sh push site.env`. Shown on the row. Everything the
+mail does is keyed by it.
 
 **Size**: the register's `winner_size` as the index already stores it per
 firm (`admin_index.json` → `size`). `SMALL = {'micro', 'small'}` is a
