@@ -244,6 +244,16 @@ KNOBS = (
               'replay would grade its own answer. It is the cts arm of the '
               'live trial instead (doc/EXPERIMENTS.md)',
          values=('default', 'multihot')),
+    Knob('single_bidder.TRAIN_WINDOW_MONTHS', 'competitiveness', 12, None, 1,
+         'How far back should the training set reach — does a three-year-old '
+         'tender still help, or does it drag a drifted market into the model?',
+         metric='precision', harness='replay',
+         note='2026-08-19 (operator: "add it as a knob"). None = every labelled '
+              'lot; CatBoost retrains from scratch each Monday, so the window '
+              'also bounds the weekly training time. The archive is 33 months '
+              'today, so None is a ~3-year window and the grid\'s top end is '
+              'where the code stands; the question becomes real in a year',
+         values=(12, 18, 24, None)),
 )
 
 

@@ -48,6 +48,14 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint, arm=None, plan=None
     feature_build = arm.feature_build if arm else sb.FEATURE_BUILD
     exempt = arm.guard_exempt if arm else ()
     tag = f'[learn:{arm.id}]' if arm else '[learn]'
+    # the training window (TRAIN_WINDOW_MONTHS; None = all): applied before
+    # the split and the deploy fit alike, measured from the newest
+    # publication — the same cut the replay makes at each cutoff
+    n_all = data.groupby(sb.KEY).ngroups
+    data = sb.training_window(data)
+    if sb.TRAIN_WINDOW_MONTHS is not None:
+        print(f'{tag} training window {sb.TRAIN_WINDOW_MONTHS} months: '
+              f'{data.groupby(sb.KEY).ngroups} of {n_all} labelled lots')
     # the multi-hot vocabulary is fitted once, on the full tenders frame, and
     # travels with the candidate (meta.json) so predict_open scores with the
     # columns the model was trained on — not with whatever the archive holds
@@ -56,7 +64,8 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint, arm=None, plan=None
     X, cat_cols, num_cols, _ = sb.build_features(data, roles, list_frame=tenders,
                                                  multihot=multihot, feature_build=feature_build)
     features = cat_cols + num_cols
-    gate = {'val_window': args.val_window, 'checks': {}, 'warnings': [], 'failures': []}
+    gate = {'val_window': args.val_window, 'checks': {}, 'warnings': [], 'failures': [],
+            'train_window_months': sb.TRAIN_WINDOW_MONTHS}
     if arm:
         gate['arm'] = arm.id
 

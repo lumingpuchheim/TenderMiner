@@ -235,9 +235,11 @@ class World:
 
     def model(self):
         """The champion, trained on pre-cutoff labels only — same features,
-        same 1/k lot weighting as the live cycle."""
-        X, cat_cols, _, _ = sb.build_features(self.data, self.roles,
+        same 1/k lot weighting, same training window (TRAIN_WINDOW_MONTHS,
+        measured from the cutoff) as the live cycle."""
+        data = sb.training_window(self.data, as_of=self.cutoff)
+        X, cat_cols, _, _ = sb.build_features(data, self.roles,
                                               list_frame=self.tenders)
-        k = self.data.groupby(sb.KEY)['label'].transform('size')
-        return sb.train(X, self.data['label'].to_numpy(),
+        k = data.groupby(sb.KEY)['label'].transform('size')
+        return sb.train(X, data['label'].to_numpy(),
                         (1.0 / k).to_numpy(), cat_cols)

@@ -146,6 +146,17 @@ FEATURE_BUILD = 'multihot'   # since 2026-08-17 (operator: 'do it'); 'default' i
 # cycle's `--threshold` defaults to this; the replay reads it here too — one
 # value, so the queue's lever (below) reaches both.
 THRESHOLD = 0.5
+# How far back the training set reaches, in months before the as-of date
+# (the cutoff in the replay, the store's last publication in the cycle).
+# None = every labelled lot. CatBoost trains from scratch every Monday, so
+# the training set — and the Monday — grows with the archive; and the market
+# drifts (eForms 2023, prices, rates), so a three-year-old tender may weigh
+# as much as last month's without deserving to. Which of the two matters is
+# a measurement, not an opinion: a knob on the replay harness (knobs.py,
+# grid 12/18/24/all), compared at equal volume on the same weeks. Today the
+# archive is 33 months, so "all" IS a ~3-year window; the question becomes
+# real in about a year (operator, 2026-08-19).
+TRAIN_WINDOW_MONTHS = None
 
 # A candidate value from TM_GATE_OVERRIDE lands here, exactly as in
 # evidence.py / relevance.py (PARAMETERS.md 10.1, 13): the two competitiveness
@@ -406,6 +417,26 @@ def ctr_columns(card, exempt, one_hot_max_size=ONE_HOT_MAX_SIZE):
 
 
 # -------------------------------------------------------------- split / weights
+
+def training_window(data, as_of=None, months=None):
+    """The labelled rows the model may learn from: those whose lot was first
+    published within `months` before `as_of` (TRAIN_WINDOW_MONTHS; None =
+    all of them). A lot is in or out WHOLE, by its first publication — a
+    corrigendum does not pull an old lot back in, and the 1/k revision
+    weights stay right because no lot loses half its rows at the edge.
+
+    `as_of` defaults to the newest publication in `data` — the cycle's view;
+    the replay passes the cutoff. Returns `data` itself when nothing is cut,
+    so callers that never set the knob pay nothing."""
+    months = TRAIN_WINDOW_MONTHS if months is None else months
+    if months is None:
+        return data
+    pub = pd.to_datetime(data['publication_date'])
+    as_of = pd.Timestamp(as_of) if as_of is not None else pub.max()
+    first_pub = pub.groupby([data[k] for k in KEY]).transform('min')
+    keep = first_pub > as_of - pd.DateOffset(months=int(months))
+    return data[keep.to_numpy()]
+
 
 @dataclass
 class Split:
