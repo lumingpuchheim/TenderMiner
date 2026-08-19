@@ -245,6 +245,25 @@ def coverage(lots, floor=COVERAGE_FLOOR, mature=MATURE_FLOOR):
     return list(per.index[per.covered]), list(per.index[per.mature]), per
 
 
+def low_bid_rate(lots, mature, sel=None):
+    """The share of awarded lots in mature months that ended with 0 or 1
+    bids — over the whole store, or over `sel` (a boolean mask: one trade).
+    -> (rate, n_awarded); (None, 0) when nothing is awarded.
+
+    This is THE denominator (operator, 2026-08-19): the figure a trade page
+    prints as its tile, and the base every forecast claim is measured
+    against. The replay scores its own pool of lots — those open for a week
+    or more at a cutoff — and that pool is more contested than the trade
+    (Heizung: 7 % there against 10 % here), so a lift quoted against it
+    flatters the forecast. There is one rate per trade, it is this one, and
+    a reader can check any claim on the page against the tile."""
+    sub = lots if sel is None else lots[sel]
+    mat = sub[sub.month.isin(mature) & sub.resolved]
+    if not len(mat):
+        return None, 0
+    return float((mat.n_tenders <= 1).mean()), int(len(mat))
+
+
 # --------------------------------------------------------------- matching
 
 def match(lots, trade, scope='core'):

@@ -314,7 +314,8 @@ def edge_block(trade, v, overall=None):
     if beats(v):
         out.append(f'Im Gewerk {trade} allein: {n_de(v["checked"])} Hinweise '
                    f'geprüft, {pct_de(v["precision"])} mit höchstens einem '
-                   f'Angebot gegenüber {pct_de(v["base"])} ohne Auswahl – '
+                   f'Angebot gegenüber {pct_de(v["base"])} im Gewerk '
+                   f'insgesamt – '
                    f'{factor_de(v["factor"])}-mal so oft; diese Zahl wächst '
                    f'mit jeder geprüften Woche.')
     return [' '.join(out)]

@@ -277,6 +277,35 @@ get it right, claim 100 %.
 backtest use, so the replayed number and the live number stay one statistic
 rather than two implementations that agree by coincidence.
 
+**The denominator is the trade's own rate — the tile — never the replay
+pool's (operator, 2026-08-19).** `flag_stats` scores a flag against the pool
+it was raised in: the lots the replay scored, i.e. open for a week or more at
+a weekly cutoff. That pool is more contested than the trade (Heizung, server
+store: 7 % there, 10 % in the trade), so the page printed "10 % in the tile,
+7 % without our forecast, 1,5-fach" — a product scoring itself against a
+smaller number than the one it shows three screens up. A reader who can
+divide sees it; the operator did ("self-cheating and then customer-cheating
+are not acceptable"). Now `market.low_bid_rate` is the one rate per trade:
+it is the tile, and `trade_pages.against` replaces `flag_stats`' base with it
+for the sentence, the verdict, the factor, the fifth tile, the overall line
+(store-wide rate) and `trade_forecast.json` — so the operator page and the
+invitation message carry the same verdict as the public page. The pool's own
+rate stays in the verdict as `pool_base` for the operator. Recall stays the
+pool's (it needs to know which lonely lots we did *not* flag, known only for
+scored lots) and the sentence names that pool instead of "all lots of the
+trade". **Precision and base can never be over the same lots** — one is "of
+our flags", the other "of the trade"; that difference *is* the lift. What
+this fixes is that the base is now the number the reader sees.
+
+The live measurement, once the grade ledger is deep enough to carry it, gets
+the same treatment: precision from the grades, base from the market, and the
+switch from replay to live moves nothing but the precision source.
+
+**A lift that prints as „1,0-fach" is no advantage** (`MIN_FACTOR` = 1.05):
+against the trade's rate Heizung is 10,3 % vs 9,9 %, strictly above and
+visibly nothing. The page says "nicht besser", no tile, no message. A display
+floor, not a significance test — the count stands beside every rate.
+
 *Receipt:* proven end-to-end against a synthetic replay over the real 6,685
 resolved lots (a rule, not a model — plumbing only, and written to the scratch
 copy so it could never be mistaken for a measurement). 22 of 32 trades landed

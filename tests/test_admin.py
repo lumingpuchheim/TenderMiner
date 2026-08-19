@@ -715,7 +715,7 @@ class Message(Base):
         self.assertIn('12 % der Lose bekommen höchstens ein Angebot', m['long'])
         self.assertIn('Im Gewerk Blitzschutz und Erdung allein: 43 Hinweise '
                       'geprüft, 16 % mit höchstens einem Angebot gegenüber '
-                      '10 % ohne Auswahl – 1,6-mal so oft', m['long'])
+                      '10 % im Gewerk insgesamt – 1,6-mal so oft', m['long'])
         self.assertNotIn('über alle Gewerke', m['long'])   # no overall given
         self.assertIn('murara.eu/gewerke/blitzschutz-und-erdung/', m['long'])
         # not better than guessing: the figures stay, the claim goes

@@ -40,9 +40,19 @@ def frame(keys):
                          'lot_id': [k[1] for k in keys]})
 
 
-def slice_of(rec, keys):
+def slice_of(rec, keys, base=None):
+    """`base` is the trade's own 0/1 rate (the tile). None here means "the
+    pool's own", which is what a test that is not about the denominator
+    wants — production always passes the market's rate."""
     lots = frame(keys)
-    return tp.forecast_for(rec, lots, pd.Series([True] * len(lots)))
+    sel = pd.Series([True] * len(lots))
+    if base is None:
+        from grading import flag_stats
+        rows = [{'flag': r['flag'], 'label': int(r['n_tenders'] <= 1)}
+                for r in rec['lots'] if r['n_tenders'] is not None
+                and (r['procedure_id'], r['lot_id']) in set(keys)]
+        base = flag_stats(rows)['base'] if rows else None
+    return tp.forecast_for(rec, lots, sel, base)
 
 
 class NoReceipt(unittest.TestCase):
@@ -119,8 +129,111 @@ class Slicing(unittest.TestCase):
         from grading import flag_stats
         rec = receipt([('p1', 'L1', True, 1), ('p1', 'L2', False, 0)])
         st, _ = slice_of(rec, [('p1', 'L1'), ('p1', 'L2')])
-        self.assertEqual(st, flag_stats([{'flag': True, 'label': 1},
-                                         {'flag': False, 'label': 1}]))
+        own = flag_stats([{'flag': True, 'label': 1},
+                          {'flag': False, 'label': 1}])
+        self.assertEqual({k: v for k, v in st.items() if k != 'pool_base'},
+                         own)
+        self.assertEqual(st['pool_base'], own['base'])
+
+
+class TheDenominator(unittest.TestCase):
+    """2026-08-19: the page showed "10 % of this trade end 0/1" in the tile
+    and "7 % without our forecast" in the text — the 7 % was the replay
+    pool's own rate (lots open a week or more at a cutoff), which is more
+    contested than the trade. A reader who can divide sees a product
+    scoring itself against a smaller number than the one it prints.
+    One rate per trade: the tile's, `market.low_bid_rate`, and every claim
+    is measured against it."""
+
+    def _rec(self):
+        # 40 alarms, 10 hit; the pool has 20 more lonely lots among 140
+        # unflagged, so the pool's own rate is 30/180 = 17 %
+        lots, i = [], 0
+        for flag, n, count in ((True, 1, 10), (True, 9, 30),
+                               (False, 0, 20), (False, 8, 120)):
+            for _ in range(count):
+                i += 1
+                lots.append(('p', f'L{i}', flag, n))
+        return receipt(lots), [(l[0], l[1]) for l in lots]
+
+    def test_the_base_is_the_trades_rate_not_the_pools(self):
+        rec, keys = self._rec()
+        st, _ = slice_of(rec, keys, base=0.10)
+        self.assertAlmostEqual(st['precision'], 0.25)
+        self.assertAlmostEqual(st['base'], 0.10)
+        self.assertAlmostEqual(st['pool_base'], 30 / 180)
+        self.assertTrue(st['beats_base'])
+        lv = tp.level((st, '2026-08-19'))
+        self.assertEqual(lv['state'], 'beats')
+        self.assertAlmostEqual(lv['factor'], 2.5)
+
+    def test_a_pool_that_flatters_is_not_believed(self):
+        """Heizung's shape: 10 % precision, 7 % in the pool, 10 % in the
+        trade. Against the pool it reads 1,5-fach; against the trade it is
+        not better than the average, and the page must say that."""
+        rec, keys = self._rec()
+        st, _ = slice_of(rec, keys, base=0.25)
+        self.assertFalse(st['beats_base'])
+        html = tp.forecast_section((st, '2026-08-19'))
+        self.assertIn('nicht besser als der Durchschnitt', html)
+        self.assertNotIn('-Fache', html)
+        self.assertEqual(tp.level((st, '2026-08-19'))['state'], 'no_better')
+
+    def test_the_page_names_the_tile_as_its_denominator(self):
+        rec, keys = self._rec()
+        st, _ = slice_of(rec, keys, base=0.10)
+        html = tp.forecast_section((st, '2026-08-19'))
+        self.assertIn('Im Gewerk insgesamt sind es 10 %', html)
+        self.assertIn('die Kennzahl oben', html)
+        self.assertIn('2,5-Fache der Quote des Gewerks', html)
+        self.assertNotIn('Ohne jede Einschätzung', html)
+        # recall stays the pool's, and says so
+        self.assertIn('die wir damals prüfen konnten', html)
+        self.assertNotIn('allen Losen dieses Gewerks', html)
+
+    def test_a_lift_that_would_print_as_1_0_fach_is_no_advantage(self):
+        """Heizung on the server, 2026-08-19: 4 of 39 (10,3 %) against a
+        trade rate of 9,9 % — 'beats' by 0.4 points, and the tile would say
+        „1,0-fach". The floor is the display's own: an advantage tile must
+        show an advantage."""
+        rec, keys = self._rec()                 # precision 0.25
+        just_under = 0.25 / 1.04                # factor 1.04 -> '1,0-fach'
+        st, _ = slice_of(rec, keys, base=just_under)
+        self.assertTrue(st['beats_base'])       # strictly above, still...
+        lv = tp.level((st, '2026-08-19'))
+        self.assertEqual(lv['state'], 'no_better')
+        self.assertEqual(tp.level_tile(lv), '')
+        html = tp.forecast_section((st, '2026-08-19'))
+        self.assertIn('nicht besser als der Durchschnitt', html)
+        self.assertNotIn('-Fache', html)
+        st, _ = slice_of(rec, keys, base=0.25 / 1.06)
+        self.assertEqual(tp.level((st, '2026-08-19'))['state'], 'beats')
+        self.assertIn('1,1-fach', tp.level_tile(tp.level((st, '2026-08-19'))))
+
+    def test_the_overall_line_takes_the_store_wide_rate(self):
+        rec, keys = self._rec()
+        self.assertAlmostEqual(tp.forecast_all(rec, 0.09)[0]['base'], 0.09)
+        self.assertAlmostEqual(tp.forecast_all(rec, 0.09)[0]['pool_base'],
+                               30 / 180)
+        html = tp.overall_html(tp.level(tp.forecast_all(rec, 0.09)))
+        self.assertIn('über alle ausgewerteten Lose im Register sind es 9 %',
+                      html)
+
+    def test_market_low_bid_rate_is_the_tile(self):
+        months = [pd.Period('2026-01', freq='M')]
+        lots = pd.DataFrame({
+            'month': months * 40,
+            'resolved': [True] * 40,
+            'n_tenders': [0] * 2 + [1] * 3 + [7] * 35,
+            'award_value': [100_000.0] * 40,
+            'result_code': ['selec-w'] * 40})
+        import market
+        rate, n = market.low_bid_rate(lots, months)
+        self.assertAlmostEqual(rate, 5 / 40)
+        self.assertEqual(n, 40)
+        f = tp.figures(lots, pd.Series([True] * 40), months, months)
+        self.assertAlmostEqual(f['low_bid'], rate)
+        self.assertEqual(market.low_bid_rate(lots.iloc[:0], months), (None, 0))
 
 
 class ThreeStates(unittest.TestCase):
@@ -200,8 +313,8 @@ class ThreeStates(unittest.TestCase):
         self.assertNotIn('Über alle Gewerke', tp.forecast_section(None, weak))
         rec = receipt([('p1', 'L1', True, 1), ('p1', 'L2', True, 9)] * 20
                       + [('p2', 'L1', False, 1)] * 5 + [('p2', 'L2', False, 9)] * 95)
-        self.assertEqual(tp.forecast_all(rec)[0]['flagged'], 40)
-        self.assertIsNone(tp.forecast_all(None))
+        self.assertEqual(tp.forecast_all(rec, 0.09)[0]['flagged'], 40)
+        self.assertIsNone(tp.forecast_all(None, 0.09))
 
     def test_a_forecast_that_does_not_beat_chance_says_so(self):
         """The operator's call: print it rather than drop the section. A page

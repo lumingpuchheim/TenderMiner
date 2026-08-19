@@ -119,6 +119,7 @@ def figures(lots, sel, covered, mature):
     med = float(aw.median()) if len(aw) else None
     zero = int((mat.n_tenders == 0).sum())
     one = int((mat.n_tenders == 1).sum())
+    low_bid, _ = market.low_bid_rate(lots, mature, sel)
     # "Closed without award" (`clos-nw`) is deliberately not on the page: to
     # a reader it means the same as "kein Angebot", and the difference (bids
     # came in, buyer still awarded nobody) needs a paragraph to explain and
@@ -139,7 +140,10 @@ def figures(lots, sel, covered, mature):
         'median_award': med,
         'year_scope': med * per_month * 12 if med else None,
         'n_awarded': len(mat),
-        'low_bid': (zero + one) / len(mat),
+        # the tile's figure AND the forecast's denominator — one rate per
+        # trade, `market.low_bid_rate`, so the claim below the tile can be
+        # checked against the tile
+        'low_bid': low_bid,
         'zero': zero, 'one': one,
         'median_bidders': float(mat.n_tenders.median()),
         'months': n_months,
@@ -209,13 +213,42 @@ def load_replay(path):
         return None
 
 
-def forecast_all(receipt):
+def against(st, base):
+    """`flag_stats`' dict, measured against the MARKET's rate instead of the
+    replay pool's own (operator, 2026-08-19: "self-cheating and then
+    customer-cheating are not acceptable").
+
+    `flag_stats` scores a flag against the pool it was raised in — the lots
+    the replay scored, i.e. open for a week or more at a weekly cutoff. That
+    is the right baseline for the backtest report, whose question is "does the
+    model see anything in what it looks at". It is the wrong one for a page:
+    the reader sees the trade's own 0/1 share three screens up, and the pool
+    the replay scores is more contested than the trade (Heizung: 7 % against
+    10 %), so a lift against the pool is a lift the reader can refute by
+    reading the tile. Here `base` is `market.low_bid_rate` — the tile — and
+    the verdict, the factor and the overall line are all taken against it.
+    The live measurement, when the grade ledger is deep enough to carry it,
+    gets the same treatment: precision from the grades, base from the market,
+    and the switch from replay to live moves nothing but the precision.
+
+    The pool's own rate is kept under `pool_base` for the operator."""
+    if st is None:
+        return None
+    prec = st['precision']
+    return {**st, 'pool_base': st['base'], 'base': base,
+            'base_f1': (2 * base / (base + 1)) if base else None,
+            'beats_base': (prec is not None and base is not None
+                           and prec > base)}
+
+
+def forecast_all(receipt, base):
     """-> (stats, generated) over the WHOLE replay, every trade together —
     the product's record. Same statistic, same function, no slice. The
     per-trade slices are thin (5 hits in 43 is what a trade's number can
     rest on); this is the one figure with a real sample behind it, and the
     one the message leads with (operator, 2026-08-18: 'show what we are
-    doing, what we are good at')."""
+    doing, what we are good at'). `base` is the store-wide
+    `market.low_bid_rate` — see `against`."""
     if not receipt:
         return None
     rows = [{'flag': r['flag'], 'label': int(r['n_tenders'] <= 1)}
@@ -223,20 +256,21 @@ def forecast_all(receipt):
     if not rows:
         return None
     from grading import flag_stats
-    return flag_stats(rows), receipt.get('generated', '?')
+    return against(flag_stats(rows), base), receipt.get('generated', '?')
 
 
 ALL = '_all'        # the key of the overall record in FORECAST_FILE
 
 
-def forecast_for(receipt, lots, sel):
+def forecast_for(receipt, lots, sel, base):
     """-> (stats, generated) for this trade's slice of the replay, or None.
 
     `stats` is `grading.flag_stats`' dict — the SAME function the weekly report
     and the backtest's own table use. That sharing is deliberate: until live
     awards accumulate, the replayed number is the one quoted, and it must be
     the same statistic rather than a second implementation that agrees by
-    coincidence.
+    coincidence. Its base, though, is replaced by the trade's own rate —
+    `base`, the page's tile — see `against` for why.
     """
     if not receipt:
         return None
@@ -251,7 +285,17 @@ def forecast_for(receipt, lots, sel):
     if not rows:
         return None
     from grading import flag_stats        # lazy: pulls the ML stack
-    return flag_stats(rows), receipt.get('generated', '?')
+    return against(flag_stats(rows), base), receipt.get('generated', '?')
+
+
+# The smallest lift the page will call an advantage. `factor_de` prints one
+# decimal, so anything under 1.05 would show as „1,0-fach — so oft trifft
+# unser Hinweis, verglichen mit Zufall": an advantage tile announcing no
+# advantage. Measured against the trade's own rate (2026-08-19) Heizung is
+# exactly that case — 10,3 % against 9,9 % — and it must read "nicht besser",
+# not carry a tile. This is a display floor, not a significance test: the
+# count is printed beside every rate so a reader can weigh it.
+MIN_FACTOR = 1.05
 
 
 def level(fc):
@@ -261,17 +305,22 @@ def level(fc):
     guessing, so the same verdict must be visible on all three).
 
     state: 'none' (no replay) · 'thin' (fewer than MIN_CHECKED checked) ·
-    'beats' (enough, and better than chance) · 'no_better'."""
+    'beats' (enough, and at least MIN_FACTOR times the trade's own rate) ·
+    'no_better'."""
     if fc is None:
         return {'state': 'none'}
     st, generated = fc
+    # `base` is the market's rate (`against`); `pool_base` the replay pool's
+    # own, kept so the operator can see how far the two lie apart
     out = {'checked': st['flagged'], 'hits': st['tp'],
            'precision': st['precision'], 'base': st['base'],
+           'pool_base': st.get('pool_base'),
            'recall': st['recall'], 'generated': generated}
     if st['flagged'] < MIN_CHECKED or st['precision'] is None:
         return {**out, 'state': 'thin'}
     out['factor'] = (st['precision'] / st['base']) if st['base'] else None
-    return {**out, 'state': 'beats' if st['beats_base'] else 'no_better'}
+    beats = st['beats_base'] and (out['factor'] or 0) >= MIN_FACTOR
+    return {**out, 'state': 'beats' if beats else 'no_better'}
 
 
 def level_tile(lv):
@@ -335,7 +384,7 @@ def overall_html(lv):
     return (f'<p>Über alle Gewerke zusammen: {n} unserer Hinweise konnten '
             f'bisher gegen das veröffentlichte Ergebnis geprüft werden. '
             f'{pct_de(lv["precision"])} davon bekamen am Ende höchstens ein '
-            f'Angebot; nimmt man stattdessen irgendeine Ausschreibung, sind es '
+            f'Angebot; über alle ausgewerteten Lose im Register sind es '
             f'{pct_de(lv["base"])}. Unsere Auswahl trifft also '
             f'{factor_de(lv["factor"])}-mal so oft.</p>')
 
@@ -364,25 +413,33 @@ def forecast_section(fc, all_fc=None):
                 f'zu wenige für eine belastbare Quote. Wir nennen sie erst ab '
                 f'{MIN_CHECKED}.</p>' + overall)
     prec, base = st['precision'], st['base']
+    # the same rate as the tile at the top, by construction (`against`): the
+    # sentence says so, and a reader can check it
     lead = (f'<p>Von {checked} Hinweisen, die wir in diesem Gewerk gegeben '
             f'haben und deren Ergebnis inzwischen veröffentlicht ist, endeten '
             f'<strong>{hits} mit höchstens einem Angebot '
             f'({pct_de(prec)})</strong>. '
-            f'Ohne jede Einschätzung liegt die Quote im Gewerk bei '
-            f'{pct_de(base)}.</p>')
-    if not st['beats_base']:
+            f'Im Gewerk insgesamt sind es {pct_de(base)} aller ausgewerteten '
+            f'Lose — die Kennzahl oben.</p>')
+    # one verdict for the sentence, the tile, the operator page and the
+    # message: `level`'s
+    if level(fc)['state'] != 'beats':
         verdict = ('<p><strong>Damit trifft unsere Einschätzung hier nicht '
-                   'besser als der Durchschnitt.</strong> Wir sagen das, '
-                   'statt es wegzulassen: in diesem Gewerk liegt unser Nutzen '
-                   'derzeit in der vollständigen Übersicht, nicht in der '
-                   'Vorhersage.</p>')
+                   'besser als der Durchschnitt des Gewerks.</strong> Wir '
+                   'sagen das, statt es wegzulassen: in diesem Gewerk liegt '
+                   'unser Nutzen derzeit in der vollständigen Übersicht, '
+                   'nicht in der Vorhersage.</p>')
     else:
         verdict = (f'<p>Das ist das {factor_de(prec / base)}-Fache der Quote '
-                   f'ohne Einschätzung.</p>')
+                   f'des Gewerks.</p>')
+    # recall is the replay's own: it needs to know which lonely lots we did
+    # NOT flag, and that is only known for the lots the replay scored. The
+    # sentence names that pool rather than claiming "all lots of the trade".
     rec = ('' if st['recall'] is None else
            f'<p class="muted">Umgekehrt gilt: wir finden nicht alle. Von '
-           f'allen Losen dieses Gewerks, die mit höchstens einem Angebot '
-           f'endeten, hatten wir {pct_de(st["recall"])} vorher genannt.</p>')
+           f'den Losen, die wir damals prüfen konnten und die mit höchstens '
+           f'einem Angebot endeten, hatten wir {pct_de(st["recall"])} vorher '
+           f'genannt.</p>')
     return ('<h2>Wie gut trifft unsere Einschätzung?</h2>' + lead + verdict
             + rec + overall +
             f'<p class="muted">Grundlage ist ein Rücktest: die Historie wird '
@@ -675,7 +732,10 @@ def build(data_dir, out=None, dry_run=False, site=SITE, replay=None):
               f'(replay of {receipt.get("generated", "?")})')
 
     built, skipped, pages, verdicts = [], [], {}, {}
-    all_fc = forecast_all(receipt)
+    # every forecast claim is measured against the market's own 0/1 rate —
+    # store-wide here, the trade's tile below — never the replay pool's
+    base_all, _ = market.low_bid_rate(lots, mature)
+    all_fc = forecast_all(receipt, base_all)
     verdicts[ALL] = level(all_fc)
     for name, trade in sorted(trades.items()):
         sel = market.match(lots, trade, 'core')
@@ -687,7 +747,7 @@ def build(data_dir, out=None, dry_run=False, site=SITE, replay=None):
             continue
         slug = slugify(name)
         built.append((name, slug))
-        fc = forecast_for(receipt, lots, sel)
+        fc = forecast_for(receipt, lots, sel, f['low_bid'])
         pages[slug] = page(name, slug, f, fc, all_fc)
         # the level AND the page's market figures: the invitation message
         # quotes both, and a request must not recompute them
