@@ -124,7 +124,7 @@ def as_of_profile(gate, sub, awards_asof):
     return rel.build_profile(gate, spec)
 
 
-def replay(data_dir, step_days, sub_ids):
+def replay(data_dir, step_days, sub_ids, start=None):
     full_store = Path(data_dir) / 'store'
     world = asof.World(data_dir, Path(data_dir) / 'asof' / 'all')
 
@@ -153,6 +153,14 @@ def replay(data_dir, step_days, sub_ids):
 
     pub_a = pd.to_datetime(awards_full['publication_date'])
     first = pub_a.min() + pd.Timedelta(days=1)
+    # `--from`: the first cutoff, when the operator wants every prediction
+    # in the document to come from a model with a stated minimum of history
+    # behind it (2026-08-19: x = 12 months to learn, y = the rest to predict).
+    # Without it the replay starts as soon as MIN_TRAIN_LOTS labels exist —
+    # a 348-lot model flagging 45 % of the market, in the same total as the
+    # 9,000-lot one. The store is still read whole; only the cutoffs move.
+    if start is not None:
+        first = max(first, pd.Timestamp(start))
     last = pd.to_datetime(tenders_full['publication_date']).max()
     cutoffs = pd.date_range(first, last, freq=f'{step_days}D')
 
@@ -294,6 +302,7 @@ def replay(data_dir, step_days, sub_ids):
             'sub_market': sub_market, 'outcome': outcome, 'subs': subs,
             'awards_full': awards_full, 'gate_dir': str(world.work),
             'step_days': step_days, 'n_cutoffs': n_run,
+            'first_cutoff': str(cutoffs[0].date()) if len(cutoffs) else None,
             'lot_dates': lot_dates,
             'week_flags': week_flags, 'winners': winner_map(awards_full)}
 
@@ -604,6 +613,7 @@ def build_payload(res, targets_csv=None):
         'one_hot_max_size': sb.ONE_HOT_MAX_SIZE,
         'override': util.gate_override(),
         'step_days': res['step_days'],
+        'first_cutoff': res.get('first_cutoff'),     # schema 3, `--from`
         'cutoffs_trained': res['n_cutoffs'],
         'n_lots': len(lots),
         'lots': lots,
@@ -814,6 +824,10 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--data-dir', default=config.data_root())
     ap.add_argument('--step', type=int, default=7, help='days between cutoffs')
+    ap.add_argument('--from', dest='start', metavar='YYYY-MM-DD', default=None,
+                    help='first cutoff (default: as soon as the store can '
+                         'train at all). Use it to give every prediction a '
+                         'stated minimum of history behind it.')
     ap.add_argument('--sub', action='append', default=None,
                     help='subscription id(s) to replay (default: all gated)')
     ap.add_argument('--targets', default=None,
@@ -869,7 +883,7 @@ def _replay_to_document(args):
                        in subscriptions.load(args.data_dir,
                                              date.today().isoformat())
                        if s0.get('profile_refs')]
-        res = replay(args.data_dir, args.step, set(sub_ids))
+        res = replay(args.data_dir, args.step, set(sub_ids), start=args.start)
         payload = build_payload(res, targets_csv=args.targets)
     finally:
         sys.stdout = doc_stream
