@@ -753,12 +753,15 @@ def _query(environ, key, default=''):
 
 def admin_page(ctx, q, **kw):
     import admin
+    import sales
     home = ctx['data_dir']
+    kw.setdefault('viewer', sales.owner_for(ctx.get('user')))
     return page('Firmen', admin.list_html(home, q, admin.state_of(home), **kw))
 
 
 def get_admin(ctx, environ):
-    return admin_page(ctx, _query(environ, 'q'))
+    return admin_page(ctx, _query(environ, 'q'),
+                      all_due=_query(environ, 'alle') == '1')
 
 
 def post_admin_invite(ctx, form):
@@ -787,13 +790,22 @@ def post_admin_vormerken(ctx, form):
             f'{q} ist {firm.get("size") or "ohne Größe"} — die Vormerkliste '
             f'ist für kleine Betriebe (micro/small). „Einladen" geht '
             f'trotzdem.'))
+    owner = sales.owner_for(ctx.get('user'))
+    if owner is None and sales.owners():
+        # several people configured, and the door did not say which one
+        # pressed: better to refuse than to file a firm on the wrong list
+        return admin_page(ctx, q, error=(
+            'Wer hat gedrückt? Mehrere Vertriebsadressen sind eingetragen, '
+            'aber die Anmeldung am Eingang nennt keinen bekannten Benutzer '
+            f'({ctx.get("user") or "kein Name"}). TM_SALES_OWNERS muss den '
+            'Basic-Auth-Benutzer enthalten (doc/SALES.md 3a).'))
     try:
-        invite.add(ctx['data_dir'], q, mint=False,
-                   owner=sales.default_owner())
-        return admin_page(ctx, q, note=f'{q} ist vorgemerkt. Die Nachricht '
-                                       f'entsteht, sobald in diesem Gewerk '
-                                       f'ein Los mit wenig Wettbewerb offen '
-                                       f'ist.')
+        invite.add(ctx['data_dir'], q, mint=False, owner=owner)
+        who = f' für {owner}' if owner else ''
+        return admin_page(ctx, q, note=f'{q} ist vorgemerkt{who}. Die '
+                                       f'Nachricht entsteht, sobald in diesem '
+                                       f'Gewerk ein Los mit wenig Wettbewerb '
+                                       f'offen ist.')
     except invite.InviteError as e:
         return admin_page(ctx, q, error=str(e))
 
@@ -942,6 +954,51 @@ def _admin_firm(home, sub_id):
     return cust, (cust.get('name') or sub_id)
 
 
+def _owner_select(home, sub_id):
+    """The Inhaber control on the firm's page (doc/SALES.md 3a): only when
+    more than one address is configured — with one there is nothing to
+    choose, and with none the watch list has no owner anyway."""
+    import sales
+    known = sales.owners()
+    if len(known) < 2:
+        return ''
+    cust = subscriptions.customer_get(home, sub_id) or {}
+    cur = cust.get('owner') or ''
+    opts = ''.join(
+        f'<option value="{esc(m)}"{" selected" if m == cur else ""}>'
+        f'{esc(u)} — {esc(m)}</option>' for u, m in sorted(known.items()))
+    opts = (f'<option value=""{" selected" if not cur else ""}>— niemand —'
+            f'</option>' + opts)
+    return (f'<h2>Inhaber</h2>'
+            f'<p class="muted">Wer diese Firma auf der Vormerkliste hat und '
+            f'die Mail „Heute schreiben" für sie bekommt.</p>'
+            f'<form method="post" action="/admin/owner">'
+            f'<input type="hidden" name="sub_id" value="{esc(sub_id)}">'
+            f'<select name="owner">{opts}</select> '
+            f'<button type="submit" class="secondary">Inhaber setzen</button>'
+            f'</form>')
+
+
+def post_admin_owner(ctx, form):
+    """Reassign a firm to another salesperson (doc/SALES.md 3a). The value
+    must be one of the configured addresses or empty — a free-text address
+    here would be a second source of truth for who exists."""
+    import sales
+    home = ctx['data_dir']
+    sub_id = (form.get('sub_id') or '').strip()
+    cust, firm = _admin_firm(home, sub_id)
+    if not cust:
+        return not_found(ctx)
+    owner = (form.get('owner') or '').strip()
+    if owner and owner not in sales.owners().values():
+        return admin_page(ctx, firm, error=f'{owner} ist keine eingetragene '
+                                           f'Vertriebsadresse (TM_SALES_OWNERS).')
+    subscriptions.customer_update(home, sub_id, owner=owner or None)
+    _event(home, 'owner_set', sub_id, detail=owner or '-')
+    return admin_page(ctx, firm, note=(f'{firm}: Inhaber ist jetzt '
+                                       f'{owner or "niemand"}.'))
+
+
 def get_admin_email(ctx, environ):
     """The form: one address, one sentence saying where the consent came
     from. Both required — an address entered by us without a consent record
@@ -973,7 +1030,8 @@ def get_admin_email(ctx, environ):
       </form>
       <p class="muted">Damit beginnt die Testphase: Vorprüfung gegen die
          eigenen Aufträge der Firma, danach Bestätigungsmail und Berichte,
-         sobald es passende Ausschreibungen gibt.</p>""")
+         sobald es passende Ausschreibungen gibt.</p>
+      {_owner_select(home, sub_id)}""")
 
 
 def post_admin_email(ctx, form):
@@ -1051,6 +1109,7 @@ ADMIN_ROUTES = {
     'vormerken': (None, post_admin_vormerken),
     'reissue': (None, post_admin_reissue),
     'email': (get_admin_email, post_admin_email),
+    'owner': (None, post_admin_owner),
     'message': (get_admin_message, None),
     'sent': (None, post_admin_sent),
     'stop': (get_admin_stop, post_admin_stop),
@@ -1123,6 +1182,11 @@ def route(ctx, method, path, environ=None):
         # 404 as any unknown path — the page never announces itself.
         if not _admin_allowed(environ):
             return not_found(ctx)
+        # Who passed the door: the edge forwards basic auth's user id as
+        # X-Murara-User (docker/Caddyfile), stripped on every other path.
+        # The salesman's watch list is keyed by it (doc/SALES.md 3a).
+        ctx = {**ctx, 'user': (environ or {}).get('HTTP_X_MURARA_USER', '')
+               .strip()}
         if len(parts) == 1:
             return (get_admin(ctx, environ) if method == 'GET'
                     else not_yet(ctx))

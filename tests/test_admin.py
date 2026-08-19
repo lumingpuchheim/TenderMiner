@@ -29,8 +29,9 @@ ESC = bytes([27])
 DEL = bytes([127])
 
 def request(data_dir, path, method='GET', form=None, admin_header=True,
-            query=''):
-    """A request with the header the TLS edge sets after basic auth."""
+            query='', user=None):
+    """A request with the header the TLS edge sets after basic auth — and,
+    with `user`, the user id it forwards (doc/SALES.md 3a)."""
     import io
     from urllib.parse import urlencode
     captured = {}
@@ -46,6 +47,8 @@ def request(data_dir, path, method='GET', form=None, admin_header=True,
                'wsgi.input': io.BytesIO(body_in)}
     if admin_header:
         environ['HTTP_X_MURARA_ADMIN'] = '1'
+    if user:
+        environ['HTTP_X_MURARA_USER'] = user
     body = app.make_app(data_dir)(environ, start_response)
     return captured['status'], captured['headers'], b''.join(body).decode('utf-8')
 
@@ -468,6 +471,76 @@ class Vormerken(Base):
             self.dir, 'jens-dunkel-glas-und-bauelemente-gmbh')
         self.assertIsNone(cust.get('owner'))
         self.owner.start()
+
+
+class TwoSalespeople(Base):
+    """doc/SALES.md 3a: a second salesperson is a second watch list. The
+    edge forwards the basic-auth user; Vormerken files under that person's
+    address; the due list on /admin is theirs; a firm can be reassigned."""
+
+    OWNERS = 'luming=luming@murara.eu,anna=anna@murara.eu'
+
+    def setUp(self):
+        super().setUp()
+        env = mock.patch.dict(os.environ, {'TM_SALES_OWNERS': self.OWNERS},
+                              clear=False)
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop('TM_SALES_OWNER', None)
+
+    def test_each_press_lands_on_the_pressers_list(self):
+        _, _, body = request(self.dir, '/admin/vormerken', 'POST',
+                             {'company': DUNKEL}, user='anna')
+        self.assertIn('ist vorgemerkt für anna@murara.eu', body)
+        cust = subscriptions.customer_get(
+            self.dir, 'jens-dunkel-glas-und-bauelemente-gmbh')
+        self.assertEqual(cust['owner'], 'anna@murara.eu')
+        _, _, body = request(self.dir, '/admin/vormerken', 'POST',
+                             {'company': 'Beispiel Bau GmbH'}, user='luming')
+        self.assertIn('für luming@murara.eu', body)
+
+    def test_an_unattributable_press_is_refused_not_guessed(self):
+        """Two owners configured, no user forwarded (a mis-wired edge, or a
+        user not in the map): the firm is NOT filed on somebody's list."""
+        _, _, body = request(self.dir, '/admin/vormerken', 'POST',
+                             {'company': DUNKEL})
+        self.assertIn('Wer hat gedrückt?', body)
+        self.assertIsNone(subscriptions.customer_get(
+            self.dir, 'jens-dunkel-glas-und-bauelemente-gmbh'))
+        _, _, body = request(self.dir, '/admin/vormerken', 'POST',
+                             {'company': DUNKEL}, user='stranger')
+        self.assertIn('Wer hat gedrückt?', body)
+        self.assertIn('stranger', body)
+
+    def test_the_owner_can_be_reassigned_on_the_firms_page(self):
+        request(self.dir, '/admin/vormerken', 'POST', {'company': DUNKEL},
+                user='anna')
+        sub_id = 'jens-dunkel-glas-und-bauelemente-gmbh'
+        _, _, body = request(self.dir, '/admin/email', query=f'sub_id={sub_id}')
+        self.assertIn('<h2>Inhaber</h2>', body)
+        self.assertIn('value="anna@murara.eu" selected', body)
+        _, _, body = request(self.dir, '/admin/owner', 'POST',
+                             {'sub_id': sub_id, 'owner': 'luming@murara.eu'})
+        self.assertIn('Inhaber ist jetzt luming@murara.eu', body)
+        self.assertEqual(subscriptions.customer_get(self.dir, sub_id)['owner'],
+                         'luming@murara.eu')
+        # only configured addresses; nobody is a valid answer
+        _, _, body = request(self.dir, '/admin/owner', 'POST',
+                             {'sub_id': sub_id, 'owner': 'x@y.de'})
+        self.assertIn('keine eingetragene Vertriebsadresse', body)
+        request(self.dir, '/admin/owner', 'POST', {'sub_id': sub_id, 'owner': ''})
+        self.assertIsNone(subscriptions.customer_get(self.dir, sub_id)['owner'])
+
+    def test_with_one_owner_the_select_does_not_appear(self):
+        with mock.patch.dict(os.environ, {'TM_SALES_OWNERS': 'luming=l@m.eu'}):
+            request(self.dir, '/admin/vormerken', 'POST', {'company': DUNKEL})
+            _, _, body = request(
+                self.dir, '/admin/email',
+                query='sub_id=jens-dunkel-glas-und-bauelemente-gmbh')
+            self.assertNotIn('<h2>Inhaber</h2>', body)
+            cust = subscriptions.customer_get(
+                self.dir, 'jens-dunkel-glas-und-bauelemente-gmbh')
+            self.assertEqual(cust['owner'], 'l@m.eu')   # no user needed
 
 
 class Email(Base):

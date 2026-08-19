@@ -49,6 +49,19 @@ def owners():
     return out
 
 
+def owner_for(user):
+    """The address a press by basic-auth `user` files a firm under
+    (doc/SALES.md 3a). The user's own entry in TM_SALES_OWNERS wins; with
+    no match, `default_owner` — which is the single configured address, or
+    None when there are several and the press cannot be attributed (the
+    caller then refuses rather than guessing)."""
+    user = (user or '').strip()
+    known = owners()
+    if user and user in known:
+        return known[user]
+    return default_owner()
+
+
 def default_owner():
     """The address a Vormerken is filed under when the request cannot say
     who pressed it — which is every request today: the app sees only the

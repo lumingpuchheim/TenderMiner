@@ -28,9 +28,10 @@ TODAY = '2026-08-18'
 OWNER = 'luming@murara.eu'
 
 
-def predict(home, rows):
+def predict(home, rows, nuts='DE712'):
     """Prediction rows as the cycle writes them; `rows` is
-    [(procedure_id, title, buyer, deadline, flag)].
+    [(procedure_id, title, buyer, deadline, flag)]; `nuts` the lot's region
+    (DE712 is Hessen, where the DUNKEL fixture firm has won).
 
     CPV 45 and a NUTS the fixture firm won in are not decoration: the draft
     subscription `invite.add` writes carries `cpv_prefixes: ['45']` and the
@@ -42,7 +43,7 @@ def predict(home, rows):
         'ts': f'{TODAY}T07:00:00+00:00', 'model': 'm1',
         'procedure_id': p, 'lot_id': 'L1', 'score': 0.9,
         'title': t, 'buyer_name': b, 'deadline_date': d, 'flag': f,
-        'cpv_main': '45312310', 'cpv3': '453', 'place_nuts3': 'DE712',
+        'cpv_main': '45312310', 'cpv3': '453', 'place_nuts3': nuts,
         'publication_number': f'009{i:05d}-2026'}
         for i, (p, t, b, d, f) in enumerate(rows)])
 
@@ -215,6 +216,42 @@ class Mail(Due):
         self.assertIn(DUNKEL, body)
         self.assertIn(f'/admin/message?sub_id={self.sub_id}', body)
 
+    def test_each_salesperson_sees_and_is_mailed_their_own_list(self):
+        from tests.test_admin import request
+        predict(self.dir, [
+            ('p24', 'Blitzschutzanlage Feuerwache', 'Stadt Nord',
+             '2026-09-30', True)])
+        predict(self.dir, [
+            ('p25', 'Straßenbau Ortsumgehung', 'Kreis West',
+             '2026-09-30', True)], nuts='DE212')   # Bayern: Beispiel Bau's
+        # a second list: Beispiel Bau (Straßenbau) belongs to anna
+        other, _ = invite.add(self.dir, 'Beispiel Bau GmbH', mint=False,
+                              owner='anna@murara.eu')
+        with mock.patch.dict(os.environ, {
+                'TM_SALES_OWNERS': f'luming={OWNER},anna=anna@murara.eu'},
+                clear=False):
+            os.environ.pop('TM_SALES_OWNER', None)
+            sent = []
+            rows = sales.run(self.dir, TODAY,
+                             transport=lambda p: sent.append(p) or 'm1')
+            self.assertEqual(sorted(r['owner'] for r in rows),
+                             sorted([OWNER, 'anna@murara.eu']))
+            self.assertEqual(sorted(m['to'][0] for m in sent),
+                             sorted([OWNER, 'anna@murara.eu']))
+            mine = next(m for m in sent if m['to'] == [OWNER])
+            self.assertIn(DUNKEL, mine['html'])
+            self.assertNotIn('Beispiel Bau', mine['html'])
+            # the page: luming sees luming's, with a pointer to the rest
+            _, _, body = request(self.dir, '/admin', user='luming')
+            self.assertIn(f'Liste von {OWNER}', body)
+            self.assertIn(DUNKEL, body)
+            self.assertNotIn('Beispiel Bau GmbH</b>', body)
+            self.assertIn('1 weitere bei anderen anzeigen', body)
+            _, _, body = request(self.dir, '/admin', query='alle=1',
+                                 user='luming')
+            self.assertIn('alle Listen', body)
+            self.assertIn('Beispiel Bau GmbH</b>', body)
+
 
 class TheTwoMessages(Due):
     """doc/SALES.md 6: the note promises exactly the lots the message
@@ -339,6 +376,21 @@ class TheTeaser(unittest.TestCase):
 
 
 class Owners(unittest.TestCase):
+    def test_the_press_is_attributed_to_the_basic_auth_user(self):
+        with mock.patch.dict(os.environ,
+                             {'TM_SALES_OWNERS': 'a=a@b.de,c=c@d.de'},
+                             clear=True):
+            self.assertEqual(sales.owner_for('a'), 'a@b.de')
+            self.assertEqual(sales.owner_for('c'), 'c@d.de')
+            self.assertIsNone(sales.owner_for('nobody'))   # two: no guessing
+            self.assertIsNone(sales.owner_for(''))
+        with mock.patch.dict(os.environ, {'TM_SALES_OWNERS': 'a=a@b.de'},
+                             clear=True):
+            self.assertEqual(sales.owner_for('nobody'), 'a@b.de')  # one: it
+        with mock.patch.dict(os.environ, {'TM_SALES_OWNER': 'solo@x.de'},
+                             clear=True):
+            self.assertEqual(sales.owner_for('anyone'), 'solo@x.de')
+
     def test_the_address_comes_from_the_environment(self):
         with mock.patch.dict(os.environ, {'TM_SALES_OWNER': 'a@b.de'}):
             self.assertEqual(sales.default_owner(), 'a@b.de')

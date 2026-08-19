@@ -48,6 +48,9 @@
 	handle @admin {
 		reverse_proxy app:8000 {
 			header_up X-Murara-Admin "1"
+			# who it was: basic auth's user id, so the app can file a
+			# Vormerken under that person's address (doc/SALES.md 3a)
+			header_up X-Murara-User {http.auth.user.id}
 		}
 	}
 
@@ -58,6 +61,7 @@
 	handle {
 		reverse_proxy app:8000 {
 			header_up -X-Murara-Admin
+			header_up -X-Murara-User
 		}
 	}
 }

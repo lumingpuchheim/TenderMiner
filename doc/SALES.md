@@ -90,6 +90,34 @@ reaches the containers as the first env.d layer (SECRETS.md 2a), set with
 `bash docker/secrets.sh push site.env`. Shown on the row. Everything the
 mail does is keyed by it.
 
+### 3a. Several salespeople — built 2026-08-18
+
+Verified before building: with two addresses in `TM_SALES_OWNERS` and no
+user name reaching the app, every Vormerken filed the firm unwatched —
+`default_owner` refuses to guess between two. What makes a second list
+work:
+
+- **The edge says who.** `docker/Caddyfile` forwards basic auth's user id
+  as `X-Murara-User` on `/admin*` (and strips it on every other path, like
+  `X-Murara-Admin`). Each salesperson is one `admin*.caddy` credential
+  (`docker/admin-password.sh`) and one `user=mail` entry in
+  `TM_SALES_OWNERS` (`site.env`, SECRETS.md 2a).
+- **Vormerken files under the presser** — `sales.owner_for(user)`. With
+  several owners configured and a user the map does not know (a mis-wired
+  edge, a credential without an entry) the press is **refused** with the
+  user name shown, never filed on somebody's list. With one owner nothing
+  has to be attributed; that path is unchanged.
+- **Reassign on the firm's page** (`/admin/email`): an *Inhaber* select of
+  the configured addresses, shown only when there is more than one; POST
+  `/admin/owner`, event `owner_set`. Free-text addresses are refused — the
+  env is the one list of who exists.
+- **„Heute schreiben" on `/admin` is the viewer's list** („Liste von
+  \<address\>"), with „n weitere bei anderen anzeigen" → `?alle=1`. The
+  mail was per owner from the start.
+
+Not built: a per-person size or trade preference, and any rule that files
+a firm automatically — the list is still made by hand, one press per firm.
+
 **Size**: the register's `winner_size` as the index already stores it per
 firm (`admin_index.json` → `size`). `SMALL = {'micro', 'small'}` is a
 constant in `sales.py`; a per-owner preference is not built until a second

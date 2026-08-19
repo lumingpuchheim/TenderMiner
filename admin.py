@@ -644,8 +644,10 @@ def _row_html(f, st, url_for, roots=(), verdicts=None):
 
 
 def list_html(data_dir, q, state, *, url=None, url_firm=None, error=None,
-              note=None):
-    """The whole page body: search field, counts, the table."""
+              note=None, viewer=None, all_due=False):
+    """The whole page body: search field, counts, the table. `viewer` is
+    the salesman's address (from the basic-auth user); the „Heute
+    schreiben" list is theirs alone unless `all_due`."""
     rows, total = search(data_dir, q, state)
     roots = query_roots(q)
     c = counts(state)
@@ -690,13 +692,23 @@ def list_html(data_dir, q, state, *, url=None, url_firm=None, error=None,
     try:
         import sales
         rows_due = sales.due(data_dir, state['today'])
-        if rows_due:
+        mine = ([r for r in rows_due if r['owner'] == viewer]
+                if viewer and not all_due else rows_due)
+        others = len(rows_due) - len(mine)
+        if mine or others:
+            tail = ''
+            if others and not all_due:
+                tail = (f'<p class="muted"><a href="/admin?alle=1">'
+                        f'{others} weitere bei anderen anzeigen</a></p>')
+            whose = (f' — Liste von {esc(viewer)}' if viewer and not all_due
+                     else ' — alle Listen')
             parts.append(
-                '<h2 style="margin-bottom:.2rem">Heute schreiben</h2>'
+                f'<h2 style="margin-bottom:.2rem">Heute schreiben{whose}</h2>'
                 '<p class="muted" style="margin-top:0">Vorgemerkte Firmen, '
                 'für die gerade eine Ausschreibung mit wenig Wettbewerb im '
                 'eigenen Gewerk offen ist.</p><ul class="plain">'
-                + ''.join(sales.line_html(r, '') for r in rows_due) + '</ul>')
+                + ''.join(sales.line_html(r, '') for r in mine) + '</ul>'
+                + tail)
     except Exception as e:                                     # noqa: BLE001
         print(f'[admin] due list unavailable ({e})')
     if error:
