@@ -256,6 +256,17 @@ def publish(paths, args):
     except Exception as e:                                     # noqa: BLE001
         print(f'[admin] index not built ({e!r})')
 
+    # „Heute schreiben" (doc/SALES.md 5): one mail to the salesman naming the
+    # watched firms that now have a low-competition lot in their own trade.
+    # AFTER the index — it reads the firm's trade from it — and non-fatal by
+    # the same rule as the index: this is the operator's convenience, and the
+    # same list stands on /admin. It writes to nobody but us.
+    try:
+        import sales
+        print(f'[sales] {len(sales.run(paths.data))} firm(s) due')
+    except Exception as e:                                     # noqa: BLE001
+        print(f'[sales] due list not mailed ({e!r})')
+
     housekeeping.prune_caches(paths)
 
 

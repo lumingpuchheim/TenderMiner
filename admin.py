@@ -683,6 +683,22 @@ def list_html(data_dir, q, state, *, url=None, url_firm=None, error=None,
                  f'{k}: <b>{v}</b>' for k, v in c.items()) + '</p>',
              '<p class="muted"><a href="/admin/experiments">Experimente</a>'
              ' — die laufenden A/B-Tests</p>']
+    # „Heute schreiben" (doc/SALES.md 5): the same list the salesman's mail
+    # carries, so the mail is one way in and not the only one. Computed per
+    # request — it is a handful of watched firms against this week's picks,
+    # and a stored copy would be wrong the moment a deadline passes.
+    try:
+        import sales
+        rows_due = sales.due(data_dir, state['today'])
+        if rows_due:
+            parts.append(
+                '<h2 style="margin-bottom:.2rem">Heute schreiben</h2>'
+                '<p class="muted" style="margin-top:0">Vorgemerkte Firmen, '
+                'für die gerade eine Ausschreibung mit wenig Wettbewerb im '
+                'eigenen Gewerk offen ist.</p><ul class="plain">'
+                + ''.join(sales.line_html(r, '') for r in rows_due) + '</ul>')
+    except Exception as e:                                     # noqa: BLE001
+        print(f'[admin] due list unavailable ({e})')
     if error:
         parts.append(f'<div class="err">{esc(error)}</div>')
     if note:
