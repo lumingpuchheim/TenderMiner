@@ -607,7 +607,14 @@ class Message(Base):
                               m['long'])
         self.assertLessEqual(len(m['short']), pitch.SHORT_LIMIT)
         self.assertNotIn('http', m['short'])           # no link in the note
-        self.assertTrue(m['short'].startswith('Guten Tag, für '), m['short'])
+        self.assertTrue(m['short'].startswith('Guten Tag, Blitzschutz und '
+                                              'Erdung'), m['short'])
+        # no terms, no price, no "kostenlos" in the note (operator,
+        # 2026-08-18) — those stand, complete, in the message after contact
+        for word in ('kostenlos', 'Kostenlos', 'Konto', 'Dürfen wir'):
+            self.assertNotIn(word, m['short'])
+        self.assertIn('ohne Kosten; danach', m['long'])
+        self.assertIn('kein Konto und kein Passwort', m['long'])
 
     def test_the_trade_figures_and_the_edge_come_from_the_site_build(self):
         """The message quotes the trade page's numbers and — only when the
@@ -625,8 +632,9 @@ class Message(Base):
                      base=0.10, recall=0.3, factor=1.63)
         m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today='2026-08-17')
         self.assertEqual(m['trade'], 'Blitzschutz und Erdung')
-        self.assertIn('für Blitzschutz und Erdung sehen wir gerade eine '
-                      'öffentliche Ausschreibung', m['short'])
+        self.assertIn('Blitzschutz und Erdung: Feuerwache in Hessen, Frist '
+                      '30.09. – nach unserer Einschätzung bieten dort nur ein '
+                      'bis zwei Firmen.', m['short'])
         self.assertIn('Betriebe im Gewerk Blitzschutz und Erdung', m['long'])
         self.assertNotIn('…', m['short'])           # nothing cut off mid-word
         self.assertIn('12 öffentliche Lose pro Monat', m['long'])

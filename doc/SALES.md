@@ -137,13 +137,33 @@ way in, not the only one.
 `pitch.message` gains the main trade and the candidate lots of §4 and uses
 them instead of the firm's top-scored picks:
 
-- **Kontaktanfrage**: *für \<main trade\> sehen wir gerade n öffentliche
-  Ausschreibungen, bei denen wir nur ein bis zwei Bieter erwarten – z. B.
-  \<title of the nearest-deadline candidate\>, \<buyer\>, Frist \<dd.mm\>.
-  Dürfen wir Ihnen die \<beiden|drei|diese\> schicken? Kostenlos, ohne
-  Konto.* No link; ≤ 300 characters; the example never cut mid-word (the
-  example gives way first, as today). With zero candidates the page shows
-  **no note** — there is nothing to promise.
+- **Kontaktanfrage** — a teaser, reworded 2026-08-18 after the first
+  version named title and buyer and *then* asked permission to send them
+  (operator: "nonsense — he can google it, there is no reason to accept").
+  It shows what makes the lot credible and relevant, withholds what makes
+  it findable, and leads with our one thing he cannot google:
+  *„Guten Tag, \<main trade\>: \<kind of work\> in \<Land\>, \<rund
+  600.000 €\>, Frist \<dd.mm.\> – nach unserer Einschätzung bieten dort
+  nur ein bis zwei Firmen. Eine zweite solche haben wir auch. Wenn Sie die
+  Anfrage annehmen, schicken wir Ihnen beide Bekanntmachungen."*
+  The kind of work is the title with street, lot number, project code and
+  the trade word taken out (`pitch.work_of`; a strip that leaves nothing
+  falls back to the trade alone); the Land is the lot's NUTS (his region —
+  the draft's `nuts_prefixes` are where he has won); the value only when the
+  notice carries one, rounded to a band. No title, no buyer, no link. **No
+  terms, no price, no „kostenlos"** — the note is about one tender and one
+  promise; on LinkedIn accepting *is* the answer, so that is the ask.
+  ≤ 300 characters, never a cut word: value, then the kind of work, give
+  way first. With zero candidates the page shows **no note** — there is
+  nothing to promise.
+- **The terms stand in the message after contact, complete and in one
+  breath**, where the decision is made: *„Vier Wochen bekommen Sie sie ohne
+  Kosten; danach kostet sie \<TM_PRICE_LINE\>, kündbar jederzeit mit einem
+  Klick. Es gibt kein Konto und kein Passwort – nur Ihre E-Mail-Adresse."*
+  A free period with its end and its price visible is a trial; without them
+  it is bait. Until the price is decided the sentence says „gegen eine
+  monatliche Gebühr, die wir Ihnen vorher nennen" — true, and the reason to
+  decide it.
 - **Nachricht nach dem Kontakt**: as today (who we are, the trade's
   figures, the record, the lots with reasons and TED links, the invitation
   link, signature) — with the lots being the candidates, the ones the note

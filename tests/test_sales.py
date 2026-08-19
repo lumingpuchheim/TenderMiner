@@ -229,14 +229,21 @@ class TheTwoMessages(Due):
             ('p41', 'Blitzschutz Erdungsanlage Klinik', 'Kreis Mitte',
              '2026-09-15', True)])
         m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today=TODAY)
-        self.assertIn('für Blitzschutz und Erdung sehen wir gerade zwei '
-                      'öffentliche Ausschreibungen', m['short'])
-        self.assertIn('Dürfen wir Ihnen die beiden schicken?', m['short'])
+        # the teaser (2026-08-18): the forecast first, the kind of work and
+        # the Land, the deadline — and NOT the title, buyer or link, so that
+        # accepting the request has a value. Accepting is the answer.
+        self.assertTrue(m['short'].startswith(
+            'Guten Tag, Blitzschutz und Erdung: Erdungsanlage Klinik in '
+            'Hessen, Frist 15.09. – nach unserer Einschätzung bieten dort nur '
+            'ein bis zwei Firmen. '), m['short'])
+        self.assertIn('Eine zweite solche haben wir auch.', m['short'])
+        self.assertTrue(m['short'].endswith(
+            'Wenn Sie die Anfrage annehmen, schicken wir Ihnen beide '
+            'Bekanntmachungen.'), m['short'])
+        self.assertNotIn('Kreis Mitte', m['short'])          # the buyer stays back
+        self.assertNotIn('Blitzschutz Erdungsanlage Klinikum', m['short'])
         self.assertLessEqual(len(m['short']), pitch.SHORT_LIMIT)
         self.assertNotIn('…', m['short'])
-        # the example is the nearest deadline, and it is in the main trade
-        self.assertIn('Erdungsanlage', m['short'])
-        self.assertIn('Frist 15.09.', m['short'])
         # and the long message delivers those same two lots
         self.assertEqual([p['procedure_id'] for p in m['picks']],
                          ['p41', 'p40'])
@@ -264,6 +271,71 @@ class TheTwoMessages(Due):
         m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today=TODAY)
         self.assertEqual(m['short'], '')
         self.assertNotIn('Malerarbeiten', m['long'])
+
+
+class TheTeaser(unittest.TestCase):
+    """`pitch.note` and its helpers, on their own: what is shown, what is
+    held back, and that no word is ever cut."""
+
+    def test_findable_parts_come_out_of_the_title(self):
+        import pitch
+        w = pitch.work_of
+        self.assertEqual(w('Gewerbeschulstr 109 Neubau Installation '
+                           'Elektroinstallation', 'Elektroinstallation'),
+                         'Neubau')
+        self.assertEqual(w('Neubau Kita Sonnenweg 4, Los 3 - Elektroinstallation',
+                           'Elektroinstallation'), 'Neubau Kita')
+        self.assertEqual(w('Sanierung Rathaus (BV 2026-17) – Elektroarbeiten',
+                           'Elektroinstallation'), 'Sanierung Rathaus')
+        self.assertEqual(w('Erneuerung Beleuchtung Sporthalle Am Hang 12a'),
+                         'Erneuerung Beleuchtung Sporthalle')
+        # nothing left but the trade word: no work line, the note falls back
+        self.assertIsNone(w('Elektroinstallation', 'Elektroinstallation'))
+        self.assertIsNone(w('', 'Elektroinstallation'))
+
+    def test_the_value_is_a_band_and_never_a_guess(self):
+        import pitch
+        vb = pitch.value_band
+        self.assertEqual(vb({'est_value_lot': 612345}), 'rund 600.000 €')
+        self.assertEqual(vb({'est_value_lot': 84000}), 'rund 80.000 €')
+        self.assertEqual(vb({'est_value_lot': 2_340_000}), 'rund 2,3 Mio. €')
+        self.assertEqual(vb({'est_value_lot': 1_000_000}), 'rund 1 Mio. €')
+        self.assertIsNone(vb({'est_value_lot': None}))
+        self.assertIsNone(vb({'est_value_lot': float('nan')}))
+        self.assertIsNone(vb({}))
+
+    def test_the_land_is_the_lots_own(self):
+        import pitch
+        self.assertEqual(pitch.land_of('DEA1A'), 'Nordrhein-Westfalen')
+        self.assertEqual(pitch.land_of('DE712'), 'Hessen')
+        self.assertIsNone(pitch.land_of(None))
+        self.assertIsNone(pitch.land_of('FR101'))
+
+    def test_the_optional_parts_give_way_before_a_word_is_cut(self):
+        import pitch
+        long_title = ('Erweiterung und Sanierung der Gesamtschule mit '
+                      'Dreifachsporthalle und Mensa Bauabschnitt zwei '
+                      'Elektroinstallation')
+        picks = [{'title': long_title, 'deadline_date': '2026-09-07',
+                  'place_nuts3': 'DEA1A', 'est_value_lot': 612345},
+                 {'title': 'x', 'deadline_date': '2026-09-08'},
+                 {'title': 'y', 'deadline_date': '2026-09-09'}]
+        n = pitch.note(picks, 'Lüftung, Klima und Kälte')
+        self.assertLessEqual(len(n), pitch.SHORT_LIMIT)
+        self.assertNotIn('…', n)
+        self.assertIn('Lüftung, Klima und Kälte', n)
+        self.assertIn('2 weitere solche haben wir auch.', n)
+        self.assertTrue(n.endswith('schicken wir Ihnen die Bekanntmachungen.'))
+        # the full version, when it fits, carries work and value
+        picks[0]['title'] = 'Neubau Kita Elektroinstallation'
+        n = pitch.note(picks[:1], 'Elektroinstallation')
+        self.assertIn('Elektroinstallation: Neubau Kita in Nordrhein-Westfalen, '
+                      'rund 600.000 €, Frist 07.09.', n)
+        self.assertTrue(n.endswith('schicken wir Ihnen die Bekanntmachung.'))
+        # no region known: "in Ihrer Region" — true, the lot is inside the
+        # draft's nuts_prefixes, which are where the firm has won
+        picks[0]['place_nuts3'] = None
+        self.assertIn('in Ihrer Region', pitch.note(picks[:1], 'Elektroinstallation'))
 
 
 class Owners(unittest.TestCase):

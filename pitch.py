@@ -18,6 +18,7 @@ as a customer — if the pick list is thin, that is the honest signal, and the
 message says nothing rather than inventing something.
 """
 
+import re
 from datetime import date
 
 import ledger
@@ -41,6 +42,84 @@ def _de(iso):
 def _short(text, n=TITLE_CHARS):
     text = ' '.join(str(text or '').split())
     return text if len(text) <= n else text[:n - 1].rstrip() + '…'
+
+
+# NUTS-1 -> Land, for the note: the lot's region in words a reader uses. A
+# lot's NUTS is one the firm has already won in (invite.py writes the draft's
+# nuts_prefixes from its wins), so naming it is naming HIS region.
+LAND = {
+    'DE1': 'Baden-Württemberg', 'DE2': 'Bayern', 'DE3': 'Berlin',
+    'DE4': 'Brandenburg', 'DE5': 'Bremen', 'DE6': 'Hamburg', 'DE7': 'Hessen',
+    'DE8': 'Mecklenburg-Vorpommern', 'DE9': 'Niedersachsen',
+    'DEA': 'Nordrhein-Westfalen', 'DEB': 'Rheinland-Pfalz', 'DEC': 'Saarland',
+    'DED': 'Sachsen', 'DEE': 'Sachsen-Anhalt', 'DEF': 'Schleswig-Holstein',
+    'DEG': 'Thüringen',
+}
+
+
+def land_of(nuts):
+    return LAND.get(str(nuts or '')[:3].upper())
+
+
+# What a title says about the WORK, with the things that make the lot
+# findable taken out: a street ("Gewerbeschulstr 109"), a lot number, a
+# buyer's project code. The note must be credible without being googleable
+# (operator, 2026-08-18: show part of the tender, the notice comes after the
+# contact). A heuristic, and a bad strip reads worse than none — so anything
+# that comes out too short falls back to the trade word alone.
+_FINDABLE = re.compile(
+    r'(\b[\wäöüß.-]*(?:str(?:aße|asse)?\.?|weg|platz|allee|gasse|ring|damm|'
+    r'ufer|chaussee)\s*\d+[a-z]?\b)'           # a street with a number
+    r'|(\b(?:Am|An der|Im|In der|Auf dem|Zum|Zur)\s+[A-ZÄÖÜ][\wäöüß]+'
+    r'\s+\d+[a-z]?\b)'                          # "Am Hang 12a"
+    r'|(\bLos\s*\d+\b)'                        # a lot number
+    r'|(\b\d{2,}[./-]\d+[\w./-]*\b)'          # a project or file code
+    r'|(\b[A-Z]{2,}[-/]?\d+\b)'                 # BV-2026-17, VE12
+    r'|([(\[][^)\]]*[)\]])',                     # anything in brackets
+    re.I)
+
+
+def work_of(title, trade=None):
+    s = ' '.join(str(title or '').split())
+    s = _FINDABLE.sub(' ', s)
+    s = re.sub(r'\s*[-–—:;,/]+\s*', ' ', s)          # the separators it left
+    if trade:
+        # the trade is the head of the sentence already; a title word that
+        # IS the trade (Elektroinstallation, Blitzschutzarbeiten) would only
+        # repeat it
+        root = trade.split()[0].casefold()[:6]
+        s = ' '.join(w for w in s.split()
+                     if not w.casefold().startswith(root))
+    # words that say nothing once the trade is named
+    s = ' '.join(w for w in s.split()
+                 if w.casefold().strip('.,') not in _GENERIC)
+    s = ' '.join(s.split()).strip(' .')
+    words = s.split()
+    if not words or (len(words) == 1 and len(s) < 6):
+        return None
+    return s
+
+
+_GENERIC = {'installation', 'installationen', 'arbeiten', 'leistungen',
+            'bauleistungen', 'gewerk', 'gewerke', 'los', 'lose', 'und', 'für',
+            'der', 'die', 'das', 'des', 'im', 'in', 'am', 'an', 'mit', 'von'}
+
+
+def value_band(p):
+    """'rund 600.000 €' when the notice carries an estimate, else None —
+    never guessed. Rounded so it reads as a size, not an exact bid."""
+    v = p.get('est_value_lot')
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    if v != v or v <= 0:                                  # NaN
+        return None
+    if v >= 1_000_000:
+        return f'rund {v / 1_000_000:.1f} Mio. €'.replace('.', ',', 1) \
+            .replace(',0 Mio', ' Mio')
+    step = 50_000 if v >= 300_000 else 10_000
+    return f'rund {int(round(v / step) * step):,} €'.replace(',', '.')
 
 
 def _buyer_head(name):
@@ -322,9 +401,20 @@ def message(home, sub_id, url, company=None, today=None):
         lines += ['Diese Woche ist in Ihrem Gewerk nichts Passendes offen – '
                   'auch das sagen wir, statt etwas aufzufüllen. Der erste '
                   'Bericht bringt, was neu dazukommt.', '']
+    # The terms, complete and in one breath, where the decision is made
+    # (operator, 2026-08-18: "kostenlos" with its end and its price visible
+    # is a trial; without them it is bait). The price line is the env's
+    # (app.PRICE_ENV) — until it is decided the sentence says so rather than
+    # hiding it.
+    import os
+    price = (os.environ.get('TM_PRICE_LINE') or '').strip()
+    after = (f'danach kostet sie {price}' if price else
+             'danach gegen eine monatliche Gebühr, die wir Ihnen vorher nennen')
     lines += [f'Wenn Sie so eine Auswahl jeden Montag per E-Mail bekommen '
-              f'möchten: {url} – E-Mail-Adresse eintragen, fertig. Vier '
-              f'Wochen kostenlos, kein Konto, jederzeit abbestellbar.', '',
+              f'möchten: {url} – E-Mail-Adresse eintragen, fertig. Vier Wochen '
+              f'bekommen Sie sie ohne Kosten; {after}, kündbar jederzeit mit '
+              f'einem Klick. Es gibt kein Konto und kein Passwort – nur Ihre '
+              f'E-Mail-Adresse.', '',
               'Woher wir Ihre Firmendaten haben und wie Sie widersprechen, '
               'steht dort unter „Datenschutz".', '',
               SIGNATURE]
@@ -337,29 +427,50 @@ def message(home, sub_id, url, company=None, today=None):
     # The note (doc/SALES.md 6): what we have for HIM, now. No candidates,
     # no note — a first contact without a tender behind it is the message
     # the operator called bullshit on 2026-08-18.
-    short = ''
-    if picks:
-        n = len(picks)
-        what = ('eine öffentliche Ausschreibung' if n == 1 else
-                f'{"zwei" if n == 2 else n} öffentliche Ausschreibungen')
-        lead = (f'Guten Tag, für {trade or "Ihr Gewerk"} sehen wir gerade '
-                f'{what}, bei {"der" if n == 1 else "denen"} wir nur ein bis '
-                f'zwei Bieter erwarten. ')
-        ask = (f'Dürfen wir Ihnen '
-               f'{"sie" if n == 1 else "die beiden" if n == 2 else "diese"} '
-               f'schicken? Kostenlos, ohne Konto.')
-        p = picks[0]
-        when = _de(p.get('deadline_date'))[:5]              # 08.09
-        fixed = len(f'Z. B.: , , Frist {when}. ')
-        room = SHORT_LIMIT - len(lead) - len(ask) - fixed
-        example = ''
-        if room >= 40:
-            title = _short(p.get('title'), max(20, room * 3 // 5))
-            buyer = _short(_buyer_head(p.get('buyer_name')),
-                           max(16, room - len(title)))
-            example = f'Z. B.: {title}, {buyer}, Frist {when}. '
-        short = lead + example + ask
-        if len(short) > SHORT_LIMIT:                         # belt and braces
-            short = short[:SHORT_LIMIT - 1].rstrip() + '…'
+    short = note(picks, trade) if picks else ''
     return {'short': short, 'long': long, 'picks': picks, 'win': win,
             'trade': trade, 'edge': v, 'overall': overall}
+
+
+def note(picks, trade):
+    """The connection note (doc/SALES.md 6, reworded 2026-08-18 with the
+    operator): a teaser with the forecast first.
+
+    Shows what makes the lot credible and relevant — the kind of work, the
+    Land, the size when the notice has one, the deadline — and our one thing
+    he cannot google: that we expect one or two bidders. Withholds what
+    makes it findable (title, buyer, link), so accepting the request has a
+    value: the notice. No terms, no price, no "kostenlos" — the note is about
+    one tender and one promise; the terms stand, complete, in the message
+    after the contact. Accepting IS the answer on LinkedIn, so that is the
+    ask. Never a cut-off word: the optional parts give way in order (value,
+    then the kind of work) before anything is truncated."""
+    p = picks[0]
+    n = len(picks)
+    trade = trade or 'Ihr Gewerk'
+    when = _de(p.get('deadline_date'))[:6]                  # 07.09.
+    land = land_of(p.get('place_nuts3'))
+    where = f' in {land}' if land else ' in Ihrer Region'
+    work = work_of(p.get('title'), trade)
+    value = value_band(p)
+
+    def build(with_work, with_value):
+        head = (f'{trade}: {work}{where}' if with_work and work
+                else f'{trade}{where}')
+        size = f', {value}' if with_value and value else ''
+        first = (f'Guten Tag, {head}{size}, Frist {when} – nach unserer '
+                 f'Einschätzung bieten dort nur ein bis zwei Firmen. ')
+        more = ('' if n == 1 else
+                'Eine zweite solche haben wir auch. ' if n == 2 else
+                f'{n - 1} weitere solche haben wir auch. ')
+        what = ('die Bekanntmachung' if n == 1 else
+                'beide Bekanntmachungen' if n == 2 else
+                'die Bekanntmachungen')
+        ask = f'Wenn Sie die Anfrage annehmen, schicken wir Ihnen {what}.'
+        return first + more + ask
+
+    for with_work, with_value in ((True, True), (True, False), (False, False)):
+        text = build(with_work, with_value)
+        if len(text) <= SHORT_LIMIT:
+            return text
+    return text[:SHORT_LIMIT - 1].rstrip() + '…'            # belt and braces
