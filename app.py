@@ -900,17 +900,35 @@ def get_admin_message(ctx, environ):
                   f'dieser Nachricht — zum Prüfen vor dem Versand:</p>'
                   f'<ul class="plain" style="margin-top:0;font-size:.9rem">'
                   f'{links}</ul>' if found else '')
+    # doc/SALES.md 6: no candidate lot, no first contact. The page says so
+    # rather than offering a note it cannot back, and the firm comes back
+    # into „Heute schreiben" the week its trade has one again.
+    if n:
+        ready = (f'<p class="muted">{n} Ausschreibung'
+                 f'{"" if n == 1 else "en"} in '
+                 f'{esc(m["trade"] or "diesem Gewerk")}, '
+                 f'{"die" if n == 1 else "die"} die Nachricht verspricht und '
+                 f'liefert.</p>')
+        note_html = (f'<textarea rows="5" style="width:100%" '
+                     f'onclick="this.select()" readonly>{esc(m["short"])}'
+                     f'</textarea>'
+                     f'<p class="muted">{len(m["short"])} Zeichen.</p>')
+    else:
+        ready = ('<div class="err"><b>Nichts Passendes offen — noch nicht '
+                 'schicken.</b> Für das Gewerk dieser Firma ist gerade keine '
+                 'Ausschreibung mit wenig Wettbewerb offen, deren Frist weit '
+                 'genug weg ist. Die Firma steht wieder unter „Heute '
+                 'schreiben", sobald sich das ändert (doc/SALES.md 6).</div>')
+        note_html = ('<p class="muted">Keine — ohne konkrete Ausschreibung '
+                     'gibt es nichts zu versprechen.</p>')
     return page('Nachricht', f"""
       {admin.STYLE}
       <h1>Nachricht für {esc(firm)}</h1>
       {verdict}
       {warn}
-      <p class="muted">{n} passende offene Ausschreibung{'' if n == 1 else 'en'}
-         gefunden{'' if n else '; die Nachricht enthält dann keine Liste'}.</p>
+      {ready}
       <h2>Kontaktanfrage (max. 300 Zeichen)</h2>
-      <textarea rows="5" style="width:100%" onclick="this.select()"
-         readonly>{esc(m['short'])}</textarea>
-      <p class="muted">{len(m['short'])} Zeichen.</p>
+      {note_html}
       <h2>Nachricht nach dem Kontakt</h2>
       <textarea rows="18" style="width:100%" onclick="this.select()"
          readonly>{esc(m['long'])}</textarea>

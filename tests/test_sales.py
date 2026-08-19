@@ -216,6 +216,56 @@ class Mail(Due):
         self.assertIn(f'/admin/message?sub_id={self.sub_id}', body)
 
 
+class TheTwoMessages(Due):
+    """doc/SALES.md 6: the note promises exactly the lots the message
+    delivers, and both come from the trigger's candidates. No candidates,
+    no note — that is the whole point of the document."""
+
+    def test_the_note_names_the_main_trade_and_the_count(self):
+        import pitch
+        predict(self.dir, [
+            ('p40', 'Blitzschutzanlage Feuerwache', 'Stadt Nord',
+             '2026-09-30', True),
+            ('p41', 'Blitzschutz Erdungsanlage Klinik', 'Kreis Mitte',
+             '2026-09-15', True)])
+        m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today=TODAY)
+        self.assertIn('für Blitzschutz und Erdung sehen wir gerade zwei '
+                      'öffentliche Ausschreibungen', m['short'])
+        self.assertIn('Dürfen wir Ihnen die beiden schicken?', m['short'])
+        self.assertLessEqual(len(m['short']), pitch.SHORT_LIMIT)
+        self.assertNotIn('…', m['short'])
+        # the example is the nearest deadline, and it is in the main trade
+        self.assertIn('Erdungsanlage', m['short'])
+        self.assertIn('Frist 15.09.', m['short'])
+        # and the long message delivers those same two lots
+        self.assertEqual([p['procedure_id'] for p in m['picks']],
+                         ['p41', 'p40'])
+        self.assertIn('Blitzschutz Erdungsanlage Klinik', m['long'])
+
+    def test_without_a_candidate_there_is_no_note_and_the_page_says_wait(self):
+        import pitch
+        m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today=TODAY)
+        self.assertEqual(m['short'], '')
+        self.assertEqual(m['picks'], [])
+        from tests.test_admin import request
+        _, _, body = request(self.dir, '/admin/message',
+                             query=f'sub_id={self.sub_id}')
+        self.assertIn('Nichts Passendes offen — noch nicht schicken', body)
+        self.assertIn('nichts zu versprechen', body)
+
+    def test_a_lot_in_another_trade_never_reaches_the_texts(self):
+        """The complaint that started this: an Elektro firm offered a
+        Blitzschutz lot. Mirrored — this firm is Blitzschutz, and a Maler
+        lot must not appear however well it scores."""
+        import pitch
+        predict(self.dir, [
+            ('p42', 'Malerarbeiten Grundschule', 'Stadt West',
+             '2026-09-30', True)])
+        m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today=TODAY)
+        self.assertEqual(m['short'], '')
+        self.assertNotIn('Malerarbeiten', m['long'])
+
+
 class Owners(unittest.TestCase):
     def test_the_address_comes_from_the_environment(self):
         with mock.patch.dict(os.environ, {'TM_SALES_OWNER': 'a@b.de'}):

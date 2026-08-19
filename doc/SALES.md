@@ -74,9 +74,11 @@ own hand, on LinkedIn/Xing.
 
 **Vormerken** is a row action on `/admin` for a firm with status *nicht
 eingeladen* and size *micro* or *small*: it does what `Einladen` does —
-`invite.add` writes the customer row and the draft subscription from the
-firm's wins — **without minting a link**; the link is minted the first time
-the message page is opened (or by *Neuen Link erzeugen*). New status word:
+`invite.add(mint=False)` writes the customer row and the draft subscription
+from the firm's wins — **without minting a link**. The link is minted by
+*Neuen Link erzeugen* on the message page, which is one press before the
+first paste: a GET may not mutate (ADMIN.md 0), so opening the page cannot
+mint it. New status word:
 **vorgemerkt · Inhaber: \<owner\>**. Rows of medium/large firms offer no
 Vormerken (grey hint „nicht klein"); `Einladen` stays for the odd exception.
 
@@ -99,15 +101,20 @@ After the cycle's predictions are written, for every customer row with
 1. **main trade** = the firm's strongest trade page
    (`admin_index.json` → `trades[0]`, `trade_pages.trades_of_titles`);
    its root set = the words of that trade (trades.txt).
-2. **candidate lots** = this week's flagged predictions
+2. **main trade, without a page.** The trade comes from the index, not
+   from the site build: a trade too small for a page (or a checkout with no
+   build yet) still decides which lots may be offered and what the note
+   calls the reader's trade. Only the market FIGURES and the edge wait for
+   a build.
+3. **candidate lots** = this week's flagged predictions
    (`ledger.prediction_latest_per_lot`, `flag`), deadline ≥ today + 10
    days, title matching the main trade's words (same match as the page),
    gated by the firm's draft profile exactly as `pitch.picks_for` does —
    so the lots the mail counts are the lots the message will show.
-3. **due** ⇔ candidates ≥ 1 **and** the firm was not written to in the
+4. **due** ⇔ candidates ≥ 1 **and** the firm was not written to in the
    last 21 days (no `invite_sent` event newer than that) **and** the firm
    is not stopped.
-4. The count, the nearest deadline and the main trade's edge verdict
+5. The count, the nearest deadline and the main trade's edge verdict
    (`trade_pages.forecasts`) go into the mail line and onto the row
    (*„2 Lose, Frist 07.09."*, green).
 
@@ -175,6 +182,13 @@ the counts line gains *vorgemerkt* and *heute schreiben*.
   the due-check runs with it.
 
 ## 9. Build order and receipts
+
+Steps 1–4 are built (2026-08-18); step 5 is wired into `cycle.py` after the
+admin index, non-fatal like the index itself. The texts of §6 were read on
+the fixture end to end: a two-lot note of 266 characters naming
+„Blitzschutz und Erdung", and the message delivering those same two lots,
+nearest deadline first.
+
 
 1. `customer.owner` + `CUSTOMER_FIELDS`; `invite.add(mint=False)`; status
    *vorgemerkt*; `/admin/vormerken` with the size guard. Tests: a micro

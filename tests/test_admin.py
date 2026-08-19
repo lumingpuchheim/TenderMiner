@@ -556,6 +556,21 @@ class Message(Base):
     def setUp(self):
         super().setUp()
         self.sub_id, self.url = invite.add(self.dir, DUNKEL)
+        self.lots()
+
+    def lots(self, rows=(('p30', 'Blitzschutzanlage Feuerwache', 'Stadt Nord',
+                          '2026-09-30', True),)):
+        """The candidate lots the note promises and the message delivers —
+        one list (doc/SALES.md 6). Without them there is no note at all, so
+        every test about the texts has to say which lots are open."""
+        import ledger
+        ledger.append(self.dir, 'predictions', [{
+            'ts': '2026-08-17T07:00:00+00:00', 'model': 'm1',
+            'procedure_id': p, 'lot_id': 'L1', 'score': 0.9, 'title': t,
+            'buyer_name': b, 'deadline_date': d, 'flag': f,
+            'cpv_main': '45312310', 'cpv3': '453', 'place_nuts3': 'DE712',
+            'publication_number': f'0093{i:04d}-2026'}
+            for i, (p, t, b, d, f) in enumerate(rows)])
 
     def verdict(self, overall=None, **lv):
         """The last site build's file, synthesised: the fixture firm sits on
@@ -592,7 +607,7 @@ class Message(Base):
                               m['long'])
         self.assertLessEqual(len(m['short']), pitch.SHORT_LIMIT)
         self.assertNotIn('http', m['short'])           # no link in the note
-        self.assertTrue(m['short'].startswith('Guten Tag, wir suchen'))
+        self.assertTrue(m['short'].startswith('Guten Tag, für '), m['short'])
 
     def test_the_trade_figures_and_the_edge_come_from_the_site_build(self):
         """The message quotes the trade page's numbers and — only when the
@@ -600,13 +615,18 @@ class Message(Base):
         claim, nothing false."""
         import pitch
         m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today='2026-08-17')
-        self.assertIsNone(m['trade'])
+        # the main trade comes from the index and stands without a site
+        # build; only the FIGURES and the edge wait for one
+        self.assertEqual(m['trade'], 'Blitzschutz und Erdung')
+        self.assertEqual(m['edge'], {})
         self.assertNotIn('Zahlen zu Ihrem Markt', m['long'])
+        self.assertNotIn('geprüften Hinweisen', m['long'])
         self.verdict(state='beats', checked=43, hits=7, precision=0.163,
                      base=0.10, recall=0.3, factor=1.63)
         m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today='2026-08-17')
         self.assertEqual(m['trade'], 'Blitzschutz und Erdung')
-        self.assertIn('für das Gewerk Blitzschutz und Erdung', m['short'])
+        self.assertIn('für Blitzschutz und Erdung sehen wir gerade eine '
+                      'öffentliche Ausschreibung', m['short'])
         self.assertIn('Betriebe im Gewerk Blitzschutz und Erdung', m['long'])
         self.assertNotIn('…', m['short'])           # nothing cut off mid-word
         self.assertIn('12 öffentliche Lose pro Monat', m['long'])

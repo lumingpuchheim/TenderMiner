@@ -164,7 +164,13 @@ def trade_of(home, company):
         for t in firm.get('trades') or ():
             if t in verdicts:
                 return t, verdicts[t], overall
-        return None, {}, overall
+        # The MAIN trade comes from the index, and stands on its own: a
+        # trade with no page yet (too few awarded lots, or no site build)
+        # still decides which lots may be offered and what the note calls
+        # the reader's trade. Without this the whole sales trigger went
+        # silent on a fresh checkout — no verdict, no trade, no candidates.
+        first = next(iter(firm.get('trades') or ()), None)
+        return first, {}, overall
     except Exception as e:                                     # noqa: BLE001
         print(f'[pitch] trade facts unavailable ({e})')
     return None, {}, {}
@@ -251,9 +257,20 @@ def message(home, sub_id, url, company=None, today=None):
     today = today or date.today().isoformat()
     sub = draft_of(home, sub_id)
     company = company or (sub or {}).get('name') or sub_id
-    picks = picks_for(home, sub, today) if sub else []
     win = own_win(home, company)
     trade, v, overall = trade_of(home, company)
+    # The lots the note promises and the message delivers are ONE list
+    # (doc/SALES.md 6): the candidates of the trigger — flagged, in the
+    # firm's MAIN trade, with enough deadline left that a reply in three
+    # days still finds them open. Without candidates there is nothing to
+    # promise, and the page says so instead of offering a note.
+    picks = []
+    if sub:
+        try:
+            import sales
+            picks = sales.candidates(home, sub, trade, today)
+        except Exception as e:                                 # noqa: BLE001
+            print(f'[pitch] candidates unavailable ({e})')
     who = (f'Betriebe im Gewerk {trade}' if trade
            else 'Handwerks- und Baubetriebe')
 
@@ -317,24 +334,32 @@ def message(home, sub_id, url, company=None, today=None):
     # The example gives way first: its title and buyer shrink to what is
     # left after lead and ask, and below a readable minimum it is dropped
     # (a trade name like „Lüftung, Klima und Kälte" costs 25 characters).
-    lead = (f'Guten Tag, wir suchen für das Gewerk {trade or "Bau"} '
-            f'öffentliche Aufträge, bei denen kaum jemand mitbietet – hohe '
-            f'Zuschlagschance. ')
-    ask = ('Dürfen wir Ihnen wöchentlich drei davon schicken? Kostenlos, '
-           'ohne Konto.')
-    example = ''
+    # The note (doc/SALES.md 6): what we have for HIM, now. No candidates,
+    # no note — a first contact without a tender behind it is the message
+    # the operator called bullshit on 2026-08-18.
+    short = ''
     if picks:
+        n = len(picks)
+        what = ('eine öffentliche Ausschreibung' if n == 1 else
+                f'{"zwei" if n == 2 else n} öffentliche Ausschreibungen')
+        lead = (f'Guten Tag, für {trade or "Ihr Gewerk"} sehen wir gerade '
+                f'{what}, bei {"der" if n == 1 else "denen"} wir nur ein bis '
+                f'zwei Bieter erwarten. ')
+        ask = (f'Dürfen wir Ihnen '
+               f'{"sie" if n == 1 else "die beiden" if n == 2 else "diese"} '
+               f'schicken? Kostenlos, ohne Konto.')
         p = picks[0]
         when = _de(p.get('deadline_date'))[:5]              # 08.09
-        fixed = len(f'Aktuell z. B.: , , Frist {when}. ')
+        fixed = len(f'Z. B.: , , Frist {when}. ')
         room = SHORT_LIMIT - len(lead) - len(ask) - fixed
+        example = ''
         if room >= 40:
             title = _short(p.get('title'), max(20, room * 3 // 5))
             buyer = _short(_buyer_head(p.get('buyer_name')),
                            max(16, room - len(title)))
-            example = f'Aktuell z. B.: {title}, {buyer}, Frist {when}. '
-    short = lead + example + ask
-    if len(short) > SHORT_LIMIT:                             # belt and braces
-        short = short[:SHORT_LIMIT - 1].rstrip() + '…'
+            example = f'Z. B.: {title}, {buyer}, Frist {when}. '
+        short = lead + example + ask
+        if len(short) > SHORT_LIMIT:                         # belt and braces
+            short = short[:SHORT_LIMIT - 1].rstrip() + '…'
     return {'short': short, 'long': long, 'picks': picks, 'win': win,
             'trade': trade, 'edge': v, 'overall': overall}
