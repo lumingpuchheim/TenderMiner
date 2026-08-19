@@ -347,6 +347,17 @@ and run metadata (`generated`, `model_tag`, `step_days`, `cutoffs_trained`).
 `n_tenders` is `null` when no award has published yet, which is how one list
 carries both the "examined" and the "results known" denominators.
 
+Schema 3 (2026-08-19) adds per lot `score` (the best score over the weeks it
+was open), `first_week` and `weeks_scored`, and per document `feature_build`
+/ `one_hot_max_size`. Reason: the flag at `THRESHOLD` took between 15 % and
+45 % of the open market depending on the cutoff (server replay, 2026-08-19 —
+a model trained on 348 lots flags 45 %, one trained on 7 000 flags 38 %), so
+"precision at 0.5" compares different volumes week to week and two encodings
+compared at 0.5 compare two flag volumes. With the score in the document, a
+renderer can cut at equal volume — the top 10 % of each week, which is also
+what a customer actually receives — after the fact, and the encoding of the
+replayed champion is stated on the document.
+
 **`cpv3` is in a lot row; `trade` deliberately is not.** CPV3 is a raw store
 field and cannot drift. A trade is a title word-match that `trades.txt`
 redefines, so a document carrying trades would silently disagree with

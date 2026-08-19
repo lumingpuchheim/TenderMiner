@@ -170,6 +170,13 @@ def replay(data_dir, step_days, sub_ids):
 
     flagged = {}          # lot -> first week's score (global record, dedup)
     scored_lonely = {}    # lot -> ever scored while open (base-rate pool)
+    # lot -> (best score over the weeks it was open, week first scored, how
+    # many weeks scored). The flag at THRESHOLD is one operating point, and
+    # not a stable one: the share of the open market it flags swung 15-45 %
+    # across cutoffs (server, 2026-08-19), so two replays compared "at 0.5"
+    # compare two flag volumes. With the score kept, any cut-off — a
+    # probability, or the top 10 % of each week — is a renderer's choice.
+    scores = {}
     week_flags = {}       # cutoff -> [(lot, score, cpv3, nuts1)] for target sim
     sub_picks = {s: {} for s in subs}
     sub_market = {s: set() for s in subs}
@@ -227,6 +234,8 @@ def replay(data_dir, step_days, sub_ids):
             lot = (row['procedure_id'], row['lot_id'])
             cpv3 = str(row.get('cpv_main') or '')[:3]
             scored_lonely.setdefault(lot, cpv3)
+            best, first, n_seen = scores.get(lot, (-1.0, str(D.date()), 0))
+            scores[lot] = (max(best, float(s)), first, n_seen + 1)
             flag = bool(s >= FLAG_THRESHOLD)
             if flag:
                 n_flagged += 1
@@ -280,7 +289,8 @@ def replay(data_dir, step_days, sub_ids):
                   flush=True, file=sys.stderr)
         rel._SYN.save()
 
-    return {'flagged': flagged, 'scored': scored_lonely, 'sub_picks': sub_picks,
+    return {'flagged': flagged, 'scored': scored_lonely, 'scores': scores,
+            'sub_picks': sub_picks,
             'sub_market': sub_market, 'outcome': outcome, 'subs': subs,
             'awards_full': awards_full, 'gate_dir': str(world.work),
             'step_days': step_days, 'n_cutoffs': n_run,
@@ -519,7 +529,8 @@ def target_lines(payload):
     return lines
 
 
-SCHEMA = 2   # 2: lots carry `week`; payload carries threshold / multihot_min_support / override
+SCHEMA = 3   # 3: lots carry `score` (best over open weeks), `first_week`, `weeks_scored`
+             # 2: lots carry `week`; payload carries threshold / multihot_min_support / override
 
 
 def build_payload(res, targets_csv=None):
@@ -551,6 +562,13 @@ def build_payload(res, targets_csv=None):
              # per week is what the rejector's per-cutoff rule reads
              # (backplay.replay_read, PARAMETERS.md 13)
              'week': (res['flagged'][lot][0] if lot in res['flagged'] else None),
+             # schema 3: the best score the lot ever got while open, the
+             # cutoff it was first scored at and how many cutoffs saw it —
+             # so a renderer can re-cut at any threshold or at equal volume
+             # (top share per week) instead of only at THRESHOLD
+             'score': round(res['scores'][lot][0], 4),
+             'first_week': res['scores'][lot][1],
+             'weeks_scored': res['scores'][lot][2],
              'n_tenders': (int(outcome[lot]) if lot in outcome else None)}
             for lot, cpv3 in res['scored'].items()]
 
@@ -580,6 +598,10 @@ def build_payload(res, targets_csv=None):
         # mistaken for one measured under other values (PARAMETERS.md 13)
         'threshold': FLAG_THRESHOLD,
         'multihot_min_support': sb.MULTIHOT_MIN_SUPPORT,
+        # schema 3: the encoding the replayed champion was trained under, so
+        # two documents can be told apart without reading `override`
+        'feature_build': sb.FEATURE_BUILD,
+        'one_hot_max_size': sb.ONE_HOT_MAX_SIZE,
         'override': util.gate_override(),
         'step_days': res['step_days'],
         'cutoffs_trained': res['n_cutoffs'],

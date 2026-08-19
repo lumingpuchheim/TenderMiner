@@ -26,6 +26,8 @@ def minimal_res(**over):
     picks, so the awards frame is never consulted."""
     res = {'outcome': {('p1', 'L1'): 1}, 'winners': {}, 'flagged': {},
            'scored': {('p1', 'L1'): '452', ('p2', 'L2'): '453'},
+           'scores': {('p1', 'L1'): (0.61, '2026-03-02', 2),
+                      ('p2', 'L2'): (0.12, '2026-03-09', 1)},
            'sub_picks': {}, 'subs': {}, 'step_days': 7, 'n_cutoffs': 46}
     res.update(over)
     return res
@@ -50,6 +52,21 @@ class TheDocument(unittest.TestCase):
         self.assertEqual(row['cpv3'], '452')
         self.assertNotIn('trade', row)
         self.assertNotIn('title', row)
+
+    def test_a_lot_row_carries_its_score_so_any_cut_off_can_be_rendered(self):
+        """2026-08-19: the flag at THRESHOLD took 15-45 % of the open market
+        depending on the cutoff, so two replays compared 'at 0.5' compare two
+        volumes. With the best score kept, a renderer can cut at equal volume
+        (top share per week) after the fact; the encoding is stated too."""
+        p = rewind_all.build_payload(minimal_res())
+        by_lot = {r['lot_id']: r for r in p['lots']}
+        self.assertEqual(by_lot['L1']['score'], 0.61)
+        self.assertEqual(by_lot['L1']['first_week'], '2026-03-02')
+        self.assertEqual(by_lot['L1']['weeks_scored'], 2)
+        self.assertEqual(by_lot['L2']['score'], 0.12)
+        self.assertEqual(p['schema'], 3)
+        self.assertIn('feature_build', p)
+        self.assertIn('one_hot_max_size', p)
 
     def test_the_document_is_json_serialisable(self):
         """Tuple lot keys and numpy scalars have both leaked into payloads
