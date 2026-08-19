@@ -62,7 +62,7 @@ class TheDocument(unittest.TestCase):
         by_lot = {r['lot_id']: r for r in p['lots']}
         self.assertEqual(by_lot['L1']['score'], 0.61)
         self.assertEqual(by_lot['L1']['first_week'], '2026-03-02')
-        self.assertEqual(by_lot['L1']['weeks_scored'], 2)
+        self.assertEqual(by_lot['L1']['times_scored'], 2)
         self.assertEqual(by_lot['L2']['score'], 0.12)
         self.assertEqual(p['schema'], 3)
         self.assertIn('feature_build', p)

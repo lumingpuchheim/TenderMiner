@@ -348,7 +348,7 @@ and run metadata (`generated`, `model_tag`, `step_days`, `cutoffs_trained`).
 carries both the "examined" and the "results known" denominators.
 
 Schema 3 (2026-08-19) adds per lot `score` (the best score over the weeks it
-was open), `first_week` and `weeks_scored`, and per document `feature_build`
+was open), `first_week` and `times_scored`, and per document `feature_build`
 / `one_hot_max_size`. Reason: the flag at `THRESHOLD` took between 15 % and
 45 % of the open market depending on the cutoff (server replay, 2026-08-19 —
 a model trained on 348 lots flags 45 %, one trained on 7 000 flags 38 %), so

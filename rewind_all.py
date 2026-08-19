@@ -184,7 +184,7 @@ def replay(data_dir, step_days, sub_ids, start=None):
     # across cutoffs (server, 2026-08-19), so two replays compared "at 0.5"
     # compare two flag volumes. With the score kept, any cut-off — a
     # probability, or the top 10 % of each week — is a renderer's choice.
-    scores = {}
+    best_scores = {}
     week_flags = {}       # cutoff -> [(lot, score, cpv3, nuts1)] for target sim
     sub_picks = {s: {} for s in subs}
     sub_market = {s: set() for s in subs}
@@ -242,8 +242,8 @@ def replay(data_dir, step_days, sub_ids, start=None):
             lot = (row['procedure_id'], row['lot_id'])
             cpv3 = str(row.get('cpv_main') or '')[:3]
             scored_lonely.setdefault(lot, cpv3)
-            best, first, n_seen = scores.get(lot, (-1.0, str(D.date()), 0))
-            scores[lot] = (max(best, float(s)), first, n_seen + 1)
+            best, first, n_seen = best_scores.get(lot, (-1.0, str(D.date()), 0))
+            best_scores[lot] = (max(best, float(s)), first, n_seen + 1)
             flag = bool(s >= FLAG_THRESHOLD)
             if flag:
                 n_flagged += 1
@@ -297,7 +297,7 @@ def replay(data_dir, step_days, sub_ids, start=None):
                   flush=True, file=sys.stderr)
         rel._SYN.save()
 
-    return {'flagged': flagged, 'scored': scored_lonely, 'scores': scores,
+    return {'flagged': flagged, 'scored': scored_lonely, 'scores': best_scores,
             'sub_picks': sub_picks,
             'sub_market': sub_market, 'outcome': outcome, 'subs': subs,
             'awards_full': awards_full, 'gate_dir': str(world.work),
@@ -538,7 +538,7 @@ def target_lines(payload):
     return lines
 
 
-SCHEMA = 3   # 3: lots carry `score` (best over open weeks), `first_week`, `weeks_scored`
+SCHEMA = 3   # 3: lots carry `score` (best over open weeks), `first_week`, `times_scored` (rows: a lot with two notice versions is two rows per cutoff)
              # 2: lots carry `week`; payload carries threshold / multihot_min_support / override
 
 
@@ -577,7 +577,7 @@ def build_payload(res, targets_csv=None):
              # (top share per week) instead of only at THRESHOLD
              'score': round(res['scores'][lot][0], 4),
              'first_week': res['scores'][lot][1],
-             'weeks_scored': res['scores'][lot][2],
+             'times_scored': res['scores'][lot][2],
              'n_tenders': (int(outcome[lot]) if lot in outcome else None)}
             for lot, cpv3 in res['scored'].items()]
 
