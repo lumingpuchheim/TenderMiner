@@ -276,17 +276,35 @@ def message(home, sub_id, url, company=None, today=None):
                  else f'{SITE_URL}/gewerke/')
         lines += [f'Alle Zahlen und wie sie entstehen: {where}', '']
     if picks:
+        # The list is the product working, not inventory (operator,
+        # 2026-08-18: "just three tenders? why should they care?"): it says
+        # these are the lots we expect few bidders on, picked for this firm,
+        # and each carries the reasons the forecast gives (`why_lonely`).
         n = len(picks)
-        word = {1: 'Ein Los, das', 2: 'Zwei Lose, die'}.get(n, 'Drei Lose, die')
-        lines += [f'{word} gerade offen {"ist" if n == 1 else "sind"}:', '']
+        word = {1: 'Eine Ausschreibung, die', 2: 'Zwei Ausschreibungen, die'
+                }.get(n, 'Drei Ausschreibungen, die')
+        lines += [f'So sieht das konkret aus. {word} gerade offen '
+                  f'{"ist" if n == 1 else "sind"} und bei '
+                  f'{"der" if n == 1 else "denen"} wir wenige Bieter erwarten '
+                  f'– ausgewählt nach dem, was Sie bisher gewonnen haben:', '']
         for i, p in enumerate(picks, 1):
             lines.append(f'{i}. {_short(p.get("title"), 80)} – '
                          f'{_short(p.get("buyer_name"), 60)}, '
                          f'Frist {_de(p.get("deadline_date"))}')
+            why = [str(w) for w in (p.get('why_lonely') or ()) if w][:3]
+            if why:
+                lines.append(f'   Für wenig Wettbewerb {"spricht" if len(why) == 1 else "sprechen"}: '
+                             + ', '.join(why) + '.')
             pn = p.get('publication_number')
             if pn:
                 lines.append(f'   {TED_URL.format(pn=pn)}')
-        lines.append('')
+        lines += ['', 'Bei solchen Losen lohnt sich ein Angebot besonders: '
+                  'wenige Mitbewerber, weniger Preisdruck – und Sie erfahren '
+                  'davon, bevor die Frist knapp wird.', '']
+    else:
+        lines += ['Diese Woche ist in Ihrem Gewerk nichts Passendes offen – '
+                  'auch das sagen wir, statt etwas aufzufüllen. Der erste '
+                  'Bericht bringt, was neu dazukommt.', '']
     lines += [f'Wenn Sie so eine Auswahl jeden Montag per E-Mail bekommen '
               f'möchten: {url} – E-Mail-Adresse eintragen, fertig. Vier '
               f'Wochen kostenlos, kein Konto, jederzeit abbestellbar.', '',
