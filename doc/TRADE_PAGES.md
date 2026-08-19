@@ -306,6 +306,14 @@ against the trade's rate Heizung is 10,3 % vs 9,9 %, strictly above and
 visibly nothing. The page says "nicht besser", no tile, no message. A display
 floor, not a significance test — the count stands beside every rate.
 
+Server, 2026-08-19, same 2026-08-18 replay against the trade's own rate: the
+overall record holds (18 % vs 10 %, 1,7×, was 1,9× against the pool); of
+the 9 trades with ≥30 checked alarms **3 beat** (Gleisbau 1,2×, Lüftung
+1,4×, Wärmedämmung 1,2×) and 6 do not — Elektro (1,05), Heizung (1,03),
+Stahlbau and Tischler lost their tile; Aufzüge and Fenster never had one.
+The tile is gone from four pages and the salesman writes to fewer trades.
+That is the true picture.
+
 *Receipt:* proven end-to-end against a synthetic replay over the real 6,685
 resolved lots (a rule, not a model — plumbing only, and written to the scratch
 copy so it could never be mistaken for a measurement). 22 of 32 trades landed
