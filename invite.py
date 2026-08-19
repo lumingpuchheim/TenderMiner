@@ -117,9 +117,17 @@ CHANNELS = ('linkedin', 'linkedin-ads', 'xing', 'phone', 'other')
 
 
 def add(data_dir, company, *, sub_id=None, also_names=(), batch=None,
-        channel='linkedin', base_url=None, now=None):
+        channel='linkedin', base_url=None, now=None, mint=True, owner=None):
     """-> (sub_id, url). Raises InviteError rather than writing a half
-    invitation; every check runs before the first write."""
+    invitation; every check runs before the first write.
+
+    `mint=False` writes the customer row and the draft subscription but no
+    token, and returns `(sub_id, None)`: that is **Vormerken**
+    (doc/SALES.md 3) — the firm is on a salesman's watch list, nobody has
+    been written to, and no link exists to leak. The link is minted later,
+    when the message page is first opened. `owner` is the watching
+    salesman's address, and is what the "Heute schreiben" mail is keyed by.
+    """
     if channel not in CHANNELS:
         raise InviteError(f'channel {channel!r} is not one of {CHANNELS}')
     row = target_row(data_dir, company)
@@ -149,13 +157,18 @@ def add(data_dir, company, *, sub_id=None, also_names=(), batch=None,
                         if x)
     note = f'target list {row.get("last_win") or ""}: {contact}'.strip(': ')
     subscriptions.customer_update(data_dir, sub_id, name=name,
-                                  award_names=names, contact_note=note)
+                                  award_names=names, contact_note=note,
+                                  **({'owner': owner} if owner else {}))
     subscriptions.append_version(data_dir, {
         'sub_id': sub_id, 'version': 1, 'active': False,
         'name': name, 'award_names': names,
         'nuts_prefixes': list(row.get('regions') or []) or None,
         'profile_refs': refs,
         **DRAFT_KNOBS})
+    if not mint:
+        _event(data_dir, 'vormerkt', sub_id,
+               detail=f'owner={owner or "-"} batch={batch or "-"}')
+        return sub_id, None
     value = tokens.mint(data_dir, 't', sub_id, now=now)
     _event(data_dir, 'invited', sub_id,
            detail=f'channel={channel} batch={batch or "-"} '

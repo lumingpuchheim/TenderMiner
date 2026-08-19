@@ -772,6 +772,32 @@ def post_admin_invite(ctx, form):
         return admin_page(ctx, q, error=str(e))
 
 
+def post_admin_vormerken(ctx, form):
+    """Vormerken (doc/SALES.md 3): the firm goes on the salesman's watch
+    list — profile written from its own wins, NO token minted, nobody
+    written to. Small firms only; the size is the register's own band, as
+    the operator index stores it."""
+    import admin
+    import invite
+    import sales
+    q = (form.get('company') or '').strip()
+    firm = admin.index(ctx['data_dir']).get(q)
+    if firm is not None and not admin.is_small(firm):
+        return admin_page(ctx, q, error=(
+            f'{q} ist {firm.get("size") or "ohne Größe"} — die Vormerkliste '
+            f'ist für kleine Betriebe (micro/small). „Einladen" geht '
+            f'trotzdem.'))
+    try:
+        invite.add(ctx['data_dir'], q, mint=False,
+                   owner=sales.default_owner())
+        return admin_page(ctx, q, note=f'{q} ist vorgemerkt. Die Nachricht '
+                                       f'entsteht, sobald in diesem Gewerk '
+                                       f'ein Los mit wenig Wettbewerb offen '
+                                       f'ist.')
+    except invite.InviteError as e:
+        return admin_page(ctx, q, error=str(e))
+
+
 def post_admin_reissue(ctx, form):
     import invite
     sub_id = (form.get('sub_id') or '').strip()
@@ -1004,6 +1030,7 @@ def get_experiments(ctx, environ):
 
 ADMIN_ROUTES = {
     'invite': (None, post_admin_invite),
+    'vormerken': (None, post_admin_vormerken),
     'reissue': (None, post_admin_reissue),
     'email': (get_admin_email, post_admin_email),
     'message': (get_admin_message, None),

@@ -389,6 +389,87 @@ class Invite(Base):
 
 
 
+class Vormerken(Base):
+    """doc/SALES.md 3: the watch list. Profile now, link and note when the
+    firm's trade has a flagged lot; small firms only; the owner is what the
+    „Heute schreiben" mail is keyed by."""
+
+    def setUp(self):
+        super().setUp()
+        self.owner = mock.patch.dict(
+            os.environ, {'TM_SALES_OWNER': 'luming@murara.eu'})
+        self.owner.start()
+        self.addCleanup(self.owner.stop)
+
+    def resize(self, company, size):
+        """Rewrite one firm's size in the index file the page reads."""
+        import json
+        p = self.dir / admin.INDEX_FILE
+        doc = json.loads(p.read_text(encoding='utf-8'))
+        for f in doc['firms']:
+            if f['company'] == company:
+                f['size'] = size
+        p.write_text(json.dumps(doc, ensure_ascii=False), encoding='utf-8')
+        admin._cache.update(mtime=None, firms=None)
+
+    def test_a_small_firm_is_marked_without_a_link_and_carries_its_owner(self):
+        import tokens
+        _, _, body = request(self.dir, '/admin/vormerken', 'POST',
+                             {'company': DUNKEL})
+        self.assertIn('ist vorgemerkt', body)
+        self.assertIn('vorgemerkt · luming', body)          # the row's word
+        self.assertNotIn('Einladungslink', body)            # nothing minted
+        sub_id = 'jens-dunkel-glas-und-bauelemente-gmbh'
+        self.assertIsNone(tokens.live_value(self.dir, 't', sub_id))
+        cust = subscriptions.customer_get(self.dir, sub_id)
+        self.assertEqual(cust['owner'], 'luming@murara.eu')
+        # the draft subscription is there, so the picks can be computed
+        self.assertTrue([r for r in subscriptions.read_all(self.dir)
+                         if r['sub_id'] == sub_id])
+        c = admin.counts(admin.state_of(self.dir))
+        self.assertEqual((c['vorgemerkt'], c['Link erzeugt']), (1, 0))
+
+    def test_the_row_offers_vormerken_first_and_einladen_quietly(self):
+        _, _, body = request(self.dir, '/admin', query='q=dunkel')
+        self.assertIn('/admin/vormerken', body)
+        self.assertIn('>Vormerken</button>', body)
+        self.assertIn('class="secondary">Einladen</button>', body)
+
+    def test_a_firm_that_is_not_small_cannot_be_marked(self):
+        self.resize(DUNKEL, 'large')
+        _, _, body = request(self.dir, '/admin/vormerken', 'POST',
+                             {'company': DUNKEL})
+        self.assertIn('ist für kleine Betriebe', body)
+        self.assertIsNone(subscriptions.customer_get(
+            self.dir, 'jens-dunkel-glas-und-bauelemente-gmbh'))
+        _, _, body = request(self.dir, '/admin', query='q=dunkel')
+        self.assertIn('nicht klein', body)
+        self.assertNotIn('>Vormerken</button>', body)
+
+    def test_the_marked_row_leads_to_the_message(self):
+        request(self.dir, '/admin/vormerken', 'POST', {'company': DUNKEL})
+        st = admin.status_of(admin.state_of(self.dir), DUNKEL)
+        self.assertEqual([(l, p) for l, _, p in admin.row_actions(st)],
+                         [('Nachricht anzeigen', True),
+                          ('E-Mail eintragen', False), ('Stoppen', False)])
+
+    def test_an_owner_is_optional_and_never_crashes_the_press(self):
+        """No TM_SALES_OWNER configured: the firm is still marked, simply
+        unwatched — no mail, no exception."""
+        self.owner.stop()
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('TM_SALES_OWNER', None)
+            os.environ.pop('TM_SALES_OWNERS', None)
+            _, _, body = request(self.dir, '/admin/vormerken', 'POST',
+                                 {'company': DUNKEL})
+        self.assertIn('ist vorgemerkt', body)
+        self.assertIn('vorgemerkt', body)
+        cust = subscriptions.customer_get(
+            self.dir, 'jens-dunkel-glas-und-bauelemente-gmbh')
+        self.assertIsNone(cust.get('owner'))
+        self.owner.start()
+
+
 class Email(Base):
     def setUp(self):
         super().setUp()

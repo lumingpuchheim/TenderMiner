@@ -530,6 +530,12 @@ def connect(data_dir, create=True):
     # NULL means active (every pre-existing customer consented to be one).
     if 'contact_state' not in columns_of(con, 'customer'):
         con.execute('ALTER TABLE customer ADD COLUMN contact_state TEXT')
+    # owner: the salesman who watches this prospect (doc/SALES.md 3). NULL on
+    # every pre-existing row and on every self-signup — only `Vormerken` sets
+    # it, and only rows carrying one are considered for the "Heute schreiben"
+    # mail, so an unset column simply means "nobody is watching".
+    if 'owner' not in columns_of(con, 'customer'):
+        con.execute('ALTER TABLE customer ADD COLUMN owner TEXT')
     return con
 
 

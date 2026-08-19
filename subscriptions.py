@@ -419,7 +419,10 @@ CONTACT_STATES = ('active', 'soft_stopped', 'hard_stopped')
 # The columns the app may write on `customer`. Guarded like KNOWN: a typo'd
 # field must fail loudly, not vanish into an UPDATE that touched nothing.
 CUSTOMER_FIELDS = {'name', 'award_names', 'contact_email', 'contact_note',
-                   'billing_note', 'consent_at', 'contact_state'}
+                   'billing_note', 'consent_at', 'contact_state',
+                   # the salesman watching this prospect (doc/SALES.md 3);
+                   # NULL = nobody, which is every self-signup
+                   'owner'}
 
 
 def customer_get(home, sub_id):

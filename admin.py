@@ -392,6 +392,12 @@ def status_of(state, company):
         # "angelegt" would hide that they are being served.
         if any(r.get('active') for r in state['versions'].get(sub_id, [])):
             return done('aktiv · ohne Adresse', 'st-on')
+        # Vormerken (doc/SALES.md 3): a watch-list row — profile written, no
+        # link minted, nobody written to. The owner is part of the word
+        # because the "Heute schreiben" mail is keyed by it.
+        if 'vormerkt' in kinds:
+            who = (cust.get('owner') or '').split('@')[0]
+            return done(f'vorgemerkt{" · " + who if who else ""}', 'st-mark')
         return done('angelegt', 'st-inv')
     st = subscriptions.trial_status(state['versions'].get(sub_id, []),
                                     state['today'])
@@ -407,11 +413,14 @@ def status_of(state, company):
 
 def counts(state):
     """The read-off line (ONBOARDING.md 6): one number per funnel stage."""
-    out = {'Link erzeugt': 0, 'angeschrieben': 0, 'angemeldet': 0,
-           'zurückgestellt': 0, 'gefragt': 0, 'ja': 0, 'gestoppt': 0}
+    out = {'vorgemerkt': 0, 'Link erzeugt': 0, 'angeschrieben': 0,
+           'angemeldet': 0, 'zurückgestellt': 0, 'gefragt': 0, 'ja': 0,
+           'gestoppt': 0}
     for sub_id, cust in state['customers'].items():
         evs = {e['kind'] for e in state['events'].get(sub_id, [])}
         versions = state['versions'].get(sub_id, [])
+        if 'vormerkt' in evs and 'invited' not in evs:
+            out['vorgemerkt'] += 1
         if 'invited' in evs:
             out['Link erzeugt'] += 1
         if 'invite_sent' in evs:
@@ -439,6 +448,7 @@ STYLE = """
              border-radius: 10px; display: inline-block }
   .st-none { background: #eee; color: #555 }
   .st-inv  { background: #e6eff8; color: #24578c }
+  .st-mark { background: #f1eaf8; color: #5b3a86 }
   .st-sent { background: #dbe9fb; color: #1a3f6b; font-weight: 600 }
   .st-on   { background: #e3f3e8; color: #1d6b39 }
   .st-paid { background: #d8efe0; color: #14532d; font-weight: 600 }
@@ -548,6 +558,16 @@ def _action(label, href, *, primary=False):
     return f'<a{cls} href="{href}">{esc(label)}</a>'
 
 
+# doc/SALES.md 0: the salesman writes to small firms only. The register's
+# own size band, as the index stores it per firm; anything else (medium,
+# large, unknown) cannot be vormerkt and says so on the row.
+SMALL = ('micro', 'small')
+
+
+def is_small(f):
+    return str((f or {}).get('size') or '').strip().lower() in SMALL
+
+
 def row_actions(st):
     """Which actions a row offers, from its status alone: at most one primary
     (the next step of ONBOARDING §9's funnel), then quiet links. Everything
@@ -562,6 +582,12 @@ def row_actions(st):
     stop = ('Stoppen', f'/admin/stop?{q}', False)
     if label.startswith('gestoppt') or label == 'Widerspruch':
         return []
+    if label.startswith('vorgemerkt'):
+        # on the watch list; the next step is the note, which the message
+        # page builds (and mints the link for) when there is a lot to
+        # promise — doc/SALES.md 6
+        return [(*message, True), ('E-Mail eintragen', f'/admin/email?{q}',
+                                   False), stop]
     if label.startswith('Link erzeugt'):
         return [(*message, True), ('E-Mail eintragen', f'/admin/email?{q}',
                                    False), stop]
@@ -583,11 +609,24 @@ def _row_html(f, st, url_for, roots=(), verdicts=None):
               f"{esc(mail.split('@')[0][:1])}…@{esc(mail.split('@')[-1])}")
     if sub_id is None:
         opts = ''.join(f'<option value="{c}">{c}</option>' for c in CHANNELS)
-        acts = [
+        # Vormerken is the primary step for a small firm (doc/SALES.md 3):
+        # profile now, link and note when a lot in its trade is flagged.
+        # Einladen stays for the exception — and for a firm that is not
+        # small, it is the only way in.
+        if is_small(f):
+            acts = ['<form method="post" action="/admin/vormerken">'
+                    f'<input type="hidden" name="company" '
+                    f'value="{esc(f["company"])}">'
+                    '<button type="submit">Vormerken</button></form>']
+        else:
+            acts = ['<span class="muted" title="Die Vormerkliste ist für '
+                    'kleine Betriebe (micro/small) — doc/SALES.md 0">'
+                    'nicht klein</span>']
+        acts.append(
             '<form method="post" action="/admin/invite">'
             f'<input type="hidden" name="company" value="{esc(f["company"])}">'
             f'<select name="channel">{opts}</select> '
-            '<button type="submit">Einladen</button></form>']
+            '<button type="submit" class="secondary">Einladen</button></form>')
     else:
         offered = row_actions(st)
         acts = [_action(l, h, primary=True) for l, h, p in offered if p]
