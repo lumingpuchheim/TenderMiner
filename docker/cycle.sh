@@ -27,6 +27,16 @@ DATA="${TM_DATA_DIR:-/data}"
 LOGS="$DATA/logs"
 mkdir -p "$LOGS"
 
+# Cron hands a job almost no environment, so the values the scheduler service
+# holds reach it through this file — the same way deliver.sh and nightly.sh
+# get theirs. The cycle needed none of it until 2026-08-18, when it began to
+# end with the salesman's "Heute schreiben" mail (doc/SALES.md 5): without
+# RESEND_API_KEY and TM_SALES_OWNER that mail is refused and the cycle prints
+# it, which is a silent-looking failure of a visible feature.
+if [ -f "$DATA/.cron-env" ]; then
+    . "$DATA/.cron-env"
+fi
+
 # Extra arguments for the cycle, empty on a normal Monday. This exists for the
 # two cases where re-fetching would be wrong: re-running a Monday that died
 # after the download (`--skip-download`, the runbook's advice), and any run

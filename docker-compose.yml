@@ -44,6 +44,11 @@ services:
       TM_MAIL_FROM: ${TM_MAIL_FROM:-}
       # Where the token links in every mail point (doc/APP.md 2).
       TM_APP_URL: ${TM_APP_URL:-https://app.murara.eu}
+      # The salesman's address (doc/SALES.md 3): who a `Vormerken` files a
+      # firm under, and who gets the "Heute schreiben" mail. Empty = the
+      # watch list has no owner, so no mail is due and none is sent.
+      TM_SALES_OWNER: ${TM_SALES_OWNER:-}
+      TM_SALES_OWNERS: ${TM_SALES_OWNERS:-}
       # The yes-page (doc/ONBOARDING.md 9.5): price line and payment link,
       # both empty until decided.
       TM_PRICE_LINE: ${TM_PRICE_LINE:-}
@@ -95,7 +100,7 @@ services:
     # `export -p`, not `env`: it emits shell-quoted lines, so a password with
     # a space survives the round trip into nightly.sh's `.`.
     command: ["sh", "-c",
-              "umask 077 && { export -p | grep -E '^export (RESTIC_|AWS_|RESEND_|TM_MAIL_FROM|TM_APP_URL)' || true; } > /data/.cron-env && chown tm:tm /data/.cron-env && cron -L 2 && exec tail -F /data/logs/cron.log"]
+              "umask 077 && { export -p | grep -E '^export (RESTIC_|AWS_|RESEND_|TM_MAIL_FROM|TM_APP_URL|TM_SALES_)' || true; } > /data/.cron-env && chown tm:tm /data/.cron-env && cron -L 2 && exec tail -F /data/logs/cron.log"]
     restart: unless-stopped
 
   # The customer-facing app (doc/APP.md). Same image, same /data — it reads the
