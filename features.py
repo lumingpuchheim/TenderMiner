@@ -57,6 +57,8 @@ UNIT_DAYS = {
     'MON': 30, 'MONTH': 30, 'MONTHS': 30, 'MO': 30,
     'ANN': 365, 'YEAR': 365, 'YEARS': 365, 'YR': 365,
 }
+# A DurationMeasure beyond this many days is a typo, not a period (_measure_days).
+MEASURE_MAX_DAYS = 365 * 100
 
 # Selection criteria codes group by prefix along the three limbs of Dir. 2014/24 Art. 58.
 # The family matters more than the raw count: three trade-register entries cost a bidder
@@ -217,6 +219,14 @@ def _measure_days(node, path, ctx='measure'):
         return None, _float(raw), unit
     if unit in UNIT_DAYS:
         days = n * UNIT_DAYS[unit]
+        # A buyer's typo, not a measure: the 2023-11..2024-07 backfill
+        # (2026-08-19) carried a validity period of 11,333,988,760 days, which
+        # overflowed the int32 parquet column and failed the whole store
+        # build. Anything beyond a century is data-entry noise, recorded and
+        # nulled — same rule duration_days applies at twenty years.
+        if not (-MEASURE_MAX_DAYS <= days <= MEASURE_MAX_DAYS):
+            _record(ctx, 'measure_out_of_range')
+            days = None
     else:
         _record(ctx, f'unknown_unit:{unit}')
         days = None
