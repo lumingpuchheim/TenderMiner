@@ -531,9 +531,10 @@ class Message(Base):
         self.assertIn('12 öffentliche Lose pro Monat', m['long'])
         self.assertIn('84.000 € wert', m['long'])
         self.assertIn('12 % der Lose bekommen höchstens ein Angebot', m['long'])
-        self.assertIn('Im Gewerk Blitzschutz und Erdung: von 43 geprüften '
-                      'Hinweisen 16 % statt 10 %, das 1,6-Fache', m['long'])
-        self.assertNotIn('Über alle Gewerke', m['long'])   # no overall given
+        self.assertIn('Im Gewerk Blitzschutz und Erdung allein: 43 Hinweise '
+                      'geprüft, 16 % mit höchstens einem Angebot gegenüber '
+                      '10 % ohne Auswahl – 1,6-mal so oft', m['long'])
+        self.assertNotIn('über alle Gewerke', m['long'])   # no overall given
         self.assertIn('murara.eu/gewerke/blitzschutz-und-erdung/', m['long'])
         # not better than guessing: the figures stay, the claim goes
         self.verdict(state='no_better', checked=43, hits=3, precision=0.07,
@@ -556,16 +557,23 @@ class Message(Base):
         self.verdict(overall=all_, state='thin', checked=14, hits=2,
                      precision=0.14, base=0.10, recall=0.1)
         m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today='2026-08-17')
-        self.assertIn('Über alle Gewerke endeten von 1042 geprüften Hinweisen '
-                      '18 % mit höchstens einem Angebot; ohne Auswahl sind es '
-                      '9 % – also das 1,9-Fache.', m['long'])
+        # every number defined in the sentence that uses it (operator,
+        # 2026-08-18: "the numbers make no sense unless you explain them")
+        self.assertIn('Für jeden Hinweis sehen wir später im veröffentlichten '
+                      'Ergebnis nach, wie viele Angebote wirklich eingegangen '
+                      'sind.', m['long'])
+        self.assertIn('Bisher haben wir 1.042 Hinweise so geprüft, über alle '
+                      'Gewerke: 18 % davon bekamen am Ende höchstens ein '
+                      'Angebot. Nimmt man stattdessen irgendeine '
+                      'Ausschreibung, sind es 9 %. Unsere Auswahl trifft '
+                      'also 1,9-mal so oft.', m['long'])
         self.assertNotIn('Im Gewerk Blitzschutz', m['long'])
         self.assertEqual(m['overall']['checked'], 1042)
         # both: overall first, trade second, in one paragraph
         self.verdict(overall=all_, state='beats', checked=43, hits=7,
                      precision=0.163, base=0.10, recall=0.3, factor=1.63)
         m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today='2026-08-17')
-        i = m['long'].index('Über alle Gewerke')
+        i = m['long'].index('über alle Gewerke')
         j = m['long'].index('Im Gewerk Blitzschutz')
         self.assertLess(i, j)
         self.assertNotIn('\n', m['long'][i:j])

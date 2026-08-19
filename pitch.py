@@ -208,19 +208,30 @@ def edge_block(trade, v, overall=None):
 
     if not beats(overall) and not beats(v):
         return []
-    out = ['Diese Lose suchen wir – und wir prüfen, wie gut das klappt: '
-           'Jeder Hinweis wird gegen das später veröffentlichte Ergebnis '
-           'geprüft.']
+
+    def n_de(n):
+        return f'{n:,}'.replace(',', '.')          # 1042 -> 1.042
+
+    # Every number is defined in the sentence that uses it (operator,
+    # 2026-08-18: "the numbers make no sense unless you explain them"):
+    # what a checked hint is, what "ended with at most one bid" means, what
+    # the comparison is (any tender, picked blind), and what the factor is.
+    out = ['Wie gut das klappt, prüfen wir laufend: Für jeden Hinweis '
+           'sehen wir später im veröffentlichten Ergebnis nach, wie viele '
+           'Angebote wirklich eingegangen sind.']
     if beats(overall):
-        out.append(f'Über alle Gewerke endeten von {overall["checked"]} '
-                   f'geprüften Hinweisen {pct_de(overall["precision"])} mit '
-                   f'höchstens einem Angebot; ohne Auswahl sind es '
-                   f'{pct_de(overall["base"])} – also das '
-                   f'{factor_de(overall["factor"])}-Fache.')
+        out.append(f'Bisher haben wir {n_de(overall["checked"])} Hinweise so '
+                   f'geprüft, über alle Gewerke: {pct_de(overall["precision"])} '
+                   f'davon bekamen am Ende höchstens ein Angebot. Nimmt man '
+                   f'stattdessen irgendeine Ausschreibung, sind es '
+                   f'{pct_de(overall["base"])}. Unsere Auswahl trifft also '
+                   f'{factor_de(overall["factor"])}-mal so oft.')
     if beats(v):
-        out.append(f'Im Gewerk {trade}: von {v["checked"]} geprüften '
-                   f'Hinweisen {pct_de(v["precision"])} statt '
-                   f'{pct_de(v["base"])}, das {factor_de(v["factor"])}-Fache.')
+        out.append(f'Im Gewerk {trade} allein: {n_de(v["checked"])} Hinweise '
+                   f'geprüft, {pct_de(v["precision"])} mit höchstens einem '
+                   f'Angebot gegenüber {pct_de(v["base"])} ohne Auswahl – '
+                   f'{factor_de(v["factor"])}-mal so oft; diese Zahl wächst '
+                   f'mit jeder geprüften Woche.')
     return [' '.join(out)]
 
 

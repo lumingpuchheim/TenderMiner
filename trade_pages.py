@@ -331,10 +331,13 @@ def overall_html(lv):
     the overall itself is thin or absent."""
     if not lv or lv.get('state') != 'beats':
         return ''
-    return (f'<p>Über alle Gewerke zusammen: von {lv["checked"]} geprüften '
-            f'Hinweisen endeten {pct_de(lv["precision"])} mit höchstens einem '
-            f'Angebot, ohne Einschätzung {pct_de(lv["base"])} — das '
-            f'{factor_de(lv["factor"])}-Fache.</p>')
+    n = f'{lv["checked"]:,}'.replace(',', '.')
+    return (f'<p>Über alle Gewerke zusammen: {n} unserer Hinweise konnten '
+            f'bisher gegen das veröffentlichte Ergebnis geprüft werden. '
+            f'{pct_de(lv["precision"])} davon bekamen am Ende höchstens ein '
+            f'Angebot; nimmt man stattdessen irgendeine Ausschreibung, sind es '
+            f'{pct_de(lv["base"])}. Unsere Auswahl trifft also '
+            f'{factor_de(lv["factor"])}-mal so oft.</p>')
 
 
 def forecast_section(fc, all_fc=None):

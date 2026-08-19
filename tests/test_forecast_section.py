@@ -188,12 +188,13 @@ class ThreeStates(unittest.TestCase):
         a product with a measured record, so the all-trades line is printed
         under every state — and only when the overall itself beats chance."""
         all_fc = self._stats(180, 860, 380, 4570)   # 17 % vs 9 %, 1042 checked
-        line = 'Über alle Gewerke zusammen: von 1040 geprüften Hinweisen'
+        line = ('Über alle Gewerke zusammen: 1.040 unserer Hinweise konnten '
+                'bisher gegen das veröffentlichte Ergebnis geprüft werden')
         for fc in (None, self._stats(5, 5, 10, 80), self._stats(20, 20, 10, 150),
                    self._stats(4, 36, 40, 20)):
             html = tp.forecast_section(fc, all_fc)
             self.assertIn(line, html)
-            self.assertIn('-Fache', html)
+            self.assertIn('-mal so oft', html)
             self.assertNotIn(line, tp.forecast_section(fc))
         weak = self._stats(4, 36, 40, 20)
         self.assertNotIn('Über alle Gewerke', tp.forecast_section(None, weak))
