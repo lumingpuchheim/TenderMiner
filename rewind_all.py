@@ -851,6 +851,22 @@ def main():
             print(f'[rewind_all] {e}', file=sys.stderr)
             return 2
         return
+    # Prove the document can be written BEFORE replaying. 2026-08-19: a
+    # three-hour run on the server ended in `PermissionError` at the dump —
+    # the output directory belonged to root and the container runs as `tm`.
+    # Touch the path now, remove the probe, and refuse up front.
+    if args.out != '-':
+        out = Path(args.out)
+        try:
+            out.parent.mkdir(parents=True, exist_ok=True)
+            with open(out, 'a', encoding='utf-8'):
+                pass
+            if out.stat().st_size == 0:
+                out.unlink()
+        except OSError as e:
+            print(f'[rewind_all] cannot write {out}: {e} — fix that first; '
+                  f'the replay has not started', file=sys.stderr)
+            return 2
     # Fail fast rather than wait: this is a manual run with its operator
     # watching, and the alternative is a replay that silently queues behind a
     # 28-minute cycle and then competes with the next thing. The cycle waits
