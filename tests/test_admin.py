@@ -713,9 +713,10 @@ class Message(Base):
         self.assertIn('12 öffentliche Lose pro Monat', m['long'])
         self.assertIn('84.000 € wert', m['long'])
         self.assertIn('12 % der Lose bekommen höchstens ein Angebot', m['long'])
-        self.assertIn('Im Gewerk Blitzschutz und Erdung allein: 43 Hinweise '
-                      'geprüft, 16 % mit höchstens einem Angebot gegenüber '
-                      '10 % im Gewerk insgesamt – 1,6-mal so oft', m['long'])
+        self.assertIn('Im Gewerk Blitzschutz und Erdung allein: 43 Lose im '
+                      'obersten Fünftel geprüft, 16 % mit höchstens einem '
+                      'Angebot gegenüber 10 % im Gewerk insgesamt – '
+                      '1,6-mal so oft', m['long'])
         self.assertNotIn('über alle Gewerke', m['long'])   # no overall given
         self.assertIn('murara.eu/gewerke/blitzschutz-und-erdung/', m['long'])
         # not better than guessing: the figures stay, the claim goes
@@ -741,14 +742,15 @@ class Message(Base):
         m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today='2026-08-17')
         # every number defined in the sentence that uses it (operator,
         # 2026-08-18: "the numbers make no sense unless you explain them")
-        self.assertIn('Für jeden Hinweis sehen wir später im veröffentlichten '
-                      'Ergebnis nach, wie viele Angebote wirklich eingegangen '
-                      'sind.', m['long'])
-        self.assertIn('Bisher haben wir 1.042 Hinweise so geprüft, über alle '
-                      'Gewerke: 18 % davon bekamen am Ende höchstens ein '
-                      'Angebot. Nimmt man stattdessen irgendeine '
-                      'Ausschreibung, sind es 9 %. Unsere Auswahl trifft '
-                      'also 1,9-mal so oft.', m['long'])
+        self.assertIn('Wir ordnen jede Ausschreibung nach der erwarteten '
+                      'Zahl der Angebote und sehen später im '
+                      'veröffentlichten Ergebnis nach, wie viele wirklich '
+                      'eingegangen sind.', m['long'])
+        self.assertIn('Vom obersten Fünftel unserer Reihenfolge — 1.042 '
+                      'geprüfte Lose über alle Gewerke — endeten 18 % mit '
+                      'höchstens einem Angebot. Nimmt man stattdessen '
+                      'irgendeine Ausschreibung, sind es 9 %. Unsere Auswahl '
+                      'trifft also 1,9-mal so oft.', m['long'])
         self.assertNotIn('Im Gewerk Blitzschutz', m['long'])
         self.assertEqual(m['overall']['checked'], 1042)
         # both: overall first, trade second, in one paragraph

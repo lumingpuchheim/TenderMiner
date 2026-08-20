@@ -301,21 +301,23 @@ def edge_block(trade, v, overall=None):
     # 2026-08-18: "the numbers make no sense unless you explain them"):
     # what a checked hint is, what "ended with at most one bid" means, what
     # the comparison is (any tender, picked blind), and what the factor is.
-    out = ['Wie gut das klappt, prüfen wir laufend: Für jeden Hinweis '
-           'sehen wir später im veröffentlichten Ergebnis nach, wie viele '
-           'Angebote wirklich eingegangen sind.']
+    out = ['Wie gut das klappt, prüfen wir laufend: Wir ordnen jede '
+           'Ausschreibung nach der erwarteten Zahl der Angebote und sehen '
+           'später im veröffentlichten Ergebnis nach, wie viele wirklich '
+           'eingegangen sind.']
     if beats(overall):
-        out.append(f'Bisher haben wir {n_de(overall["checked"])} Hinweise so '
-                   f'geprüft, über alle Gewerke: {pct_de(overall["precision"])} '
-                   f'davon bekamen am Ende höchstens ein Angebot. Nimmt man '
-                   f'stattdessen irgendeine Ausschreibung, sind es '
+        out.append(f'Vom obersten Fünftel unserer Reihenfolge — '
+                   f'{n_de(overall["checked"])} geprüfte Lose über alle '
+                   f'Gewerke — endeten {pct_de(overall["precision"])} mit '
+                   f'höchstens einem Angebot. Nimmt man stattdessen '
+                   f'irgendeine Ausschreibung, sind es '
                    f'{pct_de(overall["base"])}. Unsere Auswahl trifft also '
                    f'{factor_de(overall["factor"])}-mal so oft.')
     if beats(v):
-        out.append(f'Im Gewerk {trade} allein: {n_de(v["checked"])} Hinweise '
-                   f'geprüft, {pct_de(v["precision"])} mit höchstens einem '
-                   f'Angebot gegenüber {pct_de(v["base"])} im Gewerk '
-                   f'insgesamt – '
+        out.append(f'Im Gewerk {trade} allein: {n_de(v["checked"])} Lose im '
+                   f'obersten Fünftel geprüft, {pct_de(v["precision"])} mit '
+                   f'höchstens einem Angebot gegenüber {pct_de(v["base"])} im '
+                   f'Gewerk insgesamt – '
                    f'{factor_de(v["factor"])}-mal so oft; diese Zahl wächst '
                    f'mit jeder geprüften Woche.')
     return [' '.join(out)]

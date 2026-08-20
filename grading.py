@@ -115,6 +115,14 @@ def grade(paths, tenders, aw, args, plan=None):
     return new_grades
 
 
+# The slice of a ranking the product stands behind: the top fifth. FROZEN by
+# the operator (2026-08-20, "lets stay with 20%. i dont want to make it a
+# knob") — the cycle's --top-slice defaults to it, the trade pages quote it,
+# the replay renderer prints it. One value, so the page, the report and the
+# backtest cannot quietly measure three different products.
+TOP_SHARE = 0.20
+
+
 def _top_slice_stats(rows, share):
     """Hit rate of the top `share` of rows by score, vs the rows' base rate."""
     if not rows:
@@ -125,6 +133,52 @@ def _top_slice_stats(rows, share):
     hit = sum(g['label'] for g in top) / len(top)
     return {'n': len(rows), 'k': k, 'base': base, 'hit': hit,
             'lift': (hit / base) if base > 0 else None}
+
+
+def auc(rows):
+    """The ranking graded without choosing a cut: take one lot that ended
+    lonely and one that did not — how often does the lonely one carry the
+    higher score? 0.5 is a coin flip, 1.0 is a perfect sort. Mann-Whitney by
+    ranks, ties get half credit; None when either class is absent.
+
+    Kept dependency-free on purpose: sklearn's roc_auc_score agrees to the
+    digit, but this module is read by the report path, which must not pull
+    the ML stack."""
+    if not rows:
+        return None
+    pos = sum(1 for g in rows if g['label'] == 1)
+    neg = len(rows) - pos
+    if not pos or not neg:
+        return None
+    ordered = sorted(rows, key=lambda g: g['score'])
+    ranks, i = {}, 0
+    while i < len(ordered):
+        j = i
+        while j + 1 < len(ordered) and ordered[j + 1]['score'] == ordered[i]['score']:
+            j += 1
+        mid = (i + j) / 2 + 1          # average rank, 1-based
+        for r in ordered[i:j + 1]:
+            ranks[id(r)] = mid
+        i = j + 1
+    rank_sum = sum(ranks[id(g)] for g in rows if g['label'] == 1)
+    return (rank_sum - pos * (pos + 1) / 2) / (pos * neg)
+
+
+def score_stats(rows, share=TOP_SHARE):
+    """The RANK view of graded rows carrying `score` and `label` — the
+    statistic the shortlist product is described by, shared by the trade
+    pages, the weekly report and the replay renderer exactly as `flag_stats`
+    is shared for the binary view (2026-08-20: 'add AUC in the
+    backplay/forward prediction').
+
+    -> {n, base, k, hit, lift, hits, hit_ci, auc} or None on empty rows."""
+    s = _top_slice_stats(rows, share)
+    if s is None:
+        return None
+    top = sorted(rows, key=lambda g: -g['score'])[:s['k']]
+    hits = sum(g['label'] for g in top)
+    return {**s, 'share': share, 'hits': hits,
+            'hit_ci': wilson(hits, s['k']), 'auc': auc(rows)}
 
 
 def wilson(k, n, z=1.96):

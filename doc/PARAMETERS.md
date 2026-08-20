@@ -130,6 +130,7 @@ change proposed.
 | `MULTIHOT_MIN_SHARE` | 0.0015 | C | LIVE (2026-08-17, on the queue) | `meta.json` `multihot.min_share` |
 | `MULTIHOT_MIN_SUPPORT` | 30 | C | FROZEN — the floor under the share (2026-08-17) | `meta.json` `multihot.min_support` |
 | `FEATURE_BUILD` | `multihot` (since 2026-08-17) | C | LIVE (on the queue: `default` / `multihot` — never `cpv_additional_target_statistics`, §16) | `meta.json` `feature_build` |
+| `grading.TOP_SHARE` | 0.20 | C | FROZEN (operator, 2026-08-20: "lets stay with 20%. i dont want to make it a knob") — the slice of the ranking the product stands behind; the trade pages, the weekly report's rank view and the replay renderer all quote it via `grading.score_stats` | no |
 | `TRAIN_WINDOW_MONTHS` | None (all labelled lots) | C | LIVE (2026-08-19, on the queue: 12 / 18 / 24 / None, replay harness). CatBoost retrains from scratch every Monday, so the window bounds the weekly training time as the archive grows; the market also drifts. Which matters is measured, not guessed. Applied whole-lot by first publication, measured from the cutoff (replay) / the newest publication (cycle): `single_bidder.training_window` | `meta.json` gate `train_window_months` |
 | `SEED` | 42 | C | FROZEN | no |
 | `LABEL_MAX_TENDERS` | 1 | C — *the label definition* | FROZEN | no (implicit in every grade) |

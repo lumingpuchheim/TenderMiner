@@ -389,6 +389,28 @@ def flag_matrix(payload):
                       f"precision ({f['precision']:.0%}) is at or below the "
                       f"{f['base']:.0%} that alarming on everything gives, and it "
                       'gives up recall to get there.', '']
+    # The RANK view (schema 3 documents carry a score per lot): what the
+    # shortlist actually delivers — the top fifth of the ranking — plus the
+    # sorting graded without a cut (AUC). Operator, 2026-08-20: the share is
+    # frozen at grading.TOP_SHARE, and this line is the replay's version of
+    # the weekly report's rank view — same score_stats.
+    srows = [{'score': r['score'], 'label': int(r['n_tenders'] <= 1)}
+             for r in payload['lots']
+             if r['n_tenders'] is not None and r.get('score') is not None]
+    s = grading.score_stats(srows)
+    if s:
+        a = f"{s['auc']:.2f}" if s['auc'] is not None else '—'
+        lines += ['## The ranking: what the top fifth delivers', '',
+                  f"Of the same {s['n']} graded tenders, the top "
+                  f"{s['share']:.0%} by score ({s['k']} lots) ended with 0-1 "
+                  f"bids {s['hit']:.0%} of the time"
+                  + (f" (95% CI {s['hit_ci'][0]:.0%}-{s['hit_ci'][1]:.0%})"
+                     if s['hit_ci'] else '')
+                  + f" — base rate {s['base']:.0%}, lift "
+                  + (f"{s['lift']:.1f}x." if s['lift'] else '—.'), '',
+                  f'- **AUC** (one lonely lot vs one contested: how often does '
+                  f'the lonely one score higher?): **{a}** — 0.50 is a coin '
+                  f'flip, 1.00 a perfect sort.', '']
     return lines
 
 

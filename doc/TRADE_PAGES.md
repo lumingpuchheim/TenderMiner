@@ -277,6 +277,24 @@ get it right, claim 100 %.
 backtest use, so the replayed number and the live number stay one statistic
 rather than two implementations that agree by coincidence.
 
+**The section describes the RANKING, not the flag (operator, 2026-08-20:
+"add AUC … show precision of top 20% … stay with 20%, i dont want to make
+it a knob").** The product is a ranked shortlist, so the page quotes what a
+ranking delivers: of the trade's graded lots (mature months only — fresh
+awards are mostly the lonely ones and would flatter the number), the top
+`grading.TOP_SHARE` (20 %, FROZEN) by best replay score — how often did
+those end 0-1 bids, against the tile's rate; plus the sorting check, AUC,
+in plain words ("das einsame Los steht in X von 100 Fällen weiter oben"),
+printed in winning and losing states alike. `grading.score_stats` computes
+it — shared with the weekly report's rank view and the replay renderer, one
+statistic in three places. The 0.5 flag is not quoted on pages any more:
+its volume swung 15-45 % of the open market across cutoffs, and it is not
+what a customer receives. Needs a schema-3 replay document (per-lot
+`score`); an older document makes no claim. `MIN_CHECKED` now bounds the
+top fifth (so ≥ `5×MIN_CHECKED` graded lots per trade), and `level()`'s
+dict keeps its key names (`checked`/`hits`/`precision`) with
+ranking meanings, so the admin page and the message read one shape.
+
 **The denominator is the trade's own rate — the tile — never the replay
 pool's (operator, 2026-08-19).** `flag_stats` scores a flag against the pool
 it was raised in: the lots the replay scored, i.e. open for a week or more at

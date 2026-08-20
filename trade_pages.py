@@ -213,79 +213,63 @@ def load_replay(path):
         return None
 
 
-def against(st, base):
-    """`flag_stats`' dict, measured against the MARKET's rate instead of the
-    replay pool's own (operator, 2026-08-19: "self-cheating and then
-    customer-cheating are not acceptable").
+def rank_stats(receipt, base, lots=None, sel=None, months=None):
+    """-> (stats, generated) — the RANKING measured on the replay, against
+    the MARKET's rate, or None when the document cannot carry the claim.
 
-    `flag_stats` scores a flag against the pool it was raised in — the lots
-    the replay scored, i.e. open for a week or more at a weekly cutoff. That
-    is the right baseline for the backtest report, whose question is "does the
-    model see anything in what it looks at". It is the wrong one for a page:
-    the reader sees the trade's own 0/1 share three screens up, and the pool
-    the replay scores is more contested than the trade (Heizung: 7 % against
-    10 %), so a lift against the pool is a lift the reader can refute by
-    reading the tile. Here `base` is `market.low_bid_rate` — the tile — and
-    the verdict, the factor and the overall line are all taken against it.
-    The live measurement, when the grade ledger is deep enough to carry it,
-    gets the same treatment: precision from the grades, base from the market,
-    and the switch from replay to live moves nothing but the precision.
+    The product is a ranked shortlist, so the page describes the ranking:
+    of the graded lots (award published), how often did the top TOP_SHARE by
+    score end with 0-1 bids (`grading.score_stats` — the same function the
+    weekly report's rank view uses), plus the sorting graded without a cut
+    (AUC). The flag at 0.5 is not quoted here any more: it is one arbitrary
+    operating point, its volume swung 15-45 % of the market across cutoffs,
+    and it is not what a customer receives (operator, 2026-08-20).
 
-    The pool's own rate is kept under `pool_base` for the operator."""
-    if st is None:
-        return None
-    prec = st['precision']
-    return {**st, 'pool_base': st['base'], 'base': base,
-            'base_f1': (2 * base / (base + 1)) if base else None,
-            'beats_base': (prec is not None and base is not None
-                           and prec > base)}
+    Two honesty rules, both learned the hard way (2026-08-19):
+    * `base` is the trade's own 0/1 rate — the tile, `market.low_bid_rate` —
+      never the replay pool's own rate, which is what the top slice's `hit`
+      is compared against for the verdict and the factor. The pool's rate
+      stays in the dict (`base` of score_stats -> `pool_base`).
+    * only lots from MATURE months are graded (`months`): among recently
+      published tenders the outcomes already known are mostly the lonely
+      ones (awards within 60 days: 33 % lonely; later: 7 %), so grading
+      fresh flags flatters the forecast in exactly the way a reader cannot
+      see. With `lots`/`sel`/`months` omitted (the overall record), the
+      caller passes the store-wide mature-month base and the slice is every
+      graded lot of the replay.
 
-
-def forecast_all(receipt, base):
-    """-> (stats, generated) over the WHOLE replay, every trade together —
-    the product's record. Same statistic, same function, no slice. The
-    per-trade slices are thin (5 hits in 43 is what a trade's number can
-    rest on); this is the one figure with a real sample behind it, and the
-    one the message leads with (operator, 2026-08-18: 'show what we are
-    doing, what we are good at'). `base` is the store-wide
-    `market.low_bid_rate` — see `against`."""
+    A schema-2 document has no scores: -> None, and the page says "noch
+    nicht genug" rather than quoting anything."""
     if not receipt:
         return None
-    rows = [{'flag': r['flag'], 'label': int(r['n_tenders'] <= 1)}
-            for r in receipt['lots'] if r['n_tenders'] is not None]
+    keys = None
+    if sel is not None:
+        keys = set(zip(lots.loc[sel, 'procedure_id'], lots.loc[sel, 'lot_id']))
+    mature_keys = None
+    if months is not None:
+        m = lots[lots.month.isin(months)]
+        mature_keys = set(zip(m.procedure_id, m.lot_id))
+    rows = [{'score': r['score'], 'label': int(r['n_tenders'] <= 1)}
+            for r in receipt['lots']
+            if r['n_tenders'] is not None and r.get('score') is not None
+            and (keys is None or (r['procedure_id'], r['lot_id']) in keys)
+            and (mature_keys is None
+                 or (r['procedure_id'], r['lot_id']) in mature_keys)]
     if not rows:
         return None
-    from grading import flag_stats
-    return against(flag_stats(rows), base), receipt.get('generated', '?')
+    from grading import score_stats
+    st = score_stats(rows)
+    if st is None:
+        return None
+    positives = sum(r['label'] for r in rows)
+    return {**st, 'pool_base': st['base'], 'base': base,
+            # of the lonely lots we could check, the share our top fifth held
+            'recall': (st['hits'] / positives) if positives else None,
+            'beats_base': (base is not None and st['hit'] > base),
+            }, receipt.get('generated', '?')
 
 
 ALL = '_all'        # the key of the overall record in FORECAST_FILE
-
-
-def forecast_for(receipt, lots, sel, base):
-    """-> (stats, generated) for this trade's slice of the replay, or None.
-
-    `stats` is `grading.flag_stats`' dict — the SAME function the weekly report
-    and the backtest's own table use. That sharing is deliberate: until live
-    awards accumulate, the replayed number is the one quoted, and it must be
-    the same statistic rather than a second implementation that agrees by
-    coincidence. Its base, though, is replaced by the trade's own rate —
-    `base`, the page's tile — see `against` for why.
-    """
-    if not receipt:
-        return None
-    keys = set(zip(lots.loc[sel, 'procedure_id'], lots.loc[sel, 'lot_id']))
-    # `n_tenders is None` = examined but no award published yet. Those rows
-    # carry the "examined" denominator for the operator's report and must not
-    # reach a rate here: an uncheckable lot is neither a hit nor a miss.
-    rows = [{'flag': r['flag'], 'label': int(r['n_tenders'] <= 1)}
-            for r in receipt['lots']
-            if r['n_tenders'] is not None
-            and (r['procedure_id'], r['lot_id']) in keys]
-    if not rows:
-        return None
-    from grading import flag_stats        # lazy: pulls the ML stack
-    return against(flag_stats(rows), base), receipt.get('generated', '?')
 
 
 # The smallest lift the page will call an advantage. `factor_de` prints one
@@ -304,21 +288,26 @@ def level(fc):
     operator writes only to firms whose trade shows an advantage over
     guessing, so the same verdict must be visible on all three).
 
-    state: 'none' (no replay) · 'thin' (fewer than MIN_CHECKED checked) ·
-    'beats' (enough, and at least MIN_FACTOR times the trade's own rate) ·
+    Since 2026-08-20 the standing is the RANKING's: `checked` is the top
+    fifth of the trade's graded lots (`hits` of them ended 0-1 bids,
+    `precision` their share), `base` the trade's own rate — the tile —
+    `auc` the sorting check. Key names kept from the flag era so the
+    operator page and the message read one shape across the change.
+
+    state: 'none' (no replay/scores) · 'thin' (a top fifth smaller than
+    MIN_CHECKED) · 'beats' (at least MIN_FACTOR times the trade's rate) ·
     'no_better'."""
     if fc is None:
         return {'state': 'none'}
     st, generated = fc
-    # `base` is the market's rate (`against`); `pool_base` the replay pool's
-    # own, kept so the operator can see how far the two lie apart
-    out = {'checked': st['flagged'], 'hits': st['tp'],
-           'precision': st['precision'], 'base': st['base'],
-           'pool_base': st.get('pool_base'),
+    out = {'checked': st['k'], 'hits': st['hits'],
+           'precision': st['hit'], 'base': st['base'],
+           'pool_base': st.get('pool_base'), 'auc': st.get('auc'),
+           'graded': st['n'],
            'recall': st['recall'], 'generated': generated}
-    if st['flagged'] < MIN_CHECKED or st['precision'] is None:
+    if st['k'] < MIN_CHECKED:
         return {**out, 'state': 'thin'}
-    out['factor'] = (st['precision'] / st['base']) if st['base'] else None
+    out['factor'] = (st['hit'] / st['base']) if st['base'] else None
     beats = st['beats_base'] and (out['factor'] or 0) >= MIN_FACTOR
     return {**out, 'state': 'beats' if beats else 'no_better'}
 
@@ -329,7 +318,7 @@ def level_tile(lv):
     if lv.get('state') != 'beats' or not lv.get('factor'):
         return ''
     return fig(f'{factor_de(lv["factor"])}-fach',
-               'so oft trifft unser Hinweis, verglichen mit Zufall')
+               'so oft trifft unsere Auswahl, verglichen mit Zufall')
 
 
 # Where the site build leaves the per-trade verdicts for the operator page and
@@ -380,11 +369,13 @@ def overall_html(lv):
     the overall itself is thin or absent."""
     if not lv or lv.get('state') != 'beats':
         return ''
-    n = f'{lv["checked"]:,}'.replace(',', '.')
-    return (f'<p>Über alle Gewerke zusammen: {n} unserer Hinweise konnten '
-            f'bisher gegen das veröffentlichte Ergebnis geprüft werden. '
-            f'{pct_de(lv["precision"])} davon bekamen am Ende höchstens ein '
-            f'Angebot; über alle ausgewerteten Lose im Register sind es '
+    n = f'{lv["graded"]:,}'.replace(',', '.')
+    k = f'{lv["checked"]:,}'.replace(',', '.')
+    return (f'<p>Über alle Gewerke zusammen: {n} Lose konnten bisher gegen '
+            f'das veröffentlichte Ergebnis geprüft werden. Vom obersten '
+            f'Fünftel unserer Reihenfolge ({k} Lose) endeten '
+            f'{pct_de(lv["precision"])} mit höchstens einem Angebot; über '
+            f'alle ausgewerteten Lose im Register sind es '
             f'{pct_de(lv["base"])}. Unsere Auswahl trifft also '
             f'{factor_de(lv["factor"])}-mal so oft.</p>')
 
@@ -405,26 +396,29 @@ def forecast_section(fc, all_fc=None):
                 'Hinweise vor, um das zu belegen. Solange das so ist, '
                 'behaupten wir dazu nichts.</p>' + overall)
     st, generated = fc
-    checked, hits = st['flagged'], st['tp']
-    if checked < MIN_CHECKED or st['precision'] is None:
+    checked, hits = st['k'], st['hits']
+    if checked < MIN_CHECKED:
         return ('<h2>Wie gut trifft unsere Einschätzung?</h2>'
-                f'<p>Bisher konnten erst {checked} unserer Hinweise in diesem '
-                f'Gewerk gegen ein veröffentlichtes Ergebnis geprüft werden — '
-                f'zu wenige für eine belastbare Quote. Wir nennen sie erst ab '
-                f'{MIN_CHECKED}.</p>' + overall)
-    prec, base = st['precision'], st['base']
-    # the same rate as the tile at the top, by construction (`against`): the
-    # sentence says so, and a reader can check it
-    lead = (f'<p>Von {checked} Hinweisen, die wir in diesem Gewerk gegeben '
-            f'haben und deren Ergebnis inzwischen veröffentlicht ist, endeten '
-            f'<strong>{hits} mit höchstens einem Angebot '
-            f'({pct_de(prec)})</strong>. '
-            f'Im Gewerk insgesamt sind es {pct_de(base)} aller ausgewerteten '
-            f'Lose — die Kennzahl oben.</p>')
+                f'<p>Bisher konnten erst {st["n"]} Lose dieses Gewerks gegen '
+                f'ein veröffentlichtes Ergebnis geprüft werden — zu wenige '
+                f'für eine belastbare Quote. Wir nennen sie erst, wenn das '
+                f'oberste Fünftel unserer Reihenfolge mindestens '
+                f'{MIN_CHECKED} Lose umfasst.</p>' + overall)
+    prec, base = st['hit'], st['base']
+    # the same rate as the tile at the top, by construction (rank_stats):
+    # the sentence says so, and a reader can check it
+    lead = (f'<p>Wir ordnen jede Ausschreibung danach, wie wahrscheinlich '
+            f'sie mit höchstens einem Angebot endet. {st["n"]} Lose dieses '
+            f'Gewerks konnten bisher gegen das veröffentlichte Ergebnis '
+            f'geprüft werden. Vom <strong>obersten Fünftel</strong> dieser '
+            f'Reihenfolge ({checked} Lose) endeten <strong>{hits} mit '
+            f'höchstens einem Angebot ({pct_de(prec)})</strong>. '
+            f'Im Gewerk insgesamt sind es {pct_de(base)} — die Kennzahl '
+            f'oben.</p>')
     # one verdict for the sentence, the tile, the operator page and the
     # message: `level`'s
     if level(fc)['state'] != 'beats':
-        verdict = ('<p><strong>Damit trifft unsere Einschätzung hier nicht '
+        verdict = ('<p><strong>Damit trifft unsere Auswahl hier nicht '
                    'besser als der Durchschnitt des Gewerks.</strong> Wir '
                    'sagen das, statt es wegzulassen: in diesem Gewerk liegt '
                    'unser Nutzen derzeit in der vollständigen Übersicht, '
@@ -432,20 +426,28 @@ def forecast_section(fc, all_fc=None):
     else:
         verdict = (f'<p>Das ist das {factor_de(prec / base)}-Fache der Quote '
                    f'des Gewerks.</p>')
-    # recall is the replay's own: it needs to know which lonely lots we did
-    # NOT flag, and that is only known for the lots the replay scored. The
-    # sentence names that pool rather than claiming "all lots of the trade".
+    # the sorting check, without choosing a cut: AUC in plain words. Printed
+    # in both verdicts — a reader who can divide deserves the whole picture.
+    auc_p = ('' if st.get('auc') is None else
+             f'<p>Die Sortierung insgesamt: nimmt man ein Los, das mit '
+             f'höchstens einem Angebot endete, und eines mit mehreren, dann '
+             f'steht das einsame in {100 * st["auc"]:.0f} von 100 Fällen '
+             f'weiter oben in unserer Reihenfolge (Zufall wäre 50, perfekt '
+             f'100 — der Fachbegriff ist AUC).</p>')
+    # recall: of the lonely lots we could check, the share our top fifth
+    # held. The sentence names the checked pool, not "all lots of the trade".
     rec = ('' if st['recall'] is None else
            f'<p class="muted">Umgekehrt gilt: wir finden nicht alle. Von '
-           f'den Losen, die wir damals prüfen konnten und die mit höchstens '
-           f'einem Angebot endeten, hatten wir {pct_de(st["recall"])} vorher '
-           f'genannt.</p>')
+           f'den geprüften Losen, die mit höchstens einem Angebot endeten, '
+           f'stand {pct_de(st["recall"])} in unserem obersten Fünftel.</p>')
     return ('<h2>Wie gut trifft unsere Einschätzung?</h2>' + lead + verdict
-            + rec + overall +
+            + auc_p + rec + overall +
             f'<p class="muted">Grundlage ist ein Rücktest: die Historie wird '
             f'so nachgespielt, wie das System sie damals gesehen hätte, und '
             f'jede Einschätzung gegen das später veröffentlichte Ergebnis '
-            f'geprüft. Stand des Rücktests: {esc(generated)}.</p>')
+            f'geprüft. Gezählt werden nur Lose, deren Frist lange genug '
+            f'zurückliegt, dass das Ergebnis vorliegt. Stand des Rücktests: '
+            f'{esc(generated)}.</p>')
 
 
 def fig(value, label):
@@ -733,9 +735,10 @@ def build(data_dir, out=None, dry_run=False, site=SITE, replay=None):
 
     built, skipped, pages, verdicts = [], [], {}, {}
     # every forecast claim is measured against the market's own 0/1 rate —
-    # store-wide here, the trade's tile below — never the replay pool's
+    # store-wide here, the trade's tile below — never the replay pool's;
+    # and only on mature months, in the slice and the base alike
     base_all, _ = market.low_bid_rate(lots, mature)
-    all_fc = forecast_all(receipt, base_all)
+    all_fc = rank_stats(receipt, base_all, lots=lots, months=mature)
     verdicts[ALL] = level(all_fc)
     for name, trade in sorted(trades.items()):
         sel = market.match(lots, trade, 'core')
@@ -747,7 +750,7 @@ def build(data_dir, out=None, dry_run=False, site=SITE, replay=None):
             continue
         slug = slugify(name)
         built.append((name, slug))
-        fc = forecast_for(receipt, lots, sel, f['low_bid'])
+        fc = rank_stats(receipt, f['low_bid'], lots=lots, sel=sel, months=mature)
         pages[slug] = page(name, slug, f, fc, all_fc)
         # the level AND the page's market figures: the invitation message
         # quotes both, and a request must not recompute them
