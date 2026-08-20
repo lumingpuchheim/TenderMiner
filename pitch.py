@@ -1,13 +1,15 @@
 """The invitation message — doc/ONBOARDING.md 9.2a.
 
 One firm, one message to paste into LinkedIn (or Xing, or read out on the
-phone). Redrafted with the operator 2026-08-18, after reading the first one
-as a recipient: it said neither who "wir" was nor what problem it solved, the
-tenders were dead text, and the firm's own win proved nothing. Now: who we
-are and the problem in two sentences; the trade's market figures from its
-public page (`trade_pages.forecasts`); the forecast's edge in that trade,
-**only where it beats guessing** — the operator writes to no other firms;
-the live picks, each with its TED link; the invitation link; a signature.
+phone). Redrafted with the operator 2026-08-18; reordered 2026-08-20 ("a new
+potential customer wont be interested in the theory if he doesnt know what
+is it about"): who we are in two sentences; the trade's market figures from
+its public page (`trade_pages.forecasts`); why low-competition lots pay,
+then the picks, each with its TED link; the invitation link; ONE sentence of
+proof — we grade ourselves against published outcomes, the current rate is
+on the trade page — where the old track-record paragraph used to lecture.
+The verdict still decides WHOM the operator writes to (admin page); the
+message itself quotes no precision, factor or checked counts.
 "Wir" throughout, no person's name (we do not know it), no "ich".
 
 The picks come from the same machinery a customer's Monday report uses: the
@@ -284,53 +286,6 @@ def facts_block(trade, v):
                      f'{pct_de(f["low_bid"])} der Lose bekommen höchstens ein '
                      f'Angebot{window}')
     return lines
-
-
-def edge_block(trade, v, overall=None):
-    """What we are good at, in numbers: the overall record first (all
-    trades, the one figure with a real sample), then the trade's own line —
-    each ONLY when it beats guessing on enough checked alarms
-    (`trade_pages.level` state 'beats'). A trade without an edge prints
-    nothing of its own; the operator does not write to those firms
-    (2026-08-18), and a message never carries a number the page would not.
-    """
-    from trade_pages import factor_de, pct_de
-
-    def beats(lv):
-        return lv and lv.get('state') == 'beats' and lv.get('factor')
-
-    if not beats(overall) and not beats(v):
-        return []
-
-    def n_de(n):
-        return f'{n:,}'.replace(',', '.')          # 1042 -> 1.042
-
-    # Every number is defined in the sentence that uses it (operator,
-    # 2026-08-18: "the numbers make no sense unless you explain them"):
-    # what a checked hint is, what "ended with at most one bid" means, what
-    # the comparison is (any tender, picked blind), and what the factor is.
-    out = ['Wie gut das klappt, prüfen wir laufend: Wir ordnen jede '
-           'Ausschreibung nach der erwarteten Zahl der Angebote und sehen '
-           'später im veröffentlichten Ergebnis nach, wie viele wirklich '
-           'eingegangen sind.']
-    if beats(overall):
-        out.append(f'Vom obersten Fünftel unserer Reihenfolge — '
-                   f'{n_de(overall["checked"])} geprüfte Lose über alle '
-                   f'Gewerke — endeten {pct_de(overall["precision"])} mit '
-                   f'höchstens einem Angebot. Nimmt man stattdessen '
-                   f'irgendeine Ausschreibung, sind es '
-                   f'{pct_de(overall["base"])}. Unsere Auswahl trifft also '
-                   f'{factor_de(overall["factor"])}-mal so oft.')
-    if beats(v):
-        out.append(f'Im Gewerk {trade} allein: {n_de(v["checked"])} Lose im '
-                   f'obersten Fünftel geprüft, {pct_de(v["precision"])} mit '
-                   f'höchstens einem Angebot gegenüber {pct_de(v["base"])} im '
-                   f'Gewerk insgesamt – '
-                   f'{factor_de(v["factor"])}-mal so oft; diese Zahl wächst '
-                   f'mit jeder geprüften Woche.')
-    return [' '.join(out)]
-
-
 def message(home, sub_id, url, company=None, today=None):
     """-> {'short', 'long', 'picks', 'win', 'trade', 'edge'} — the two texts
     to paste (drafted with the operator 2026-08-18).
@@ -361,39 +316,32 @@ def message(home, sub_id, url, company=None, today=None):
             picks = sales.candidates(home, sub, trade, today)
         except Exception as e:                                 # noqa: BLE001
             print(f'[pitch] candidates unavailable ({e})')
-    who = (f'Betriebe im Gewerk {trade}' if trade
-           else 'Handwerks- und Baubetriebe')
-
+    # Reader-first order (operator, 2026-08-20: "a new potential customer
+    # wont be interested in the theory if he doesnt know what is it about"):
+    # who writes, the trade's numbers, why low-competition lots pay, the
+    # lots. The track-record paragraph is GONE from the message — the proof
+    # lives in one sentence at the end, next to the decision, and in full on
+    # the trade page. `who` stays in the empty-picks branch only.
     lines = ['Guten Tag,', '',
-             f'danke für die Kontaktannahme. Worum es geht: Wir sind Murara. '
-             f'Wir lesen jede Woche alle deutschen Ausschreibungen und suchen '
-             f'für {who} die Lose heraus, bei denen voraussichtlich nur ein '
-             f'oder zwei Firmen anbieten. Dort ist die Zuschlagschance am '
-             f'höchsten – und man spart sich Angebote gegen zehn Wettbewerber. '
-             f'Ihre Firma haben wir über Ihre Aufträge im EU-Vergaberegister '
-             f'gefunden.', '']
+             f'danke für die Kontaktannahme. Wir sind Murara – wir lesen jede '
+             f'Woche alle deutschen Ausschreibungen. Ihre Firma haben wir '
+             f'über Ihre Aufträge im EU-Vergaberegister gefunden.', '']
     facts = facts_block(trade, v) if trade else []
     if facts:
         lines += facts + ['']
-    edge = edge_block(trade, v, overall)
-    if edge:
-        lines += edge
-    if facts or edge:
-        where = (f'{SITE_URL}/gewerke/{v["slug"]}/' if v.get('slug')
-                 else f'{SITE_URL}/gewerke/')
-        lines += [f'Alle Zahlen und wie sie entstehen: {where}', '']
     if picks:
         # The list is the product working, not inventory (operator,
-        # 2026-08-18: "just three tenders? why should they care?"): it says
-        # these are the lots we expect few bidders on, picked for this firm,
-        # and each carries the reasons the forecast gives (`why_lonely`).
+        # 2026-08-18: "just three tenders? why should they care?"): the why
+        # comes BEFORE the lots, each lot carries the forecast's reasons
+        # (`why_lonely`).
         n = len(picks)
-        word = {1: 'Eine Ausschreibung, die', 2: 'Zwei Ausschreibungen, die'
-                }.get(n, 'Drei Ausschreibungen, die')
-        lines += [f'So sieht das konkret aus. {word} gerade offen '
-                  f'{"ist" if n == 1 else "sind"} und bei '
-                  f'{"der" if n == 1 else "denen"} wir wenige Bieter erwarten '
-                  f'– ausgewählt nach dem, was Sie bisher gewonnen haben:', '']
+        count = {1: 'Eine solche ist', 2: 'Zwei solche sind',
+                 3: 'Drei solche sind'}.get(n, f'{n} solche sind')
+        lines += [f'Bei Losen mit wenig Wettbewerb lohnt sich ein Angebot '
+                  f'besonders: kaum Mitbewerber, kaum Preisdruck – und keine '
+                  f'Angebote, die umsonst kalkuliert waren. {count} in Ihrem '
+                  f'Gewerk gerade offen – ausgewählt nach dem, was Sie bisher '
+                  f'gewonnen haben:', '']
         for i, p in enumerate(picks, 1):
             fd, fp = util.frist(p)
             frist_txt = ('Teilnahmeantrag bis' if fp else 'Frist') + f' {_de(fd)}'
@@ -406,9 +354,7 @@ def message(home, sub_id, url, company=None, today=None):
             pn = p.get('publication_number')
             if pn:
                 lines.append(f'   {TED_URL.format(pn=pn)}')
-        lines += ['', 'Bei solchen Losen lohnt sich ein Angebot besonders: '
-                  'wenige Mitbewerber, weniger Preisdruck – und Sie erfahren '
-                  'davon, bevor die Frist knapp wird.', '']
+        lines += ['']
     else:
         lines += ['Diese Woche ist in Ihrem Gewerk nichts Passendes offen – '
                   'auch das sagen wir, statt etwas aufzufüllen. Der erste '
@@ -422,11 +368,19 @@ def message(home, sub_id, url, company=None, today=None):
     price = (os.environ.get('TM_PRICE_LINE') or '').strip()
     after = (f'danach kostet sie {price}' if price else
              'danach gegen eine monatliche Gebühr, die wir Ihnen vorher nennen')
+    where = (f'{SITE_URL}/gewerke/{v["slug"]}/' if v.get('slug')
+             else f'{SITE_URL}/gewerke/')
     lines += [f'Wenn Sie so eine Auswahl jeden Montag per E-Mail bekommen '
               f'möchten: {url} – E-Mail-Adresse eintragen, fertig. Vier Wochen '
               f'bekommen Sie sie ohne Kosten; {after}, kündbar jederzeit mit '
               f'einem Klick. Es gibt kein Konto und kein Passwort – nur Ihre '
               f'E-Mail-Adresse.', '',
+              # the one sentence of proof, at the decision point: we check
+              # ourselves against published outcomes, and the reader can
+              # audit the current rate on the public page — no numbers here
+              f'Ob unsere Auswahl trifft, prüfen wir laufend gegen die später '
+              f'veröffentlichten Ergebnisse – die aktuelle Quote steht offen '
+              f'auf Ihrer Gewerkeseite: {where}', '',
               'Woher wir Ihre Firmendaten haben und wie Sie widersprechen, '
               'steht dort unter „Datenschutz".', '',
               SIGNATURE]

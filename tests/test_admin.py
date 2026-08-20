@@ -708,59 +708,44 @@ class Message(Base):
         self.assertIn('Blitzschutz und Erdung: Feuerwache in Hessen, Frist '
                       '30.09. – nach unserer Einschätzung bieten dort nur ein '
                       'bis zwei Firmen.', m['short'])
-        self.assertIn('Betriebe im Gewerk Blitzschutz und Erdung', m['long'])
         self.assertNotIn('…', m['short'])           # nothing cut off mid-word
         self.assertIn('12 öffentliche Lose pro Monat', m['long'])
         self.assertIn('84.000 € wert', m['long'])
         self.assertIn('12 % der Lose bekommen höchstens ein Angebot', m['long'])
-        self.assertIn('Im Gewerk Blitzschutz und Erdung allein: 43 Lose im '
-                      'obersten Fünftel geprüft, 16 % mit höchstens einem '
-                      'Angebot gegenüber 10 % im Gewerk insgesamt – '
-                      '1,6-mal so oft', m['long'])
-        self.assertNotIn('über alle Gewerke', m['long'])   # no overall given
+        # 2026-08-20, operator: the track-record paragraph is GONE from the
+        # message — a cold reader is not interested in the theory before the
+        # thing. Proof is ONE sentence at the end, with the page as source.
+        self.assertNotIn('obersten Fünftel', m['long'])
+        self.assertNotIn('-mal so oft', m['long'])
+        self.assertIn('prüfen wir laufend gegen die später veröffentlichten '
+                      'Ergebnisse', m['long'])
         self.assertIn('murara.eu/gewerke/blitzschutz-und-erdung/', m['long'])
-        # not better than guessing: the figures stay, the claim goes
-        self.verdict(state='no_better', checked=43, hits=3, precision=0.07,
-                     base=0.10, recall=0.1, factor=0.7)
-        m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today='2026-08-17')
-        self.assertIn('12 öffentliche Lose pro Monat', m['long'])
-        self.assertNotIn('geprüften Hinweisen', m['long'])
-        self.assertNotIn('-Fache', m['long'])
+        # the why stands BEFORE the lots, and the figures stay
+        self.assertLess(m['long'].index('lohnt sich ein Angebot'),
+                        m['long'].index('1. '))
 
-    def test_the_overall_record_leads_and_the_trade_follows(self):
-        """Operator, 2026-08-18: 'show what we are doing, what we are good
-        at'. The all-trades record is the one with a real sample; it comes
-        first, the trade's own line after it — each only when it beats
-        guessing."""
+    def test_no_verdict_numbers_reach_the_message_in_any_state(self):
+        """2026-08-20: whatever the verdict file says — thin, beats, with or
+        without an overall record — the message carries no precision, no
+        factor, no checked counts. The verdict still gates WHOM the operator
+        writes to (admin row), just not what the message says."""
         import pitch
         all_ = {'state': 'beats', 'checked': 1042, 'hits': 183,
                 'precision': 0.176, 'base': 0.094, 'recall': 0.32,
                 'factor': 1.86, 'generated': '2026-08-18'}
-        # trade thin, overall strong: the overall line alone
-        self.verdict(overall=all_, state='thin', checked=14, hits=2,
-                     precision=0.14, base=0.10, recall=0.1)
-        m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today='2026-08-17')
-        # every number defined in the sentence that uses it (operator,
-        # 2026-08-18: "the numbers make no sense unless you explain them")
-        self.assertIn('Wir ordnen jede Ausschreibung nach der erwarteten '
-                      'Zahl der Angebote und sehen später im '
-                      'veröffentlichten Ergebnis nach, wie viele wirklich '
-                      'eingegangen sind.', m['long'])
-        self.assertIn('Vom obersten Fünftel unserer Reihenfolge — 1.042 '
-                      'geprüfte Lose über alle Gewerke — endeten 18 % mit '
-                      'höchstens einem Angebot. Nimmt man stattdessen '
-                      'irgendeine Ausschreibung, sind es 9 %. Unsere Auswahl '
-                      'trifft also 1,9-mal so oft.', m['long'])
-        self.assertNotIn('Im Gewerk Blitzschutz', m['long'])
+        for kw in (dict(state='thin', checked=14, hits=2, precision=0.14,
+                        base=0.10, recall=0.1),
+                   dict(overall=all_, state='beats', checked=43, hits=7,
+                        precision=0.163, base=0.10, recall=0.3, factor=1.63)):
+            self.verdict(**kw)
+            m = pitch.message(self.dir, self.sub_id, 'https://a/t/x',
+                              today='2026-08-17')
+            self.assertNotIn('obersten Fünftel', m['long'])
+            self.assertNotIn('-mal so oft', m['long'])
+            self.assertNotIn('%', m['long'].split('Zahlen zu Ihrem Markt')[0])
+            self.assertIn('prüfen wir laufend gegen die später '
+                          'veröffentlichten Ergebnisse', m['long'])
         self.assertEqual(m['overall']['checked'], 1042)
-        # both: overall first, trade second, in one paragraph
-        self.verdict(overall=all_, state='beats', checked=43, hits=7,
-                     precision=0.163, base=0.10, recall=0.3, factor=1.63)
-        m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today='2026-08-17')
-        i = m['long'].index('über alle Gewerke')
-        j = m['long'].index('Im Gewerk Blitzschutz')
-        self.assertLess(i, j)
-        self.assertNotIn('\n', m['long'][i:j])
 
     def test_the_message_page_and_the_row_show_the_edge_verdict(self):
         """The operator writes only where there is an edge (2026-08-18), so
