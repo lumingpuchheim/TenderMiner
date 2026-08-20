@@ -133,9 +133,15 @@ def footer(home, sub_id, base_url=None):
         f'<a href="{e(recall)}">Nummer oder Link hier prüfen lassen</a> — '
         'wir sagen Ihnen, wie wir sie einschätzen.</p></div>'
         '<hr style="margin-top:2.5em;border:0;border-top:1px solid #ccc">'
-        '<p style="font-size:85%;color:#555;margin-bottom:.4em">'
-        f'<a href="{e(stop)}" style="color:#555">Berichte abbestellen</a>'
-        '</p>'
+        # a button, not a gray text line: the operator checked the
+        # 2026-08-20 test mail and "Berichte abbestellen is still not clear
+        # enough" — an unsubscribe a reader has to hunt for reads as one we
+        # hid. Neutral gray, so it is findable without competing with the
+        # subscribe ask.
+        '<p style="font-size:85%;margin-bottom:.4em">'
+        f'<a href="{e(stop)}" style="display:inline-block;padding:5px 12px;'
+        'background:#667;border-radius:4px;color:#fff;text-decoration:none">'
+        'Berichte abbestellen</a></p>'
         '<p style="font-size:85%;color:#555;margin-top:0">Sie können der '
         'Verarbeitung Ihrer Daten für diese Berichte jederzeit widersprechen '
         '(Art. 21 DSGVO) — über den Link „Berichte abbestellen" oder formlos '

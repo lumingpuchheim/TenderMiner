@@ -230,18 +230,19 @@ def feedback_cell(r, feedback_link):
     yes = feedback_link(r['procedure_id'], r['lot_id'], 'ist unser Geschäft')
     no = feedback_link(r['procedure_id'], r['lot_id'], 'nicht unser Geschäft')
     # two separate buttons, not two lines of text: a reader must never take
-    # them for one sentence (operator, 2026-08-17). Solid fills, not
-    # outlines — the outline version read as plain text (operator,
-    # 2026-08-20: "make sure all the buttons are clearly visible").
-    # Inline styles because mail clients drop <style>.
-    box = ('display:inline-block;padding:6px 12px;margin:3px 0;'
+    # them for one sentence (operator, 2026-08-17). Outline style, not
+    # solid fills: solid green/red on every row read as chaos in the
+    # 2026-08-20 test mail and the operator preferred the outline version
+    # from the mail before it. Inline styles because mail clients drop
+    # <style>.
+    box = ('display:inline-block;padding:3px 10px;margin:3px 0;'
            'border-radius:4px;white-space:nowrap;text-decoration:none;'
-           'color:#fff;font-weight:bold;')
+           'font-size:90%;')
     return (f'<td class="fb">'
-            f'<a href="{escape(yes)}" style="{box}background:#2a7">'
-            f'✔ Ja, unser Geschäft</a><br>'
-            f'<a href="{escape(no)}" style="{box}background:#c44">'
-            f'✘ Nein, nicht unser Geschäft</a></td>')
+            f'<a href="{escape(yes)}" style="{box}border:1px solid #2a7;'
+            f'color:#2a7">✔ Ja, unser Geschäft</a><br>'
+            f'<a href="{escape(no)}" style="{box}border:1px solid #c44;'
+            f'color:#c44">✘ Nein, nicht unser Geschäft</a></td>')
 
 
 def ask_html(y_url, price, number=None, total=None, final=True):
@@ -308,19 +309,18 @@ def customer_report(sub, sel, *, today, profile, receipts,
     # reads two things — is there a recommendation this week, and how did
     # the previous recommendations end. The operator reversed the
     # no-product-prose half on 2026-08-20 ("add some more introduction
-    # text"): one short paragraph now says what the report is and what one
-    # click of the Ja/Nein buttons does. Still no market statistics, no
-    # warnings list, no annex mention.
+    # text"): one short paragraph now says what Murara does and where the
+    # links lead. It stops there — the same day's second round cut the
+    # click-the-buttons plea ("the buttons are already clear and customers
+    # will do if they want"). Still no market statistics, no warnings
+    # list, no annex mention.
     body = [f'<h1>{escape(name)} — Murara-Bericht — {date_de(today.isoformat())}</h1>',
             '<p>Guten Tag,</p>'
             '<p>wir sind Murara. Wir lesen jede Woche die öffentlichen '
             'Ausschreibungen Deutschlands und empfehlen Ihnen die wenigen, '
             'die zu Ihrem Betrieb passen und bei denen wir wenig Wettbewerb '
             'erwarten — dort ist ein Angebot die Mühe wert. Jede Empfehlung '
-            'führt direkt zur offiziellen Bekanntmachung.</p>'
-            '<p>Eine Bitte: Sagen Sie uns bei jeder Empfehlung mit einem '
-            'Klick, ob sie Ihr Geschäft trifft. Jede Antwort macht die '
-            'nächsten Berichte treffsicherer.</p>']
+            'führt direkt zur offiziellen Bekanntmachung.</p>']
     if ask:
         body.append(ask)
     body += [
