@@ -74,7 +74,10 @@ cd "$D" 2>/dev/null || { echo "[secrets] no $D on the server"; exit 0; }
 printf '%-14s %-24s %-6s %s\n' FILE KEY STATE FIRST
 for f in *.env; do
     [ -e "$f" ] || continue
-    while IFS= read -r line; do
+    # `|| [ -n "$line" ]`: a final line with no trailing newline makes read
+    # return nonzero after filling line — without this it is silently skipped
+    # (mail.env, 2026-08-20: the key was pushed but invisible here).
+    while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in ''|'#'*) continue ;; esac
         k=${line%%=*}; v=${line#*=}
         if [ -n "$v" ]; then
@@ -97,7 +100,9 @@ set -eu
 cd "$D" 2>/dev/null || exit 0
 for f in *.env; do
     [ -e "$f" ] || continue
-    while IFS= read -r line; do
+    # Same no-trailing-newline guard as REMOTE_LIST: a skipped last line
+    # reads as "only on the server" / "only here" in diff.
+    while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in ''|'#'*) continue ;; esac
         k=${line%%=*}; v=${line#*=}
         if [ -n "$v" ]; then
