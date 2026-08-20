@@ -932,6 +932,35 @@ class TheCredentialIsAFileNotAnEnvironmentVariable(unittest.TestCase):
         self.assertNotIn('$$2a', self.script)
 
 
+class TheDeployNeverGoesDark(unittest.TestCase):
+    """2026-08-20, operator: „when you are deploying, the link is dead."
+    The deploy's switch recreates the app container, and for the seconds
+    the new one needs to start nothing listens on app:8000. The fix has
+    three parts, each pinned here the way it could silently come back."""
+
+    def setUp(self):
+        root = Path(__file__).resolve().parent.parent
+        self.caddyfile = (root / 'docker' / 'Caddyfile').read_text(encoding='utf-8')
+        self.deploy = (root / 'docker' / 'deploy.sh').read_text(encoding='utf-8')
+
+    def test_the_edge_holds_requests_through_the_app_swap(self):
+        # Both proxy blocks — losing it in one makes exactly the operator's
+        # or exactly the customers' requests die during a deploy.
+        self.assertEqual(self.caddyfile.count('lb_try_duration'), 2)
+
+    def test_the_edge_is_recreated_only_when_its_config_changed(self):
+        # An unconditional --force-recreate restarts Caddy (and drops TLS)
+        # on every deploy; the comparison is what makes it rare.
+        self.assertIn('sha256sum', self.deploy)
+        self.assertIn('leaving it untouched', self.deploy)
+
+    def test_the_edge_moves_before_the_app(self):
+        # The retry config must be in force when the swap happens — an edge
+        # recreated after the swap protects the NEXT deploy, not this one.
+        self.assertLess(self.deploy.index('--force-recreate edge'),
+                        self.deploy.index('compose refused to start'))
+
+
 class ThePasswordPromptSurvivesAPaste(unittest.TestCase):
     """The operator's password comes out of a password manager, so it is
     PASTED. A terminal in bracketed-paste mode wraps pasted text in

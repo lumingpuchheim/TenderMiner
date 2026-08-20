@@ -176,26 +176,48 @@ switch_to() {
         services+=(scheduler)
         say "scheduler is running; it will be recreated on $tag too"
     fi
-    local edge_running=''
-    [ -n "$(docker compose --profile edge ps -q edge 2>/dev/null)" ] && edge_running=1
+    # The edge rides deploys too: its image is caddy:2, not ours, but its
+    # CONFIG (docker/Caddyfile) arrives through git. When it changed it has
+    # to be FORCED: `up -d` recreates a service only when its compose config
+    # changed, and a bind-mounted file whose content changed is the same
+    # mount spec — so without --force-recreate the edge kept yesterday's
+    # Caddyfile in memory (and, since git replaces the file's inode, even a
+    # reload inside the container would have read the old one). Found
+    # 2026-08-16, when a root change deployed "successfully" and the site
+    # did not move.
+    #
+    # But only when it CHANGED (2026-08-20): a recreate restarts Caddy and
+    # drops TLS for a moment on every deploy, while most deploys never touch
+    # the Caddyfile. The running edge's config is compared byte for byte
+    # with the checkout's; identical means the restart would install what is
+    # already in force, so it is skipped. Unreadable (exec fails, container
+    # half up) falls back to recreating — the old hazard is silent staleness,
+    # never an extra restart.
+    #
+    # And BEFORE the app swap, not after: the edge's lb_try_duration is what
+    # holds requests while the app container is recreated below, so a
+    # Caddyfile that changes that setting must be in force when the swap
+    # happens, not one deploy later. While the edge restarts the OLD app is
+    # still serving, so the two blips can never stack.
+    if [ -n "$(docker compose --profile edge ps -q edge 2>/dev/null)" ]; then
+        local live_sum repo_sum
+        live_sum="$(docker compose --profile edge exec -T edge \
+                    sh -c 'cat /etc/caddy/Caddyfile' 2>/dev/null | sha256sum \
+                    | cut -d' ' -f1 || true)"
+        repo_sum="$(sha256sum "$REPO/docker/Caddyfile" | cut -d' ' -f1)"
+        if [ -n "$live_sum" ] && [ "$live_sum" = "$repo_sum" ]; then
+            say "edge already runs this Caddyfile; leaving it untouched"
+        else
+            say "edge is running; recreating it so it reads the deployed Caddyfile"
+            TM_TAG="$tag" docker compose --profile edge up -d --no-build \
+                --force-recreate edge \
+                || die "compose could not recreate the edge — nothing switched \
+yet, the old app keeps serving; check 'docker compose --profile edge ps edge'"
+        fi
+    fi
     TM_TAG="$tag" docker compose "${profiles[@]}" up -d --no-build "${services[@]}" \
         || die "compose refused to start $tag — the old containers may be down; \
 run 'bash docker/deploy.sh rollback'"
-    # The edge rides deploys too: its image is caddy:2, not ours, but its
-    # CONFIG (docker/Caddyfile) arrives through git. It has to be FORCED:
-    # `up -d` recreates a service only when its compose config changed, and
-    # a bind-mounted file whose content changed is the same mount spec — so
-    # without --force-recreate the edge kept yesterday's Caddyfile in memory
-    # (and, since git replaces the file's inode, even a reload inside the
-    # container would have read the old one). Found 2026-08-16, when a root
-    # change deployed "successfully" and the site did not move.
-    if [ -n "$edge_running" ]; then
-        say "edge is running; recreating it so it reads the deployed Caddyfile"
-        TM_TAG="$tag" docker compose --profile edge up -d --no-build \
-            --force-recreate edge \
-            || die "compose could not recreate the edge — app and cycle are on \
-$tag, but TLS may be down; check 'docker compose --profile edge ps edge'"
-    fi
 }
 
 # ----------------------------------------------------------- the public site

@@ -51,6 +51,12 @@
 			# who it was: basic auth's user id, so the app can file a
 			# Vormerken under that person's address (doc/SALES.md 3a)
 			header_up X-Murara-User {http.auth.user.id}
+			# A deploy recreates the app container (docker/deploy.sh
+			# switch_to); for a few seconds nothing listens on app:8000.
+			# Hold the request and keep dialing instead of answering 502:
+			# the visitor sees a slightly slower page, never a dead one.
+			lb_try_duration 30s
+			lb_try_interval 500ms
 		}
 	}
 
@@ -62,6 +68,9 @@
 		reverse_proxy app:8000 {
 			header_up -X-Murara-Admin
 			header_up -X-Murara-User
+			# same as the admin block: ride out the app swap of a deploy
+			lb_try_duration 30s
+			lb_try_interval 500ms
 		}
 	}
 }
