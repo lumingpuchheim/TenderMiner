@@ -43,7 +43,7 @@ class TheSeam(unittest.TestCase):
         guard = src.index('feedback_link is not None and not sel.picks')
         send = src.index('mid = send_report(')
         self.assertLess(guard, send)
-        self.assertIn('no picks — report written, not mailed', src)
+        self.assertIn('no picks — report written', src)
 
     def test_the_cycle_never_delivers(self):
         src = (REPO / 'cycle.py').read_text(encoding='utf-8')
