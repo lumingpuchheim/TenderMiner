@@ -230,16 +230,18 @@ def feedback_cell(r, feedback_link):
     yes = feedback_link(r['procedure_id'], r['lot_id'], 'ist unser Geschäft')
     no = feedback_link(r['procedure_id'], r['lot_id'], 'nicht unser Geschäft')
     # two separate buttons, not two lines of text: a reader must never take
-    # them for one sentence (operator, 2026-08-17). Inline styles because
-    # mail clients drop <style>.
-    box = ('display:inline-block;padding:3px 10px;margin:3px 0;'
+    # them for one sentence (operator, 2026-08-17). Solid fills, not
+    # outlines — the outline version read as plain text (operator,
+    # 2026-08-20: "make sure all the buttons are clearly visible").
+    # Inline styles because mail clients drop <style>.
+    box = ('display:inline-block;padding:6px 12px;margin:3px 0;'
            'border-radius:4px;white-space:nowrap;text-decoration:none;'
-           'font-size:90%;')
+           'color:#fff;font-weight:bold;')
     return (f'<td class="fb">'
-            f'<a href="{escape(yes)}" style="{box}border:1px solid #2a7;'
-            f'color:#2a7">✔ Ja, unser Geschäft</a><br>'
-            f'<a href="{escape(no)}" style="{box}border:1px solid #c44;'
-            f'color:#c44">✘ Nein, nicht unser Geschäft</a></td>')
+            f'<a href="{escape(yes)}" style="{box}background:#2a7">'
+            f'✔ Ja, unser Geschäft</a><br>'
+            f'<a href="{escape(no)}" style="{box}background:#c44">'
+            f'✘ Nein, nicht unser Geschäft</a></td>')
 
 
 def ask_html(y_url, price, number=None, total=None, final=True):
@@ -266,9 +268,9 @@ def ask_html(y_url, price, number=None, total=None, final=True):
             f'<p style="margin:0 0 .5em">Danach: <b>{escape(price)}, '
             'monatlich kündbar.</b></p>'
             f'<p style="margin:0 0 .5em"><a href="{escape(y_url)}" '
-            'style="display:inline-block;padding:6px 14px;border:1px solid '
-            '#2a6;border-radius:4px;color:#2a6;text-decoration:none">'
-            'Ja, Murara abonnieren</a></p>'
+            'style="display:inline-block;padding:8px 16px;background:#2a6;'
+            'border-radius:4px;color:#fff;font-weight:bold;'
+            'text-decoration:none">Ja, Murara abonnieren</a></p>'
             + (f'<p style="margin:0;font-size:90%;color:#555">{foot}</p>'
                if foot else '')
             + '</div>')
@@ -302,11 +304,23 @@ def customer_report(sub, sel, *, today, profile, receipts,
     # the report never cites how many lots we checked or matched — the size of
     # our haystack is our business, not the customer's (decision 2026-08-05);
     # the product is the short list itself
-    # Report copy (decision 2026-08-06): the customer reads exactly two things
-    # — is there a recommendation this week, and how did the previous
-    # recommendations end. No product prose, no market statistics, no warnings
-    # list, no annex mention.
-    body = [f'<h1>{escape(name)} — Murara-Bericht — {date_de(today.isoformat())}</h1>']
+    # Report copy (decision 2026-08-06, amended 2026-08-20): the customer
+    # reads two things — is there a recommendation this week, and how did
+    # the previous recommendations end. The operator reversed the
+    # no-product-prose half on 2026-08-20 ("add some more introduction
+    # text"): one short paragraph now says what the report is and what one
+    # click of the Ja/Nein buttons does. Still no market statistics, no
+    # warnings list, no annex mention.
+    body = [f'<h1>{escape(name)} — Murara-Bericht — {date_de(today.isoformat())}</h1>',
+            '<p>Guten Tag,</p>'
+            '<p>wir sind Murara. Wir lesen jede Woche die öffentlichen '
+            'Ausschreibungen Deutschlands und empfehlen Ihnen die wenigen, '
+            'die zu Ihrem Betrieb passen und bei denen wir wenig Wettbewerb '
+            'erwarten — dort ist ein Angebot die Mühe wert. Jede Empfehlung '
+            'führt direkt zur offiziellen Bekanntmachung.</p>'
+            '<p>Eine Bitte: Sagen Sie uns bei jeder Empfehlung mit einem '
+            'Klick, ob sie Ihr Geschäft trifft. Jede Antwort macht die '
+            'nächsten Berichte treffsicherer.</p>']
     if ask:
         body.append(ask)
     body += [
