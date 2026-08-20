@@ -273,10 +273,16 @@ def facts_block(trade, v):
         lines.append(f'– ein Los ist im Mittel {money_de(f["median_award"])} '
                      f'€ wert')
     if f.get('low_bid') is not None:
+        # the bidder line runs over the page's bidder window (the last
+        # `bidder_months` months with complete results, market.RECENT_MONTHS),
+        # not the volume lines' full history — and says so, like the page
+        # (2026-08-20: one window per claim, named where it is used)
+        window = (f' (letzte {f["bidder_months"]} Monate mit vollständigen '
+                  f'Ergebnissen)' if f.get('bidder_months') else '')
         lines.append(f'– auf ein Los bewerben sich im Mittel '
                      f'{f.get("median_bidders", 0):.0f} Firmen – aber '
                      f'{pct_de(f["low_bid"])} der Lose bekommen höchstens ein '
-                     f'Angebot')
+                     f'Angebot{window}')
     return lines
 
 
