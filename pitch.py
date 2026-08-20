@@ -361,13 +361,10 @@ def message(home, sub_id, url, company=None, today=None):
                   'ein Los auftaucht, bekommen Sie es.', '']
     # The terms, complete and in one breath, where the decision is made
     # (operator, 2026-08-18: "kostenlos" with its end and its price visible
-    # is a trial; without them it is bait). The price line is the env's
-    # (app.PRICE_ENV) — until it is decided the sentence says so rather than
-    # hiding it.
-    import os
-    price = (os.environ.get('TM_PRICE_LINE') or '').strip()
-    after = (f'danach kostet sie {price}' if price else
-             'danach gegen eine monatliche Gebühr, die wir Ihnen vorher nennen')
+    # is a trial; without them it is bait). The price is `mailer.price_line`
+    # — always a number, never "to be announced" (2026-08-20).
+    import mailer
+    after = f'danach {mailer.price_line()}'
     where = (f'{SITE_URL}/gewerke/{v["slug"]}/' if v.get('slug')
              else f'{SITE_URL}/gewerke/')
     # No weekly promise (operator, 2026-08-20): a mail comes when there is a

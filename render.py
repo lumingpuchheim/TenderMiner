@@ -242,34 +242,36 @@ def feedback_cell(r, feedback_link):
             f'color:#c44">✘ Nein, nicht unser Geschäft</a></td>')
 
 
-def ask_html(y_url, number=None, total=None, final=True):
-    """The subscribe box on a trial report (LAUNCH.md 3; reworded and put on
-    EVERY free mail 2026-08-20 — operator: ask directly, and not only once
-    at the end). The question is the ask itself — „Möchten Sie weitere
-    Empfehlungen erhalten?" — one button, the standing `y` link. On mails
-    before the last the small line says the count and that a click costs
-    nothing yet; on the LAST free mail it says what silence means."""
+def ask_html(y_url, price, number=None, total=None, final=True):
+    """The subscribe box on EVERY free mail (operator, 2026-08-20): the ask
+    is direct and complete — the count, the promise that the free mails come
+    in any case, the PRICE (`mailer.price_line`; never 'to be announced' —
+    an ask without a price is bait), one button. The last free mail says
+    what silence means instead of the promise."""
     if final:
-        head = ('<b>Das ist Ihre letzte kostenlose Empfehlung.</b> '
+        head = ('<b>Das war Ihre letzte kostenlose Empfehlung.</b> '
                 'Möchten Sie weitere erhalten?')
-        foot = ('Sonst kommt ab jetzt kein Bericht mehr — nur gelegentlich '
+        foot = ('Sonst kommt danach kein Bericht mehr — nur gelegentlich '
                 'eine Nachricht, wie unsere Empfehlungen für Sie ausgegangen '
                 'sind. Jede trägt diesen Link wieder; Sie können auch später '
                 'jederzeit einsteigen.')
     else:
-        head = (f'<b>Empfehlung {number} von {total} kostenlosen.</b> '
-                f'Möchten Sie auch danach weitere erhalten?')
-        foot = ('Mit dem Klick entsteht noch keine Zahlungspflicht — den '
-                'Preis nennen wir Ihnen vorher.')
+        head = (f'<b>Empfehlung {number} von {total} kostenlosen.</b> Die '
+                f'bekommen Sie in jedem Fall — ob Sie sich jetzt entscheiden '
+                f'oder erst später.')
+        foot = ''
     return ('<div style="margin:0 0 1.5em;padding:12px 14px;background:#fff8e6;'
             'border-left:3px solid #d9a400">'
             f'<p style="margin:0 0 .5em">{head}</p>'
+            f'<p style="margin:0 0 .5em">Danach: <b>{escape(price)}, '
+            'monatlich kündbar.</b></p>'
             f'<p style="margin:0 0 .5em"><a href="{escape(y_url)}" '
             'style="display:inline-block;padding:6px 14px;border:1px solid '
             '#2a6;border-radius:4px;color:#2a6;text-decoration:none">'
-            'Ja, weiter mit Murara</a></p>'
-            f'<p style="margin:0;font-size:90%;color:#555">{foot}</p>'
-            '</div>')
+            'Ja, Murara abonnieren</a></p>'
+            + (f'<p style="margin:0;font-size:90%;color:#555">{foot}</p>'
+               if foot else '')
+            + '</div>')
 
 
 def customer_report(sub, sel, *, today, profile, receipts,

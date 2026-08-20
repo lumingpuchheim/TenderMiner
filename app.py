@@ -649,8 +649,6 @@ def post_recall(ctx, row, form):
 
 # ------------------------------------------------------- the yes-link (/y/)
 
-PRICE_ENV = 'TM_PRICE_LINE'      # e.g. "179 € im Monat, monatlich kündbar";
-                                 # unset until the price is decided (LAUNCH.md 6)
 STRIPE_ENV = 'TM_STRIPE_URL'     # the payment link; unset = "wir melden uns"
 
 
@@ -668,19 +666,19 @@ def get_subscribe(ctx, row):
           <h1>Sie sind dabei</h1>
           <p>Für <strong>{esc(firm)}</strong> laufen die Berichte weiter.
              Fragen: <a href="mailto:{esc(CONTACT)}">{esc(CONTACT)}</a>.</p>""")
-    price = os.environ.get(PRICE_ENV, '').strip()
-    price_line = (f'<p>Preis: <strong>{esc(price)}</strong>.</p>' if price else
-                  '<p>Den Preis nennen wir Ihnen persönlich, bevor etwas '
-                  'berechnet wird — mit dem Klick entsteht noch keine '
-                  'Zahlungspflicht.</p>')
+    # always a price (mailer.price_line, 2026-08-20): the ask that brought
+    # the reader here named it, and this page confirms the same number
+    import mailer
+    price_html = (f'<p>Preis: <strong>{esc(mailer.price_line())}</strong>, '
+                  'monatlich kündbar.</p>')
     return page('Weiter mit Murara', f"""
       <h1>Weiter mit Murara</h1>
       <p>Für <strong>{esc(firm)}</strong>: die Berichte laufen weiter — sobald
          es passende Ausschreibungen gibt, geprüft jede Woche. Monatlich
          beendbar, jederzeit, mit einem Klick in jeder E-Mail.</p>
-      {price_line}
+      {price_html}
       <form method="post">
-        <p><button type="submit">Ja, weiter mit Murara</button></p>
+        <p><button type="submit">Ja, Murara abonnieren</button></p>
       </form>""")
 
 

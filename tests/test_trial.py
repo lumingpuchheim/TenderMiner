@@ -88,9 +88,12 @@ class Ask(Base):
         # 2026-08-20): a direct question, the count, no payment yet
         early = delivering.ask_for(self.dir, 'firm', number=1, final=False)
         self.assertIn('Empfehlung 1 von 4 kostenlosen', early)
-        self.assertIn('Möchten Sie auch danach weitere erhalten?', early)
-        self.assertIn('keine Zahlungspflicht', early)
-        self.assertIn('Ja, weiter mit Murara', early)
+        self.assertIn('Die bekommen Sie in jedem Fall', early)
+        # the price stands in EVERY ask (operator, 2026-08-20: "i must show
+        # the price clearly" — no 'Zahlungspflicht' hedge anywhere)
+        self.assertIn('79 € im Monat, monatlich kündbar', early)
+        self.assertNotIn('Zahlungspflicht', early)
+        self.assertIn('Ja, Murara abonnieren', early)
         self.assertNotIn('kein Bericht mehr', early)
         # three report mails on record: the next one is the fourth -> final
         ledger.append(self.dir, 'app_events', [
@@ -104,8 +107,9 @@ class Ask(Base):
         html = delivering.ask_for(self.dir, 'firm', number=4, final=True)
         self.assertIn('letzte kostenlose Empfehlung', html)
         self.assertIn('Möchten Sie weitere erhalten?', html)
+        self.assertIn('79 € im Monat, monatlich kündbar', html)
         self.assertIn('kein Bericht mehr', html)
-        self.assertIn('Ja, weiter mit Murara', html)
+        self.assertIn('Ja, Murara abonnieren', html)
         self.assertIn('https://app.murara.eu/y/', html)
         # the ask goes out -> event; from then on `asked` is True
         ledger.append(self.dir, 'app_events', [{
@@ -123,11 +127,15 @@ class Yes(Base):
     def _y(self):
         return '/y/' + tokens.standing(self.dir, 'y', 'firm')
 
-    def test_get_shows_the_firm_and_no_price_until_set(self):
+    def test_get_always_shows_a_price(self):
+        """2026-08-20: there is no 'price to be announced' state — the
+        default (mailer.DEFAULT_PRICE_LINE) stands until the operator's
+        pricing decision, TM_PRICE_LINE overrides."""
         status, _, body = request(self.dir, self._y())
         self.assertEqual(status, '200 OK')
         self.assertIn('Firm GmbH', body)
-        self.assertIn('keine Zahlungspflicht', body)
+        self.assertIn('79 € im Monat', body)
+        self.assertNotIn('Zahlungspflicht', body)
         with mock.patch.dict(os.environ, {'TM_PRICE_LINE': '179 € im Monat'}):
             _, _, body = request(self.dir, self._y())
         self.assertIn('179 € im Monat', body)

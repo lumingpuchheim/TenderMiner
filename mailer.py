@@ -50,6 +50,24 @@ def app_url(base=None):
     return (base or os.environ.get(APP_URL_ENV) or DEFAULT_APP_URL).rstrip('/')
 
 
+PRICE_ENV = 'TM_PRICE_LINE'
+DEFAULT_PRICE_LINE = '79 € im Monat'   # operator, 2026-08-20 — provisional
+                                       # while the pricing study runs
+
+
+def price_line():
+    """The subscription price as one German phrase — '79 € im Monat'.
+
+    Asking someone to subscribe without naming the price is bait (operator,
+    2026-08-20: "i assume i must show the price clearly"), so every ask —
+    the report box, the invitation, the /y/ page — reads THIS function and
+    there is deliberately no 'price to be announced' state anywhere. The
+    default is provisional; `TM_PRICE_LINE` overrides it. Trade-dependent
+    and per-customer offers are the operator's next decision and will plug
+    in here, not in the texts."""
+    return (os.environ.get(PRICE_ENV) or '').strip() or DEFAULT_PRICE_LINE
+
+
 # kind -> contact states it may reach. THE table of this module.
 ALLOWED = {
     'report':   ('active',),

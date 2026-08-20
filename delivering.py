@@ -147,6 +147,7 @@ def ask_for(home, sub_id, number=None, final=True):
     import tokens
     return render.ask_html(
         f'{mailer.app_url()}/y/{tokens.standing(home, "y", sub_id)}',
+        mailer.price_line(),
         number=number, total=subscriptions.FREE_REPORTS, final=final)
 
 
