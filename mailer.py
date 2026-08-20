@@ -94,7 +94,12 @@ def _resend(payload):
     req = urllib.request.Request(
         API_URL, data=json.dumps(payload).encode('utf-8'),
         headers={'Authorization': f'Bearer {key}',
-                 'Content-Type': 'application/json'})
+                 'Content-Type': 'application/json',
+                 # Cloudflare in front of api.resend.com rejects urllib's
+                 # default Python-urllib/3.x signature with 403 (error 1010,
+                 # measured from the VPS 2026-08-20); any explicit product
+                 # agent passes
+                 'User-Agent': 'murara-mailer/1.0'})
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.loads(r.read().decode('utf-8')).get('id')
 
