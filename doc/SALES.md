@@ -169,23 +169,26 @@ them instead of the firm's top-scored picks:
 
 - **Kontaktanfrage** — a teaser, reworded 2026-08-18 after the first
   version named title and buyer and *then* asked permission to send them
-  (operator: "nonsense — he can google it, there is no reason to accept").
-  It shows what makes the lot credible and relevant, withholds what makes
-  it findable, and leads with our one thing he cannot google:
-  *„Guten Tag, \<main trade\>: \<kind of work\> in \<Land\>, \<rund
-  600.000 €\>, Frist \<dd.mm.\> – nach unserer Einschätzung bieten dort
-  nur ein bis zwei Firmen. Eine zweite solche haben wir auch. Wenn Sie die
-  Anfrage annehmen, schicken wir Ihnen beide Bekanntmachungen."*
-  The kind of work is the title with street, lot number, project code and
-  the trade word taken out (`pitch.work_of`; a strip that leaves nothing
-  falls back to the trade alone); the Land is the lot's NUTS (his region —
-  the draft's `nuts_prefixes` are where he has won); the value only when the
-  notice carries one, rounded to a band. No title, no buyer, no link. **No
-  terms, no price, no „kostenlos"** — the note is about one tender and one
-  promise; on LinkedIn accepting *is* the answer, so that is the ask.
-  ≤ 300 characters, never a cut word: value, then the kind of work, give
-  way first. With zero candidates the page shows **no note** — there is
-  nothing to promise.
+  (operator: "nonsense — he can google it, there is no reason to accept"),
+  and again 2026-08-20 (operator: "too many sudden facts, too few
+  emotion"). Variant B — the pain first, then the one lot almost nobody
+  will bid on:
+  *„Guten Tag, die meisten Angebote auf Ausschreibungen sind umsonst
+  kalkuliert – zu viele Bieter. Wir suchen die Lose, bei denen fast
+  niemand bietet. In \<Land\> ist gerade so eines offen, Frist \<dd.mm.\>,
+  passend zu Ihren bisherigen Aufträgen. Nehmen Sie die Anfrage an,
+  schicken wir die Bekanntmachung."*
+  No trade name — the match clause carries the relevance; the Land is the
+  lot's NUTS (his region — the draft's `nuts_prefixes` are where he has
+  won). No title, no buyer, no link. **No terms, no price, no
+  „kostenlos"** — the note is about one tender and one promise; on
+  LinkedIn accepting *is* the answer, so that is the ask. One lot is
+  promise enough; further ones are the surprise in the message. ≤ 300
+  characters, never a cut word: the match clause shortens, then the Land
+  becomes „Ihrer Region", then the clause goes. Variant A (recognition
+  first) sits in `pitch.note`'s docstring for a future A/B test. With
+  zero candidates the page shows **no note** — there is nothing to
+  promise.
 - **The terms stand in the message after contact, complete and in one
   breath**, where the decision is made: *„Vier Wochen bekommen Sie sie ohne
   Kosten; danach kostet sie \<TM_PRICE_LINE\>, kündbar jederzeit mit einem

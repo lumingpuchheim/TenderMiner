@@ -258,7 +258,7 @@ class TheTwoMessages(Due):
     delivers, and both come from the trigger's candidates. No candidates,
     no note — that is the whole point of the document."""
 
-    def test_the_note_names_the_main_trade_and_the_count(self):
+    def test_the_note_leads_with_the_pain_and_withholds_the_lot(self):
         import pitch
         predict(self.dir, [
             ('p40', 'Blitzschutzanlage Feuerwache', 'Stadt Nord',
@@ -266,17 +266,18 @@ class TheTwoMessages(Due):
             ('p41', 'Blitzschutz Erdungsanlage Klinik', 'Kreis Mitte',
              '2026-09-15', True)])
         m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today=TODAY)
-        # the teaser (2026-08-18): the forecast first, the kind of work and
-        # the Land, the deadline — and NOT the title, buyer or link, so that
-        # accepting the request has a value. Accepting is the answer.
+        # variant B (operator, 2026-08-20): the pain first, then the one lot
+        # almost nobody bids on — and NOT the title, buyer or link, so that
+        # accepting the request has a value. Accepting is the answer. One
+        # lot is promise enough; the second is the surprise in the message.
         self.assertTrue(m['short'].startswith(
-            'Guten Tag, Blitzschutz und Erdung: Erdungsanlage Klinik in '
-            'Hessen, Frist 15.09. – nach unserer Einschätzung bieten dort nur '
-            'ein bis zwei Firmen. '), m['short'])
-        self.assertIn('Eine zweite solche haben wir auch.', m['short'])
+            'Guten Tag, die meisten Angebote auf Ausschreibungen sind '
+            'umsonst kalkuliert – zu viele Bieter. '), m['short'])
+        self.assertIn('In Hessen ist gerade so eines offen, Frist 15.09., '
+                      'passend zu Ihren bisherigen Aufträgen.', m['short'])
         self.assertTrue(m['short'].endswith(
-            'Wenn Sie die Anfrage annehmen, schicken wir Ihnen beide '
-            'Bekanntmachungen.'), m['short'])
+            'Nehmen Sie die Anfrage an, schicken wir die Bekanntmachung.'),
+            m['short'])
         self.assertNotIn('Kreis Mitte', m['short'])          # the buyer stays back
         self.assertNotIn('Blitzschutz Erdungsanlage Klinikum', m['short'])
         self.assertLessEqual(len(m['short']), pitch.SHORT_LIMIT)
@@ -350,29 +351,29 @@ class TheTeaser(unittest.TestCase):
 
     def test_the_optional_parts_give_way_before_a_word_is_cut(self):
         import pitch
-        long_title = ('Erweiterung und Sanierung der Gesamtschule mit '
-                      'Dreifachsporthalle und Mensa Bauabschnitt zwei '
-                      'Elektroinstallation')
-        picks = [{'title': long_title, 'deadline_date': '2026-09-07',
-                  'place_nuts3': 'DEA1A', 'est_value_lot': 612345},
-                 {'title': 'x', 'deadline_date': '2026-09-08'},
-                 {'title': 'y', 'deadline_date': '2026-09-09'}]
-        n = pitch.note(picks, 'Lüftung, Klima und Kälte')
+        # the worst legitimate load: the longest Land name and the longer
+        # deadline word — the match clause shortens, then the Land becomes
+        # „Ihrer Region", and no word is ever cut
+        n = pitch.note([{'title': 'x', 'place_nuts3': 'DE803',
+                         'participation_deadline_date': '2026-09-07'}],
+                       'Elektroinstallation')
         self.assertLessEqual(len(n), pitch.SHORT_LIMIT)
         self.assertNotIn('…', n)
-        self.assertIn('Lüftung, Klima und Kälte', n)
-        self.assertIn('2 weitere solche haben wir auch.', n)
-        self.assertTrue(n.endswith('schicken wir Ihnen die Bekanntmachungen.'))
-        # the full version, when it fits, carries work and value
-        picks[0]['title'] = 'Neubau Kita Elektroinstallation'
-        n = pitch.note(picks[:1], 'Elektroinstallation')
-        self.assertIn('Elektroinstallation: Neubau Kita in Nordrhein-Westfalen, '
-                      'rund 600.000 €, Frist 07.09.', n)
-        self.assertTrue(n.endswith('schicken wir Ihnen die Bekanntmachung.'))
-        # no region known: "in Ihrer Region" — true, the lot is inside the
+        self.assertIn('Teilnahmefrist 07.09.', n)
+        self.assertIn('In Ihrer Region', n)          # Mecklenburg gave way
+        self.assertIn('passend zu Ihren Aufträgen', n)
+        # the full version, when it fits, carries the Land and the full
+        # match clause
+        n = pitch.note([{'title': 'x', 'deadline_date': '2026-09-07',
+                         'place_nuts3': 'DE712'}], 'Elektroinstallation')
+        self.assertIn('In Hessen ist gerade so eines offen, Frist 07.09., '
+                      'passend zu Ihren bisherigen Aufträgen.', n)
+        self.assertTrue(n.endswith('schicken wir die Bekanntmachung.'))
+        # no region known: "In Ihrer Region" — true, the lot is inside the
         # draft's nuts_prefixes, which are where the firm has won
-        picks[0]['place_nuts3'] = None
-        self.assertIn('in Ihrer Region', pitch.note(picks[:1], 'Elektroinstallation'))
+        n = pitch.note([{'title': 'x', 'deadline_date': '2026-09-07',
+                         'place_nuts3': None}], 'Elektroinstallation')
+        self.assertIn('In Ihrer Region', n)
 
 
 class Owners(unittest.TestCase):

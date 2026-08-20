@@ -683,8 +683,11 @@ class Message(Base):
                               m['long'])
         self.assertLessEqual(len(m['short']), pitch.SHORT_LIMIT)
         self.assertNotIn('http', m['short'])           # no link in the note
-        self.assertTrue(m['short'].startswith('Guten Tag, Blitzschutz und '
-                                              'Erdung'), m['short'])
+        # variant B (operator, 2026-08-20): the pain first, no trade name —
+        # „passend zu Ihren bisherigen Aufträgen" carries the relevance
+        self.assertTrue(m['short'].startswith(
+            'Guten Tag, die meisten Angebote auf Ausschreibungen sind '
+            'umsonst kalkuliert'), m['short'])
         # no terms, no price, no "kostenlos" in the note (operator,
         # 2026-08-18) — those stand, complete, in the message after contact
         for word in ('kostenlos', 'Kostenlos', 'Konto', 'Dürfen wir'):
@@ -710,9 +713,9 @@ class Message(Base):
                      base=0.10, recall=0.3, factor=1.63)
         m = pitch.message(self.dir, self.sub_id, 'https://a/t/x', today='2026-08-17')
         self.assertEqual(m['trade'], 'Blitzschutz und Erdung')
-        self.assertIn('Blitzschutz und Erdung: Feuerwache in Hessen, Frist '
-                      '30.09. – nach unserer Einschätzung bieten dort nur ein '
-                      'bis zwei Firmen.', m['short'])
+        self.assertIn('In Hessen ist gerade so eines offen, Frist 30.09., '
+                      'passend zu Ihren bisherigen Aufträgen.', m['short'])
+        self.assertNotIn('Feuerwache', m['short'])  # the title stays withheld
         self.assertNotIn('…', m['short'])           # nothing cut off mid-word
         self.assertIn('12 öffentliche Lose pro Monat', m['long'])
         self.assertIn('84.000 € wert', m['long'])

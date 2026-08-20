@@ -405,46 +405,46 @@ def message(home, sub_id, url, company=None, today=None):
 
 
 def note(picks, trade):
-    """The connection note (doc/SALES.md 6, reworded 2026-08-18 with the
-    operator): a teaser with the forecast first.
+    """The connection note (doc/SALES.md 6; variant B, chosen by the
+    operator 2026-08-20 — "too many sudden facts, too few emotion"): the
+    pain first (most bids are calculated for nothing), then the one lot
+    almost nobody will bid on, then the ask. The trade name does not appear;
+    „passend zu Ihren bisherigen Aufträgen" carries the relevance. Still
+    withheld: title, buyer, link — accepting the request keeps its value —
+    and no terms, no price, no "kostenlos". Accepting IS the answer on
+    LinkedIn, so that is the ask; one lot is promise enough, the further
+    ones are the surprise in the message after the contact. Never a cut-off
+    word: the parts give way in order — the match clause shortens, the Land
+    becomes „Ihrer Region", the clause goes — before anything is truncated.
 
-    Shows what makes the lot credible and relevant — the kind of work, the
-    Land, the size when the notice has one, the deadline — and our one thing
-    he cannot google: that we expect one or two bidders. Withholds what
-    makes it findable (title, buyer, link), so accepting the request has a
-    value: the notice. No terms, no price, no "kostenlos" — the note is about
-    one tender and one promise; the terms stand, complete, in the message
-    after the contact. Accepting IS the answer on LinkedIn, so that is the
-    ask. Never a cut-off word: the optional parts give way in order (value,
-    then the kind of work) before anything is truncated."""
+    Variant A, kept for a future A/B test (recognition first, chosen
+    against on 2026-08-20 but explicitly kept as the challenger):
+
+        Guten Tag, Ihre gewonnenen Aufträge im EU-Vergaberegister zeigen:
+        Sie können {trade}. Gerade ist in {Land} ein Los offen, auf das
+        nach unserer Prüfung kaum jemand bieten wird – kaum Preisdruck,
+        {Frist_wort} {when}. Wenn Sie die Anfrage annehmen, schicken wir
+        Ihnen die Bekanntmachung."""
     p = picks[0]
-    n = len(picks)
-    trade = trade or 'Ihr Gewerk'
     d, part = util.frist(p)
     when = _de(d)[:6]                                   # 07.09.
     frist_word = 'Teilnahmefrist' if part else 'Frist'
     land = land_of(p.get('place_nuts3'))
-    where = f' in {land}' if land else ' in Ihrer Region'
-    work = work_of(p.get('title'), trade)
-    value = value_band(p)
 
-    def build(with_work, with_value):
-        head = (f'{trade}: {work}{where}' if with_work and work
-                else f'{trade}{where}')
-        size = f', {value}' if with_value and value else ''
-        first = (f'Guten Tag, {head}{size}, {frist_word} {when} – nach unserer '
-                 f'Einschätzung bieten dort nur ein bis zwei Firmen. ')
-        more = ('' if n == 1 else
-                'Eine zweite solche haben wir auch. ' if n == 2 else
-                f'{n - 1} weitere solche haben wir auch. ')
-        what = ('die Bekanntmachung' if n == 1 else
-                'beide Bekanntmachungen' if n == 2 else
-                'die Bekanntmachungen')
-        ask = f'Wenn Sie die Anfrage annehmen, schicken wir Ihnen {what}.'
-        return first + more + ask
+    def build(match, with_land):
+        region = f'In {land}' if with_land and land else 'In Ihrer Region'
+        return (f'Guten Tag, die meisten Angebote auf Ausschreibungen sind '
+                f'umsonst kalkuliert – zu viele Bieter. Wir suchen die Lose, '
+                f'bei denen fast niemand bietet. {region} ist gerade so '
+                f'eines offen, {frist_word} {when}{match}. Nehmen Sie die '
+                f'Anfrage an, schicken wir die Bekanntmachung.')
 
-    for with_work, with_value in ((True, True), (True, False), (False, False)):
-        text = build(with_work, with_value)
+    for match, with_land in (
+            (', passend zu Ihren bisherigen Aufträgen', True),
+            (', passend zu Ihren Aufträgen', True),
+            (', passend zu Ihren Aufträgen', False),
+            ('', False)):
+        text = build(match, with_land)
         if len(text) <= SHORT_LIMIT:
             return text
     return text[:SHORT_LIMIT - 1].rstrip() + '…'            # belt and braces
