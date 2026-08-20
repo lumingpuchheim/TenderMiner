@@ -106,12 +106,22 @@ def slugify(name):
 def figures(lots, sel, covered, mature):
     """The numbers on a page, all of them market.py's own.
 
+    Volume figures (Lose pro Monat, Median-Auftragswert, Jahresvolumen) run
+    over the covered months — how big the market is. Every BIDDER figure —
+    the tile, the spread table, the median bidders, and therefore the base
+    every forecast claim is measured against — runs over the newest
+    `market.RECENT_MONTHS` mature months (`market.recent_mature`), and the
+    page says so: the archive reaches into 2023, whose much lonelier market
+    would otherwise sit inside a rate quoted to a reader bidding today
+    (operator, 2026-08-20).
+
     Returns None when the trade cannot honestly carry a page — fewer than
-    MIN_AWARDED awarded lots in mature months (doc/TRADE_PAGES.md 3)."""
+    MIN_AWARDED awarded lots in the bidder window (doc/TRADE_PAGES.md 3)."""
     sub = lots[sel]
     n_months = max(len(covered), 1)
     cov = sub[sub.month.isin(covered)]
-    mat = sub[sub.month.isin(mature) & sub.resolved]
+    recent = market.recent_mature(mature)
+    mat = sub[sub.month.isin(recent) & sub.resolved]
     if len(mat) < MIN_AWARDED:
         return None
     aw = sub.award_value.dropna()
@@ -119,7 +129,7 @@ def figures(lots, sel, covered, mature):
     med = float(aw.median()) if len(aw) else None
     zero = int((mat.n_tenders == 0).sum())
     one = int((mat.n_tenders == 1).sum())
-    low_bid, _ = market.low_bid_rate(lots, mature, sel)
+    low_bid, _ = market.low_bid_rate(lots, recent, sel)
     # "Closed without award" (`clos-nw`) is deliberately not on the page: to
     # a reader it means the same as "kein Angebot", and the difference (bids
     # came in, buyer still awarded nobody) needs a paragraph to explain and
@@ -147,6 +157,7 @@ def figures(lots, sel, covered, mature):
         'zero': zero, 'one': one,
         'median_bidders': float(mat.n_tenders.median()),
         'months': n_months,
+        'bidder_months': len(recent),
         'dist': dist,
     }
 
@@ -528,9 +539,14 @@ def page(name, slug, f, fc=None, all_fc=None):
         f'Gewerk, wenn sein Titel es benennt. In die Bieterzahlen gehen nur '
         f'Lose ein, für die eine Vergabebekanntmachung mit Bieteranzahl '
         f'vorliegt — die erscheint typischerweise rund drei Monate nach '
-        f'Angebotsfrist, weshalb die jüngsten Monate ausgenommen sind.</p>\n'
-        f'<p class="muted">Stand: {stand}, berechnet über {f["months"]} '
-        f'vollständig erfasste Monate.</p>\n\n'
+        f'Angebotsfrist, weshalb die jüngsten Monate ausgenommen sind. '
+        f'Alle Bieterzahlen — auch die Kennzahl oben und die Prüfquoten — '
+        f'stammen aus den letzten {f["bidder_months"]} Monaten, für die '
+        f'Ergebnisse vollständig vorliegen: der Wettbewerb verändert sich '
+        f'von Jahr zu Jahr, und eine Quote über die ganze Historie würde '
+        f'einen Markt beschreiben, den es so nicht mehr gibt.</p>\n'
+        f'<p class="muted">Stand: {stand}, Marktvolumen berechnet über '
+        f'{f["months"]} vollständig erfasste Monate.</p>\n\n'
         f'<div class="note">\n'
         f'  <h2 style="margin-top:0">Welche davon passen zu Ihrem Betrieb?</h2>\n'
         f'  <p>Eine Zeile mit Ihrem Firmennamen genügt. Wir sehen nach, was '
@@ -736,21 +752,25 @@ def build(data_dir, out=None, dry_run=False, site=SITE, replay=None):
     built, skipped, pages, verdicts = [], [], {}, {}
     # every forecast claim is measured against the market's own 0/1 rate —
     # store-wide here, the trade's tile below — never the replay pool's;
-    # and only on mature months, in the slice and the base alike
-    base_all, _ = market.low_bid_rate(lots, mature)
-    all_fc = rank_stats(receipt, base_all, lots=lots, months=mature)
+    # and only over the bidder window (the newest RECENT_MONTHS mature
+    # months), in the slice and the base alike: one window for every
+    # bidder number on a page
+    recent = market.recent_mature(mature)
+    base_all, _ = market.low_bid_rate(lots, recent)
+    all_fc = rank_stats(receipt, base_all, lots=lots, months=recent)
     verdicts[ALL] = level(all_fc)
     for name, trade in sorted(trades.items()):
         sel = market.match(lots, trade, 'core')
         f = figures(lots, sel, covered, mature)
         if f is None:
             mat = lots[sel]
-            mat = mat[mat.month.isin(mature) & mat.resolved]
+            mat = mat[mat.month.isin(recent) & mat.resolved]
             skipped.append((name, len(mat)))
             continue
         slug = slugify(name)
         built.append((name, slug))
-        fc = rank_stats(receipt, f['low_bid'], lots=lots, sel=sel, months=mature)
+        fc = rank_stats(receipt, f['low_bid'], lots=lots, sel=sel,
+                        months=recent)
         pages[slug] = page(name, slug, f, fc, all_fc)
         # the level AND the page's market figures: the invitation message
         # quotes both, and a request must not recompute them

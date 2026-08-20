@@ -247,6 +247,34 @@ class ThreeStates(unittest.TestCase):
         self.assertNotIn('Über alle Gewerke', tp.forecast_section(None, weak_all))
 
 
+class TheBidderWindow(unittest.TestCase):
+    """2026-08-20: the archive reaches into 2023, whose lonely market would
+    otherwise sit inside every quoted rate. All bidder figures run over the
+    newest market.RECENT_MONTHS mature months, and the page says so."""
+
+    def test_figures_use_only_the_recent_mature_months(self):
+        import market
+        old = [pd.Period('2023-11', freq='M')]
+        recent = [pd.Period(f'2025-{m:02d}', freq='M') for m in range(1, 13)]
+        months = old + recent
+        self.assertEqual(market.recent_mature(months), recent)
+        self.assertEqual(market.recent_mature(recent[:3]), recent[:3])
+        # 40 lonely lots in the old month, 40 contested in the recent ones:
+        # a rate over all mature months would be 50 %; the window says 0 %
+        lots = pd.DataFrame({
+            'month': (old * 40 + [recent[i % 12] for i in range(48)]),
+            'resolved': [True] * 88,
+            'n_tenders': [0] * 40 + [7] * 48,
+            'award_value': [100_000.0] * 88,
+            'result_code': ['selec-w'] * 88})
+        f = tp.figures(lots, pd.Series([True] * 88), months, months)
+        self.assertEqual(f['low_bid'], 0.0)
+        self.assertEqual(f['n_awarded'], 48)
+        self.assertEqual(f['bidder_months'], 12)
+        html = tp.page('Testgewerk', 'testgewerk', f, None)
+        self.assertIn('aus den letzten 12 Monaten', html)
+
+
 class OnThePage(unittest.TestCase):
     def test_the_section_is_rendered_into_the_trade_page(self):
         months = [pd.Period('2026-01', freq='M')]

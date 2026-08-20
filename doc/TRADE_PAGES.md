@@ -277,6 +277,18 @@ get it right, claim 100 %.
 backtest use, so the replayed number and the live number stay one statistic
 rather than two implementations that agree by coincidence.
 
+**Every bidder figure runs over the newest `market.RECENT_MONTHS` (12)
+mature months (operator, 2026-08-20: "do 3").** The archive reaches into
+2023, whose market was far lonelier than today's; a rate over all mature
+months describes a market the reader is not bidding into, and when
+competition rises it also understates the forecast's lift. So the tile, the
+spread table, the median bidders, the forecast base AND the graded slice
+all use `market.recent_mature(mature)` — one window, named on the page
+("aus den letzten 12 Monaten, für die Ergebnisse vollständig vorliegen").
+Volume figures (Lose pro Monat, Median-Auftragswert, Jahresvolumen) stay on
+the covered months: market size is not a drift question. The operator
+console keeps printing the full history.
+
 **The section describes the RANKING, not the flag (operator, 2026-08-20:
 "add AUC … show precision of top 20% … stay with 20%, i dont want to make
 it a knob").** The product is a ranked shortlist, so the page quotes what a

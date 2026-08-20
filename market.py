@@ -245,6 +245,22 @@ def coverage(lots, floor=COVERAGE_FLOOR, mature=MATURE_FLOOR):
     return list(per.index[per.covered]), list(per.index[per.mature]), per
 
 
+# How many of the newest mature months carry the public bidder figures.
+# The archive now reaches into 2023, and the 2023/24 market was much
+# lonelier than today's — a rate over ALL mature months describes a market
+# no reader is bidding into (operator, 2026-08-20: "when a market becomes
+# more competitive, we may underestimate"). Twelve keeps a full year of
+# seasonality; the trade pages quote every bidder number over this window
+# and say so. The operator console keeps printing the full set.
+RECENT_MONTHS = 12
+
+
+def recent_mature(mature, n=RECENT_MONTHS):
+    """The newest `n` of the mature months — the window every public bidder
+    figure is computed over. All of them when there are fewer."""
+    return list(mature)[-n:]
+
+
 def low_bid_rate(lots, mature, sel=None):
     """The share of awarded lots in mature months that ended with 0 or 1
     bids — over the whole store, or over `sel` (a boolean mask: one trade).
