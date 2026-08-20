@@ -164,6 +164,18 @@ is copied as is, and the app's own "no mail could be sent" line is where a
 misnamed key is found. That is a deliberate loss against the 2026-08-15
 design and the price of not carrying a key list.
 
+## 2b. Built — mail.env is wired (2026-08-20)
+
+`mail.env` is the second `env_file` of the base service `tm` (app and
+scheduler inherit; the edge does not extend `tm` and never sees the key).
+`RESEND_API_KEY` and `TM_MAIL_FROM` left the `environment:` block — the §2a
+rule — and `TM_MAIL_FROM` belongs in `site.env` (configuration, not a
+secret). `env.d.example/mail.env` and `env.d.example/site.env` are the
+what-do-I-retype record (§4). The `.cron-env` grep already carried
+`RESEND_` and `TM_MAIL_FROM`, so the cycle's cron jobs keep seeing both.
+Any values still in the server's `.env` are dead letters from this commit
+on; delete the two lines on the next visit (§5.5).
+
 ## 2a. Built so far — site.env is wired (2026-08-18)
 
 `docker-compose.yml` lists `/etc/murara/env.d/site.env` (`required: false`)

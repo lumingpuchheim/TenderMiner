@@ -32,6 +32,13 @@ services:
     env_file:
       - path: /etc/murara/env.d/site.env
         required: false
+      # mail.env: RESEND_API_KEY (SECRETS.md 1 — named for the issuer).
+      # Wired 2026-08-20, the second file of the migration. TM_MAIL_FROM
+      # moved to site.env the same day (configuration, not a secret). Both
+      # keys LEFT the environment: block below — anything listed there
+      # would override these files with the .env value, empty included.
+      - path: /etc/murara/env.d/mail.env
+        required: false
     environment:
       # Which day the container thinks it is; the download window and the
       # dated receipts depend on it. Default is the operator's laptop zone.
@@ -47,12 +54,11 @@ services:
       RESTIC_PASSWORD: ${RESTIC_PASSWORD:-}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
-      # E-mail (mailer.py): the Resend key and the verified sender. Both the
-      # app (signup confirmation) and the cycle (the weekly report,
-      # delivering.py) send, and both extend this service. Empty = the mail
-      # is refused loudly and ledgered; nothing pretends to send.
-      RESEND_API_KEY: ${RESEND_API_KEY:-}
-      TM_MAIL_FROM: ${TM_MAIL_FROM:-}
+      # E-mail (mailer.py): RESEND_API_KEY comes from env.d/mail.env and
+      # TM_MAIL_FROM from env.d/site.env (see env_file above) — NOT from
+      # here, where an interpolation would pin them to .env's value.
+      # Missing = the mail is refused loudly and ledgered; nothing
+      # pretends to send.
       # Where the token links in every mail point (doc/APP.md 2).
       TM_APP_URL: ${TM_APP_URL:-https://app.murara.eu}
       # The yes-page (doc/ONBOARDING.md 9.5): price line and payment link,
