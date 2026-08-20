@@ -66,7 +66,7 @@ password once.
 | `/admin/email` | form for `sub_id` (`?sub_id=`): e-mail, Einwilligung | writes `contact_email`, `consent_at`, `contact_note` += „Einwilligung: …"; runs the same pre-flight/activation as `POST /t/` (`app._preflight`, moved to a shared function); event `signup` / `signup_held` with `detail=admin: <consent text>`; confirmation mail |
 | `/admin/sent` | — | `sub_id` → `invite_sent` event with the channel copied from the invitation; the row becomes *angeschrieben*. Posted from the button **Als verschickt markieren** on `/admin/message` |
 | `/admin/message` | the two texts to paste (ONBOARDING.md 9.2a): connection note ≤300 chars, and the message with picks, own win and the live invitation link; below them **Als verschickt markieren** (until the row is *angeschrieben*) and **Neuen Link erzeugen** (`/admin/reissue`) | — |
-| `/admin/stop` | confirmation page for `sub_id`, two buttons | `wahl` = berichte / alles → the same writes as `post_stop` (soft/hard, tokens revoked on hard); event `stop_soft` / `stop_hard` with `detail=admin` |
+| `/admin/stop` | confirmation page for `sub_id`, one button (the soft grade fell 2026-08-20) | the same write as `post_stop`: `hard_stopped`, all tokens revoked; event `stop_hard` with `detail=admin` |
 | `/admin/experiments` | the A/B overview (doc/EXPERIMENTS.md §9): open experiments with verdict line and per-arm tables, closed ones, the constants; read-only, links back to the list | — |
 
 Errors from the modules (`InviteError`, `SubscriptionError`) render as one

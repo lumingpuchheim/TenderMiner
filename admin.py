@@ -369,9 +369,7 @@ def status_of(state, company):
 
     if cust.get('contact_state') == 'hard_stopped':
         return done('Widerspruch' if 'objection' in kinds else
-                    'gestoppt (alles)', 'st-stop')
-    if cust.get('contact_state') == 'soft_stopped':
-        return done('gestoppt (Berichte)', 'st-stop')
+                    'gestoppt', 'st-stop')
     if not cust.get('consent_at'):
         invites = [e for e in evs if e['kind'] in ('invited', 'reissued')]
         sent = [e for e in evs if e['kind'] == 'invite_sent']
@@ -438,7 +436,7 @@ def counts(state):
             out['gefragt'] += 1
         if 'subscribe_yes' in evs:
             out['ja'] += 1
-        if cust.get('contact_state') in ('soft_stopped', 'hard_stopped'):
+        if cust.get('contact_state') == 'hard_stopped':
             out['gestoppt'] += 1
     return out
 

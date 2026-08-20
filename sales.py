@@ -169,7 +169,7 @@ def due(home, today=None, owner=None):
             continue
         if cust.get('consent_at'):                  # a customer, not a prospect
             continue
-        if cust.get('contact_state') in ('soft_stopped', 'hard_stopped'):
+        if cust.get('contact_state') == 'hard_stopped':
             continue
         if written_recently(state['events'].get(sub_id), today):
             continue

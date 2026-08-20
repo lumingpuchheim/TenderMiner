@@ -314,7 +314,7 @@ CREATE TABLE IF NOT EXISTS gate_config (
 -- review queue is simply a query over it.
 CREATE TABLE IF NOT EXISTS app_event (
     ts           TEXT NOT NULL,
-    kind         TEXT NOT NULL,      -- signup|signup_held|stop_soft|stop_hard|
+    kind         TEXT NOT NULL,      -- signup|signup_held|stop_hard|
                                      -- feedback|recall|send|send_refused
     sub_id       TEXT NOT NULL,
     procedure_id TEXT,
@@ -526,7 +526,8 @@ def connect(data_dir, create=True):
     # `IF NOT EXISTS` cannot add a column to a table that already exists, so a
     # column added by newer code is checked for and ALTERed in — nullable and
     # unread by older code, which is what keeps this safe in both directions.
-    # contact_state: LAUNCH.md §3 — active | soft_stopped | hard_stopped;
+    # contact_state: LAUNCH.md §3 — active | hard_stopped (soft_stopped
+    # existed until 2026-08-20, never reached by a real customer);
     # NULL means active (every pre-existing customer consented to be one).
     if 'contact_state' not in columns_of(con, 'customer'):
         con.execute('ALTER TABLE customer ADD COLUMN contact_state TEXT')

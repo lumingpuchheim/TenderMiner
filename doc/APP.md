@@ -102,17 +102,15 @@ directory, owns its own table, no other module touches it.
 
 ## 5. Stop handler (`/s/<token>`)
 
-Two buttons, two outcomes, written through `subscriptions.py` as state
-changes plus a ledger event each (`LAUNCH.md` §3 has the full semantics):
-
-- **"Keine wöchentlichen Berichte mehr"** → `contact_state = soft_stopped`.
-- **"Keine E-Mails mehr"** → `contact_state = hard_stopped`, permanent.
-
-Confirmation page states what is off and, for soft stops, that result
-updates may still come — with the hard-stop button right there. A paying
-customer's cancel flow lands on this same page pre-scoped: cancel sets
-billing off + `soft_stopped`. Any ambiguous stop signal arriving elsewhere
-(List-Unsubscribe, a reply) maps to **hard**; when in doubt, hard.
+One button, one outcome (operator, 2026-08-20 — the earlier two-grade page
+confused even its owner: "if a customer wants no more emails, this means no
+more payments, no more emails"): the click sets
+`contact_state = hard_stopped`, permanent, ledger event `stop_hard`, every
+live token revoked. The GET page exists only so a link-prefetching mail
+scanner cannot unsubscribe anyone. A paying customer's cancel flow lands on
+this same page: cancel means billing off and no more mail. A stop signal
+arriving elsewhere (List-Unsubscribe, a reply) is the same total stop —
+there is no other grade any more.
 
 ## 6. Recall handler (`/c/<token>`)
 
@@ -135,9 +133,8 @@ a fact.**
 
 One module sends every e-mail the product ever sends. **The
 `contact_state` check lives inside the mailer**, not in calling code — a
-future bug must be unable to mail a `hard_stopped` customer. Weekly reports
-require `active`; results notes and win-back require `active` or
-`soft_stopped`; `hard_stopped` sends nothing, ever, and the attempt is
+future bug must be unable to mail a `hard_stopped` customer. Every kind
+requires `active`; `hard_stopped` sends nothing, ever, and the attempt is
 logged as a defect. Every send is a ledger event.
 
 ## 8. Every outgoing e-mail carries
@@ -235,7 +232,8 @@ HOSTING.md §2's six blockers, all landed:
 
 End-to-end receipt against a container on a copy of the real database: signup
 POST → `Das war alles` page, consent + `signup_held: no draft subscription on
-file` in the ledger; stop POST → `soft_stopped` on the customer row. 150 tests.
+file` in the ledger; stop POST → `hard_stopped` on the customer row (the
+soft state existed until 2026-08-20). 150 tests.
 
 ## 10b. Build status — 2026-08-10
 

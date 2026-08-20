@@ -427,16 +427,17 @@ def activate(home, sub_id, email, consent_note=None):
     return ok, detail
 
 
-def stop_customer(home, sub_id, hard, *, source='customer'):
-    """The two stop states (LAUNCH.md 3), from the customer's page or the
-    operator's. A hard stop revokes every live token as well: "stop sending"
-    and "the links in their inbox stop working" are the same promise."""
-    subscriptions.customer_update(
-        home, sub_id, contact_state='hard_stopped' if hard else 'soft_stopped')
-    _event(home, 'stop_hard' if hard else 'stop_soft', sub_id,
+def stop_customer(home, sub_id, *, source='customer'):
+    """ONE stop state (LAUNCH.md 3, collapsed 2026-08-20), from the
+    customer's page or the operator's. The soft "reports only" state and
+    the win-back channel behind it are gone — the operator's words: "if a
+    customer wants no more emails, this means no more payments, no more
+    emails". Every live token is revoked as well: "stop sending" and "the
+    links in their inbox stop working" are the same promise."""
+    subscriptions.customer_update(home, sub_id, contact_state='hard_stopped')
+    _event(home, 'stop_hard', sub_id,
            detail=source if source != 'customer' else None)
-    if hard:
-        tokens.revoke_all(home, sub_id)
+    tokens.revoke_all(home, sub_id)
 
 
 def _preflight(home, sub_id):
@@ -508,39 +509,30 @@ def post_feedback(ctx, row, form):
 
 
 def get_stop(ctx, row):
+    # One button, one meaning (operator, 2026-08-20: the two-grade page
+    # "will be confusing for the customer"). The page exists only so a
+    # link-prefetching mail scanner cannot unsubscribe anyone; the click is
+    # the decision.
     return page('Abbestellen', """
       <h1>Abbestellen</h1>
-      <form method="post">
-        <p><button name="wahl" value="berichte" type="submit">
-           Keine Berichte mehr</button></p>
-        <p><button name="wahl" value="alles" type="submit" class="secondary">
-           Keine E-Mails mehr</button></p>
-      </form>
-      <p class="muted">„Keine Berichte mehr" lässt gelegentliche
-         Ergebnis-Nachrichten zu; „Keine E-Mails mehr" beendet alles,
-         dauerhaft.</p>""")
+      <p>Wenn Sie abbestellen, erhalten Sie keine E-Mails mehr von uns —
+         dauerhaft.</p>
+      <form method="post"><p>
+        <button type="submit">Abbestellen</button>
+      </p></form>
+      <p class="muted">Erst der Klick bestellt ab.</p>""")
 
 
 def post_stop(ctx, row, form):
     home = ctx['data_dir']
     # A mail client's own unsubscribe button POSTs `List-Unsubscribe=One-Click`
-    # (RFC 8058) to the List-Unsubscribe URL — no person chose between the two
-    # buttons, so it is the ambiguous signal LAUNCH.md 3 maps to HARD.
-    hard = form.get('wahl') == 'alles' or 'List-Unsubscribe' in form
+    # (RFC 8058) straight here and lands on the same outcome as the page's
+    # button — since 2026-08-20 there is only one.
     tokens.mark_used(home, row['token'])
-    stop_customer(home, row['sub_id'], hard)
-    if hard:
-        return page('Abbestellt', """
-          <h1>Abbestellt</h1>
-          <p>Sie erhalten keine E-Mails mehr von uns — keine Berichte, keine
-             Ergebnis-Nachrichten, nichts. Dauerhaft.</p>""")
-    return page('Berichte abbestellt', """
-      <h1>Berichte abbestellt</h1>
-      <p>Die Berichte sind aus. Gelegentliche
-         Ergebnis-Nachrichten können noch kommen.</p>
-      <form method="post"><p>
-        <button name="wahl" value="alles" type="submit" class="secondary">
-          Auch das nicht — keine E-Mails mehr</button></p></form>""")
+    stop_customer(home, row['sub_id'])
+    return page('Abbestellt', """
+      <h1>Abbestellt</h1>
+      <p>Sie erhalten keine E-Mails mehr von uns. Dauerhaft.</p>""")
 
 
 # One cached view of the lot store for the recall box: pub number -> identity.
@@ -1065,15 +1057,12 @@ def get_admin_stop(ctx, environ):
       <p><strong>{esc(firm)}</strong> — was hat die Firma gesagt?</p>
       <form method="post" action="/admin/stop">
         <input type="hidden" name="sub_id" value="{esc(sub_id)}">
-        <p><button name="wahl" value="berichte" type="submit">
-           Keine Berichte mehr</button></p>
-        <p><button name="wahl" value="alles" type="submit" class="secondary">
+        <p><button type="submit" class="secondary">
            Keine E-Mails mehr — dauerhaft</button></p>
         <p><a href="/admin?q={esc(firm)}">abbrechen</a></p>
       </form>
-      <p class="muted">„Keine Berichte" lässt gelegentliche
-         Ergebnis-Nachrichten zu. „Keine E-Mails" ist der Widerspruch nach
-         Art. 21 DSGVO: dauerhaft, und alle offenen Links der Firma werden
+      <p class="muted">Das ist der Widerspruch nach Art. 21 DSGVO:
+         dauerhaft, und alle offenen Links der Firma werden
          ungültig.</p>""")
 
 
@@ -1081,13 +1070,9 @@ def post_admin_stop(ctx, form):
     home = ctx['data_dir']
     sub_id = (form.get('sub_id') or '').strip()
     _cust, firm = _admin_firm(home, sub_id)
-    hard = form.get('wahl') == 'alles'
-    stop_customer(home, sub_id, hard, source='admin')
+    stop_customer(home, sub_id, source='admin')
     return admin_page(ctx, firm, note=(
-        f'{firm}: ' + ('keine E-Mails mehr, dauerhaft; alle Links ungültig.'
-                       if hard else
-                       'keine Berichte mehr; Ergebnis-Nachrichten weiter '
-                       'möglich.')))
+        f'{firm}: keine E-Mails mehr, dauerhaft; alle Links ungültig.'))
 
 
 def get_experiments(ctx, environ):

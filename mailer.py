@@ -8,7 +8,7 @@ Which kinds may reach which states (LAUNCH.md 3):
 
     report        weekly report            -> active only
     confirm       signup confirmation      -> active only
-    results       results notes, win-back  -> active or soft_stopped
+    results       results notes            -> active only
     operator      to the OPERATOR, not a customer (defect alerts) -> always
 
 Every send is one `app_events` ledger row (`kind: send`), and every refusal is
@@ -72,7 +72,7 @@ def price_line():
 ALLOWED = {
     'report':   ('active',),
     'confirm':  ('active',),
-    'results':  ('active', 'soft_stopped'),
+    'results':  ('active',),   # the soft state fell 2026-08-20; one stop, total
 }
 
 
@@ -141,10 +141,10 @@ def footer(home, sub_id, base_url=None):
         '<p style="font-size:85%;margin-bottom:.4em">'
         f'<a href="{e(stop)}" style="display:inline-block;padding:5px 12px;'
         'background:#667;border-radius:4px;color:#fff;text-decoration:none">'
-        'Berichte abbestellen</a></p>'
+        'E-Mails abbestellen</a></p>'
         '<p style="font-size:85%;color:#555;margin-top:0">Sie können der '
         'Verarbeitung Ihrer Daten für diese Berichte jederzeit widersprechen '
-        '(Art. 21 DSGVO) — über den Link „Berichte abbestellen" oder formlos '
+        '(Art. 21 DSGVO) — über den Link „E-Mails abbestellen" oder formlos '
         'per Antwort auf diese E-Mail. Der Widerspruch wirkt sofort und '
         'dauerhaft.</p>')
     headers = {'List-Unsubscribe': f'<{stop}>',

@@ -156,51 +156,45 @@ Feedback events go to the ledger; how they reweight the profile is the
 relevance layer's decision, but the events must be recorded from day one —
 the trial weeks are precisely when the profile has the most to learn.
 
-### Stopping: one link, one page, two buttons
+### Stopping: one link, one page, one button
 
-Every e-mail carries one "Abbestellen" link → one page (button, not
+Every e-mail carries one "E-Mails abbestellen" link → one page (button, not
 auto-action — corporate mail scanners follow links, a true one-click URL gets
-"clicked" by virus scanners) → two explicit choices:
+"clicked" by virus scanners) → one choice: **everything ends, forever.**
+This is the do-not-contact flag ONBOARDING.md §1.4 already honours
+eternally, and the Art. 21 objection the legal doc requires be effective
+immediately. (Until 2026-08-20 the page offered a second, softer grade —
+reports off, result updates allowed; the operator removed it: "it is
+confusing for me and it will be confusing for the customer".)
 
-1. **"Keine wöchentlichen Berichte mehr"** — soft stop. Weekly reports end;
-   occasional result updates and offers may still come. This is "you may
-   contact me later."
-2. **"Keine E-Mails mehr"** — hard stop. Everything ends, forever. This is
-   the do-not-contact flag ONBOARDING.md §1.4 already honours eternally, and
-   the Art. 21 objection the legal doc requires be effective immediately.
+**Every stop signal means the same thing**: the page's button, the mail
+client's built-in unsubscribe (List-Unsubscribe header), a reply saying
+stop, anything unclear — all land on the one total stop.
 
-**Every ambiguous signal defaults to the hard stop**: the mail client's
-built-in unsubscribe (List-Unsubscribe header), a reply saying stop, anything
-unclear. The soft state exists only where the customer explicitly chose it —
-the only kind of win-back that works anyway. The button copy defines the
-consent scope: option 1's text must say updates *and offers* may come,
-because that sentence is the legal basis for every win-back mail sent under
-it.
+**Cancelling IS unsubscribing** (operator, 2026-08-20, replacing the
+three-state design below): "if a customer wants no more emails, this means
+no more payments, no more emails". There is no soft state and no win-back
+channel — a customer who stops gets nothing further, and the only way back
+is contacting us themselves.
 
-**Cancelling is not unsubscribing.** A paying customer who cancels is ending
-a purchase, not objecting to e-mail: billing and weekly reports stop, but
-they land in the soft state — results notes continue. A lapsed customer is
-the warmest future lead, and the results note arriving with evidence is the
-win-back letter. The hard stop is one more click away on the same page, and
-a cancel e-mail says so plainly.
+### The two contact states — the database must see the difference
 
-### The three contact states — the database must see the difference
+On the customer record, one field: `contact_state` ∈
 
-**[BUILD]** on the customer record, one field: `contact_state` ∈
-
-| state | weekly reports | results notes / win-back offers | may return via |
+| state | weekly reports | results notes | may return via |
 | --- | --- | --- | --- |
 | `active` | yes (trial or paid) | yes | — |
-| `soft_stopped` | no | **yes — further marketing may come** | standing link in any note |
 | `hard_stopped` | no | no, nothing, ever | only by contacting us themselves |
 
+(A third state, `soft_stopped` — reports off, results notes as win-back
+still allowed — was designed here and built, but no real customer ever
+entered it; the operator removed it on 2026-08-20 as confusing for the
+customer at exactly the moment they want to leave.)
+
 Plus timestamps for each transition (state changes are events in the outreach
-ledger, §5, so "how many soft-stops came back" is a query, not a study). Every
-mailer checks `contact_state` before sending — not the calling code's
-discipline, the mailer's own guard, so a future bug cannot mail a
-`hard_stopped` customer. The win-back set is exactly `soft_stopped`; it must
-be selectable in one query, because it *is* a marketing audience and will be
-mailed as one.
+ledger, §5). Every mailer checks `contact_state` before sending — not the
+calling code's discipline, the mailer's own guard, so a future bug cannot
+mail a `hard_stopped` customer.
 
 ## 4. Hosting, and the public/personal rule
 
@@ -483,8 +477,8 @@ everything else via its own tag when other channels exist. Conversion is a
 column to read off after the first batches, not a number to guess now.
 
 A weekly glance needs no dashboard: a `report` subcommand printing
-signups / activations / held-for-review / asks-sent / yeses / soft-stops /
-hard-stops / trials-ending-this-week, to the console (house rule: tools
+signups / activations / held-for-review / asks-sent / yeses /
+stops / trials-ending-this-week, to the console (house rule: tools
 print, they do not write report files).
 
 ## 6. Payment — last, on purpose

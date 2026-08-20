@@ -140,7 +140,7 @@ class Report(Base):
     def test_send_report_never_raises(self):
         subscriptions.customer_update(self.dir, SUB['sub_id'],
                                       contact_email='t@t.de',
-                                      contact_state='soft_stopped')
+                                      contact_state='hard_stopped')
         mid = delivering.send_report(self.dir, SUB, TODAY, '<p>r</p>', None,
                                      transport=self.transport)
         self.assertIsNone(mid)

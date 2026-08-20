@@ -425,7 +425,10 @@ def append_version(home, row):
 
 # ------------------------------------------------- the customer row (identity)
 
-CONTACT_STATES = ('active', 'soft_stopped', 'hard_stopped')
+# 'soft_stopped' (reports off, results notes allowed) existed until
+# 2026-08-20 and was never reached by any real customer; the operator
+# collapsed unsubscription to one total stop. Writes of it are refused.
+CONTACT_STATES = ('active', 'hard_stopped')
 
 # The columns the app may write on `customer`. Guarded like KNOWN: a typo'd
 # field must fail loudly, not vanish into an UPDATE that touched nothing.

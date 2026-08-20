@@ -575,8 +575,9 @@ should ever receive mail.
 Sent by the cycle when ≥3 of a customer's own trial picks have graded
 outcomes (`grades` ledger) and no note went out in the last 30 days: the
 lots, what they closed at, how many bids; the `/y/` link; kind `results`
-(allowed for `active` and `soft_stopped`). Awards lag ~3 months, so the first
-one is ~November for an August trial. Event `results`.
+(allowed for `active` only — the soft state fell 2026-08-20). Awards lag
+~3 months, so the first one is ~November for an August trial. Event
+`results`.
 
 ### 9.7 Order of work
 

@@ -283,20 +283,17 @@ class Handlers(Base):
         cust = subs_mod().customer_get(self.dir, 'mueller')
         self.assertEqual(cust['contact_email'], 'chef@mueller.de')
 
-    def test_stop_soft_then_hard(self):
-        """LAUNCH.md 3: two buttons, two states, one event each — and the
-        soft page carries the hard button."""
+    def test_stop_is_one_click_and_total(self):
+        """LAUNCH.md 3 (collapsed 2026-08-20): one button, one state, one
+        event — a customer who unsubscribes gets nothing any more."""
         value = tokens.mint(self.dir, 's', 'beck')
-        _, _, body = request(self.dir, f'/s/{value}', method='POST',
-                             form={'wahl': 'berichte'})
-        self.assertIn('Ergebnis-Nachrichten können noch kommen', body)
+        _, _, body = request(self.dir, f'/s/{value}')
         self.assertIn('keine E-Mails mehr', body)
-        self.assertEqual(subs_mod().customer_get(self.dir, 'beck')['contact_state'],
-                         'soft_stopped')
-        request(self.dir, f'/s/{value}', method='POST', form={'wahl': 'alles'})
+        self.assertNotIn('Berichte mehr</button>', body)      # no soft choice
+        _, _, body = request(self.dir, f'/s/{value}', method='POST')
+        self.assertIn('Abbestellt', body)
         self.assertEqual(subs_mod().customer_get(self.dir, 'beck')['contact_state'],
                          'hard_stopped')
-        self.assertEqual(len(self._events('stop_soft')), 1)
         self.assertEqual(len(self._events('stop_hard')), 1)
 
     def test_feedback_click_is_one_event_with_the_tokens_verdict(self):
@@ -345,17 +342,12 @@ class Mailer(Base):
         self.assertEqual(mid, 'id-1')
         self.assertEqual(self.sent[0]['to'], ['b@beck.de'])
 
-    def test_soft_stopped_gets_results_but_never_the_report(self):
-        m = self._mailer()
-        subs_mod().customer_update(self.dir, 'beck',
-                                   contact_email='b@beck.de',
-                                   contact_state='soft_stopped')
-        with self.assertRaises(m.MailerError):
-            m.send(self.dir, 'report', 'beck', 'x', 'x',
-                   transport=self.transport)
-        m.send(self.dir, 'results', 'beck', 'x', 'x',
-               transport=self.transport)
-        self.assertEqual(len(self.sent), 1)
+    def test_the_soft_state_no_longer_exists(self):
+        # collapsed 2026-08-20 — a write of the old state must fail loudly,
+        # not quietly create a customer the mailer half-serves
+        with self.assertRaises(subs_mod().SubscriptionError):
+            subs_mod().customer_update(self.dir, 'beck',
+                                       contact_state='soft_stopped')
 
     def test_hard_stopped_gets_nothing_and_the_attempt_is_a_ledgered_defect(self):
         m = self._mailer()

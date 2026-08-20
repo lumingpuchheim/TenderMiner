@@ -346,8 +346,8 @@ class Status(Base):
             'plan': 'paid'})
         self.assertEqual(label(), 'Kunde · bezahlt')
         subscriptions.customer_update(self.dir, sub_id,
-                                      contact_state='soft_stopped')
-        self.assertEqual(label(), 'gestoppt (Berichte)')
+                                      contact_state='hard_stopped')
+        self.assertEqual(label(), 'gestoppt')
         invite.objection(self.dir, DUNKEL)
         self.assertEqual(label(), 'Widerspruch')
 
@@ -597,19 +597,19 @@ class Stop(Base):
         super().setUp()
         self.sub_id, self.url = invite.add(self.dir, DUNKEL)
 
-    def test_soft_stop_from_the_admin_page(self):
+    def test_stop_from_the_admin_page_is_ledgered_with_its_source(self):
         _, _, body = request(self.dir, '/admin/stop', 'POST',
-                             {'sub_id': self.sub_id, 'wahl': 'berichte'})
-        self.assertIn('keine Berichte mehr', body)
+                             {'sub_id': self.sub_id})
+        self.assertIn('keine E-Mails mehr', body)
         cust = subscriptions.customer_get(self.dir, self.sub_id)
-        self.assertEqual(cust['contact_state'], 'soft_stopped')
+        self.assertEqual(cust['contact_state'], 'hard_stopped')
         evs = [e for e in __import__('ledger').read(self.dir, 'app_events')
-               if e['kind'] == 'stop_soft']
+               if e['kind'] == 'stop_hard']
         self.assertEqual(evs[0]['detail'], 'admin')
 
     def test_hard_stop_kills_the_links_too(self):
         _, _, body = request(self.dir, '/admin/stop', 'POST',
-                             {'sub_id': self.sub_id, 'wahl': 'alles'})
+                             {'sub_id': self.sub_id})
         self.assertIn('dauerhaft', body)
         self.assertEqual(subscriptions.customer_get(
             self.dir, self.sub_id)['contact_state'], 'hard_stopped')
@@ -618,7 +618,7 @@ class Stop(Base):
                                          self.url.rsplit('/', 1)[1]))
         # the row shows it, and offers no further stop
         _, _, body = request(self.dir, '/admin', query='q=dunkel')
-        self.assertIn('gestoppt (alles)', body)
+        self.assertIn('>gestoppt<', body)
 
 
 
