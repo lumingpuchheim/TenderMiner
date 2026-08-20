@@ -277,7 +277,15 @@ def deliver(paths, scored, args):
         (out.parent / annex_name).write_text(annex, encoding='utf-8')
         if page is not None:
             out.write_text(page, encoding='utf-8')
-            if feedback_link is not None:
+            if feedback_link is not None and not sel.picks:
+                # a mail goes out only when there is a recommendation in it
+                # (operator, 2026-08-20: "if there is no good tender, we
+                # wont send anything"). A receipts-only look-back is still
+                # written to the file for the operator; it rides along with
+                # the next real recommendation instead of being its own mail.
+                print(f"[deliver] {sub['sub_id']}: no picks — report written, "
+                      f'not mailed')
+            elif feedback_link is not None:
                 # an address on record: the same HTML goes out by mail
                 # (ONBOARDING.md 9.3); no address -> file only, no attempt
                 mid = send_report(paths.data, sub, today, page, headers)

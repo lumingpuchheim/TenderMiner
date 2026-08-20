@@ -33,6 +33,18 @@ class TheSeam(unittest.TestCase):
     """What each file may and may not do, read off the source: the promise
     is structural, so the test is too."""
 
+    def test_no_picks_means_no_mail(self):
+        """Operator, 2026-08-20: 'if there is no good tender, we wont send
+        anything to the customer.' The guard stands between the rendered
+        page and the send: a report without picks is written to the file
+        (the operator's record) and never mailed — structural, like the
+        seam promises above."""
+        src = (REPO / 'delivering.py').read_text(encoding='utf-8')
+        guard = src.index('feedback_link is not None and not sel.picks')
+        send = src.index('mid = send_report(')
+        self.assertLess(guard, send)
+        self.assertIn('no picks — report written, not mailed', src)
+
     def test_the_cycle_never_delivers(self):
         src = (REPO / 'cycle.py').read_text(encoding='utf-8')
         self.assertNotIn('delivering.deliver(', src)

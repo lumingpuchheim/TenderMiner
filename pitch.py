@@ -357,8 +357,8 @@ def message(home, sub_id, url, company=None, today=None):
         lines += ['']
     else:
         lines += ['Diese Woche ist in Ihrem Gewerk nichts Passendes offen – '
-                  'auch das sagen wir, statt etwas aufzufüllen. Der erste '
-                  'Bericht bringt, was neu dazukommt.', '']
+                  'auch das sagen wir, statt etwas aufzufüllen. Sobald so '
+                  'ein Los auftaucht, bekommen Sie es.', '']
     # The terms, complete and in one breath, where the decision is made
     # (operator, 2026-08-18: "kostenlos" with its end and its price visible
     # is a trial; without them it is bait). The price line is the env's
@@ -370,11 +370,15 @@ def message(home, sub_id, url, company=None, today=None):
              'danach gegen eine monatliche Gebühr, die wir Ihnen vorher nennen')
     where = (f'{SITE_URL}/gewerke/{v["slug"]}/' if v.get('slug')
              else f'{SITE_URL}/gewerke/')
-    lines += [f'Wenn Sie so eine Auswahl jeden Montag per E-Mail bekommen '
-              f'möchten: {url} – E-Mail-Adresse eintragen, fertig. Vier Wochen '
-              f'bekommen Sie sie ohne Kosten; {after}, kündbar jederzeit mit '
-              f'einem Klick. Es gibt kein Konto und kein Passwort – nur Ihre '
-              f'E-Mail-Adresse.', '',
+    # No weekly promise (operator, 2026-08-20): a mail comes when there is a
+    # recommendation in it, and only then — delivering.deliver enforces
+    # exactly that, so the sentence describes the behaviour, not a rhythm.
+    lines += [f'Wenn Sie solche Empfehlungen per E-Mail bekommen möchten: '
+              f'{url} – E-Mail-Adresse eintragen, fertig. Wir schreiben nur, '
+              f'wenn es so ein Los für Sie gibt; gibt es keines, kommt keine '
+              f'E-Mail. Vier Wochen ohne Kosten; {after}, kündbar jederzeit '
+              f'mit einem Klick. Es gibt kein Konto und kein Passwort – nur '
+              f'Ihre E-Mail-Adresse.', '',
               # the one sentence of proof, at the decision point: we check
               # ourselves against published outcomes, and the reader can
               # audit the current rate on the public page — no numbers here
