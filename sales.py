@@ -17,7 +17,9 @@ there is something to report; the "Heute schreiben" mail goes to the
 salesman when a prospect is worth writing to.
 """
 
+import json
 import os
+import threading
 from datetime import date, timedelta
 
 # doc/SALES.md 4, the trigger's two numbers. MIN_DAYS is the deadline a lot
@@ -77,6 +79,16 @@ def default_owner():
 
 # --------------------------------------------------------------- who is due
 
+# The memo over `candidates`: the message page asks for one firm, „Heute
+# schreiben" asks for every watched firm, and the operator moves between
+# them — so a small dict keyed by the sub, not a single slot. The pitch
+# data stamp is part of the key of every entry, so a cycle or app write
+# retires the whole generation at once (the dict is cleared rather than
+# left to grow a graveyard of old stamps).
+_cand_lock = threading.Lock()
+_cand = {'stamp': None, 'picks': {}}
+
+
 def candidates(home, sub, trade, today, trades=None):
     """The lots that would make a first message worth sending to this firm:
     what it would be recommended today (`pitch.picks_for` — the same gate,
@@ -90,11 +102,19 @@ def candidates(home, sub, trade, today, trades=None):
     was offered a Blitzschutz lot because a side root matched. A note has
     one line; that line must be in the trade the reader calls his own.
     Nearest deadline first — that is the one the note names.
+
+    Memoised per (sub, trade, today) on top of pitch's cached gate and open
+    lots; `trades` is always the same rules file, so it is not in the key.
     """
     import market
     import pitch
     if not sub or not trade:
         return []
+    stamp = (str(home), pitch.data_stamp(home))
+    key = (json.dumps(sub, sort_keys=True, default=str), trade, str(today))
+    with _cand_lock:
+        if _cand['stamp'] == stamp and key in _cand['picks']:
+            return list(_cand['picks'][key])
     words = (trades if trades is not None else market.load_trades()).get(trade)
     if not words:
         return []
@@ -111,7 +131,12 @@ def candidates(home, sub, trade, today, trades=None):
         if any(x in title for x in words['exclude']):
             continue
         out.append(p)
-    return sorted(out, key=lambda p: str(p.get('deadline_date'))[:10])
+    out.sort(key=lambda p: str(p.get('deadline_date'))[:10])
+    with _cand_lock:
+        if _cand['stamp'] != stamp:
+            _cand['stamp'], _cand['picks'] = stamp, {}
+        _cand['picks'][key] = list(out)
+    return out
 
 
 def written_recently(events, today):

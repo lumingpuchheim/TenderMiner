@@ -24,7 +24,9 @@ message says nothing rather than inventing something.
 """
 
 import re
+import threading
 from datetime import date
+from pathlib import Path
 
 import ledger
 import subscriptions
@@ -149,10 +151,81 @@ def draft_of(home, sub_id):
     return max(rows, key=lambda r: int(r.get('version') or 1))
 
 
+# --------------------------------------------------------- the request cache
+#
+# The operator's pages rebuilt the relevance gate (2.7 s), re-read the open
+# market (1.2 s) and re-read the awards store (1.0 s) on EVERY request — a
+# 10 s message page, and „Heute schreiben" pays it once per watched firm
+# (operator, 2026-08-20). Each of these is a pure function of the files on
+# disk and the caller's day, so each is cached on exactly that:
+# `data_stamp` plus `today`. Any cycle or app write moves the stamp and the
+# next request rebuilds — nothing is ever served past its sources.
+#
+# One slot per thing, not a dict: the app serves one operator and one
+# current world, and a receipt harness replaying historical dates must not
+# pin a sidecar matrix per date it visits. The lock is held through the
+# build on purpose — the second thread waits for the first build instead of
+# duplicating it.
+
+_cache_lock = threading.Lock()
+_gate_slot = {}
+_lots_slot = {}
+_win_slot = {}
+
+
+def data_stamp(home):
+    """(name, mtime_ns, size) of every file the picks read: the database,
+    the awards store, the embedding sidecars. A missing file stamps as
+    absent rather than raising — a fresh checkout caches over nothing."""
+    import db
+    import embed
+    store = Path(home) / 'store'
+    side = embed.sidecar_dir(home)
+    dbf = db.path_for(home)
+    out = []
+    # the -wal file too: under WAL a write lands THERE, and the main file
+    # does not move until a checkpoint — without it the memo missed every
+    # ledger append
+    for p in (dbf, dbf.with_name(dbf.name + '-wal'),
+              store / 'awards.parquet', store / 'tenders.parquet',
+              side / 'lots.npy', side / 'lots_index.jsonl',
+              side / 'cpv_labels.npy'):
+        try:
+            st = p.stat()
+            out.append((p.name, st.st_mtime_ns, st.st_size))
+        except OSError:
+            out.append((p.name, None, None))
+    return tuple(out)
+
+
+def _slot(slot, key, build):
+    with _cache_lock:
+        if slot.get('key') == key:
+            return slot['value']
+        value = build()
+        slot['key'], slot['value'] = key, value
+        return value
+
+
+def gate_for(home, today):
+    """The day's relevance gate, shared across requests — relevance.Gate is
+    'loaded once per cycle; profiles built per sub' by design, and a request
+    is no different."""
+    import relevance as rel
+    return _slot(_gate_slot, (str(home), str(today), data_stamp(home)),
+                 lambda: rel.Gate(str(home), as_of=today))
+
+
 def open_lots(home, today):
     """The cycle's current view of the open market: the last prediction per
     lot, deadline not yet passed. Awarded lots are dropped by the deadline
     filter in all but rare cases, and a teaser is not a report."""
+    # a fresh list per caller — the rows are shared, the list is theirs
+    return list(_slot(_lots_slot, (str(home), str(today), data_stamp(home)),
+                      lambda: _open_lots(home, today)))
+
+
+def _open_lots(home, today):
     rows = []
     for row in ledger.prediction_latest_per_lot(home).values():
         # A REAL date, not merely a truthy value: a missing deadline arrives
@@ -179,7 +252,7 @@ def picks_for(home, sub, today, n=MAX_PICKS):
     try:
         import relevance as rel
         if rel.wants_gate(sub):
-            gate = rel.Gate(str(home), as_of=today)
+            gate = gate_for(home, today)
             profile = rel.build_profile(gate, sub)
     except Exception as e:                                     # noqa: BLE001
         print(f'[pitch] gate unavailable ({e}) — market filter only')
@@ -192,11 +265,16 @@ def picks_for(home, sub, today, n=MAX_PICKS):
 def own_win(home, company):
     """The firm's most quotable win: fewest bidders first, then most recent —
     with the lot's title, so the message can name it. None when the store
-    cannot say."""
+    cannot say. Cached like the gate: the store is re-read only when its
+    files move."""
+    return _slot(_win_slot, (str(home), company, data_stamp(home)),
+                 lambda: _own_win(home, company))
+
+
+def _own_win(home, company):
     try:
         import pandas as pd
         import outreach
-        from pathlib import Path
         store = Path(home) / 'store'
         g = outreach.winner_rows(store)
         g = g[g['company'] == company]

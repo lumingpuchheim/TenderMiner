@@ -758,6 +758,41 @@ class Message(Base):
         self.assertIn('– von den Losen, die wir empfehlen, bekommen 16 % '
                       'höchstens ein Angebot', m['long'])
 
+    def test_candidates_are_memoised_until_the_data_moves(self):
+        """The 10 s page (operator, 2026-08-20): the gate, the open lots and
+        the picks are pure functions of the files on disk and the day, so a
+        second request must not rebuild them — and a write must retire them,
+        or the page serves yesterday's market."""
+        import pitch
+        calls = []
+        orig = pitch.picks_for
+
+        def counting(*a, **kw):
+            calls.append(1)
+            return orig(*a, **kw)
+
+        pitch.picks_for = counting
+        try:
+            m1 = pitch.message(self.dir, self.sub_id, 'https://a/t/x',
+                               today='2026-08-17')
+            once = len(calls)
+            self.assertEqual(once, 1)
+            m2 = pitch.message(self.dir, self.sub_id, 'https://a/t/x',
+                               today='2026-08-17')
+            self.assertEqual(len(calls), once)          # served from the memo
+            self.assertEqual([p['procedure_id'] for p in m2['picks']],
+                             [p['procedure_id'] for p in m1['picks']])
+            # a ledger write moves the data stamp; the next request rebuilds
+            # and sees the new lot
+            self.lots(rows=(('p31', 'Blitzschutz Rathaus', 'Stadt Süd',
+                             '2026-09-20', True),))
+            m3 = pitch.message(self.dir, self.sub_id, 'https://a/t/x',
+                               today='2026-08-17')
+            self.assertGreater(len(calls), once)
+            self.assertIn('p31', [p['procedure_id'] for p in m3['picks']])
+        finally:
+            pitch.picks_for = orig
+
     def test_the_message_page_and_the_row_show_the_edge_verdict(self):
         """The operator writes only where there is an edge (2026-08-18), so
         the verdict stands on the row and above the texts."""

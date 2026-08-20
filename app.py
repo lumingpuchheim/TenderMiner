@@ -1257,6 +1257,24 @@ class ThreadingServer(ThreadingMixIn, WSGIServer):
     daemon_threads = True
 
 
+def _prewarm(home):
+    """Build the operator pages' shared pieces — the day's relevance gate
+    and the open-lot table (pitch's request cache) — right after start, so
+    the first click after a deploy does not pay for them. In a daemon
+    thread and non-fatal: the app serves from the first second either way,
+    and a failure here means only that the first request builds them
+    itself, exactly as before."""
+    try:
+        import pitch
+        from datetime import date as _date
+        today = _date.today().isoformat()
+        pitch.gate_for(home, today)
+        pitch.open_lots(home, today)
+        print('[app] operator caches warm')
+    except Exception as e:                                     # noqa: BLE001
+        print(f'[app] prewarm skipped ({e})')
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1266,6 +1284,9 @@ def main():
     args = ap.parse_args()
     print(f'[app] data root: {config.describe(args.data_dir)}')
     print(f'[app] listening on http://{args.host}:{args.port}')
+    import threading
+    threading.Thread(target=_prewarm, args=(args.data_dir,),
+                     daemon=True).start()
     with make_server(args.host, args.port, make_app(args.data_dir),
                      server_class=ThreadingServer,
                      handler_class=ScrubbingHandler) as httpd:
