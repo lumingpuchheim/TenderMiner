@@ -129,7 +129,11 @@ class Report(Base):
                                      headers, transport=self.transport)
         self.assertEqual(mid, 'id-1')
         self.assertEqual(self.sent[0]['to'], ['t@t.de'])
-        self.assertIn('Murara-Bericht 17.08.2026', self.sent[0]['subject'])
+        # the date, and neither the customer's name nor the brand
+        # (operator, 2026-08-20)
+        self.assertEqual(self.sent[0]['subject'],
+                         'Ausschreibungsempfehlungen vom 17.08.2026')
+        self.assertNotIn(render.customer_name(SUB), self.sent[0]['subject'])
         self.assertIn('List-Unsubscribe', self.sent[0]['headers'])
         self.assertEqual(len(self.events('send')), 1)
 

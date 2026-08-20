@@ -158,8 +158,15 @@ def send_report(home, sub, today, page, headers, transport=None):
     printed line and a `send_refused` row, not a failed cycle — the file on
     disk is written either way. -> message id or None."""
     import mailer
-    name = render.customer_name(sub)
-    subject = f'Murara-Bericht {render.date_de(today.isoformat())} — {name}'
+    # What the subject says and what it leaves out (operator, 2026-08-20:
+    # "doesnt sound serious, i dont like add company name in the title"):
+    # the reader knows which firm they are, and the From line already says
+    # Murara — a name and a brand in the subject are the same redundancy
+    # twice, and redundancy is what makes a subject read like a newsletter.
+    # What is left is the thing itself, in the words the report's own
+    # heading uses. It can promise recommendations because a report without
+    # one is never mailed (deliver: "no picks — report written, not mailed").
+    subject = f'Ausschreibungsempfehlungen vom {render.date_de(today.isoformat())}'
     try:
         mid = mailer.send(home, 'report', sub['sub_id'], subject, page,
                           headers=headers, transport=transport)
