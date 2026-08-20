@@ -6,10 +6,12 @@ potential customer wont be interested in the theory if he doesnt know what
 is it about"): who we are in two sentences; the trade's market figures from
 its public page (`trade_pages.forecasts`); why low-competition lots pay,
 then the picks, each with its TED link; the invitation link; ONE sentence of
-proof — we grade ourselves against published outcomes, the current rate is
-on the trade page — where the old track-record paragraph used to lecture.
-The verdict still decides WHOM the operator writes to (admin page); the
-message itself quotes no precision, factor or checked counts.
+proof at the decision point — we grade ourselves against published outcomes,
+and when the trade's forecast beats guessing the sentence names the
+comparison (precision vs the trade's own rate, the factor, the count — the
+same numbers the verdict box and the trade page show; operator, 2026-08-20).
+Any other verdict state keeps the sentence number-free. The verdict still
+decides WHOM the operator writes to (admin page).
 "Wir" throughout, no person's name (we do not know it), no "ich".
 
 The picks come from the same machinery a customer's Monday report uses: the
@@ -286,6 +288,27 @@ def facts_block(trade, v):
                      f'{pct_de(f["low_bid"])} der Lose bekommen höchstens ein '
                      f'Angebot{window}')
     return lines
+def _proof(v, where):
+    """The proof sentence at the decision point. With a beating verdict it
+    names the comparison — precision vs the trade's own rate, the factor,
+    the count — the same numbers the verdict box and the trade page show
+    (operator, 2026-08-20). In every other state (thin, no_better, none) it
+    only points at the page: no numbers the page cannot back."""
+    if v.get('state') != 'beats' or not v.get('factor'):
+        return (f'Ob unsere Auswahl trifft, prüfen wir laufend gegen die '
+                f'später veröffentlichten Ergebnisse – die aktuelle Quote '
+                f'steht offen auf Ihrer Gewerkeseite: {where}')
+    from trade_pages import factor_de, pct_de
+    return (f'Ob unsere Auswahl trifft, prüfen wir laufend gegen die später '
+            f'veröffentlichten Ergebnisse. Zuletzt endeten '
+            f'{pct_de(v["precision"])} der Lose aus unserer Auswahl mit '
+            f'höchstens einem Angebot – im Gewerk insgesamt sind es '
+            f'{pct_de(v["base"])}. Unsere Auswahl trifft also '
+            f'{factor_de(v["factor"])}-mal so oft wie Zufall '
+            f'({v["checked"]} geprüfte Lose). Die aktuelle Quote steht offen '
+            f'auf Ihrer Gewerkeseite: {where}')
+
+
 def message(home, sub_id, url, company=None, today=None):
     """-> {'short', 'long', 'picks', 'win', 'trade', 'edge'} — the two texts
     to paste (drafted with the operator 2026-08-18).
@@ -377,12 +400,12 @@ def message(home, sub_id, url, company=None, today=None):
               f'kostenlos; {after}, kündbar jederzeit mit einem Klick. Es '
               f'gibt kein Konto und kein Passwort – nur Ihre '
               f'E-Mail-Adresse.', '',
-              # the one sentence of proof, at the decision point: we check
-              # ourselves against published outcomes, and the reader can
-              # audit the current rate on the public page — no numbers here
-              f'Ob unsere Auswahl trifft, prüfen wir laufend gegen die später '
-              f'veröffentlichten Ergebnisse – die aktuelle Quote steht offen '
-              f'auf Ihrer Gewerkeseite: {where}', '',
+              # the proof, at the decision point: when the trade's forecast
+              # beats guessing, the message names the comparison (operator,
+              # 2026-08-20 — the verdict box says „die Nachricht nennt ihn",
+              # and now it does again); any other state stays number-free,
+              # so the message never carries a claim the page cannot back
+              _proof(v, where), '',
               'Woher wir Ihre Firmendaten haben und wie Sie widersprechen, '
               'steht dort unter „Datenschutz".', '',
               SIGNATURE]

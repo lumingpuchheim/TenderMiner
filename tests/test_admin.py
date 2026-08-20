@@ -714,40 +714,48 @@ class Message(Base):
         self.assertIn('12 öffentliche Lose pro Monat', m['long'])
         self.assertIn('84.000 € wert', m['long'])
         self.assertIn('12 % der Lose bekommen höchstens ein Angebot', m['long'])
-        # 2026-08-20, operator: the track-record paragraph is GONE from the
-        # message — a cold reader is not interested in the theory before the
-        # thing. Proof is ONE sentence at the end, with the page as source.
+        # the proof sentence at the end names the comparison when the trade
+        # beats guessing (operator, 2026-08-20) — the same numbers as the
+        # verdict box and the trade page, nowhere else in the message
         self.assertNotIn('obersten Fünftel', m['long'])
-        self.assertNotIn('-mal so oft', m['long'])
         self.assertIn('prüfen wir laufend gegen die später veröffentlichten '
                       'Ergebnisse', m['long'])
+        self.assertIn('16 % der Lose aus unserer Auswahl', m['long'])
+        self.assertIn('im Gewerk insgesamt sind es 10 %', m['long'])
+        self.assertIn('1,6-mal so oft wie Zufall (43 geprüfte Lose)',
+                      m['long'])
         self.assertIn('murara.eu/gewerke/blitzschutz-und-erdung/', m['long'])
         # the why stands BEFORE the lots, and the figures stay
         self.assertLess(m['long'].index('lohnt sich ein Angebot'),
                         m['long'].index('1. '))
 
-    def test_no_verdict_numbers_reach_the_message_in_any_state(self):
-        """2026-08-20: whatever the verdict file says — thin, beats, with or
-        without an overall record — the message carries no precision, no
-        factor, no checked counts. The verdict still gates WHOM the operator
-        writes to (admin row), just not what the message says."""
+    def test_only_a_beating_verdict_puts_numbers_in_the_message(self):
+        """The comparison stands in the message exactly when the trade's own
+        verdict is 'beats' (operator, 2026-08-20). Thin or no_better — even
+        with a beating OVERALL record — stays number-free: the message never
+        borrows a claim its own trade page cannot back."""
         import pitch
         all_ = {'state': 'beats', 'checked': 1042, 'hits': 183,
                 'precision': 0.176, 'base': 0.094, 'recall': 0.32,
                 'factor': 1.86, 'generated': '2026-08-18'}
         for kw in (dict(state='thin', checked=14, hits=2, precision=0.14,
                         base=0.10, recall=0.1),
-                   dict(overall=all_, state='beats', checked=43, hits=7,
-                        precision=0.163, base=0.10, recall=0.3, factor=1.63)):
+                   dict(overall=all_, state='no_better', checked=43, hits=5,
+                        precision=0.116, base=0.10, recall=0.3, factor=1.16)):
             self.verdict(**kw)
             m = pitch.message(self.dir, self.sub_id, 'https://a/t/x',
                               today='2026-08-17')
-            self.assertNotIn('obersten Fünftel', m['long'])
             self.assertNotIn('-mal so oft', m['long'])
-            self.assertNotIn('%', m['long'].split('Zahlen zu Ihrem Markt')[0])
+            self.assertNotIn('geprüfte Lose', m['long'])
             self.assertIn('prüfen wir laufend gegen die später '
                           'veröffentlichten Ergebnisse', m['long'])
         self.assertEqual(m['overall']['checked'], 1042)
+        self.verdict(state='beats', checked=43, hits=7, precision=0.163,
+                     base=0.10, recall=0.3, factor=1.63)
+        m = pitch.message(self.dir, self.sub_id, 'https://a/t/x',
+                          today='2026-08-17')
+        self.assertIn('1,6-mal so oft wie Zufall (43 geprüfte Lose)',
+                      m['long'])
 
     def test_the_message_page_and_the_row_show_the_edge_verdict(self):
         """The operator writes only where there is an edge (2026-08-18), so
