@@ -672,7 +672,10 @@ class Message(Base):
         self.assertNotIn(' ich ', m['long'].lower())
         self.assertNotIn('Herr', m['long'])
         self.assertIn('https://a/t/x', m['long'])
-        self.assertIn('Datenschutz', m['long'])
+        # no Datenschutz paragraph (operator, 2026-08-20): the message ends
+        # with the terms and the signature; the Datenschutzerklärung stays
+        # on the trade page
+        self.assertNotIn('Datenschutz', m['long'])
         self.assertIn(pitch.SIGNATURE, m['long'])
         for p in m['picks']:
             if p.get('publication_number'):
@@ -714,25 +717,22 @@ class Message(Base):
         self.assertIn('12 öffentliche Lose pro Monat', m['long'])
         self.assertIn('84.000 € wert', m['long'])
         self.assertIn('12 % der Lose bekommen höchstens ein Angebot', m['long'])
-        # the proof sentence at the end names the comparison when the trade
-        # beats guessing (operator, 2026-08-20) — the same numbers as the
-        # verdict box and the trade page, nowhere else in the message
+        # our hit rate is ONE line in the figures when the trade beats
+        # guessing (operator, 2026-08-20) — no proof paragraph, no method
+        self.assertIn('– von den Losen, die wir empfehlen, bekommen 16 % '
+                      'höchstens ein Angebot', m['long'])
         self.assertNotIn('obersten Fünftel', m['long'])
-        self.assertIn('prüfen wir laufend gegen die später veröffentlichten '
-                      'Ergebnisse', m['long'])
-        self.assertIn('16 % der Lose aus unserer Auswahl', m['long'])
-        self.assertIn('im Gewerk insgesamt sind es 10 %', m['long'])
-        self.assertIn('1,6-mal so oft wie Zufall (43 geprüfte Lose)',
-                      m['long'])
-        self.assertIn('murara.eu/gewerke/blitzschutz-und-erdung/', m['long'])
+        self.assertNotIn('prüfen wir laufend', m['long'])
+        self.assertNotIn('-mal so oft', m['long'])
+        self.assertNotIn('murara.eu/gewerke/', m['long'])
         # the why stands BEFORE the lots, and the figures stay
         self.assertLess(m['long'].index('lohnt sich ein Angebot'),
                         m['long'].index('1. '))
 
-    def test_only_a_beating_verdict_puts_numbers_in_the_message(self):
-        """The comparison stands in the message exactly when the trade's own
-        verdict is 'beats' (operator, 2026-08-20). Thin or no_better — even
-        with a beating OVERALL record — stays number-free: the message never
+    def test_only_a_beating_verdict_puts_our_rate_in_the_figures(self):
+        """The hit-rate line stands in the figures exactly when the trade's
+        own verdict is 'beats' (operator, 2026-08-20). Thin or no_better —
+        even with a beating OVERALL record — adds nothing: the message never
         borrows a claim its own trade page cannot back."""
         import pitch
         all_ = {'state': 'beats', 'checked': 1042, 'hits': 183,
@@ -745,17 +745,15 @@ class Message(Base):
             self.verdict(**kw)
             m = pitch.message(self.dir, self.sub_id, 'https://a/t/x',
                               today='2026-08-17')
-            self.assertNotIn('-mal so oft', m['long'])
-            self.assertNotIn('geprüfte Lose', m['long'])
-            self.assertIn('prüfen wir laufend gegen die später '
-                          'veröffentlichten Ergebnisse', m['long'])
+            self.assertIn('Zahlen zu Ihrem Markt', m['long'])
+            self.assertNotIn('die wir empfehlen', m['long'])
         self.assertEqual(m['overall']['checked'], 1042)
         self.verdict(state='beats', checked=43, hits=7, precision=0.163,
                      base=0.10, recall=0.3, factor=1.63)
         m = pitch.message(self.dir, self.sub_id, 'https://a/t/x',
                           today='2026-08-17')
-        self.assertIn('1,6-mal so oft wie Zufall (43 geprüfte Lose)',
-                      m['long'])
+        self.assertIn('– von den Losen, die wir empfehlen, bekommen 16 % '
+                      'höchstens ein Angebot', m['long'])
 
     def test_the_message_page_and_the_row_show_the_edge_verdict(self):
         """The operator writes only where there is an edge (2026-08-18), so
