@@ -376,9 +376,10 @@ def message(home, sub_id, url, company=None, today=None):
     lines += [f'Wenn Sie solche Empfehlungen per E-Mail bekommen möchten: '
               f'{url} – E-Mail-Adresse eintragen, fertig. Wir schreiben nur, '
               f'wenn es so ein Los für Sie gibt; gibt es keines, kommt keine '
-              f'E-Mail. Vier Wochen ohne Kosten; {after}, kündbar jederzeit '
-              f'mit einem Klick. Es gibt kein Konto und kein Passwort – nur '
-              f'Ihre E-Mail-Adresse.', '',
+              f'E-Mail. Die ersten vier E-Mails mit Empfehlungen sind '
+              f'kostenlos; {after}, kündbar jederzeit mit einem Klick. Es '
+              f'gibt kein Konto und kein Passwort – nur Ihre '
+              f'E-Mail-Adresse.', '',
               # the one sentence of proof, at the decision point: we check
               # ourselves against published outcomes, and the reader can
               # audit the current rate on the public page — no numbers here

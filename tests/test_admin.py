@@ -322,9 +322,9 @@ class ARequestNeverBuildsTheIndex(Base):
 
 class Status(Base):
     def test_the_words_follow_the_record(self):
-        # `today` is pinned: the trial day is counted from the version's
-        # effective_from, so a fixture written on one day started failing on
-        # the next ("Tag 2 von 28") until this argument existed.
+        # `today` is pinned for the same reason it always was; since
+        # 2026-08-20 the trial is counted in report mails, so the label
+        # shows the free-mail count instead of a day-of-28.
         def label(today='2026-08-17'):
             return admin.status_of(admin.state_of(self.dir, today=today),
                                    DUNKEL)['label']
@@ -339,7 +339,7 @@ class Status(Base):
         subscriptions.append_version(self.dir, {
             'sub_id': sub_id, 'version': 2, 'active': True,
             'effective_from': '2026-08-17', 'cpv_prefixes': ['45']})
-        self.assertEqual(label(), 'angemeldet · Tag 1 von 28')
+        self.assertEqual(label(), 'angemeldet · Empfehlung 0 von 4 kostenlos')
         subscriptions.append_version(self.dir, {
             'sub_id': sub_id, 'version': 3, 'active': True,
             'effective_from': '2026-08-17', 'cpv_prefixes': ['45'],
@@ -686,7 +686,9 @@ class Message(Base):
         # 2026-08-18) — those stand, complete, in the message after contact
         for word in ('kostenlos', 'Kostenlos', 'Konto', 'Dürfen wir'):
             self.assertNotIn(word, m['short'])
-        self.assertIn('ohne Kosten; danach', m['long'])
+        self.assertIn('kostenlos; danach', m['long'])
+        self.assertIn('vier E-Mails mit Empfehlungen', m['long'])
+        self.assertIn('gibt es keines, kommt keine E-Mail', m['long'])
         self.assertIn('kein Konto und kein Passwort', m['long'])
 
     def test_the_trade_figures_and_the_edge_come_from_the_site_build(self):

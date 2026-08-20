@@ -119,16 +119,23 @@ def mail_links(home, sub_id):
 
 def trial_state(home, sub_id, today, all_versions):
     """(status, ask_sent) for one customer: `subscriptions.trial_status` over
-    ITS versions, plus whether the ask already went out (an `ask` event in
-    the ledger — sent once, LAUNCH.md 3)."""
+    ITS versions and the count of report mails already sent (`send` events,
+    detail `report:` — since the no-picks-no-mail rule each of them carried
+    a recommendation), plus whether the ask already went out (an `ask`
+    event — sent once, LAUNCH.md 3)."""
     rows = [r for r in all_versions if r.get('sub_id') == sub_id]
-    status = subscriptions.trial_status(rows, today)
+    sent, asked = 0, False
     try:
-        asked = any(e['kind'] == 'ask' and e['sub_id'] == sub_id
-                    for e in ledger.read(home, 'app_events'))
+        for e in ledger.read(home, 'app_events'):
+            if e.get('sub_id') != sub_id:
+                continue
+            if e['kind'] == 'send' and str(e.get('detail', '')).startswith('report:'):
+                sent += 1
+            elif e['kind'] == 'ask':
+                asked = True
     except Exception:                                          # noqa: BLE001
-        asked = False
-    return status, asked
+        pass
+    return subscriptions.trial_status(rows, today, sent_reports=sent), asked
 
 
 def ask_for(home, sub_id):
@@ -250,18 +257,19 @@ def deliver(paths, scored, args):
         feedback_link, footer_html, headers = (
             mail_links(paths.data, sub['sub_id'])
             if mailing else (None, '', None))
-        # The trial clock (ONBOARDING.md 9.5): four free weeks, then the ask
-        # ONCE on top of that report; after it, no report goes out to a
-        # customer still on `trial` — the file is still written for the
-        # operator. `plan: paid` switches the clock off.
+        # The trial (ONBOARDING.md 9.5, recounted 2026-08-20): FREE_REPORTS
+        # mails that each carried a recommendation, then the ask ONCE, riding
+        # on the last free mail; after it, no report goes out to a customer
+        # still on `trial` — the file is still written for the operator.
+        # `plan: paid` switches the count off.
         ask = ''
         if mailing and feedback_link is not None:
             status, asked = trial_state(paths.data, sub['sub_id'], today,
                                         all_versions)
             if status['plan'] == 'trial' and asked:
-                print(f"[deliver] {sub['sub_id']}: trial ended, ask sent "
-                      f"{'' if not status['ends'] else 'on ' + status['ends']}"
-                      f' — file only until they say yes')
+                print(f"[deliver] {sub['sub_id']}: trial over "
+                      f"({status['sent']} free reports sent, ask sent) "
+                      f'— file only until they say yes')
                 feedback_link, footer_html, headers = None, '', None
             elif status['ask_due']:
                 ask = ask_for(paths.data, sub['sub_id'])

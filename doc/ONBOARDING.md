@@ -517,6 +517,20 @@ annex stays the operator's).
 
 ### 9.5 The trial clock, the ask, the yes-link [BUILD]
 
+**Recounted 2026-08-20 (operator): the trial is `FREE_REPORTS` (4) MAILS
+WITH RECOMMENDATIONS, not 28 days.** Sending became event-driven the same
+day — a report without picks is written for the operator and never mailed —
+so a four-week clock could mean four mails or none. Now:
+`trial_status(rows, as_of, sent_reports)` takes the count of `send` events
+with detail `report:` (delivering.trial_state reads the ledger; since the
+no-picks-no-mail rule, every such mail carried a recommendation);
+`ask_due` from `sent >= FREE_REPORTS - 1`, so the ask rides ON the fourth
+free mail ("Das ist Ihre vierte kostenlose Empfehlung"); after the ask,
+`trial` customers get the file only, as before. `TRIAL_DAYS` is retired in
+place. The /admin row shows „Empfehlung N von 4 kostenlos". The paragraphs
+below describe the original 28-day build; the mechanics they name (ask
+once, `y` token, paid versions) are unchanged.
+
 - **No new date field.** Trial start = `effective_from` of the first
   `active: true` version; the trial ends after 28 days. `plan` joins `KNOWN`
   (`trial` | `paid`; absent reads `trial`) — in the same commit that first

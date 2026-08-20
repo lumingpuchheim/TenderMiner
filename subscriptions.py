@@ -63,7 +63,14 @@ KNOWN = {
 }
 
 PLANS = ('trial', 'paid')
-TRIAL_DAYS = 28           # LAUNCH.md: four free weeks
+# The trial is counted in MAILS WITH RECOMMENDATIONS, not weeks (operator,
+# 2026-08-20): sending is event-driven now — no good tender, no mail — so
+# "four free weeks" could mean four mails or none. Every trial customer gets
+# FREE_REPORTS mails that each contain at least one recommendation; the ask
+# rides on the last of them. `trial_status` reports the count it is handed
+# (delivering.trial_state counts `send` events of kind report).
+FREE_REPORTS = 4
+TRIAL_DAYS = 28           # LAUNCH.md: the old four-weeks clock — retired 2026-08-20, kept for the doc trail
 
 # Fields that were once real. Kept readable, never authoritative.
 RETIRED = {
@@ -189,34 +196,38 @@ def validate(row, source='<row>', lineno=None, retired_out=None):
     return out
 
 
-def trial_status(rows, as_of):
+def trial_status(rows, as_of, sent_reports=0):
     """Where one customer stands in the trial -> dict, from ITS versions
-    (every version of one sub_id, any order) on `as_of` (ISO date).
+    (every version of one sub_id, any order) on `as_of` (ISO date), plus
+    `sent_reports` — how many report mails have already gone out (the
+    caller counts them; delivering.trial_state reads the send ledger).
 
       plan     'paid' | 'trial'
       started  ISO date of the first active version, or None (never active)
-      ends     started + TRIAL_DAYS, or None
-      day      1-based day of the trial on as_of, or None
-      ask_due  True once as_of >= ends and plan is still trial
+      sent     report mails so far (each carried a recommendation — the
+               no-picks-no-mail rule guarantees it)
+      ends     None while mails remain free; 'now' once the next mail would
+               be past the FREE_REPORTS quota
+      ask_due  True when the next mail is the LAST free one or later —
+               the ask rides on it (operator, 2026-08-20: the trial is
+               four mails with recommendations, not four weeks)
 
-    No new date field (ONBOARDING.md 9.5): the trial starts when the first
-    `active: true` version starts speaking; a customer who says yes gets a
-    version with `plan: paid` and the clock stops mattering."""
-    from datetime import date, timedelta
+    No new field on the subscription (ONBOARDING.md 9.5): a customer who
+    says yes gets a version with `plan: paid` and the count stops
+    mattering."""
     as_of = str(as_of)[:10]
     speaking = resolve(rows, as_of)
     plan = (speaking[0].get('plan') or 'trial') if speaking else 'trial'
     starts = sorted(str(r.get('effective_from') or '')[:10]
                     for r in rows if r.get('active', True))
     started = next((s for s in starts if s), None)
+    sent = int(sent_reports)
     if not started:
-        return {'plan': plan, 'started': None, 'ends': None, 'day': None,
+        return {'plan': plan, 'started': None, 'sent': sent, 'ends': None,
                 'ask_due': False}
-    d0 = date.fromisoformat(started)
-    ends = d0 + timedelta(days=TRIAL_DAYS)
-    day = (date.fromisoformat(as_of) - d0).days + 1
-    return {'plan': plan, 'started': started, 'ends': ends.isoformat(),
-            'day': day, 'ask_due': plan == 'trial' and as_of >= ends.isoformat()}
+    return {'plan': plan, 'started': started, 'sent': sent,
+            'ends': ('now' if sent >= FREE_REPORTS else None),
+            'ask_due': plan == 'trial' and sent >= FREE_REPORTS - 1}
 
 
 def _iso_date(s):

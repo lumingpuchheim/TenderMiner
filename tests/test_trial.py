@@ -27,21 +27,30 @@ class Status(unittest.TestCase):
         self.assertEqual((s['plan'], s['started'], s['ask_due']),
                          ('trial', None, False))
 
-    def test_trial_days_and_ask(self):
-        s = subscriptions.trial_status([V1, V2], '2026-08-17')
-        self.assertEqual((s['started'], s['ends'], s['day'], s['ask_due']),
-                         ('2026-08-01', '2026-08-29', 17, False))
-        s = subscriptions.trial_status([V1, V2], '2026-08-29')
-        self.assertEqual((s['day'], s['ask_due']), (29, True))
-        s = subscriptions.trial_status([V1, V2], '2026-09-14')
-        self.assertTrue(s['ask_due'])
+    def test_the_trial_counts_mails_with_recommendations(self):
+        """2026-08-20 (operator): sending is event-driven now — no good
+        tender, no mail — so 'four free weeks' could mean four mails or
+        none. The trial is FREE_REPORTS mails that each carried a
+        recommendation; the ask rides on the LAST free one (sent == 3 means
+        this cycle's mail is the fourth)."""
+        s = subscriptions.trial_status([V1, V2], '2026-08-17', sent_reports=0)
+        self.assertEqual((s['started'], s['sent'], s['ask_due']),
+                         ('2026-08-01', 0, False))
+        s = subscriptions.trial_status([V1, V2], '2026-08-17', sent_reports=2)
+        self.assertFalse(s['ask_due'])
+        s = subscriptions.trial_status([V1, V2], '2026-08-17', sent_reports=3)
+        self.assertTrue(s['ask_due'])          # this mail is the fourth
+        self.assertIsNone(s['ends'])           # ...and still free
+        s = subscriptions.trial_status([V1, V2], '2026-09-14', sent_reports=4)
+        self.assertEqual((s['ask_due'], s['ends']), (True, 'now'))
 
     def test_paid_stops_the_clock(self):
         v3 = {**V2, 'version': 3, 'effective_from': '2026-09-01', 'plan': 'paid'}
         s = subscriptions.trial_status([V1, V2, v3], '2026-09-14')
         self.assertEqual((s['plan'], s['ask_due']), ('paid', False))
         # before v3 speaks, still trial
-        s = subscriptions.trial_status([V1, V2, v3], '2026-08-30')
+        s = subscriptions.trial_status([V1, V2, v3], '2026-08-30',
+                                       sent_reports=4)
         self.assertEqual((s['plan'], s['ask_due']), ('trial', True))
 
     def test_plan_is_validated(self):
@@ -75,8 +84,14 @@ class Ask(Base):
                                            date(2026, 8, 17), allv)
         self.assertFalse(st['ask_due'])
         self.assertFalse(asked)
+        # three report mails on record: the next one is the fourth -> ask
+        ledger.append(self.dir, 'app_events', [
+            {'ts': f'2026-08-{d:02d}T08:00:00+00:00', 'kind': 'send',
+             'sub_id': 'firm', 'detail': "report: 'Murara-Bericht'"}
+            for d in (18, 25, 31)])
         st, asked = delivering.trial_state(self.dir, 'firm',
                                            date(2026, 9, 7), allv)
+        self.assertEqual(st['sent'], 3)
         self.assertTrue(st['ask_due'])
         html = delivering.ask_for(self.dir, 'firm')
         self.assertIn('Ja, weiter mit Murara', html)

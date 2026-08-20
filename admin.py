@@ -399,16 +399,21 @@ def status_of(state, company):
             who = (cust.get('owner') or '').split('@')[0]
             return done(f'vorgemerkt{" · " + who if who else ""}', 'st-mark')
         return done('angelegt', 'st-inv')
+    # the trial counts mails with recommendations (2026-08-20), so the row
+    # shows how many of the free ones have gone out
+    sent = sum(1 for e in state['events'].get(sub_id, [])
+               if e['kind'] == 'send'
+               and str(e.get('detail', '')).startswith('report:'))
     st = subscriptions.trial_status(state['versions'].get(sub_id, []),
-                                    state['today'])
+                                    state['today'], sent_reports=sent)
     if st['plan'] == 'paid':
         return done('Kunde · bezahlt', 'st-paid')
     if not st['started']:
         return done('zurückgestellt', 'st-held')
     if 'ask' in kinds:
         return done('gefragt', 'st-ask')
-    return done(f"angemeldet · Tag {st['day']} von {subscriptions.TRIAL_DAYS}",
-                'st-on')
+    return done(f"angemeldet · Empfehlung {st['sent']} von "
+                f'{subscriptions.FREE_REPORTS} kostenlos', 'st-on')
 
 
 def counts(state):

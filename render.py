@@ -248,9 +248,9 @@ def ask_html(y_url):
     one link; the link is standing and never expires."""
     return ('<div style="margin:0 0 1.5em;padding:12px 14px;background:#fff8e6;'
             'border-left:3px solid #d9a400">'
-            '<p style="margin:0 0 .5em"><b>Vier Wochen Murara liegen hinter '
-            'Ihnen.</b> Waren die Empfehlungen Ihr Geschäft? Wenn Sie die '
-            'Berichte weiter erhalten möchten:</p>'
+            '<p style="margin:0 0 .5em"><b>Das ist Ihre vierte kostenlose '
+            'Empfehlung.</b> Waren sie Ihr Geschäft? Wenn Sie weitere '
+            'erhalten möchten:</p>'
             f'<p style="margin:0 0 .5em"><a href="{escape(y_url)}" '
             'style="display:inline-block;padding:6px 14px;border:1px solid '
             '#2a6;border-radius:4px;color:#2a6;text-decoration:none">'
