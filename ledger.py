@@ -105,6 +105,37 @@ def _assert_not_stale(con, home, name, table, n_db):
             f'in (it is idempotent), or remove the stale file.')
 
 
+def versions(home, *names):
+    """One (name, marker) per ledger asked for — a cheap change stamp.
+
+    The app's request cache keys on this (pitch.py): a write to one table
+    moves exactly that table's marker and nobody else's, so marking a
+    message as sent (app_events) no longer retires the relevance gate that
+    took 2.7 s to build. In the database the marker is max(seq); for a
+    pre-migration JSONL file it is the file's mtime and size. Read-only and
+    a few ms — safe to call on every request."""
+    import db
+    out = []
+    con = None
+    for name in names:
+        kind, path = storage(home, name)
+        if kind == 'jsonl':
+            try:
+                st = Path(path).stat()
+                out.append((name, st.st_mtime_ns, st.st_size))
+            except OSError:
+                out.append((name, None, None))
+            continue
+        if con is None:
+            con = db.connect(home, create=False)
+        table = _spec(name)[1]
+        out.append((name, con.execute(
+            f'SELECT max(seq) FROM {table}').fetchone()[0]))
+    if con is not None:
+        con.close()
+    return tuple(out)
+
+
 # One commit's worth of rows. The write lock is held from first insert to
 # commit, and the app waits 5 s for it (HOSTING.md §1: 0.96 s per 5,000 rows,
 # so ~25,000 rows is where a customer's click starts failing). Normal weeks

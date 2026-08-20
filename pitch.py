@@ -156,10 +156,13 @@ def draft_of(home, sub_id):
 # The operator's pages rebuilt the relevance gate (2.7 s), re-read the open
 # market (1.2 s) and re-read the awards store (1.0 s) on EVERY request — a
 # 10 s message page, and „Heute schreiben" pays it once per watched firm
-# (operator, 2026-08-20). Each of these is a pure function of the files on
-# disk and the caller's day, so each is cached on exactly that:
-# `data_stamp` plus `today`. Any cycle or app write moves the stamp and the
-# next request rebuilds — nothing is ever served past its sources.
+# (operator, 2026-08-20). Each of these is a pure function of what it reads
+# on disk and the caller's day, so each is cached on exactly that — and on
+# ONLY that: the stamp names the tables and files the piece actually reads
+# (`ledger.versions` per table, mtime+size per file), so marking a message
+# as sent (an app_events write) does not retire a gate that never reads
+# app_events. A write to a named source moves its marker and the next
+# request rebuilds — nothing is ever served past what it was built from.
 #
 # One slot per thing, not a dict: the app serves one operator and one
 # current world, and a receipt harness replaying historical dates must not
@@ -173,29 +176,35 @@ _lots_slot = {}
 _win_slot = {}
 
 
-def data_stamp(home):
-    """(name, mtime_ns, size) of every file the picks read: the database,
-    the awards store, the embedding sidecars. A missing file stamps as
-    absent rather than raising — a fresh checkout caches over nothing."""
-    import db
-    import embed
-    store = Path(home) / 'store'
-    side = embed.sidecar_dir(home)
-    dbf = db.path_for(home)
+def _file_stamp(*paths):
     out = []
-    # the -wal file too: under WAL a write lands THERE, and the main file
-    # does not move until a checkpoint — without it the memo missed every
-    # ledger append
-    for p in (dbf, dbf.with_name(dbf.name + '-wal'),
-              store / 'awards.parquet', store / 'tenders.parquet',
-              side / 'lots.npy', side / 'lots_index.jsonl',
-              side / 'cpv_labels.npy'):
+    for p in paths:
         try:
             st = p.stat()
             out.append((p.name, st.st_mtime_ns, st.st_size))
         except OSError:
             out.append((p.name, None, None))
     return tuple(out)
+
+
+def _store_stamp(home):
+    store = Path(home) / 'store'
+    return _file_stamp(store / 'awards.parquet', store / 'tenders.parquet')
+
+
+def _sidecar_stamp(home):
+    import embed
+    side = embed.sidecar_dir(home)
+    return _file_stamp(side / 'lots.npy', side / 'lots_index.jsonl',
+                       side / 'cpv_labels.npy')
+
+
+def data_stamp(home):
+    """Everything the picks read, as one tuple — the key sales.candidates
+    memoises under. Deliberately WITHOUT app_events: the operator marking a
+    message as sent must not cost the next click a rebuild."""
+    return (_sidecar_stamp(home), _store_stamp(home),
+            ledger.versions(home, 'predictions', 'learned_refs'))
 
 
 def _slot(slot, key, build):
@@ -210,19 +219,21 @@ def _slot(slot, key, build):
 def gate_for(home, today):
     """The day's relevance gate, shared across requests — relevance.Gate is
     'loaded once per cycle; profiles built per sub' by design, and a request
-    is no different."""
+    is no different. Keyed on what a Gate reads: the embedding sidecars,
+    the store (cpv+buyer per row) and the learned references."""
     import relevance as rel
-    return _slot(_gate_slot, (str(home), str(today), data_stamp(home)),
-                 lambda: rel.Gate(str(home), as_of=today))
+    key = (str(home), str(today), _sidecar_stamp(home), _store_stamp(home),
+           ledger.versions(home, 'learned_refs'))
+    return _slot(_gate_slot, key, lambda: rel.Gate(str(home), as_of=today))
 
 
 def open_lots(home, today):
     """The cycle's current view of the open market: the last prediction per
     lot, deadline not yet passed. Awarded lots are dropped by the deadline
     filter in all but rare cases, and a teaser is not a report."""
+    key = (str(home), str(today), ledger.versions(home, 'predictions'))
     # a fresh list per caller — the rows are shared, the list is theirs
-    return list(_slot(_lots_slot, (str(home), str(today), data_stamp(home)),
-                      lambda: _open_lots(home, today)))
+    return list(_slot(_lots_slot, key, lambda: _open_lots(home, today)))
 
 
 def _open_lots(home, today):
@@ -267,7 +278,7 @@ def own_win(home, company):
     with the lot's title, so the message can name it. None when the store
     cannot say. Cached like the gate: the store is re-read only when its
     files move."""
-    return _slot(_win_slot, (str(home), company, data_stamp(home)),
+    return _slot(_win_slot, (str(home), company, _store_stamp(home)),
                  lambda: _own_win(home, company))
 
 

@@ -782,8 +782,17 @@ class Message(Base):
             self.assertEqual(len(calls), once)          # served from the memo
             self.assertEqual([p['procedure_id'] for p in m2['picks']],
                              [p['procedure_id'] for p in m1['picks']])
-            # a ledger write moves the data stamp; the next request rebuilds
-            # and sees the new lot
+            # the operator marking a message as sent writes app_events —
+            # a table nothing here reads, so it must NOT cost a rebuild
+            import ledger
+            ledger.append(self.dir, 'app_events', [{
+                'ts': '2026-08-17T09:00:00+00:00', 'kind': 'invite_sent',
+                'sub_id': self.sub_id, 'detail': 'channel=linkedin'}])
+            pitch.message(self.dir, self.sub_id, 'https://a/t/x',
+                          today='2026-08-17')
+            self.assertEqual(len(calls), once)          # still the memo
+            # a PREDICTIONS write moves what the picks read; the next
+            # request rebuilds and sees the new lot
             self.lots(rows=(('p31', 'Blitzschutz Rathaus', 'Stadt Süd',
                              '2026-09-20', True),))
             m3 = pitch.message(self.dir, self.sub_id, 'https://a/t/x',
