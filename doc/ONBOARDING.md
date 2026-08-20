@@ -524,10 +524,14 @@ so a four-week clock could mean four mails or none. Now:
 `trial_status(rows, as_of, sent_reports)` takes the count of `send` events
 with detail `report:` (delivering.trial_state reads the ledger; since the
 no-picks-no-mail rule, every such mail carried a recommendation);
-`ask_due` from `sent >= FREE_REPORTS - 1`, so the ask rides ON the fourth
-free mail ("Das ist Ihre vierte kostenlose Empfehlung"); after the ask,
-`trial` customers get the file only, as before. `TRIAL_DAYS` is retired in
-place. The /admin row shows „Empfehlung N von 4 kostenlos". The paragraphs
+`ask_due` from `sent >= FREE_REPORTS - 1`. **The subscribe box stands on
+EVERY free mail** (operator, same day: ask directly — „Möchten Sie weitere
+Empfehlungen erhalten?" — and not only once at the end): mails 1-3 carry
+the count and „keine Zahlungspflicht", the last free mail says what silence
+means; the `ask` EVENT is written only when the last free mail actually
+went, and after it `trial` customers get the file only, as before.
+`TRIAL_DAYS` is retired in place. The /admin row shows „Empfehlung N von 4
+kostenlos". The paragraphs
 below describe the original 28-day build; the mechanics they name (ask
 once, `y` token, paid versions) are unchanged.
 

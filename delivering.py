@@ -138,13 +138,16 @@ def trial_state(home, sub_id, today, all_versions):
     return subscriptions.trial_status(rows, today, sent_reports=sent), asked
 
 
-def ask_for(home, sub_id):
-    """The ask block for the last trial report: `render.ask_html` around
-    the customer's standing `y` link."""
+def ask_for(home, sub_id, number=None, final=True):
+    """The subscribe box for a trial report: `render.ask_html` around the
+    customer's standing `y` link. `number` is which free mail this is
+    (1-based); `final` marks the last free one, whose wording says what
+    silence means."""
     import mailer
     import tokens
     return render.ask_html(
-        f'{mailer.app_url()}/y/{tokens.standing(home, "y", sub_id)}')
+        f'{mailer.app_url()}/y/{tokens.standing(home, "y", sub_id)}',
+        number=number, total=subscriptions.FREE_REPORTS, final=final)
 
 
 def send_report(home, sub, today, page, headers, transport=None):
@@ -258,11 +261,13 @@ def deliver(paths, scored, args):
             mail_links(paths.data, sub['sub_id'])
             if mailing else (None, '', None))
         # The trial (ONBOARDING.md 9.5, recounted 2026-08-20): FREE_REPORTS
-        # mails that each carried a recommendation, then the ask ONCE, riding
-        # on the last free mail; after it, no report goes out to a customer
-        # still on `trial` — the file is still written for the operator.
-        # `plan: paid` switches the count off.
-        ask = ''
+        # mails that each carry a recommendation AND the subscribe box
+        # (operator: ask directly, on all four — not a lecture on the last
+        # one). The `ask` EVENT is written only when the LAST free mail
+        # went out; after it, no report goes to a customer still on
+        # `trial` — the file is still written for the operator. `plan:
+        # paid` switches the count off.
+        ask, ask_final = '', False
         if mailing and feedback_link is not None:
             status, asked = trial_state(paths.data, sub['sub_id'], today,
                                         all_versions)
@@ -271,8 +276,10 @@ def deliver(paths, scored, args):
                       f"({status['sent']} free reports sent, ask sent) "
                       f'— file only until they say yes')
                 feedback_link, footer_html, headers = None, '', None
-            elif status['ask_due']:
-                ask = ask_for(paths.data, sub['sub_id'])
+            elif status['plan'] == 'trial':
+                ask_final = status['ask_due']
+                ask = ask_for(paths.data, sub['sub_id'],
+                              number=status['sent'] + 1, final=ask_final)
         page, deliveries = render.customer_report(
             sub, sel, today=today, profile=profile, receipts=receipts,
             tier_high=args.tier_high, tier_medium=args.tier_medium,
@@ -297,7 +304,10 @@ def deliver(paths, scored, args):
                 # an address on record: the same HTML goes out by mail
                 # (ONBOARDING.md 9.3); no address -> file only, no attempt
                 mid = send_report(paths.data, sub, today, page, headers)
-                if ask and mid:
+                # the `ask` event marks the END of the free mails — only
+                # the final box writes it; the earlier boxes are invitations
+                # and change nothing about what is sent next
+                if ask_final and mid:
                     ledger.append(paths.data, 'app_events', [{
                         'ts': ts, 'kind': 'ask', 'sub_id': sub['sub_id'],
                         'detail': f'trial ended; ask in report {today}'}])

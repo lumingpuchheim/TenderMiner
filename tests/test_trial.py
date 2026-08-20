@@ -84,7 +84,15 @@ class Ask(Base):
                                            date(2026, 8, 17), allv)
         self.assertFalse(st['ask_due'])
         self.assertFalse(asked)
-        # three report mails on record: the next one is the fourth -> ask
+        # the subscribe box stands on EVERY free mail (operator,
+        # 2026-08-20): a direct question, the count, no payment yet
+        early = delivering.ask_for(self.dir, 'firm', number=1, final=False)
+        self.assertIn('Empfehlung 1 von 4 kostenlosen', early)
+        self.assertIn('Möchten Sie auch danach weitere erhalten?', early)
+        self.assertIn('keine Zahlungspflicht', early)
+        self.assertIn('Ja, weiter mit Murara', early)
+        self.assertNotIn('kein Bericht mehr', early)
+        # three report mails on record: the next one is the fourth -> final
         ledger.append(self.dir, 'app_events', [
             {'ts': f'2026-08-{d:02d}T08:00:00+00:00', 'kind': 'send',
              'sub_id': 'firm', 'detail': "report: 'Murara-Bericht'"}
@@ -93,7 +101,10 @@ class Ask(Base):
                                            date(2026, 9, 7), allv)
         self.assertEqual(st['sent'], 3)
         self.assertTrue(st['ask_due'])
-        html = delivering.ask_for(self.dir, 'firm')
+        html = delivering.ask_for(self.dir, 'firm', number=4, final=True)
+        self.assertIn('letzte kostenlose Empfehlung', html)
+        self.assertIn('Möchten Sie weitere erhalten?', html)
+        self.assertIn('kein Bericht mehr', html)
         self.assertIn('Ja, weiter mit Murara', html)
         self.assertIn('https://app.murara.eu/y/', html)
         # the ask goes out -> event; from then on `asked` is True
@@ -104,7 +115,8 @@ class Ask(Base):
                                           date(2026, 9, 14), allv)
         self.assertTrue(asked)
         # the y link is standing: same token next time
-        self.assertEqual(html, delivering.ask_for(self.dir, 'firm'))
+        self.assertEqual(html, delivering.ask_for(self.dir, 'firm',
+                                                  number=4, final=True))
 
 
 class Yes(Base):
