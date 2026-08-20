@@ -144,7 +144,11 @@ def open_scored(paths, tenders, aw):
         return [], None
     open_t = sb.open_tenders(tenders, aw)
     today = util.now_utc().date().isoformat()
-    deadline = pd.to_datetime(open_t.get('deadline_date'), errors='coerce')
+    # the ACTIONABLE date (MODELING.md 10): offer deadline, else the
+    # participation-request deadline of a two-stage lot. A lot with neither
+    # stays fail-open here (scored, never promised) — an infrastructure gap
+    # must not hide a tender.
+    deadline = sb.action_deadline(open_t)
     open_t = open_t[(deadline.isna()) | (deadline.dt.date.astype(str) >= today)]
     open_keys = set(map(tuple, open_t[sb.KEY].values))
     rows = [r for r in ledger.predictions_by_model(paths.ledger_home, champ['model_id'])
@@ -177,7 +181,11 @@ def predict_open(paths, tenders, roles, aw, args, arm=None, plan=None):
 
     open_t = sb.open_tenders(tenders, aw)
     today = util.now_utc().date().isoformat()
-    deadline = pd.to_datetime(open_t.get('deadline_date'), errors='coerce')
+    # the ACTIONABLE date (MODELING.md 10): offer deadline, else the
+    # participation-request deadline of a two-stage lot. A lot with neither
+    # stays fail-open here (scored, never promised) — an infrastructure gap
+    # must not hide a tender.
+    deadline = sb.action_deadline(open_t)
     open_t = open_t[(deadline.isna()) | (deadline.dt.date.astype(str) >= today)]
     if open_t.empty:
         print(f'{tag} no open lots')
@@ -233,6 +241,12 @@ def predict_open(paths, tenders, roles, aw, args, arm=None, plan=None):
             'notice_id': t.get('notice_id'),
             'publication_date': str(t.get('publication_date')),
             'deadline_date': str(t.get('deadline_date')),
+            # str like deadline_date (a date must reach JSON as text), but
+            # null-safe: a missing date is JSON null, never the string 'None'
+            'participation_deadline_date':
+                (str(t['participation_deadline_date'])
+                 if util.stamp(t.get('participation_deadline_date'))
+                 is not None else None),
             'score': float(score), 'threshold': args.threshold,
             'flag': bool(score >= args.threshold), 'tier': str(tier),
             # slicing keys + audit link + rendering columns, stamped at write

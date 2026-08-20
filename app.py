@@ -47,6 +47,7 @@ import config
 import ledger
 import subscriptions
 import tokens
+import util
 
 CONTACT = 'info@murara.eu'   # must exist before the first letter
 
@@ -639,7 +640,8 @@ def post_recall(ctx, row, form):
       <h1>Unsere Einschätzung</h1>
       <dl><dt>Ausschreibung</dt><dd>{esc(lot.title or m.group(1))}</dd>
           <dt>Vergabestelle</dt><dd>{esc(lot.buyer_name or '—')}</dd>
-          <dt>Frist</dt><dd>{esc(str(lot.deadline_date or '—')[:10])}</dd>
+          <dt>{('Teilnahmeantrag bis' if util.frist(lot)[1] else 'Frist')}</dt>
+          <dd>{esc(util.frist(lot)[0] or '—')}</dd>
           <dt>Einschätzung</dt><dd>{esc(verdict)}</dd></dl>
       <p class="muted">Stimmt hier etwas nicht, antworten Sie einfach auf
          Ihren Wochenbericht.</p>""")

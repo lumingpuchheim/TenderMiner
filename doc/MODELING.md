@@ -195,3 +195,37 @@ When the matching `can-standard` is published later:
   buyer's language; filter by country or use a multilingual model.
 - **Regime bias** — TED is above-threshold only; below-threshold German contracts live on
   oeffentlichevergabe.de and are out of this model's scope.
+
+## 10. Two-stage procedures and the participation deadline — 2026-08-20
+
+A `neg-w-call` or `restricted` contract notice has **no offer deadline**:
+firms first request participation by `cac:ParticipationRequestReceptionPeriod/
+cbc:EndDate` (eForms BT-1311), and only the invited ones later bid. 5,656
+tender rows in the 2023-11→2026-08 store (~7 % of lots) have this shape, and
+their lots end 0-1 bids at ~29-36 % — three times the market — because few
+firms apply. They were invisible for a bad reason: the extractor read only
+`TenderSubmissionDeadlinePeriod/EndDate` (BT-131), so `deadline_date` was
+null, the replay's openness filter (`deadline >= cutoff`) dropped NaT
+forever, and the delivery promise (`subscriptions.deadline_ok`) refused a
+dateless lot. Found when the operator refused to believe "5 % of tenders
+have no deadline" — correctly.
+
+The rule since 2026-08-20: **the actionable date is the offer deadline, or
+for two-stage procedures the participation-request deadline** —
+`single_bidder.action_deadline` computes it, and one boundary each uses it:
+
+* `features.py` extracts `participation_deadline_date` (own column;
+  `deadline_date` keeps meaning the offer deadline; the `date` role gives
+  the model `span__participation_deadline_date` — a feature-schema flag day,
+  handled by `learn()`'s named unconditional promotion);
+* the replay and live scoring treat a lot as open while its actionable date
+  is in the future (a genuinely dateless lot still fails soft — scored
+  live, never promised);
+* `deadline_ok` honours the promise against the actionable date, so these
+  lots can be picks;
+* every display says what the date is: „Teilnahmeantrag bis 16.03." instead
+  of „Frist 16.03." (`util.frist`).
+
+The replayed record must be re-measured after this lands (the model has
+never been graded on the segment); until then the pages simply do not carry
+it, which only understates.

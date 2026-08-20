@@ -219,7 +219,9 @@ def replay(data_dir, step_days, sub_ids, start=None):
         model = world.model()
 
         open_t = sb.open_tenders(world.tenders, world.aw)
-        deadline = pd.to_datetime(open_t.get('deadline_date'), errors='coerce')
+        # the ACTIONABLE date, not only the offer deadline: a two-stage lot
+        # is open while participation requests are accepted (MODELING.md 10)
+        deadline = sb.action_deadline(open_t)
         open_t = open_t[deadline >= D]
         if open_t.empty:
             continue
@@ -264,6 +266,8 @@ def replay(data_dir, step_days, sub_ids, start=None):
                 'cpv_main': row.get('cpv_main'), 'cpv3': cpv3 or None,
                 'place_nuts3': row.get('place_nuts3'),
                 'deadline_date': row.get('deadline_date'),
+                'participation_deadline_date':
+                    row.get('participation_deadline_date'),
             })
         for s, profile in profiles.items():
             if profile is None:

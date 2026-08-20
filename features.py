@@ -759,6 +759,15 @@ def parse_notice(path):
             _text(process, 'cac:TenderSubmissionDeadlinePeriod/cbc:EndDate'),
             _text(root_process, 'cac:TenderSubmissionDeadlinePeriod/cbc:EndDate')),
             'deadline_date')
+        # Two-stage procedures (neg-w-call, restricted) have no offer
+        # deadline in the notice: firms request participation by BT-1311 and
+        # the invited ones bid later. ~7 % of stored lots, ~3x as lonely as
+        # the market — invisible until 2026-08-20 because only BT-131 was
+        # read (doc/MODELING.md 10).
+        participation_deadline = _date(_first(
+            _text(process, 'cac:ParticipationRequestReceptionPeriod/cbc:EndDate'),
+            _text(root_process, 'cac:ParticipationRequestReceptionPeriod/cbc:EndDate')),
+            'participation_deadline_date')
 
         funding = _first(
             _texts(terms, 'cbc:FundingProgramCode'),
@@ -844,6 +853,7 @@ def parse_notice(path):
 
             # 10. submission window
             'deadline_date': deadline,
+            'participation_deadline_date': participation_deadline,
             'deadline_days': deadline_days,
             'deadline_days_published': _days_between(publication_date, deadline),
 
@@ -971,7 +981,8 @@ ROLES = {
     'title': 'text', 'description': 'text',
     'est_value_lot': 'numeric', 'est_value_lot_currency': 'categorical',
     'est_value_procedure': 'numeric', 'est_value_procedure_currency': 'categorical',
-    'deadline_date': 'date', 'deadline_days': 'numeric',
+    'deadline_date': 'date', 'participation_deadline_date': 'date',
+    'deadline_days': 'numeric',
     'deadline_days_published': 'numeric',
     'n_selection_criteria': 'numeric', 'n_criteria_suitability': 'numeric',
     'n_criteria_financial': 'numeric', 'n_criteria_technical': 'numeric',
@@ -1066,6 +1077,7 @@ SCHEMA = pa.schema([
     ('est_value_procedure', pa.float64()),
     ('est_value_procedure_currency', pa.string()),
     ('deadline_date', pa.date32()),
+    ('participation_deadline_date', pa.date32()),
     ('deadline_days', pa.int32()),
     ('deadline_days_published', pa.int32()),
     ('publication_number', pa.string()),

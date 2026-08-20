@@ -133,6 +133,28 @@ def stamp(v):
         return v
 
 
+def frist(row):
+    """-> (iso date string or None, is_participation) — the date a reader
+    can still act on: the offer deadline, else the participation-request
+    deadline of a two-stage procedure (doc/MODELING.md 10). Every display
+    site formats from this pair, so „Teilnahmeantrag bis" can never silently
+    print as „Frist". Accepts a dict-like row or an attribute object."""
+    get = row.get if hasattr(row, 'get') else (
+        lambda k, d=None: getattr(row, k, d))
+
+    def real(v):
+        s = str(v)[:10] if v is not None else ''
+        return s if len(s) == 10 and s[:2].isdigit() else None
+
+    d = real(get('deadline_date'))
+    if d:
+        return d, False
+    p = real(get('participation_deadline_date'))
+    if p:
+        return p, True
+    return None, False
+
+
 def append_jsonl(path, rows):
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)

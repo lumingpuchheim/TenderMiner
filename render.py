@@ -23,6 +23,8 @@ by SHA-256 — 13 files, all identical.
 from __future__ import annotations
 
 import re
+
+import util
 from html import escape
 
 import selection
@@ -62,6 +64,13 @@ def date_de(iso):
     """'2026-08-31' -> '31.08.2026'; anything unparseable -> em dash."""
     m = re.fullmatch(r'(\d{4})-(\d{2})-(\d{2})', str(iso)[:10])
     return f'{m.group(3)}.{m.group(2)}.{m.group(1)}' if m else '—'
+
+def frist_de(r):
+    """The actionable date as the report prints it: the offer deadline, or a
+    two-stage lot's participation deadline suffixed so the reader knows the
+    action is an application, not yet a bid (doc/MODELING.md 10)."""
+    d, part = util.frist(r)
+    return date_de(d) + (' (Teilnahmeantrag)' if part else '')
 
 
 def html_page(title, body_parts):
@@ -326,7 +335,7 @@ def customer_report(sub, sel, *, today, profile, receipts,
         tier = 'HIGH' if i < n_high else ('MEDIUM' if i < n_high + n_med else 'LOW')
         why_cells = (f'<td>{why_mine_cell(r)}</td>' if profile else '')
         pick_trs.append(f"<tr><td>{tender_cell(r)}</td>"
-                        f"<td>{date_de(r.get('deadline_date'))}</td>"
+                        f"<td>{frist_de(r)}</td>"
                         f'<td>{buyer_cell(r)}</td>'
                         f'{why_cells}'
                         f"<td>{escape(', '.join((r.get('why_lonely') or [])[:2]))}</td>"
@@ -403,10 +412,10 @@ def market_annex(sub, sel, *, today, profile, top_slice):
         else:
             verdicts[lot_key(r)] = ('v-yellow', 'durchschnittliche Chancen', [])
     annex_trs = []
-    for r in sorted(annex_rows, key=lambda r: str(r.get('deadline_date'))):
+    for r in sorted(annex_rows, key=lambda r: str(util.frist(r)[0] or '9999')):
         cls, verdict, why = verdicts[lot_key(r)]
         annex_trs.append(f'<tr><td>{tender_cell(r)}</td>'
-                         f"<td>{date_de(r.get('deadline_date'))}</td>"
+                         f"<td>{frist_de(r)}</td>"
                          f'<td>{buyer_cell(r)}</td>'
                          f'<td class="{cls}">{verdict}</td>'
                          f"<td>{escape(', '.join(why))}</td></tr>")
@@ -423,10 +432,10 @@ def market_annex(sub, sel, *, today, profile, top_slice):
         # profile gate stay visible, so a miscalibrated gate is discovered
         # by reading, not by silence
         near_trs = [f'<tr><td>{tender_cell(r)}</td>'
-                    f"<td>{date_de(r.get('deadline_date'))}</td>"
+                    f"<td>{frist_de(r)}</td>"
                     f'<td>{buyer_cell(r)}</td></tr>'
                     for r in sorted(sel.borderline,
-                                    key=lambda r: str(r.get('deadline_date')))]
+                                    key=lambda r: str(util.frist(r)[0] or '9999'))]
         body += ['<h2>Knapp aussortiert</h2>',
                  f'<p>Diese {len(sel.borderline)} Ausschreibungen lagen knapp '
                  'unter der Ähnlichkeitsschwelle zu Ihrem Profil und wurden '

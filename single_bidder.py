@@ -604,6 +604,25 @@ def open_tenders(tenders, aw):
     return tenders[mask].copy()
 
 
+def action_deadline(df):
+    """The last date a firm could still enter each lot's competition, as a
+    datetime Series: the offer deadline — or, for two-stage procedures
+    (neg-w-call / restricted, which publish no offer deadline), the
+    participation-request deadline (eForms BT-1311, `features.py`).
+
+    This is THE openness date (doc/MODELING.md 10): the replay's cutoff
+    filter and live scoring's deadline filter both read it, so a two-stage
+    lot is open until applications close instead of invisible forever —
+    which it was until 2026-08-20, and it is the loneliest actionable
+    segment of the market (~7 % of lots, ~3x the market's 0/1 rate).
+    NaT when the notice states neither date."""
+    d = pd.to_datetime(df.get('deadline_date'), errors='coerce')
+    if 'participation_deadline_date' not in df.columns:
+        return d
+    p = pd.to_datetime(df['participation_deadline_date'], errors='coerce')
+    return d.fillna(p)
+
+
 # ------------------------------------------------------- v2: buyer track record
 
 def award_history(aw):

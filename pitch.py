@@ -23,6 +23,7 @@ from datetime import date
 
 import ledger
 import subscriptions
+import util
 
 MAX_PICKS = 3
 SHORT_LIMIT = 300          # LinkedIn's note on a connection request
@@ -153,10 +154,11 @@ def open_lots(home, today):
         # as NaN, whose str() is 'nan' — and 'nan' > '2026-08-17' is True in
         # a string comparison, which put "Frist None" into the first message
         # this function ever produced. A lot we cannot date is a lot we
-        # cannot invite anyone to.
-        deadline = str(row.get('deadline_date') or '')[:10]
+        # cannot invite anyone to. The date is the ACTIONABLE one — offer
+        # deadline, or a two-stage lot's participation deadline (util.frist).
+        deadline, _ = util.frist(row)
         try:
-            date.fromisoformat(deadline)
+            date.fromisoformat(deadline or '')
         except ValueError:
             continue
         if deadline >= today:
@@ -387,9 +389,10 @@ def message(home, sub_id, url, company=None, today=None):
                   f'{"der" if n == 1 else "denen"} wir wenige Bieter erwarten '
                   f'– ausgewählt nach dem, was Sie bisher gewonnen haben:', '']
         for i, p in enumerate(picks, 1):
+            fd, fp = util.frist(p)
+            frist_txt = ('Teilnahmeantrag bis' if fp else 'Frist') + f' {_de(fd)}'
             lines.append(f'{i}. {_short(p.get("title"), 80)} – '
-                         f'{_short(p.get("buyer_name"), 60)}, '
-                         f'Frist {_de(p.get("deadline_date"))}')
+                         f'{_short(p.get("buyer_name"), 60)}, {frist_txt}')
             why = [str(w) for w in (p.get('why_lonely') or ()) if w][:3]
             if why:
                 lines.append(f'   Für wenig Wettbewerb {"spricht" if len(why) == 1 else "sprechen"}: '
@@ -451,7 +454,9 @@ def note(picks, trade):
     p = picks[0]
     n = len(picks)
     trade = trade or 'Ihr Gewerk'
-    when = _de(p.get('deadline_date'))[:6]                  # 07.09.
+    d, part = util.frist(p)
+    when = _de(d)[:6]                                   # 07.09.
+    frist_word = 'Teilnahmefrist' if part else 'Frist'
     land = land_of(p.get('place_nuts3'))
     where = f' in {land}' if land else ' in Ihrer Region'
     work = work_of(p.get('title'), trade)
@@ -461,7 +466,7 @@ def note(picks, trade):
         head = (f'{trade}: {work}{where}' if with_work and work
                 else f'{trade}{where}')
         size = f', {value}' if with_value and value else ''
-        first = (f'Guten Tag, {head}{size}, Frist {when} – nach unserer '
+        first = (f'Guten Tag, {head}{size}, {frist_word} {when} – nach unserer '
                  f'Einschätzung bieten dort nur ein bis zwei Firmen. ')
         more = ('' if n == 1 else
                 'Eine zweite solche haben wir auch. ' if n == 2 else

@@ -558,15 +558,21 @@ def max_picks(sub):
 def deadline_ok(sub, row, today, days=None):
     """Does the lot honour the subscription's deadline promise on `today`?
 
-    An unknown deadline FAILS whenever a promise was made: "at least 14 days
-    left to bid" cannot be honoured for a lot whose notice does not state a
-    deadline. `days=0` disables the check.
+    The promise is measured against the ACTIONABLE date: the offer deadline
+    — or, for a two-stage procedure whose notice has no offer deadline, the
+    participation-request deadline (doc/MODELING.md 10): "at least 14 days
+    left to act" is exactly as honourable for a Teilnahmeantrag as for a
+    bid. A lot with neither date still FAILS whenever a promise was made.
+    `days=0` disables the check.
     """
     import pandas as pd  # only the deadline path needs pandas
     want = min_days(sub) if days is None else int(days)
     if want <= 0:
         return True
     deadline = pd.to_datetime(_cell(row, 'deadline_date'), errors='coerce')
+    if pd.isna(deadline):
+        deadline = pd.to_datetime(_cell(row, 'participation_deadline_date'),
+                                  errors='coerce')
     if pd.isna(deadline):
         return False
     return (deadline.date() - today).days >= want
