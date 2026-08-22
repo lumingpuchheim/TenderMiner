@@ -38,8 +38,10 @@ def build_store(xml_dir, cpv, tenders_out, awards_out):
     if tenders_out.exists() and awards_out.exists():
         print(f'[build] {tenders_out.name} exists — reusing')
         return
+    # next to the imported modules, not this file — the script may run from a
+    # scratch dir against an installed /app
     subprocess.run(
-        [sys.executable, str(Path(__file__).parent / 'features.py'),
+        [sys.executable, str(Path(sb.__file__).resolve().parent / 'features.py'),
          '--xml-dir', str(xml_dir), '--cpv', cpv,
          '--tenders-out', str(tenders_out), '--awards-out', str(awards_out)],
         check=True)
