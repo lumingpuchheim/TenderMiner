@@ -316,3 +316,288 @@
 {"pub": "00463209-2026", "title_contains": "", "firm": "Ringbeck GmbH", "skip": "GU lot, trade is sub-scope", "note": "TEIL-GU Innenausbau: Trockenbau bis Fliesen und Parkett gebuendelt, jedes Gewerk nur Unterleistung"}
 {"pub": "00280875-2026", "title_contains": "Los 5.1 OFW West", "firm": "Salvia Gebäudetechnik West GmbH", "skip": "unreadable: Los 5.1 OFW West", "note": "Rahmenvertrag text is only contract terms; OFW not expandable, no procured trade stated"}
 {"pub": "00495783-2026", "title_contains": "", "firm": "Wayss & Freytag Ingenieurbau AG", "skip": "scope ambiguous", "note": "Text only lists Lose 0-11 (Radweg, Fernwaerme, TK, NS/MS, Gas); procured scope of this lot not identifiable"}
+# IT benchmark batch (CPV 48/72), 24 shards, 2026-08-22: a 10% sample of the widened store's IT lots read by labeling agents under doc/PROMPT_label_benchmark.md §5 (data/PROMPT_shard_it.md), each lot paired with its own winner and one same-CPV-class firm. 1270 skips (570 in, 700 out) from 1554 pairs; 284 undecidable, in benchmark_skipped.jsonl.
+{"pub": "00330688-2025", "title_contains": "Straubing", "firm": "interface systems GmbH", "skip": "firm has no single trade: Ceph-/DELL-Hardware, Lizenzen, Firewall-Wartung, Oracle-Datenbanken"}
+{"pub": "00337962-2026", "firm": "top itservices AG", "skip": "firm has no single trade: DevOps, Lizenzmanagement, Datenschutzberatung, Projektleitung (IT-Personalgestellung)"}
+{"pub": "00234534-2024", "firm": "T-Systems International GmbH", "skip": "firm has no single trade: SAP/HCM, LMS, Fachsoftware, PKI-Betrieb, Apps, Verfahrensbetrieb"}
+{"pub": "00542298-2024", "firm": "SVA System Vertrieb Alexander GmbH", "skip": "firm has no single trade: Lizenzen, IAM, Backup-Infrastruktur, Gatewaysecurity, SOC"}
+{"pub": "00669137-2024", "title_contains": "Holstein", "firm": "Bechtle AG", "skip": "firm has no single trade: Notebooks/Hardware, Online-Office, SAP-Dienstleistungen, Public Cloud"}
+{"pub": "00193653-2026", "firm": "Bechtle GmbH & Co. KG", "skip": "firm has no single trade: Server, Microsoft-Lizenzen, Kollaboration, Desktop-Management (Zuschlag hier, trotzdem uneindeutig)"}
+{"pub": "00321870-2025", "title_contains": "Server und Storage", "firm": "New Horizons Hamburg GmbH", "skip": "unreadable: Referenzen sind nur Losnummern (Dataport), Gewerk nicht bestimmbar"}
+{"pub": "00386896-2025", "firm": "ACP IT Solutions GmbH", "skip": "firm has no single trade: Lizenzen, Server-Lieferung, USV-Wartung, Vor-Ort-Service, RZ-Betrieb"}
+{"pub": "00466237-2025", "firm": "Bechtle GmbH & Co. KG", "skip": "firm has no single trade: Server-Hardware, Microsoft-/IGEL-Lizenzen, Kollaboration, Desktop-Management"}
+{"pub": "00192380-2024", "title_contains": "Los 2 IT 200 z/OS Basis", "firm": "SOLCOM GmbH", "skip": "firm has no single trade: Integration, IAM, Robotics, E-Mail-Security, VPN, Netzwerksegmentierung"}
+{"pub": "00192380-2024", "title_contains": "Los 16 IT 230 ChangeMan", "firm": "CANCOM GmbH", "skip": "firm has no single trade: IAM-Lösungen, Server-Hardware, Microsoft-Lizenzhandel"}
+{"pub": "00192312-2024", "title_contains": "Testautomatisierung", "firm": "T-Systems International GmbH", "skip": "firm has no single trade: SAP/HCM, LMS, Fachsoftware, PKI-Betrieb, App-Entwicklung, Verfahrensbetrieb"}
+{"pub": "00445203-2024", "firm": "the i-engineers GmbH", "skip": "Titel zeigen Patientenportal, IOP und HIMS; ob ein revisionssicheres Dokumentenarchiv dazu zählt, ist nicht entscheidbar"}
+{"pub": "00144738-2024", "firm": "CMS IT-Consulting GmbH", "skip": "unreadable: Photovoltaik-Anlagen-Monitoring-Infrastruktur (PVMI) - Beschreibung verweist nur auf die Vergabeunterlagen"}
+{"pub": "00099784-2025", "firm": "CANCOM GmbH", "skip": "firm has no single trade: IAM-Lösungen, Server-Hardware, Microsoft-Lizenzhandel"}
+{"pub": "00048565-2025", "firm": "SOLCOM GmbH", "skip": "firm has no single trade: Integration, IAM, Robotics, E-Mail-Security, VPN, Netzwerksegmentierung"}
+{"pub": "00049095-2026", "firm": "Bechtle GmbH", "skip": "firm has no single trade: Hardware, Lizenzen, SOC/SIEM-Dienste, Sicherheitsberatung"}
+{"pub": "00848119-2025", "title_contains": "Notebooks HP", "firm": "Deutsche Telekom Business Solutions GmbH", "skip": "firm has no single trade: Netzwerkprodukte-Lieferung, Telefoniebetrieb, Arbeitsplatz- und Verfahrensservices"}
+{"pub": "00161487-2026", "firm": "Bechtle GmbH IT-Systemhaus Hamburg", "skip": "firm has no single trade: IT-Betriebsservices und Server-Hardware (Systemhaus)"}
+{"pub": "00491246-2026", "title_contains": "Konvertierungsdienst neuer Dienst", "firm": "Keine Angabe - der Zuschlag erging für die Lose an mehrere Bieter, die weiterhin über Einzelrealisationswettbewerbe im Wettbewerb zueinander stehen. Eine Veröffentlichung der Namen der Bieter unterbleibt daher mit Bezug auf § 39 Abs.6 Nr.3& 4 VgV", "skip": "not a firm: anonymisierter Zuschlagsempfaenger ('Keine Angabe ...'), Gewinnliste gehoert unbekannten Bietern"}
+{"pub": "00124377-2026", "firm": "Frequentis Deutschland GmbH", "skip": "GU/Rahmen lot, trade is sub-scope: komplettes IT-Outsourcing, Beschreibung nur 's.o.'"}
+{"pub": "00423340-2024", "title_contains": "Cisco Access-Points", "firm": "CANCOM Public GmbH", "skip": "firm has no single trade: Client-Hardware, Security-Lizenzen und IT-Supportdienstleistungen"}
+{"pub": "00704148-2025", "title_contains": "LOS 1 Stadtverwaltung Leipzig", "firm": "Materna Information & Communications SE", "skip": "unreadable: Leistungsverzeichnis LOS 1 Stadtverwaltung Leipzig (Beschreibung wiederholt nur den Titel)"}
+{"pub": "00704148-2025", "title_contains": "LOS 1 Stadtverwaltung Leipzig", "firm": "Nortal AG", "skip": "unreadable: Leistungsverzeichnis LOS 1 Stadtverwaltung Leipzig (Beschreibung wiederholt nur den Titel)"}
+{"pub": "00199974-2024", "firm": "Haiilo GmbH", "skip": "GU/Rahmen lot, trade is sub-scope: Full-Managed-Service inkl. Lizenzen, Azure-Hosting und Service-Desk"}
+{"pub": "00379163-2025", "firm": "Research Industrial Systems Engineering (RISE) Forschungs-, Entwicklungs- und Großprojektberatung GmbH", "skip": "GU/Rahmen lot, trade is sub-scope", "note": "Lot uebergibt den kompletten IT-Betrieb inkl. RZ, SAP, Notes und Security an einen Dienstleister"}
+{"pub": "00355108-2026", "firm": "Bechtle", "skip": "firm has no single trade: Texterkennungssoftware, aktive Netzkomponenten, Oracle-Wartung, Backup", "note": "Lot: Laborinformationssystem fuer Pathologie"}
+{"pub": "00243812-2025", "firm": "CGI Deutschland B.V. & Co. KG", "skip": "firm has no single trade: Informationssicherheit, Projektmanagement, E-Akte, Systemintegration, Paketierung", "note": "Lot: acht Vor-Ort-Kraefte fuer ITK-Betrieb mit BSI-Zertifizierung"}
+{"pub": "00015645-2024", "firm": "enthus GmbH", "skip": "mixed lot: WLAN-APs, Verkabelung, Firewall und Server; firm evidence is only Server-Lieferung", "note": "Lot: IT-Infrastrukturpaket fuer die Gemeinde"}
+{"pub": "00421656-2024", "firm": "dvhaus Software & Solutions GmbH", "skip": "unreadable: TPF-DE", "note": "Titel und Beschreibung bestehen nur aus dem Kuerzel TPF-DE"}
+{"pub": "00183091-2025", "firm": "CANCOM GmbH", "skip": "firm has no readable trade: eight wins are one IAM framework repeated across AMEOS entities", "note": "Lot: E-Mail-Gateway implementieren und verwalten"}
+{"pub": "00788468-2025", "firm": "CANCOM Public GmbH", "skip": "firm has no single trade: Lizenzen, Arbeitsplatzrechner-Hardware, Endgeräte-Rollout", "note": "Lot: Arctera-Enterprise-Vault-Lizenzen plus Herstellersupport."}
+{"pub": "00343338-2026", "firm": "Computacenter AG & Co oHG", "skip": "firm has no single trade: Server-Hardware, Security-Software, RZ-Umzug, Cloud-Betrieb", "note": "Lot: Verlängerung der Softwarepflege für Trend-Micro-Lizenzen."}
+{"pub": "00220021-2025", "firm": "evoila GmbH", "skip": "Citrix-Plattform gegen reines VMware/Omnissa-Haus: gleiche Gattung, anderer Hersteller — nicht entscheidbar", "note": "Lot: Citrix-UHMC-Lizenzen, NetScaler-Appliances und Dienstleistung."}
+{"pub": "00793482-2024", "title_contains": "Los 3, Los 3", "firm": "Lunatec GmbH", "skip": "unreadable: Abrufauftrag GA AOE EnMS MBE — Akronyme nicht auflösbar, Beschreibung nur Preiseintrag", "note": "Lot: Titel nur Akronyme, Beschreibung verlangt den Gesamtangebotspreis von Los 1."}
+{"pub": "00473772-2026", "title_contains": "Los 2 (Paket 2)", "firm": "in4MD Service GmbH", "skip": "Abrechnung/Fakturierung/Vertragskontokorrent ohne genanntes System; ein SAP-Haus passt nur, wenn es SAP ist", "note": "Lot: Paket 2 eines IT-Dienstleistungsvertrags für einen Netzbetreiber, Text nur der Titel."}
+{"pub": "00473772-2026", "title_contains": "Los 4 (Paket 4)", "firm": "Sopra Steria SE", "skip": "firm has no single trade: Softwareentwicklung, SAP-Basis, RPA-Lizenzen, Testmanagement", "note": "Lot: Paket 4 EEG-Billing/EnFG, Text nur der Titel."}
+{"pub": "00486762-2026", "firm": "Technidata IT-Service GmbH", "skip": "firm has no single trade: IT-Sicherheitskonzept, Service Desk, Storage-Lizenzen", "note": "Lot: Aufbau eines IAM-Systems auf One Identity als SaaS."}
+{"pub": "00486760-2024", "firm": "IBM Deutschland GmbH", "skip": "firm has no single trade: Sicherheitsberatung, Fachverfahren-Entwicklung, SAP-Migration, Produktwartung", "note": "Lot: On-premise-Kommunikationsplattform inkl. Serverlizenzen und Pflege."}
+{"pub": "00404223-2025", "title_contains": "Application Manager", "firm": "SVA System Vertrieb Alexander", "skip": "firm has no single trade: Software-Lizenzen, Server-Hardware, Cloud- und Datenbankdienstleistungen", "note": "Lot: Rahmenvertrag über Application-Manager-Unterstützung für Microsoft-Technologien."}
+{"pub": "00023005-2024", "firm": "CANCOM GmbH", "skip": "firm has no single trade: großes Systemhaus; die acht Titel sind achtmal derselbe IAM-Auftrag eines Käufers", "note": "Lot: Beschaffung von 75 Adobe-All-Apps-Lizenzen."}
+{"pub": "00562024-2025", "firm": "Computacenter AG & Co. oHG", "skip": "firm has no single trade: Dell/HPE-Hardware, Security-Lizenzen, Storage, GitLab-Subscriptions", "note": "Lot: Liefer- und Dienstleistungsvertrag für ein Pathologie-Informationssystem."}
+{"pub": "00280287-2026", "firm": "Bietergemeinschaft Windhoff Group", "skip": "Beschaffung einer fertigen Schiffsverwaltungssoftware gegen Individualentwickler/ITSM-Mischung — nur zu raten", "note": "Lot: Software zur Verwaltung der Wasserfahrzeuge der Landespolizei."}
+{"pub": "00839429-2025", "firm": "interface systems GmbH", "skip": "firm has no single trade: Server-/Storage-Hardware, Software-Lizenzen, Firewall-Wartung, Datenbanken", "note": "Lot: Beschaffung einer IBM Tape Library inkl. Erstinstallation."}
+{"pub": "00612037-2024", "firm": "Tricise GmbH", "skip": "unreadable: Software-Update — nur „Ausstattungsgegenstände“, welche Software bleibt offen", "note": "Lot: Lieferung, Montage und Inbetriebnahme diverser Ausstattung samt Softwarepaket."}
+{"pub": "00148718-2025", "firm": "Cancom GmbH", "skip": "firm has no single trade: Microsoft-Lizenzen, Server-Hardware, SOC-Einführung, Migrationsprojekte", "note": "Lot: Beschaffung von 310 A-FLEX-Lizenzen über 60 Monate."}
+{"pub": "00156426-2025", "title_contains": "Frontend, Backend, DevOps", "firm": "Atos Information Technology GmbH", "skip": "SAP-Wins plus generische Expertenüberlassung: bei einem Frontend/Backend/DevOps-Los sind in und out gleich plausibel", "note": "Lot: Rahmenvereinbarung Frontend-, Backend- und DevOps-Entwicklung für CIVITAS/CORE."}
+{"pub": "00607967-2024", "firm": "WSW & Partner GmbH", "skip": "firm trade unreadable: Wins sind nur Ortsnamen unter CPV Datenerfassung, Fachgebiet nicht erkennbar"}
+{"pub": "00232933-2026", "firm": "Fsas Technologies GmbH", "skip": "firm has no single trade: Lizenzen, Server-/Storage-Hardware, Projektmanagement-Personal"}
+{"pub": "00055919-2026", "firm": "CGI Deutschland B.V. & Co. KG", "skip": "firm has no single trade: IT-Projektmanagement, Security, Systemintegration, E-Akte, Softwarepaketierung"}
+{"pub": "00643454-2024", "title_contains": "XCNF", "firm": "i3systems GmbH", "skip": "unreadable: XCNF (Beschreibung verweist nur auf die Vergabeunterlagen)"}
+{"pub": "00039351-2025", "firm": "avodaq AG", "skip": "GU/Rahmen lot, trade is sub-scope"}
+{"pub": "00690851-2024", "firm": "Computacenter AG & Co. oHG", "skip": "firm has no single trade: Hardware, Storage, Lizenzen, Security-Produkte quer über alle Hersteller"}
+{"pub": "00169037-2024", "firm": "Bechtle AG", "skip": "firm has no single trade: Notebooks, Web-Office, SAP-Applikationsmanagement, Public Cloud"}
+{"pub": "00665749-2024", "firm": "IBM Deutschland GmbH", "skip": "firm has no single trade: Security-Beratung, SAP-Migration, Produktwartung, Individualentwicklung"}
+{"pub": "00767055-2025", "firm": "SVA System Vertrieb Alexander GmbH", "skip": "firm has no single trade: Storage, Lizenzen, IAM-Systeme, Patientenportale, SOC-Betrieb"}
+{"pub": "00143073-2024", "firm": "PEGASUS Werbeagentur GmbH", "skip": "GU/Rahmen lot, trade is sub-scope"}
+{"pub": "00752461-2025", "firm": "SanData EDV-Systemhaus GmbH", "skip": "Systemhaus für Hardware, Netzwerk, Client-/Printmanagement; Lizenz-Reselling weder belegt noch ausgeschlossen"}
+{"pub": "00106693-2026", "title_contains": "Block A", "firm": "Fsas Technologies GmbH", "skip": "firm has no single trade: Lizenzen, Server/Storage, Middleware-Betrieb und Projektmanager-Gestellung"}
+{"pub": "00251411-2025", "firm": "EduXpert GmbH", "skip": "Titel nur achtmal \"Multimedia Box\" — Gewerk (AV-Lieferung oder Ausstellungstechnik) nicht lesbar"}
+{"pub": "00539795-2026", "firm": "Deloitte Consulting GmbH", "skip": "firm has no single trade: Strategie-, Security-, KI- und KIS-Beratung sowie Drupal-Entwicklung"}
+{"pub": "00178481-2024", "firm": "Technidata IT-Service GmbH", "skip": "firm has no single trade: IT-Sicherheitskonzept, Service Desk, Storage-Lizenzen; Losbeschreibung leer"}
+{"pub": "00058999-2025", "firm": "PRODATO Integration Technology GmbH", "skip": "Firma baut Individualanwendungen, macht aber SAP/Datenintegration — Endkunden-App nicht entscheidbar"}
+{"pub": "00236421-2025", "firm": "CANCOM GmbH", "skip": "Titelstichprobe nur ein achtfach wiederholtes IAM-Projekt; Gewerk des Systemhauses nicht ablesbar"}
+{"pub": "00304252-2026", "firm": "PERBILITY GmbH", "skip": "Firma macht HR-Verwaltung und Recruiting; ob klinische Dienstplanung ihr Gewerk ist, nicht entscheidbar"}
+{"pub": "00421301-2024", "title_contains": "Projektmanagers\"", "firm": "ACP IT Solutions GmbH", "skip": "firm has no single trade: Lizenzen, Serverlieferung, Vor-Ort-Service und RZ-Betriebsunterstützung"}
+{"pub": "00023484-2024", "title_contains": "Los 1: SLA PAW", "firm": "Fujitsu", "skip": "firm has no single trade: Lizenzen, Infrastruktur-/Fachverfahrensdienstleistungen, Softwareentwicklung", "note": "Betriebsunterstützung AD/Exchange/Cisco ESA — in und out beide begründbar"}
+{"pub": "00477591-2025", "title_contains": "SAP-Entwicklung Troubleshooting", "firm": "q.beyond AG", "skip": "firm has no single trade: IT-Betrieb, Security, Anwendungsbetreuung, Lizenzbeschaffung", "note": "SAP-Entwickler-Troubleshooting; ein SAP-HCM-Gewinn, sonst anderes Feld"}
+{"pub": "00196000-2025", "title_contains": "Los 1", "firm": "CCP Software GmbH", "skip": "unreadable: Los 1", "note": "Beschreibung nennt nur vier berufliche Schulen, keine Leistung"}
+{"pub": "00300245-2026", "title_contains": "Basis-UEM", "firm": "Inworks GmbH", "skip": "unreadable: Basis-UEM", "note": "Beschreibung nur 'gemäß Leistungsbeschreibung'; Leistung hinge allein an der Abkürzung"}
+{"pub": "00022868-2024", "firm": "Computacenter AG & Co oHG", "skip": "firm has no single trade: Server-Hardware, Security-Software, RZ-Betrieb, Cloud-Engineering", "note": "Netzanschlusswebportal als SaaS; niemals out für einen solchen Anbieter"}
+{"pub": "00541684-2025", "firm": "ASQA Software Quality Assurance GmbH", "skip": "unreadable: Servicevertrag SG_LSG", "note": "Nur 'Serviceleistungen für die Sozialgerichtsbarkeit'; Testing-Firma weder ein- noch ausschließbar"}
+{"pub": "00529650-2024", "firm": "Akkodis Germany Tech Freelance GmbH", "skip": "SharePoint-Beratung/-Betrieb gegen Java-Entwicklerbereitstellung — Überschneidung nicht entscheidbar", "note": "Lot will Betrieb und Weiterentwicklung des SharePoint-Intranets samt Cloud-Migration"}
+{"pub": "00562297-2025", "title_contains": "Fachberatung, Umsetzungsspezifikation", "firm": "Kämmer Consulting GmbH", "skip": "Firmentitel unlesbar: nur Los-Nummern bei Dataport — Gewerk nicht ablesbar"}
+{"pub": "00599212-2024", "firm": "Bechtle GmbH\nIT-Systemhaus Nürnberg/Würzburg", "skip": "firm has no single trade: Hardware-Leasing plus VMware-, Veeam- und Microsoft-Lizenzen"}
+{"pub": "00376658-2026", "firm": "CANCOM GmbH", "skip": "Belege sind achtmal derselbe IAM-Auftrag (AMEOS); Geschäftsfeld eines Systemhauses mit 83 Zuschlägen nicht ablesbar"}
+{"pub": "00465728-2024", "firm": "DXC Technology Deutschland GmbH", "skip": "firm has no single trade: Individualentwicklung, ersetzendes Scannen, IAM-Beratung, Managed Infrastructure"}
+{"pub": "00016992-2025", "firm": "Bechtle GmbH", "skip": "firm has no single trade: Security-Services, HPE-Hardware, Server, Storage und Lizenzen"}
+{"pub": "00074944-2026", "title_contains": "ARIS", "firm": "Keine Angabe - der Zuschlag erging für die Lose an mehrere Bieter, die weiterhin über Einzelrealisationswettbewerbe im Wettbewerb zueinander stehen. Eine Veröffentlichung der Namen der Bieter unterbleibt daher mit Bezug auf § 39 Abs.6 Nr.3& 4 VgV", "skip": "kein Firmenname: Zuschlagsempfänger nach § 39 Abs. 6 VgV anonymisiert"}
+{"pub": "00107809-2026", "firm": "PwC Solutions GmbH", "skip": "firm has no single trade: SAP-AMS, Fortschreibung eines Fachverfahrens, Data-Analytics-Plattform"}
+{"pub": "00504926-2024", "firm": "IS4IT GmbH", "skip": "firm has no single trade: M365-Lizenzen, IAM-Support, Datacenter-Plattform, Hardware"}
+{"pub": "00470861-2024", "firm": "HBSN GmbH", "skip": "GIZ-Vorhaben in Ghana mit Experten-Personentagen; ob HBSN das als eigenes Gewerk bietet, nicht entscheidbar"}
+{"pub": "00522255-2024", "firm": "demicon GmbH", "skip": "beide im Lizenzhandel, demicon aber nur Atlassian/monday; Adobe-Handelspartnerschaft nicht ablesbar"}
+{"pub": "00081468-2024", "firm": "CANCOM GmbH", "skip": "Belege sind achtmal derselbe IAM-Auftrag (AMEOS); Lizenzhandel liegt im Portfolio, nicht entscheidbar"}
+{"pub": "00690094-2024", "firm": "EY GmbH & Co. KG Wirtschaftsprüfungsgesellschaft", "skip": "GU/Rahmen lot, trade is sub-scope: ganzheitlicher Betrieb aller IT-Infrastrukturen und -Applikationen"}
+{"pub": "00492621-2024", "firm": "Bechtle IT-Systemhaus Neckarsulm", "skip": "firm has no single trade: Server-, Switch- und Storage-Lieferung sowie IT-Betrieb für Landkreise"}
+{"pub": "00092263-2024", "firm": "Fujitsu Technology Solutions GmbH", "skip": "firm has no single trade: Strategieberatung, Entwicklung/Betrieb, Serversysteme und Lizenzen"}
+{"pub": "00105618-2025", "firm": "Bechtle GmbH - IT Systemhaus Dortmund/Meschede", "skip": "firm has no single trade: VMware, KDN-Lose, CrowdStrike-Managed-Security; Titel überwiegend nichtssagend"}
+{"pub": "00240257-2026", "title_contains": "Spezialist für IT-Prozesse", "firm": "Deutsche Telekom Business Solutions GmbH", "skip": "firm has no single trade: Produktlieferung, Telefonie, Netze, Arbeitsplatzservices, Security"}
+{"pub": "00159816-2026", "firm": "xSuite Group GmbH", "skip": "unreadable: LC Lizenzmanager — Beschreibung verweist nur auf den Anforderungskatalog"}
+{"pub": "00538845-2024", "firm": "SVA System Vertrieb Alexander GmbH", "skip": "firm has no single trade: Lizenzen, IAM, Backup-Hardware, SOC, Klinikportale"}
+{"pub": "00551101-2026", "firm": "SINC GmbH", "skip": "ANÜ-Personalüberlassung gegen IT-Unterstützungsleistungen — Grenzfall, nicht entscheidbar"}
+{"pub": "00466547-2024", "title_contains": "Erweiterungen Virt-Server", "firm": "WBS IT-Service GmbH", "skip": "firm has no single trade: Softwarepaketierung, Client-Beratung, Lizenzen, Storage-Hardware"}
+{"pub": "00711643-2024", "firm": "DXC Technology Deutschland GmbH", "skip": "firm has no single trade: Individualentwicklung, Scanning, Beratung, Managed Services"}
+{"pub": "00291619-2026", "firm": "RMK", "skip": "Firmenprofil unlesbar: alle Gewinne heißen nur Kleve_Los8, Emmerich Teil 3, Geldern Teil 1"}
+{"pub": "00510639-2026", "title_contains": "IKT und digitale Präsentationsmedien", "firm": "SPIE Information & Communication Services GmbH", "skip": "firm has no single trade: Elektroinstallation, Netzwerktechnik, Telefonie, Consulting"}
+{"pub": "00330339-2024", "firm": "GISA GmbH", "skip": "GU/Rahmen lot, trade is sub-scope"}
+{"pub": "00568449-2025", "title_contains": "Allgemeine Elektroarbeiten", "firm": "Bechtle GmbH", "skip": "firm has no single trade: Security-Services, Hardware, Lizenzen, Storage"}
+{"pub": "00553476-2026", "firm": "T-Systems International GmbH", "skip": "firm has no single trade: Fachsoftware, LMS, PKI-Betrieb, Anwendungsbetrieb, Schulung"}
+{"pub": "00170185-2024", "firm": "Capgemini Deutschland GmbH", "skip": "Betriebslos über die gesamte IT-Infrastruktur (Virtualisierung bis Netz), Beratung wäre Teilgewerk"}
+{"pub": "00256728-2025", "title_contains": "Managed Kubernetes Hosting", "firm": "Deutsche Telekom Business Solutions GmbH", "skip": "firm has no single trade: Produktlieferung, Telefonie, Netze, Arbeitsplatzservices, Security"}
+{"pub": "00218827-2025", "firm": "T-Systems International GmbH", "skip": "firm has no single trade: Fachsoftware, LMS, PKI-Betrieb, Anwendungsbetrieb, Schulung"}
+{"pub": "00162959-2026", "firm": "Avanade Deutschland GmbH", "skip": "Firmenbild uneindeutig: Konzeptberatung und Energiehandelssysteme; KI-Lernplattform weder belegt noch ausgeschlossen"}
+{"pub": "00143444-2025", "title_contains": "Mengenlos 2", "firm": "T-Systems International GmbH", "skip": "firm has no single trade: LMS, Fachsoftware, PKI, Apps, TK-Abrechnung, Verfahrensbetrieb"}
+{"pub": "00108467-2026", "title_contains": "Kleve_Los11", "firm": "Computacenter AG & Co. oHG", "skip": "unreadable: Kleve_Los11 – Beschreibung nur \"siehe Vergabeunterlagen\"; Firma zudem ohne einzelnes Gewerk"}
+{"pub": "00430754-2026", "firm": "Bechtle GmbH - IT Systemhaus Dortmund/Meschede", "skip": "firm has no single trade: Lizenzen, VMware, Managed Security; mehrere Titel nichtssagend (Los 1, EDU, PUB)"}
+{"pub": "00228926-2026", "title_contains": "Software Development Kit", "firm": "Titanom Solutions GmbH", "skip": "beide Seiten Individualentwicklung; natives SDK statt Webanwendung ist Technologie, kein anderes Gewerk"}
+{"pub": "00111137-2025", "title_contains": "Campus Stuttgart", "firm": "DSLmobil GmbH", "skip": "beide Telekommunikation: geförderter Breitbandausbau vs Standortanschluss – Gewerksgrenze nicht lesbar"}
+{"pub": "00548741-2024", "firm": "Bechtle GmbH & Co. KG Bonn", "skip": "firm has no single trade: Softwareentwicklung, IT-Projektmanagement und Lizenzhandel"}
+{"pub": "00439149-2024", "title_contains": "PV-Modul", "firm": "Titanom Solutions GmbH", "skip": "beide Individualentwicklung; die ÖPNV-Vertriebsdomäne allein ist kein eigenes Gewerk – nicht entscheidbar"}
+{"pub": "00552437-2025", "title_contains": "Aufbau des Datenmanagements", "firm": "Förde Campus GmbH", "skip": "Firmentitel nichtssagend (Los 1a, 1b, 1h, 3f bei Dataport), Gewerk nicht lesbar"}
+{"pub": "00294426-2026", "title_contains": "Rodenbek", "firm": "NTTCable Deutschland KG", "skip": "beide Telekommunikation: geförderter Netzausbau vs Standortanschlüsse – Gewerksgrenze nicht lesbar"}
+{"pub": "00336278-2024", "title_contains": "Los 1 x86-Server", "firm": "SanData EDV-Systemhaus GmbH", "skip": "firm has no single trade: Hardwarelieferung, Netzwerkdienste, Print- und Clientmanagement"}
+{"pub": "00582596-2024", "firm": "CANCOM GmbH", "skip": "Systemhaus mit 83 Zuschlägen, sichtbare Titel nur eine IAM-Serie — Lizenzhandel weder belegt noch ausschließbar"}
+{"pub": "00160914-2024", "firm": "EXXETA AG", "skip": "GU/Rahmen lot, trade is sub-scope: ITSM-Produkt plus eigener RZ-Betrieb, Beratung wäre Teilscope"}
+{"pub": "00227173-2024", "firm": "CANCOM Public GmbH", "skip": "GU/Rahmen lot, trade is sub-scope: Voll-Outsourcing IT-Betrieb, Beschreibung ist ein Satz"}
+{"pub": "00643081-2025", "firm": "Cancom GmbH", "skip": "firm has no single trade: Microsoft-Lizenzen, Server-Hardware, E-Mail-Migration, SOC"}
+{"pub": "00344065-2026", "firm": "HiSolutions AG", "skip": "IT-Sicherheit nur ein Stichpunkt in einem großen Digitalisierungs-/Transformationsprogramm"}
+{"pub": "00398438-2025", "title_contains": "Picture Archiving", "firm": "Computacenter AG & Co oHG", "skip": "firm has no single trade: Server, Security-Software, RZ-Umzug, Cloud-Betrieb, Virtualisierungsberatung"}
+{"pub": "00042016-2024", "firm": "adesso AG", "skip": "SAM-Tool als Produkt plus Implementierung; adesso zeigt ServiceNow-Umsetzung und Java-Entwickler — offen"}
+{"pub": "00158781-2025", "firm": "Krongaard GmbH", "skip": "KI-Fachleistungen (Datenanalyse, Trainingsdaten) neben PM-Losen; Krongaard zeigt nur IT-Projektleitung"}
+{"pub": "00189146-2026", "title_contains": "gebrauchten Microsoft Office 2024 LTSC Professional Plus Lizenzen", "firm": "circular Informationssysteme GmbH", "skip": "firm has no single trade: Security-Systeme, Server- und Storage-Hardware, Lizenzen, Wartung"}
+{"pub": "00782162-2024", "firm": "ACP IT Solutions GmbH", "skip": "firm has no single trade: Lizenzen, Server, USV-Wartung, Vor-Ort-Service, RZ-Betrieb"}
+{"pub": "00061396-2025", "firm": "Bechtle direct GmbH", "skip": "firm has no single trade: Security-Komponenten, Infoblox-Lizenzen mit Hardware, VMware-Lizenzen"}
+{"pub": "00608393-2025", "title_contains": "Sharepoint Verfahrensmanagement", "firm": "Protiviti GmbH", "skip": "Rollenbesetzung SharePoint-Verfahrensmanager; Protiviti zeigt Support, Architektur, OpenStack, SAP — offen"}
+{"pub": "00408878-2024", "title_contains": "Systemspezialisten DMS", "firm": "Carl Zeiss Digital Innovation GmbH", "skip": "Rollenbesetzung DMS-Produktbetrieb; Zeiss Digital Innovation zeigt Entwicklung und K8s-Administration — offen"}
+{"pub": "00132292-2025", "firm": "WMS Webmad Systemhaus GmbH", "skip": "Gewerk der Firma nicht lesbar: gewonnene Titel nur 'Los 1', 'Los 2', 'Los 3'"}
+{"pub": "00617931-2025", "title_contains": "Printmanagement", "firm": "Trans4mation IT GmbH", "skip": "Printmanagement-Rolle vs. Client-Management/Softwareverteilung: benachbarte Rollen im selben Arbeitsplatzumfeld"}
+{"pub": "00165570-2024", "firm": "adesso SE", "skip": "firm has no single trade: SAP-Beratung, Projektmanagement, Cloud-Migration, Java-Entwicklung, KI-Lösungen"}
+{"pub": "00483228-2024", "firm": "CANCOM GmbH", "skip": "Sichtbare Titel sind ein einziger Auftrag (AMEOS-IAM) in acht Losen - Gewerksbild zu dünn für ein Urteil"}
+{"pub": "00516276-2024", "firm": "Expleo Technology Germany GmbH", "skip": "Firma zeigt QS/Testleistungen und eine Verfahrens-Weiterentwicklung - Softwarepflegeauftrag nicht sicher zuzuordnen"}
+{"pub": "00117451-2024", "title_contains": "Datenschutz", "firm": "iC Consult GmbH", "skip": "unreadable: Datenschutz - Titel ein Wort, Beschreibung handelt von Hardware-Kauf und Rechenzentrumsbetrieb"}
+{"pub": "00460129-2025", "firm": "Research Industrial Systems Engineering (RISE) Forschungs-, Entwicklungs- und Großprojektberatung GmbH", "skip": "firm has no single trade: Penetrationstests, Telematik-Dienst, Rüstungs-App - kein einheitliches Gewerk erkennbar"}
+{"pub": "00026912-2024", "title_contains": "Leitstellentechnik", "firm": "Bechtle GmbH", "skip": "firm has no single trade: Hardware (HPE, Server, Storage), Lizenzen, SIEM/SOC-Services, Sicherheitschecks"}
+{"pub": "00204321-2026", "firm": "Bechtle GmbH", "skip": "firm has no single trade: Hardware (HPE, Server, Storage), Lizenzen, SIEM/SOC-Services, Sicherheitschecks"}
+{"pub": "00139732-2025", "firm": "Bechtle GmbH & Co. KG IT-Systemhaus Neckarsulm", "skip": "firm has no single trade: Bechtle-Systemhaus - Lizenzhandel, Standardsoftware, Subscriptions und Systemhausleistungen"}
+{"pub": "00669489-2025", "firm": "Fujitsu Technology Solutions GmbH", "skip": "firm has no single trade: Server- und Speicherhardware, Lizenzen, Strategieberatung, Entwicklung und Betrieb"}
+{"pub": "00444826-2024", "firm": "PROSOZ Herten GmbH", "skip": "Fachverfahrens-Produkthaus Sozialwesen vs. Neuentwicklung und Betrieb einer Landesplattform - nicht entscheidbar"}
+{"pub": "00661275-2025", "title_contains": "Berater Los 2", "firm": "Crayon Deutschland GmbH", "skip": "unreadable: Berater Los 2 — Beschreibung verweist nur auf die Leistungsbeschreibung"}
+{"pub": "00538044-2024", "firm": "Cancom GmbH", "skip": "firm has no single trade: Microsoft-Lizenzen, Server-Hardware, SOC-Betrieb und Migrationsprojekte"}
+{"pub": "00251637-2024", "title_contains": "44/2024 HPE Server", "firm": "Deutsche Telekom Business Solutions GmbH", "skip": "firm has no single trade: Netzwerkprodukte, Telefonie, Managed Services, Datenbanken und Sicherheitsprodukte"}
+{"pub": "00173579-2026", "firm": "BTC Business Technology Consulting AG", "skip": "beide Richtungen begründbar: Firma führt SAP, RPA und Branchenlösungen ein, eine ITSM-SaaS-Plattform ist weder belegt noch ausgeschlossen"}
+{"pub": "00083174-2024", "firm": "Bechtle GmbH", "skip": "firm has no single trade: Hardware, Lizenzen, Security-Services und IT-Sicherheitsprüfungen"}
+{"pub": "00826277-2025", "firm": "SVA GmbH", "skip": "firm has no single trade: Hardware, Lizenzen und Betriebsdienstleistungen im Rechenzentrum"}
+{"pub": "00632294-2025", "firm": "Fujitsu Technology Solutions GmbH", "skip": "firm has no single trade: Server- und Speicherhardware, Lizenzen, Strategieberatung und Betrieb"}
+{"pub": "00353143-2025", "firm": "ITSM Consulting GmbH", "skip": "unreadable: Trägerschaft der Koordinierungs- und Kontaktstelle KoKont — kein IT-Leistungsinhalt beschrieben"}
+{"pub": "00342907-2024", "firm": "ACP IT Solutions GmbH", "skip": "firm has no single trade: Lizenzen, Server-Lieferung, Vor-Ort-Service und Rechenzentrumsbetrieb"}
+{"pub": "00591866-2025", "title_contains": "Customizing VADM", "firm": "Bechtle GmbH IT-Systemhaus Hamburg", "skip": "firm has no single trade: IT-Betriebsservices und Hardware-Lose, zwei Gewinntitel heißen nur \"Los 1\"/\"Los 2\""}
+{"pub": "00780339-2025", "title_contains": "Strom ehemaliges Netzgebiet EMR", "firm": "RMK", "skip": "Gewerk der Firma nicht ablesbar: alle Gewinntitel sind Orts- und Losnamen (Kleve_Los8, Emmerich Teil 3)"}
+{"pub": "00128949-2024", "title_contains": "Schulungs- und Simulationsumgebung", "firm": "Auftragnehmer", "skip": "firm has no single trade: Estricharbeiten, Verdunklungsanlagen, Leitstellentechnik, LibreOffice-Pflege (Sammelname 'Auftragnehmer')"}
+{"pub": "00602393-2025", "firm": "SVA System Vertrieb Alexander GmbH", "skip": "firm has no single trade: Lizenzen, Server/Storage, IAM, Backup, SOC, Klinik-Portale"}
+{"pub": "00552051-2025", "firm": "H&G Hansen & Gieraths EDV Vertriebsgesellschaft mbH", "skip": "firm has no single trade: Server- und Storage-Lieferung, Microsoft-Lizenzen"}
+{"pub": "00437900-2024", "firm": "SVA System Vertrieb Alexander GmbH", "skip": "firm has no single trade: Lizenzen, Server/Storage, IAM, Backup, SOC, Klinik-Portale"}
+{"pub": "00329945-2025", "firm": "cronn GmbH", "skip": "unreadable: GAP - Ganglinienarbeitsplatz (Beschreibung wiederholt nur den Titel)"}
+{"pub": "00066137-2024", "title_contains": "Märchenpark", "firm": "Ressourcenmangel GmbH", "skip": "Web-/Digitalagentur (Portale, Relaunch); AR-Ausstellung ist Nachbargewerk, in und out gleich vertretbar"}
+{"pub": "00530516-2026", "title_contains": "Prozesse für Messkonzepte, Datenmodelle & Stammdaten", "firm": "Sopra Steria SE", "skip": "firm has no single trade: SAP-Basis, Softwareentwicklung, RPA, Testmanagement, IT-Beratung"}
+{"pub": "00298212-2026", "firm": "Capgemini Deutschland GmbH", "skip": "firm has no single trade: Cloud-Beratung, Testmanagement, Entwicklung, IT-Werkleistungen"}
+{"pub": "00729108-2024", "firm": "IDV GmbH", "skip": "IT-Personaldienstleister von Projektleitung bis Frontend; Forensik-Expertise weder belegt noch ausgeschlossen"}
+{"pub": "00414422-2025", "firm": "Bechtle", "skip": "firm has no single trade: Software, Subskriptionen, aktive Netzkomponenten, Wartungsverträge"}
+{"pub": "00695132-2024", "firm": "Materna Information & Communications SE", "skip": "firm has no single trade: Fachverfahrensbetreuung, Projektmanagement, Websites, SaaS-Lizenzen"}
+{"pub": "00410287-2026", "firm": "EVIDEN Germany GmbH", "skip": "firm has no single trade: SAP, Entwicklung und Betrieb, Datenbanken, Middleware, Netze"}
+{"pub": "00503040-2025", "firm": "EVIDEN Germany GmbH", "skip": "firm has no single trade: SAP, Entwicklung/Betrieb, Datenbanken, Middleware und Netze"}
+{"pub": "00663752-2025", "firm": "Deutsche Telekom Business Solutions GmbH", "skip": "firm has no single trade: Netzwerkprodukte, Telefonie, Security, Middleware, Collaboration"}
+{"pub": "00472056-2025", "firm": "CANCOM GmbH", "skip": "firm has no single trade: 83 Zuschläge, die sichtbaren Titel sind achtmal derselbe IAM-Rahmen"}
+{"pub": "00573163-2025", "firm": "SVA System Vertrieb Alexander GmbH", "skip": "firm has no single trade: Lizenzen, Storage/Backup, IAM, SOC, Klinik-Gatewaysecurity"}
+{"pub": "00486033-2026", "title_contains": "Anwendungen für Auszubildende", "firm": "EUROPEAN DYNAMICS Deutschland GmbH", "skip": "Standard-Fachanwendung Azubiverwaltung gegen Individualentwicklung/Betrieb für Bundesbehörden - nicht entscheidbar"}
+{"pub": "00706502-2025", "title_contains": "Los 2 Microsoft M365", "firm": "DATAGROUP Business Solutions GmbH", "skip": "firm has no single trade: SAP-Transformation, IT-Betrieb, BSI-Hard- und Software"}
+{"pub": "00699095-2025", "firm": "Bechtle GmbH & Co. KG", "skip": "firm has no single trade: Server, Microsoft-Lizenzen, Collaboration, Desktop-Management, Rechenzeiten"}
+{"pub": "00507781-2026", "firm": "SoftwareONE Deutschland", "skip": "Handelspartner für Standardlizenzen; ob eine spezialisierte CTI-SaaS-Plattform eigenes Geschäft ist, bliebe Raten"}
+{"pub": "00241414-2026", "firm": "Bechtle GmbH", "skip": "firm has no single trade: MDR/SOC, Server, Storage, Lizenzen, IT-Sicherheitscheck"}
+{"pub": "00040750-2025", "firm": "SVA System Vertrieb Alexander GmbH", "skip": "firm has no single trade: Lizenzen, Storage/Backup, IAM, SOC, Klinik-Gatewaysecurity"}
+{"pub": "00622950-2025", "title_contains": "(SAM) Service Einführung und Betrieb", "firm": "Dataciders GmbH", "skip": "breite IT-Beratung (KI, Prozesse, generische Rahmenverträge); SAM-/Lizenzmanagement weder klar drin noch draußen"}
+{"pub": "00525145-2025", "firm": "Bechtle GmbH", "skip": "firm has no single trade: Security-Services, Hardware, Server, Storage, Lizenzen, IT-Beratung"}
+{"pub": "00250691-2024", "firm": "BFE Studio und Medien Systeme GmbH", "skip": "unreadable: Neuausschreibung AuRegis und RegisSTAR"}
+{"pub": "00584275-2025", "firm": "Computacenter AG & Co. oHG", "skip": "firm has no single trade: SaaS-Lizenzen, Storage- und Server-Hardware, Security-Produkte, Subscriptions"}
+{"pub": "00391520-2025", "title_contains": "Testmanagement und Kundenhotline", "firm": "CGI Deutschland B.V. & Co. KG", "skip": "firm has no single trade: Informationssicherheit, Projektmanagement, Testmanagement, Systemintegration, Paketierung"}
+{"pub": "00150766-2024", "firm": "S&N Invent GmbH", "skip": "Firmenprofil zu dünn: zwei von drei Titeln heißen nur 'Los 1'/'Los 4', nur Webanwendungen lesbar"}
+{"pub": "00118015-2025", "title_contains": "Lernmanagementsystem mit inkludiertem Autorentool", "firm": "Bechtle GmbH", "skip": "firm has no single trade: Security-Services, Hardware, Server, Storage, Lizenzen, IT-Beratung"}
+{"pub": "00066414-2024", "firm": "Bechtle GmbH & Co. KG IT-Systemhaus Neckarsulm", "skip": "firm has no single trade: Bechtle-Systemhaus, Lizenzen und Standardsoftware neben Systemhausleistungen"}
+{"pub": "00107694-2026", "title_contains": "EMS-Softwareanwendung (Los 2)", "firm": "DATAGROUP Business Solutions GmbH", "skip": "unreadable: EMS-Softwareanwendung (Los 2)"}
+{"pub": "00327923-2026", "firm": "1&1 Versatel Deutschland GmbH", "skip": "Firma ist Netzbetreiber (WAN, Internet, LWL, SIP); Mail-Hosting nur über ein Gateway-Los berührt — nicht entscheidbar"}
+{"pub": "00627612-2024", "firm": "SVA System Vertrieb Alexander GmbH", "skip": "firm has no single trade: Lizenzen, Storage- und Server-Hardware, IAM-Systeme, Backup, SOC"}
+{"pub": "00340034-2025", "firm": "Bechtle GmbH & Co. KG", "skip": "firm has no single trade: Server-Hardware, Microsoft-Lizenzen, Rechenzeiten, Desktop-Management"}
+{"pub": "00120364-2024", "firm": "SCALTEL GmbH & Co. KG", "skip": "unreadable: Nicht losweise Vergabe"}
+{"pub": "00639291-2024", "title_contains": "Lotteriegesamtsystem", "firm": "Bechtle GmbH & Co.KG", "skip": "firm has no single trade: Server/Hardware, Microsoft-Lizenzen, Netzwerkkomponenten, Standardsoftware"}
+{"pub": "00529385-2024", "firm": "Raid Media Systems GmbH", "skip": "unreadable: Nicht losweise Vergabe"}
+{"pub": "00166136-2025", "firm": "Advanced UniByte GmbH", "skip": "unreadable: Nicht losweise Vergabe"}
+{"pub": "00122191-2026", "title_contains": "Los SPNV", "firm": "Fujitsu Technology Solutions GmbH", "skip": "firm has no single trade: Strategieberatung, Entwicklung/Betrieb, Server- und Speicherlieferung, Lizenzen"}
+{"pub": "00115100-2026", "title_contains": "HPE-Servererweiterung", "firm": "Bechtle GmbH & Co. KG", "skip": "firm has no single trade: Server/Hardware, Microsoft-Lizenzen, Netzwerkkomponenten, Standardsoftware"}
+{"pub": "00300755-2025", "firm": "CGI Deutschland B.V. & Co. KG", "skip": "firm has no single trade: Informationssicherheit, Projektmanagement, E-Akte, Systemintegration, Softwarepaketierung"}
+{"pub": "00214172-2026", "firm": "Fujitsu Technology Solutions GmbH", "skip": "firm has no single trade: Strategieberatung, Entwicklung/Betrieb, Server- und Speicherlieferung, Lizenzen"}
+{"pub": "00101705-2026", "title_contains": "BIENE Forderungsverwaltung", "firm": "New Horizons Hamburg GmbH", "skip": "unreadable: gewonnene Titel der Firma sind nur Los-Nummern bei Dataport, Gewerk nicht erkennbar"}
+{"pub": "00442485-2024", "firm": "Cancom GmbH", "skip": "firm has no single trade: Microsoft-Lizenzen, Server-Hardware, E-Mail-Migration, SOC-Betrieb"}
+{"pub": "00158368-2025", "firm": "SVA System Vertrieb Alexander GmbH", "skip": "firm has no single trade: Lizenzen, IAM-Systeme, Storage/Backup-Hardware, SOC-Betrieb"}
+{"pub": "00394036-2025", "firm": "EY GmbH & Co. KG Wirtschaftsprüfungsgesellschaft", "skip": "firm has no single trade: SAP-Entwicklung, Softwaretest, Innovationsberatung, Incident Response, SIEM"}
+{"pub": "00237122-2024", "title_contains": "LOS 2 Rechenzentrumsdienstleister", "firm": "matrix technology GmbH", "skip": "Titel (LOS 2 Rechenzentrumsdienstleister) und Beschreibung (Beratung Bankenkooperation) widersprechen sich"}
+{"pub": "00850238-2025", "firm": "NETMOUNTAINS Group GmbH", "skip": "Lizenzhandel der Firma nur als Zubehör zur Serverlieferung erkennbar; Elastic-Subscription nicht zuzuordnen"}
+{"pub": "00251912-2026", "firm": "Accenture GmbH", "skip": "firm has no single trade: Testmanagement, Entwicklung, Fachverfahren, KI-Beratung, Bankensoftware"}
+{"pub": "00403824-2024", "firm": "Fujitsu Technology Solutions GmbH", "skip": "firm has no single trade: Strategieberatung, Entwicklung/Betrieb, Server- und Speicherlieferung, Lizenzen"}
+{"pub": "00351286-2026", "firm": "SVA System Vertrieb Alexander GmbH", "skip": "firm has no single trade: Lizenzen, IAM-Systeme, Storage/Backup-Hardware, SOC-Betrieb"}
+{"pub": "00124047-2024", "title_contains": "Entwicklung und Betreuung von Webanwendungen", "firm": "IBM Deutschland GmbH", "skip": "firm has no single trade: Sicherheitsberatung, Fachverfahren-Entwicklung, SAP-Migration, Softwarewartung"}
+{"pub": "00569152-2024", "firm": "FERCHAU GmbH", "skip": "firm has no single trade: Softwareentwicklung, Systemtest, DevOps, Datenbanken, IT-Security-Beratung"}
+{"pub": "00588531-2024", "title_contains": "Geldern Teil 1", "firm": "Fujitsu Technology Solutions GmbH", "skip": "unreadable: Geldern Teil 1 — Beschreibung nur 'siehe Vergabeunterlagen'"}
+{"pub": "00113803-2026", "firm": "T-Systems International GmbH", "skip": "firm has no single trade: SAP, Fachsoftware, LMS, PKI-Betrieb, Apps, Verfahrensbetrieb"}
+{"pub": "00359694-2026", "firm": "CANCOM GmbH", "skip": "firm has no single trade: Systemhaus mit 83 Zuschlägen; Paket zeigt nur 8x denselben IAM-Rahmenvertrag"}
+{"pub": "00444208-2026", "firm": "Bechtle GmbH - IT Systemhaus Dortmund/Meschede", "skip": "firm has no single trade: Lizenzen, VMware, Managed Security — Systemhaus"}
+{"pub": "00131621-2025", "title_contains": "ASM Software", "firm": "d.velop AG", "skip": "unreadable: ASM-Software nicht auflösbar; Beschreibung nennt nur Datenkonsolidierung"}
+{"pub": "00029369-2025", "title_contains": "Hosting, Betrieb, Migration", "firm": "msg systems ag", "skip": "firm has no single trade: SAP-Beratung, Test, Entwicklung, Anforderungs- und Projektmanagement"}
+{"pub": "00792630-2024", "firm": "SINC GmbH", "skip": "firm has no single trade: Betriebsunterstützung, SAP-Analyse, Produktmanagement, Camunda, Support"}
+{"pub": "00150252-2024", "title_contains": "Osterode", "firm": "H&G Hansen & Gieraths EDV Vetriebsgesellschaft mbH", "skip": "Firma nur als Hardwarelieferant (HPE) belegt; Microsoft-EA-Handelspartnerschaft nicht beurteilbar"}
+{"pub": "00141787-2025", "firm": "CANCOM GmbH", "skip": "firm has no single trade: Systemhaus mit 83 Zuschlägen; Paket zeigt nur 8x denselben IAM-Rahmenvertrag"}
+{"pub": "00329591-2024", "firm": "Computacenter", "skip": "firm has no single trade: Lizenzen, IT-Beratung, Security-Architektur, Netzwerk-Hardware"}
+{"pub": "00540083-2024", "firm": "URANO Informationssysteme GmbH", "skip": "GU/Rahmen lot, trade is sub-scope: gesamtes Infrastruktur-Management (Compute, Cloud, Netz, Storage)"}
+{"pub": "00403775-2026", "title_contains": "Zentraler Terminologieserver", "firm": "PwC PricewaterhouseCoopers GmbH Wirtschaftsgesellschaft GmbH", "skip": "unreadable: Los nennt nur 'Zentraler Terminologieserver', die Leistung steht nur in der Anlage"}
+{"pub": "00477072-2026", "firm": "Bechtle GmbH & Co. KG  IT-Systemhaus Rhein-Main", "skip": "firm has no single trade: Systemhaus (Bechtle); Paket zeigt nur Exchange-, AD- und Architektenrollen"}
+{"pub": "00149165-2025", "title_contains": "Datenbankmanagement", "firm": "EXXETA AG", "skip": "firm has no single trade: KI- und Energie-IT-Beratung, Cloud-Infrastruktur, Softwaretest, Java-Entwicklung"}
+{"pub": "00209040-2025", "firm": "etomer GmbH", "skip": "firm has no single trade: SAP-Basis, NetApp-Hardware, Endgeräte-Management, Exchange- und IT-Betrieb"}
+{"pub": "00394573-2025", "firm": "Deloitte Consulting GmbH", "skip": "firm has no single trade: Strategieberatung, Drupal-Entwicklung, Cybersecurity, KI-Bots, KIS-Beratung"}
+{"pub": "00659179-2025", "firm": "PROFI Engineering Systems AG", "skip": "firm has no single trade: IBM-/Dell-Hardware, VMware-Lizenzen, QRadar-Security, Wartungsverträge"}
+{"pub": "00630359-2024", "firm": "Bechtle", "skip": "firm has no single trade: Software, aktive Netzkomponenten, Oracle-Wartung, Backup"}
+{"pub": "00279797-2025", "title_contains": "MS Windows Server Datacenter", "firm": "Bechtle", "skip": "firm has no single trade: Software, aktive Netzkomponenten, Oracle-Wartung, Backup"}
+{"pub": "00196443-2024", "firm": "PROFI Engineering Systems AG", "skip": "firm has no single trade: IBM-/Dell-Hardware, VMware-Lizenzen, QRadar-Security, Wartungsverträge"}
+{"pub": "00700199-2025", "firm": "Hypertegrity AG", "skip": "CDE für Bau- und Planungsdaten gegen urbane Datenplattformen — Zuordnung nicht belastbar lesbar"}
+{"pub": "00574664-2026", "firm": "Bechtle GmbH IT-Systemhaus Nürnberg", "skip": "firm has no single trade: Softwareverteilung, Commvault-Lizenzen, Storage-Support, Loadbalancer-Beratung"}
+{"pub": "00698526-2024", "firm": "Profi Engineering Systems AG", "skip": "firm has no single trade: IBM-Hardware, VMware-/GitLab-Lizenzen, Datensicherung, ISMS-Suite"}
+{"pub": "00719648-2025", "title_contains": "Realisierung und Betrieb von Internetverbindungen für Schulen des Landkreis Heidekreis", "firm": "Computacenter AG & Co. oHG", "skip": "firm has no single trade: HPE-/Dell-Hardware, Lizenzen, Security-Plattformen, SaaS-Lösungen"}
+{"pub": "00256104-2026", "firm": "CANCOM GmbH", "skip": "firm has no single trade: großes Systemhaus, die acht sichtbaren Titel sind achtmal derselbe IAM-Rahmenauftrag"}
+{"pub": "00618040-2025", "firm": "Auftragnehmer", "skip": "Firmenname 'Auftragnehmer' ist ein Platzhalter: die Wins umfassen Estrich- und Verdunklungsarbeiten, also mehrere Firmen"}
+{"pub": "00666577-2024", "firm": "Computacenter AG & Co. oHG", "skip": "firm has no single trade: Lizenzen/SaaS, Server- und Storage-Hardware, Security-Produkte"}
+{"pub": "00160857-2026", "firm": "Computacenter", "skip": "firm has no single trade: IT-Beratung, Lizenzen (GitLab), Netzwerk- und Storage-Hardware"}
+{"pub": "00387396-2025", "firm": "Deutsche Telekom Business Solutions GmbH", "skip": "firm has no single trade: Netzwerkprodukte, Telefonie-/Konferenzbetrieb, Datenbanken, IdM, Arbeitsplatzdienste"}
+{"pub": "00377991-2025", "firm": "Bechtle GmbH", "skip": "firm has no single trade: Security-Services, Hardware-Rahmenverträge, Softwarelizenzen, IT-Sicherheitsberatung"}
+{"pub": "00122548-2025", "title_contains": "SOPHOS", "firm": "EVIDEN Germany GmbH", "skip": "unreadable: SOPHOS (nur Herstellername, Beschreibung lautet nur 'Los 5')"}
+{"pub": "00223568-2024", "firm": "Fujitsu Technology Solutions GmbH", "skip": "firm has no single trade: IT-Beratung/Entwicklung, Server- und Speichersysteme, Softwarelizenzen"}
+{"pub": "00247814-2025", "firm": "Computacenter", "skip": "firm has no single trade: IT-Beratung, Lizenzen (GitLab), Netzwerk- und Storage-Hardware"}
+{"pub": "00266660-2026", "firm": "CANCOM GmbH", "skip": "firm has no single trade: großes Systemhaus, die acht sichtbaren Titel sind achtmal derselbe IAM-Rahmenauftrag"}
+{"pub": "00533096-2026", "firm": "Tagueri AG", "title_contains": "Softwaredienstleistungen", "skip": "Losumfang unklar: \"Softwaredienstleistungen\" plus eine Zeile Data-Science-Infrastruktur, Aufbau vs. Beratung offen"}
+{"pub": "00227552-2025", "firm": "New Horizons Hamburg GmbH", "skip": "Firmentrade nicht lesbar: alle Gewinntitel nur \"Los 2c\", \"Los 3a\", \"Los 4a\" ohne Inhalt"}
+{"pub": "00427732-2024", "firm": "SVA System Vertrieb Alexander GmbH", "skip": "firm has no single trade: Lizenzen, IAM, Backup-Infrastruktur, SOC, Patientenportale"}
+{"pub": "00165915-2026", "firm": "EBCONT informatics GmbH", "skip": "Firma macht IT-Beratung und Azure-Betrieb, hat aber auch M365-Lizenzbeschaffung gewonnen — Lizenzhandel offen"}
+{"pub": "00488368-2024", "firm": "T-Systems International GmbH", "skip": "firm has no single trade: LMS, HCM, PKI-Betrieb, Apps, Fachsoftware, Verfahrensbetrieb"}
+{"pub": "00580618-2026", "firm": "circular Informationssysteme GmbH", "skip": "firm has no single trade: Server, Storage, Netzwerkwartung, PAM und Threat-Management-Produkte"}
+{"pub": "00219858-2025", "firm": "Skaylink GmbH", "title_contains": "IT-Administration & Infrastruktur", "skip": "unreadable: IT-Administration & Infrastruktur — Beschreibung wiederholt nur den Titel"}
+{"pub": "00749899-2024", "firm": "SVA System Vertrieb Alexander GmbH", "skip": "firm has no single trade: Lizenzen, IAM, Backup-Infrastruktur, SOC, Patientenportale"}
+{"pub": "00617414-2025", "firm": "Kramer & Crew GmbH & Co. KG", "title_contains": "JDisc Discovery", "skip": "firm has no single trade: RZ-Infrastruktur, Serveradministration, Lizenzen, Incident Response, Hardware"}
+{"pub": "00583019-2024", "firm": "Profi Engineering Systems AG", "skip": "firm has no single trade: IBM-Hardware, Datensicherung, Software-Subskriptionen, ISMS-Suite"}
+{"pub": "00002065-2026", "firm": "Cancom GmbH", "skip": "firm has no single trade: Lizenzen, Server-Hardware, SOC-Betrieb, Migrationsprojekte"}
+{"pub": "00142865-2026", "firm": "Fujitsu Technology Solutions GmbH", "title_contains": "Los 7", "skip": "firm has no single trade: Strategieberatung, Entwicklung/Betrieb, Server- und Speicherhardware, Lizenzen"}
+{"pub": "00607086-2024", "firm": "Bechtle GmbH & Co.KG", "title_contains": "Messenger", "skip": "firm has no single trade: Hardware, Server, Standardsoftware, Netzwerksicherheit"}
+{"pub": "00632247-2024", "firm": "IP Systems GmbH", "title_contains": "Beratende Begleitung der Transition und Betrieb Avaya AURA", "skip": "Firmentrade nicht eindeutig: nur generische Rahmenvertragslose (Netzwerk, Backend, Cloud, Projektleitung)"}
+{"pub": "00056709-2024", "firm": "Research Industrial Systems Engineering (RISE) Forschungs-, Entwicklungs- und Großprojektberatung GmbH", "skip": "unklar: \"digitale Sprachaufzeichnung\" (Diktat vs. Gesprächsaufzeichnung) und Firmentrade uneinheitlich"}
+{"pub": "00583274-2025", "firm": "SVA System Vertrieb Alexander GmbH", "skip": "firm has no single trade: Lizenzen, IAM-Einführung, Backup-Infrastruktur, SOC-Betrieb"}
+{"pub": "00419716-2025", "firm": "Crayon Deutschland GmbH", "skip": "Leistungstext nur \"siehe Vergabeunterlagen\": Lizenzkauf oder Einführungsprojekt nicht entscheidbar"}
+{"pub": "00217512-2025", "title_contains": "Netzwerktechnologien", "firm": "Allgeier Public SE", "skip": "firm has no single trade: Java-Entwicklung, Projektmanagement, Systemadministration, Office-Dienste"}
+{"pub": "00237588-2024", "firm": "Bechtle GmbH & Co. KG", "skip": "firm has no single trade: Server, Microsoft-Lizenzen, Kollaborationslösungen, Rechenzeit"}
+{"pub": "00774896-2025", "firm": "Deutsche Telekom Business Solutions GmbH", "skip": "firm has no single trade: Telefonie, Netzprodukte, Datenbanken, Identity Management, Arbeitsplatzdienste"}
+{"pub": "00458932-2026", "title_contains": "416.2 - Projektunterstützung im Bereich Business Intelligence", "firm": "SVA System Vertrieb Alexander", "skip": "firm has no single trade: Softwarelizenzen, Servertechnik, Cloud-Dienstleistungen, Datenbankbetrieb"}
+{"pub": "00631712-2024", "title_contains": "Cloudtechnologien", "firm": "Profi Engineering Systems AG", "skip": "firm has no single trade: Backup-Lösungen, IBM-Hardware, VMware-/GitLab-Lizenzen, ISMS-Suite"}
+{"pub": "00327049-2025", "title_contains": "Los 3", "firm": "Accenture GmbH", "skip": "unreadable: Los 3 (Beschreibung nennt nur vier Schulen, keine Leistung)"}
+{"pub": "00789696-2024", "title_contains": "Stadt Neubrandenburg", "firm": "SPIE Information & Communication Services GmbH", "skip": "firm has no single trade: Gebäude-/Elektrotechnik, Netzwerktechnik, TK-Anlagen, IT-Beratung"}
+{"pub": "00577673-2025", "title_contains": "Los 3 - IT-Projekt und Anforderungsmanagement", "firm": "GISA GmbH", "skip": "firm has no single trade: SAP-Migration, Rechenzentrums-Hosting, DMS-Einführung"}
+{"pub": "00290791-2026", "firm": "Bechtle GmbH", "skip": "firm has no single trade: Server-/Storage-Hardware, Lizenzen, SOC- und MDR-Dienste, Sicherheitschecks"}
+{"pub": "00337442-2024", "firm": "Computacenter", "skip": "firm has no single trade: Sicherheitslizenzen, IT-Beratung, Hardware-Rahmenverträge"}
+{"pub": "00578523-2025", "firm": "Deloitte Consulting GmbH", "skip": "firm has no single trade: Strategieberatung, Cybersecurity, Drupal-Entwicklung, KI-Dienste"}
+{"pub": "00311923-2026", "firm": "Deloitte Consulting GmbH", "skip": "firm has no single trade: Strategieberatung, Drupal-Entwicklung, Cybersecurity, KI-Bots, KIS-Beratung"}
+{"pub": "00251307-2025", "firm": "RMK", "skip": "Firma nicht lesbar: gewonnene Titel sind nur Orts- und Losnamen (Kleve, Emmerich, Geldern)"}
+{"pub": "00273978-2024", "firm": "Computacenter AG & Co. oHG", "skip": "firm has no single trade: Hardware, Storage, Lizenzen, IT-Sicherheit, SaaS-Werkzeuge"}
+{"pub": "00743533-2025", "firm": "WTE Betriebsgesellschaft mbH", "skip": "Firma nicht lesbar: gewonnene Titel sind nur Orts- und Teilnamen (Emmerich, Geldern)"}
+{"pub": "00125681-2024", "title_contains": "LV 5 Software", "firm": "pdv-systeme Sachsen GmbH", "skip": "unreadable: LV 5 Software - nur 'Lieferung von Software', kein Gegenstand erkennbar"}
+{"pub": "00072493-2026", "firm": "Bechtle GmbH", "skip": "firm has no single trade: Hardware, Lizenzen, Security/SOC, IT-Beratung"}
+{"pub": "00406515-2026", "title_contains": "Netzwerkswitch", "firm": "ACP IT Solutions AG (Vormals SWS Computersysteme AG)", "note": "Lieferung eines Netzwerkswitches; Firma liefert genau diese Switche an denselben Auftraggeber - eigener Zuschlag", "skip": "ambiguous title_contains: 12 of 14 lots"}
+{"pub": "00406515-2026", "title_contains": "Netzwerkswitch", "firm": "EOMI AG", "note": "Lieferung eines Netzwerkswitches; Firma liefert ausschliesslich Microsoft-Lizenzen", "skip": "ambiguous title_contains: 12 of 14 lots"}
+{"pub": "00303610-2026", "title_contains": "Startkohorte SC8", "firm": "msg services gmbh", "note": "Lot: empirische Datenerhebung und Panelpflege einer Bildungsstudie; Firma betreibt IT-Infrastruktur und RZ", "skip": "ambiguous title_contains: 2 of 2 lots"}
+{"pub": "00002149-2024", "title_contains": "Softwaretests und Prüfungen", "firm": "Sopra Steria SE", "note": "Softwaretests und Sicherheits-/Datenschutzprüfungen; Test und Testmanagement ist eigenes Feld der Firma", "skip": "ambiguous title_contains: 2 of 4 lots"}
+{"pub": "00292035-2024", "title_contains": "gehobenen Polizeivollzugsdienst", "firm": "Geco Deutschland GmbH", "note": "Beschafft wird ein psychologisches Testsystem; Geco stellt Projektmanager und Projektassistenz", "skip": "ambiguous title_contains: 2 of 3 lots"}
+{"pub": "00189146-2026", "title_contains": "gebrauchten Microsoft Office 2024 LTSC Professional Plus Lizenzen", "firm": "Heldele GmbH", "note": "Lieferung gebrauchter Microsoft-Office-Lizenzen; Heldele macht Elektro- und TK-Anlagenbau", "skip": "ambiguous title_contains: 36 of 36 lots"}
+{"pub": "00143231-2024", "title_contains": "Microsoft Windows Server RDS User CAL", "firm": "Ricoh Deutschland GmbH", "note": "Lieferung gebrauchter Microsoft-Lizenzen (RDS User CAL); Firma liefert Drucksysteme, MPS und Digitalisierungsdienste", "skip": "ambiguous title_contains: 4 of 10 lots"}
+{"pub": "00647456-2024", "title_contains": "Websitebaukasten Framework", "firm": "PEGASUS Werbeagentur GmbH", "note": "Wartung und Pflege des Websitebaukasten-Frameworks — eigener Zuschlag", "skip": "ambiguous title_contains: 2 of 2 lots"}
+{"pub": "00647456-2024", "title_contains": "Websitebaukasten Framework", "firm": "Swiss IT Security Deutschland GmbH", "note": "Wartung und Pflege eines Website-Baukasten-Frameworks; Firma stellt IT-Betriebs- und Security-Personal", "skip": "ambiguous title_contains: 2 of 2 lots"}
+{"pub": "00330643-2024", "title_contains": "Kommunikation, Zusammenarbeit und des Datenaustausches für die ÖGD-Einrichtungen", "firm": "Lunatec GmbH", "note": "Kollaborations- und Datenaustauschplattform inkl. Hosting; Firma ist RPA-/UiPath-Spezialist", "skip": "ambiguous title_contains: 3 of 5 lots"}
+{"pub": "00320838-2025", "title_contains": "Multimedia-Box", "firm": "Lur SL GmbH", "note": "Multimedia-Box — eigener Zuschlag; Firma liefert dieselben Boxen mehrfach an denselben Auftraggeber", "skip": "ambiguous title_contains: 6 of 7 lots"}
+{"pub": "00320838-2025", "title_contains": "Multimedia-Box", "firm": "EduXpert GmbH", "note": "Multimedia-Box; Firma hat acht gleichlautende Multimedia-Box-Lose beim selben Auftraggeber gewonnen", "skip": "ambiguous title_contains: 6 of 7 lots"}
+{"pub": "00500488-2026", "title_contains": "510.1.02", "firm": "x1F Management & Technology Services GmbH", "note": "Projektunterstützung Cybersicherheit und IT-Grundschutz; x1F macht SAP-Hosting, -Betrieb und Anwenderbetreuung", "skip": "ambiguous title_contains: 2 of 25 lots"}
+{"pub": "00719648-2025", "title_contains": "Realisierung und Betrieb von Internetverbindungen für Schulen des Landkreis Heidekreis", "firm": "EWE TEL GmbH", "note": "eigener Zuschlag; Realisierung und Betrieb von Internetanschlüssen für Schulen.", "skip": "ambiguous title_contains: 16 of 16 lots"}
