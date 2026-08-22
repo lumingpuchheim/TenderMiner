@@ -96,12 +96,45 @@ sentence: „Wir haben alle Ihre Daten gelöscht. Nur Ihren Firmennamen
 behalten wir als Sperrvermerk — das ist nötig, um Ihren Wunsch, nie wieder
 kontaktiert zu werden, dauerhaft zu erfüllen (Art. 17 Abs. 3 DSGVO)."
 
-**Restlos löschen** (the second button) also drops the marker and exists
-for test data like Jebsen — never for a real firm that objected.
+There is no restlos button for a real firm: the total forget exists only
+for test twins (§3b), decided by the `test-` id and not by a click a hurry
+could get wrong.
 
-The operator's test loop ("I will frequently add and remove Jebsen"):
-Einladen → mails to own inbox → Aktivieren or a test-mode checkout →
-Stoppen → Reaktivieren or Löschen → Einladen again.
+### 3b. Test twins — `testfirm.py`
+
+The operator tests with real firms, and every admin state is then a false
+statement about a real firm ("Jebsen objected" — they didn't; "never
+contact Jebsen" — they're a real prospect). The twin resolves it: `add`
+builds a customer from the REAL firm's public award history (that is what
+makes the mails real — same profile door as a real invitation) under the
+identity `test-<slug>` / "TEST <name>", pointed at the operator's inbox.
+
+* A twin is a full customer to delivery (operator, 2026-08-22: "i want to
+  receive real monday mails for test companies") — the Monday cron mails
+  it, the trial clock runs: four free mails, the ask, silence. `remove` +
+  `add` restarts the trial; `add --paid` makes the Mondays endless.
+* `send` mails the current report NOW through the same door — it counts as
+  one of the trial mails, because it is one.
+* Twins are excluded from the admin counts line; the real firm's row stays
+  untouched and invitable throughout.
+* `remove` (and the admin Löschen page for a `test-` id) erases restlos —
+  a twin never objected, so no Sperrvermerk — and the `test-` prefix guard
+  means the tool cannot delete a real firm. A test-mode Stripe
+  subscription is cancelled first; if that fails the erase proceeds and
+  the id is printed for the dashboard.
+
+```
+python testfirm.py add "Jebsen" [--email you@…] [--paid]
+python testfirm.py send "Jebsen"
+python testfirm.py remove "Jebsen"
+python testfirm.py list
+```
+
+The operator's test loop ("I will frequently add and remove Jebsen") does
+NOT run through these doors — it runs on twins (§3b):
+`testfirm.py add "Jebsen"` → real Monday mails / `send` / a test-mode
+checkout → `testfirm.py remove "Jebsen"` → add again. The real firm's row
+never carries a test state.
 
 ## 4. The transport (`stripe_pay.py`)
 

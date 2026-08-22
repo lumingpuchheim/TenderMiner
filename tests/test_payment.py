@@ -259,17 +259,19 @@ class AdminDoors(Base):
         self.assertEqual(len(ev), 1)
         self.assertEqual(ev[0]['detail'], 'admin (backdoor)')
 
-    def test_restlos_erases_everything_so_the_firm_can_start_over(self):
-        self.sub()
-        tokens.mint(self.dir, 'y', 'beck')
+    def test_deleting_a_twin_is_restlos_by_identity(self):
+        """A test- sub_id gets the total forget WITHOUT any button choice —
+        restlos is decided by what the row is, not by what was clicked."""
+        self.sub(sub_id='test-beck')
+        tokens.mint(self.dir, 'y', 'test-beck')
         request(self.dir, '/admin/delete', method='POST',
-                form={'sub_id': 'beck', 'art': 'restlos'}, admin=True)
-        self.assertIsNone(subscriptions.customer_get(self.dir, 'beck'))
+                form={'sub_id': 'test-beck'}, admin=True)
+        self.assertIsNone(subscriptions.customer_get(self.dir, 'test-beck'))
         self.assertEqual([r for r in subscriptions.read_all(self.dir)
-                          if r['sub_id'] == 'beck'], [])
-        self.assertIsNone(tokens.live_value(self.dir, 'y', 'beck'))
+                          if r['sub_id'] == 'test-beck'], [])
+        self.assertIsNone(tokens.live_value(self.dir, 'y', 'test-beck'))
         self.assertEqual([e for e in ledger.read(self.dir, 'app_events')
-                          if e['sub_id'] == 'beck'], [])
+                          if e['sub_id'] == 'test-beck'], [])
 
     def test_the_default_delete_keeps_a_suppression_entry(self):
         """doc/PAYMENT.md 3a: 'löscht alles und schreibt uns nie wieder' —

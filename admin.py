@@ -420,6 +420,10 @@ def counts(state):
            'angemeldet': 0, 'zurückgestellt': 0, 'gefragt': 0, 'Kunde': 0,
            'gestoppt': 0}
     for sub_id, cust in state['customers'].items():
+        if sub_id.startswith('test-'):
+            # a twin (testfirm.py) is machinery, not funnel: counting it
+            # would let a test inflate the numbers the operator steers by
+            continue
         evs = {e['kind'] for e in state['events'].get(sub_id, [])}
         versions = state['versions'].get(sub_id, [])
         if 'vormerkt' in evs and 'invited' not in evs:
