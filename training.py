@@ -33,6 +33,55 @@ def current_champion(paths, arm=None):
     return {'model_id': model_id, 'meta': meta}
 
 
+# The window val_by_division is measured over — wider than the promotion
+# gate's on purpose (see the call site). Not a knob: it is a reporting choice,
+# and a queue that tuned it could tune the evidence to taste.
+REPORT_WINDOW = '26w'
+REPORT_MIN_ROWS = 100          # below this the wide window says nothing either
+
+
+def by_division_metrics(data, X, cat_cols, overrides, pub, args):
+    """{cpv division: validation grades} over REPORT_WINDOW, or None.
+
+    Its own temporal split and its own eval model, so no division is graded on
+    lots the scoring model trained on. The top slice is ranked WITHIN the
+    division, mirroring what a customer of that trade is actually shown."""
+    threshold = pub.max() - util.parse_window(REPORT_WINDOW)
+    try:
+        wide = sb.temporal_split(data, X, threshold=threshold)
+    except AssertionError:
+        return None
+    if wide.n_test_lots < args.min_val_lots or len(set(wide.yte)) < 2:
+        return None
+    model = sb.train(wide.Xtr, wide.ytr, wide.wtr, cat_cols, **overrides)
+    p = sb.predict(model, wide.Xte)
+    test = data.loc[~wide.is_train]
+    div = test['cpv_main'].astype(str).str[:2].to_numpy()
+    out = {'_window': REPORT_WINDOW, '_threshold': str(threshold.date()),
+           '_n_rows': int(len(p))}
+    for d in sorted(set(div)):
+        m = div == d
+        row = {'n_rows': int(m.sum()),
+               'n_lots': int(test.loc[m].groupby(sb.KEY).ngroups),
+               'base_rate': float(np.average(wide.yte[m], weights=wide.wte[m]))}
+        if int(m.sum()) >= REPORT_MIN_ROWS and len(set(wide.yte[m])) == 2:
+            row.update({k: v for k, v in
+                        sb.metrics(wide.yte[m], p[m], wide.wte[m],
+                                   threshold=args.threshold).items()
+                        if k in ('pr_auc', 'roc_auc')})
+            kd = max(1, round(int(m.sum()) * args.top_slice))
+            idx = np.argsort(-p[m])[:kd]
+            row['top_slice_hit'] = float(np.average(wide.yte[m][idx],
+                                                    weights=wide.wte[m][idx]))
+            row['top_slice_lift'] = (row['top_slice_hit'] / row['base_rate']
+                                     if row['base_rate'] else None)
+        else:
+            # said plainly rather than left as a number nobody should read
+            row['too_few'] = f'< {REPORT_MIN_ROWS} rows — no grade'
+        out[d] = row
+    return out
+
+
 def learn(paths, tenders, roles, data, aw, args, checkpoint, arm=None, plan=None):
     """Train a candidate on v1 notice-only features, run the trust checks, gate
     against the champion, persist to the registry. Returns (model_id, gate).
@@ -127,30 +176,19 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint, arm=None, plan=None
         # PR-AUC can hide a slide in one trade once the store spans several —
         # a candidate can win the pot while losing construction — so every
         # division's own validation grade is written down. Recorded evidence
-        # only: promotion still compares the pooled number. The top slice is
-        # ranked WITHIN the division, mirroring what a customer of that trade
-        # is shown.
-        val_div = data.loc[~split.is_train, 'cpv_main'].astype(str).str[:2].to_numpy()
-        by_division = {}
-        for d in sorted(set(val_div)):
-            m = val_div == d
-            row = {'n_rows': int(m.sum()),
-                   'n_lots': int(data.loc[~split.is_train].loc[m]
-                                 .groupby(sb.KEY).ngroups),
-                   'base_rate': float(np.average(split.yte[m], weights=split.wte[m]))}
-            if len(set(split.yte[m])) == 2:
-                row.update({k: v for k, v in
-                            sb.metrics(split.yte[m], p_val[m], split.wte[m],
-                                       threshold=args.threshold).items()
-                            if k in ('pr_auc', 'roc_auc')})
-                kd = max(1, round(int(m.sum()) * args.top_slice))
-                idx_d = np.argsort(-p_val[m])[:kd]
-                row['top_slice_hit'] = float(np.average(split.yte[m][idx_d],
-                                                        weights=split.wte[m][idx_d]))
-                row['top_slice_lift'] = (row['top_slice_hit'] / row['base_rate']
-                                         if row['base_rate'] else None)
-            by_division[d] = row
-        gate['val_by_division'] = by_division
+        # only: promotion still compares the pooled number.
+        #
+        # On a WIDER window than the gate's, and this is the whole point.
+        # Labels lag publication by months, so `--val-window` (8w) held 50
+        # construction, 14 software and 7 IT-services rows on 2026-08-22 — a
+        # PR-AUC over seven rows is a coin, and a slide in construction would
+        # be invisible in it, which is exactly what this was added to prevent.
+        # REPORT_WINDOW buys statistical power at the cost of recency, the
+        # right trade for a record nobody promotes on. Its own split means its
+        # own eval model: scoring the wide window with the 8w model would grade
+        # the model on lots it trained on.
+        gate['val_by_division'] = by_division_metrics(
+            data, X, cat_cols, overrides, pub, args)
         # tripwire: too good to be true
         if val_metrics['roc_auc'] >= sb.TOO_GOOD_ROC:
             gate['failures'].append(
