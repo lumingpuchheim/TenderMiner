@@ -41,7 +41,7 @@ here is built yet except where a line says so. Companions:
                     (the salesman's address, doc/SALES.md 3 — the first key
                     that went through env.d instead of .env, 2026-08-18)
   mail.env          RESEND_API_KEY
-  payments.env      TM_STRIPE_URL, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET   (the last two once they exist)
+  payments.env      STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET   (doc/PAYMENT.md; wired 2026-08-22 — TM_STRIPE_URL died with the payment-link design; TM_STRIPE_PRICE_ID is site.env, an id not a secret)
   backup.env        RESTIC_REPOSITORY, RESTIC_PASSWORD, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
 ```
 
@@ -154,7 +154,7 @@ bash docker/secrets.sh list            # server side: file, key, set|EMPTY, firs
 mail.env         RESEND_API_KEY          set  r…    app, scheduler restarted 12:04
 backup.env       RESTIC_REPOSITORY       set  s…
 backup.env       RESTIC_PASSWORD         EMPTY
-payments.env     TM_STRIPE_URL           set  h…
+payments.env     STRIPE_SECRET_KEY       set  s…
 ```
 
 What it never does: echo a value; put one on a command line (rsync over ssh

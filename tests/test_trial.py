@@ -140,7 +140,10 @@ class Yes(Base):
             _, _, body = request(self.dir, self._y())
         self.assertIn('179 € im Monat', body)
 
-    def test_post_records_yes_and_writes_a_paid_version(self):
+    def test_post_without_stripe_records_the_wish_and_no_plan(self):
+        """doc/PAYMENT.md (operator, 2026-08-20): 'subscription only when
+        customer pays or i activate them in backdoor' — a yes click alone
+        never writes a paid version."""
         sent = []
         import mailer
         with mock.patch.object(mailer, '_resend',
@@ -151,26 +154,28 @@ class Yes(Base):
         self.assertEqual(len(self.events('subscribe_yes')), 1)
         today = date.today().isoformat()
         sub = subscriptions.one(self.dir, today, 'firm')
-        self.assertEqual((sub['plan'], sub['version'], sub['active']),
-                         ('paid', 3, True))
-        # the operator was told, because no Stripe link exists
+        self.assertNotEqual(sub.get('plan'), 'paid')
+        self.assertEqual(len(self.events('paid_started')), 0)
+        # the operator was told, because no Stripe checkout was possible
         self.assertEqual(len(sent), 1)
         self.assertIn('Firm GmbH', sent[0]['subject'])
-        # a second yes changes nothing
-        request(self.dir, self._y(), 'POST')
-        self.assertEqual(len(self.events('subscribe_yes')), 1)
-        self.assertEqual(subscriptions.one(self.dir, today, 'firm')['version'], 3)
+
+    def test_paid_by_backdoor_turns_the_clock_off_and_the_page_around(self):
+        import app as app_mod
+        self.assertTrue(app_mod.activate_paid(self.dir, 'firm',
+                                              source='admin (backdoor)'))
+        today = date.today().isoformat()
+        sub = subscriptions.one(self.dir, today, 'firm')
+        self.assertEqual((sub['plan'], sub['version'], sub['active']),
+                         ('paid', 3, True))
         _, _, body = request(self.dir, self._y())
         self.assertIn('Sie sind dabei', body)
+        # a yes click on a paid customer changes nothing
+        request(self.dir, self._y(), 'POST')
+        self.assertEqual(subscriptions.one(self.dir, today, 'firm')['version'], 3)
         # the clock is off
         s = subscriptions.trial_status(subscriptions.read_all(self.dir), today)
         self.assertEqual((s['plan'], s['ask_due']), ('paid', False))
-
-    def test_post_with_stripe_link_shows_the_payment_button(self):
-        with mock.patch.dict(os.environ, {'TM_STRIPE_URL': 'https://pay.example/x'}):
-            _, _, body = request(self.dir, self._y(), 'POST')
-        self.assertIn('https://pay.example/x', body)
-        self.assertIn('Zur Zahlung', body)
 
     def test_y_token_is_only_a_y_token(self):
         y = self._y().rsplit('/', 1)[1]

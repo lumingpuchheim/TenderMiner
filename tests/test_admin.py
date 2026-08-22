@@ -454,7 +454,8 @@ class Vormerken(Base):
         st = admin.status_of(admin.state_of(self.dir), DUNKEL)
         self.assertEqual([(l, p) for l, _, p in admin.row_actions(st)],
                          [('Nachricht anzeigen', True),
-                          ('E-Mail eintragen', False), ('Stoppen', False)])
+                          ('E-Mail eintragen', False), ('Aktivieren', False),
+                          ('Stoppen', False), ('Löschen', False)])
 
     def test_an_owner_is_optional_and_never_crashes_the_press(self):
         """No TM_SALES_OWNER configured: the firm is still marked, simply
@@ -909,12 +910,14 @@ class Sent(Base):
         a = acts('Link erzeugt')
         self.assertEqual([(l, p) for l, _, p in a],
                          [('Nachricht anzeigen', True),
-                          ('E-Mail eintragen', False), ('Stoppen', False)])
+                          ('E-Mail eintragen', False), ('Aktivieren', False),
+                          ('Stoppen', False), ('Löschen', False)])
         request(self.dir, '/admin/sent', 'POST', {'sub_id': self.sub_id})
         a = acts('angeschrieben')
         self.assertEqual([(l, p) for l, _, p in a],
                          [('E-Mail eintragen', True),
-                          ('Nachricht anzeigen', False), ('Stoppen', False)])
+                          ('Nachricht anzeigen', False), ('Aktivieren', False),
+                          ('Stoppen', False), ('Löschen', False)])
         self.assertEqual(sum(p for _, _, p in a), 1)
         _, _, body = request(self.dir, '/admin', query='q=dunkel')
         self.assertNotIn('<a><button', body.replace('\n', ''))

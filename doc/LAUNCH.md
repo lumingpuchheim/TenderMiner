@@ -481,13 +481,16 @@ signups / activations / held-for-review / asks-sent / yeses /
 stops / trials-ending-this-week, to the console (house rule: tools
 print, they do not write report files).
 
-## 6. Payment — last, on purpose
+## 6. Payment — built 2026-08-22, spec in doc/PAYMENT.md
 
-Stripe payment link on its own page (ONBOARDING.md §5.4). Blocked by the
-price decision and only by it. Four free weeks mean the first payment moment
-is ≥4 weeks after launch; the price must be decided by then, informed by live
-conversion against the €60–€99 entrant band vs. €179 anchor
-(`MARKET_AND_COMPETITORS.md`).
+The payment-link design that stood here (a static Stripe link, plan flipped
+on trust at the yes click) is replaced: the yes click opens **Stripe
+Checkout**, and `plan: paid` is written only by the signed webhook or the
+operator's admin Aktivieren button — "subscription only when customer pays
+or i activate them in backdoor" (operator, 2026-08-20). Unsubscribe cancels
+the Stripe subscription in the same click. 79 € stands until the pricing
+study says otherwise (informed by live conversion against the €60–€99
+entrant band vs. €179 anchor, `MARKET_AND_COMPETITORS.md`).
 
 ---
 
@@ -503,7 +506,7 @@ conversion against the €60–€99 entrant band vs. €179 anchor
 | 4a | feedback links + confirm pages + recall box + ledger events | the learning loop at trial time | — |
 | 5 | public site renderer + upload step (spec: §4.1–4.2) | the inbound channel | the decision to open it |
 | 6 | outreach ledger events + console report | conversion by channel, ask-to-yes gap | — |
-| 7 | Stripe page | first paid conversion | price decision, due before first trial ends |
+| 7 | Stripe checkout + webhook + admin doors | first paid conversion | DONE 2026-08-22 — doc/PAYMENT.md (pay-first replaced the payment-link design of §6) |
 
 **Status 2026-08-17:** rows 1, 1a, 2, 3 (app side) and 4a done; the report
 is still not *sent* and no invitation can be created — the remaining build

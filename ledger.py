@@ -70,6 +70,21 @@ def storage(home, name):
     return ('jsonl', file_path(p, name))
 
 
+def frozen_mentions(home, name, sub_id):
+    """True if this ledger's pre-migration text file mentions `sub_id`.
+
+    The stale-file guard (`_assert_not_stale`) compares row COUNTS, so
+    deleting database rows that also exist in a frozen file would make every
+    later read raise. Erasure (subscriptions.erase) therefore refuses any
+    firm the frozen files know — this is the question it asks."""
+    p = file_path(home, name)
+    if not p.exists():
+        return False
+    return any(json.loads(line).get('sub_id') == sub_id
+               for line in p.read_text(encoding='utf-8').splitlines()
+               if line.strip())
+
+
 def _read_file(path):
     if not Path(path).exists():
         return []

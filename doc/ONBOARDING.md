@@ -369,9 +369,11 @@ regions DE7 DEA DEC DED, 4 usable `profile_refs`, `sim_picks` 9.
    trial report with the ask on top: one paragraph and one link,
    `/y/<token>` (9.5). No further reports unless yes.
 6. **Yes.** `/y/<token>` is one page, one button; the POST records
-   `subscribe_yes`, appends a version with `plan: paid`, and forwards to the
-   Stripe payment link. Reports resume next Monday. Silence → results notes
-   only, each carrying the same `/y/` link (9.6).
+   `subscribe_yes` and redirects into Stripe Checkout — `plan: paid` is
+   written only when the signed webhook confirms the payment (or the
+   operator uses the admin backdoor; doc/PAYMENT.md 0). Reports resume next
+   Monday. Silence → results notes only, each carrying the same `/y/` link
+   (9.6).
 7. **Read-off.** `python invite.py report` prints per batch: invited, scanned
    (`t` used), signed up, held, asks sent, yes, soft/hard stops.
 

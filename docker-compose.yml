@@ -126,6 +126,14 @@ services:
   # answer around the clock — a customer clicks at 21:00 on a Sunday.
   app:
     extends: tm
+    # payments.env: STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET (SECRETS.md 1,
+    # doc/PAYMENT.md). Only the app talks to Stripe — checkout, webhook and
+    # the stop handler's cancel all live here; the scheduler never sees the
+    # key. extends MERGES env_file lists, so site.env and mail.env from `tm`
+    # stay in force under this.
+    env_file:
+      - path: /etc/murara/env.d/payments.env
+        required: false
     command: ["python", "app.py", "--port", "8000"]
     ports:
       # Loopback by default, and that default is load-bearing: Docker writes

@@ -436,7 +436,11 @@ CUSTOMER_FIELDS = {'name', 'award_names', 'contact_email', 'contact_note',
                    'billing_note', 'consent_at', 'contact_state',
                    # the salesman watching this prospect (doc/SALES.md 3);
                    # NULL = nobody, which is every self-signup
-                   'owner'}
+                   'owner',
+                   # doc/PAYMENT.md: set by the checkout webhook when Stripe
+                   # confirms the first payment; the stop handler cancels by
+                   # the subscription id. NULL = Stripe knows nothing of them
+                   'stripe_customer_id', 'stripe_subscription_id'}
 
 
 def customer_get(home, sub_id):
@@ -493,6 +497,72 @@ def customer_update(home, sub_id, **fields):
             f'UPDATE customer SET {sets}, updated_at = ? WHERE customer_id = ?',
             [*fields.values(), now, sub_id])
     con.close()
+
+
+def customer_by_stripe_sub(home, stripe_subscription_id):
+    """The customer carrying this Stripe subscription id, or None — how a
+    webhook event about a subscription finds its firm (doc/PAYMENT.md)."""
+    import db
+    if not stripe_subscription_id:
+        return None
+    con = db.connect(home, create=False)
+    if con is None:
+        return None
+    row = con.execute(
+        'SELECT customer_id FROM customer WHERE stripe_subscription_id = ?',
+        (stripe_subscription_id,)).fetchone()
+    con.close()
+    return customer_get(home, row['customer_id']) if row else None
+
+
+def erase(home, sub_id):
+    """Everything about one firm, gone, in one transaction: the customer
+    row, every subscription version, every token, every app event
+    (doc/PAYMENT.md; doubles as Art. 17 erasure). Deliberately crosses
+    table ownership — tokens.py and ledger.py own their tables for normal
+    writes, but an erasure that deleted three of four tables would be worse
+    than none. Returns {table: rows_deleted}. The caller is responsible for
+    ending any live Stripe subscription FIRST; this function only deletes
+    our records and cannot stop a payment.
+
+    Refused for a firm the frozen pre-migration files mention: the ledger's
+    stale-file guard compares row counts, and deleting rows that the files
+    also hold would make every later read raise (ledger.frozen_mentions)."""
+    import db
+    import ledger
+    for name in ('subscriptions', 'app_events'):
+        if ledger.frozen_mentions(home, name, sub_id):
+            raise SubscriptionError(
+                f'{sub_id} appears in the frozen pre-migration file of '
+                f'{name!r} — erasing it would trip the stale-file guard on '
+                f'every later read. Pre-migration firms are history, not '
+                f'test data; they cannot be erased.')
+    con = db.connect(home)
+    out = {}
+    with con:
+        # Two of these tables are append-only by trigger (db.TRIGGERS) and
+        # that rule is right for every write path but this one: erasure is
+        # the legal exception the triggers cannot know about. Dropped and
+        # recreated INSIDE the transaction — DDL is transactional in
+        # SQLite, so any failure rolls back to triggers intact.
+        for t in ('subscription_version', 'app_event'):
+            con.execute(f'DROP TRIGGER IF EXISTS {t}_no_delete')
+        for table, col in (('customer', 'customer_id'),
+                           ('subscription_version', 'sub_id'),
+                           ('token', 'sub_id'),
+                           ('app_event', 'sub_id')):
+            out[table] = con.execute(
+                f'DELETE FROM {table} WHERE {col} = ?', (sub_id,)).rowcount
+        # NOT executescript: that commits the open transaction first
+        # (sqlite3 semantics), which would leave the deletes committed with
+        # the triggers still down if this line then failed
+        for t in ('subscription_version', 'app_event'):
+            con.execute(
+                f'CREATE TRIGGER IF NOT EXISTS {t}_no_delete BEFORE DELETE '
+                f"ON {t} BEGIN SELECT RAISE(ABORT, '{t} is append-only: "
+                f"rows are a frozen record'); END")
+    con.close()
+    return out
 
 
 def override(sub, **fields):

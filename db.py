@@ -537,6 +537,12 @@ def connect(data_dir, create=True):
     # mail, so an unset column simply means "nobody is watching".
     if 'owner' not in columns_of(con, 'customer'):
         con.execute('ALTER TABLE customer ADD COLUMN owner TEXT')
+    # stripe_customer_id / stripe_subscription_id: doc/PAYMENT.md — written
+    # by the checkout webhook, read by the stop handler (to cancel billing)
+    # and the admin page. NULL everywhere Stripe has not confirmed a payment.
+    for col in ('stripe_customer_id', 'stripe_subscription_id'):
+        if col not in columns_of(con, 'customer'):
+            con.execute(f'ALTER TABLE customer ADD COLUMN {col} TEXT')
     return con
 
 

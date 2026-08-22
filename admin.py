@@ -417,7 +417,7 @@ def status_of(state, company):
 def counts(state):
     """The read-off line (ONBOARDING.md 6): one number per funnel stage."""
     out = {'vorgemerkt': 0, 'Link erzeugt': 0, 'angeschrieben': 0,
-           'angemeldet': 0, 'zurückgestellt': 0, 'gefragt': 0, 'ja': 0,
+           'angemeldet': 0, 'zurückgestellt': 0, 'gefragt': 0, 'Kunde': 0,
            'gestoppt': 0}
     for sub_id, cust in state['customers'].items():
         evs = {e['kind'] for e in state['events'].get(sub_id, [])}
@@ -434,8 +434,13 @@ def counts(state):
             out['zurückgestellt'] += 1
         if 'ask' in evs:
             out['gefragt'] += 1
-        if 'subscribe_yes' in evs:
-            out['ja'] += 1
+        # a paying customer, nothing softer: a subscribe_yes click without a
+        # confirmed payment is deliberately NOT a stage here (operator,
+        # 2026-08-20: "subscription only when customer pays or i activate
+        # them in backdoor")
+        speaking = subscriptions.resolve(versions, state['today'])
+        if speaking and speaking[0].get('plan') == 'paid':
+            out['Kunde'] += 1
         if cust.get('contact_state') == 'hard_stopped':
             out['gestoppt'] += 1
     return out
@@ -583,24 +588,33 @@ def row_actions(st):
     q = f'sub_id={esc(sub_id)}'
     message = ('Nachricht anzeigen', f'/admin/message?{q}')
     stop = ('Stoppen', f'/admin/stop?{q}', False)
+    erase = ('Löschen', f'/admin/delete?{q}', False)
+    # the backdoor of doc/PAYMENT.md's one rule — offered until the row IS
+    # a paying customer
+    activate = ('Aktivieren', f'/admin/activate?{q}', False)
     if label.startswith('gestoppt') or label == 'Widerspruch':
-        return []
+        # the way back (admin only, with a ledgered reason) and the way out
+        return [('Reaktivieren', f'/admin/unstop?{q}', True), erase]
+    if label.startswith('Kunde'):
+        return [stop, erase]
     if label.startswith('vorgemerkt'):
         # on the watch list; the next step is the note, which the message
         # page builds (and mints the link for) when there is a lot to
         # promise — doc/SALES.md 6
         return [(*message, True), ('E-Mail eintragen', f'/admin/email?{q}',
-                                   False), stop]
+                                   False), activate, stop, erase]
     if label.startswith('Link erzeugt'):
         return [(*message, True), ('E-Mail eintragen', f'/admin/email?{q}',
-                                   False), stop]
+                                   False), activate, stop, erase]
     if label.startswith('angeschrieben'):
         return [('E-Mail eintragen', f'/admin/email?{q}', True),
-                (*message, False), stop]
+                (*message, False), activate, stop, erase]
     if not st['email']:
         # served, but no address on file yet (the pilot rows)
-        return [('E-Mail eintragen', f'/admin/email?{q}', True), stop]
-    return [('E-Mail ändern', f'/admin/email?{q}', False), stop]
+        return [('E-Mail eintragen', f'/admin/email?{q}', True),
+                activate, stop, erase]
+    return [('E-Mail ändern', f'/admin/email?{q}', False),
+            activate, stop, erase]
 
 
 def _row_html(f, st, url_for, roots=(), verdicts=None):

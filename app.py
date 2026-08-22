@@ -438,6 +438,32 @@ def stop_customer(home, sub_id, *, source='customer'):
     _event(home, 'stop_hard', sub_id,
            detail=source if source != 'customer' else None)
     tokens.revoke_all(home, sub_id)
+    # "no more payments, no more emails": a paying customer's Stripe
+    # subscription ends with the same click. The stop above NEVER waits on
+    # this — a payment API outage must not block an Art. 21 objection; the
+    # failure is ledgered and the operator mailed to cancel by hand.
+    cust = subscriptions.customer_get(home, sub_id) or {}
+    stripe_sub = cust.get('stripe_subscription_id')
+    if stripe_sub:
+        import stripe_pay
+        try:
+            stripe_pay.cancel(stripe_sub)
+            _event(home, 'stripe_cancelled', sub_id, detail=stripe_sub)
+        except Exception as e:                                 # noqa: BLE001
+            _event(home, 'stripe_cancel_failed', sub_id,
+                   detail=f'{stripe_sub}: {e}')
+            try:
+                import mailer
+                mailer.send(home, 'operator', 'operator',
+                            f'[Murara] Stripe-Kündigung fehlgeschlagen: '
+                            f'{sub_id}',
+                            f'<p>{esc(sub_id)} ist gestoppt, aber das '
+                            f'Stripe-Abo {esc(stripe_sub)} konnte nicht '
+                            f'beendet werden ({esc(str(e))}). Bitte im '
+                            f'Stripe-Dashboard kündigen.</p>', to=CONTACT)
+            except Exception as e2:                            # noqa: BLE001
+                print(f'[app] operator mail not sent ({e2}); '
+                      f'stripe_cancel_failed is ledgered')
 
 
 def _preflight(home, sub_id):
@@ -641,7 +667,8 @@ def post_recall(ctx, row, form):
 
 # ------------------------------------------------------- the yes-link (/y/)
 
-STRIPE_ENV = 'TM_STRIPE_URL'     # the payment link; unset = "wir melden uns"
+# TM_STRIPE_URL (a static payment link) died with the pay-first rule of
+# doc/PAYMENT.md — checkout sessions are created per firm by stripe_pay.py.
 
 
 def _paid(home, sub_id, today):
@@ -674,53 +701,144 @@ def get_subscribe(ctx, row):
       </form>""")
 
 
-def post_subscribe(ctx, row, form):
-    """The yes (LAUNCH.md 3, ONBOARDING.md 9.5): one event, one new version
-    with `plan: paid`, then the payment link if there is one — or the
-    promise that a person follows up. Idempotent: a second yes changes
-    nothing and says so."""
-    home = ctx['data_dir']
+def activate_paid(home, sub_id, *, source):
+    """The ONE way a subscription becomes paid (doc/PAYMENT.md): a new
+    version with `plan: paid` plus a `paid_started` event naming who says
+    so — 'stripe: <id>' from the webhook, 'admin (backdoor)' from the
+    operator's button. Idempotent; returns False when there is no
+    subscription to build on."""
     today = _now()[:10]
-    if _paid(home, row['sub_id'], today):
-        return get_subscribe(ctx, row)
+    if _paid(home, sub_id, today):
+        return True
     rows = [r for r in subscriptions.read_all(home)
-            if r.get('sub_id') == row['sub_id']]
+            if r.get('sub_id') == sub_id]
     speaking = subscriptions.resolve(rows, today)
-    base = speaking[0] if speaking else (max(rows, key=lambda r: int(r.get('version') or 1)) if rows else None)
+    base = speaking[0] if speaking else (
+        max(rows, key=lambda r: int(r.get('version') or 1)) if rows else None)
     if base is None:
-        return get_invalid(ctx)
+        return False
     subscriptions.append_version(home, {
         **{k: base[k] for k in base
            if k in subscriptions.KNOWN and base[k] is not None},
         'version': max(int(r.get('version') or 1) for r in rows) + 1,
         'effective_from': today, 'active': True, 'plan': 'paid'})
-    tokens.mark_used(home, row['token'])
+    _event(home, 'paid_started', sub_id, detail=source)
+    return True
+
+
+def post_subscribe(ctx, row, form):
+    """The yes (LAUNCH.md 3, doc/PAYMENT.md): nothing changes here. The
+    click opens Stripe Checkout, and only the paid webhook (or the
+    operator's backdoor) makes a subscription — operator 2026-08-20:
+    "subscription only when customer pays or i activate them in backdoor".
+    Without Stripe keys the wish is recorded and the operator mailed; the
+    customer reads that a person follows up. Idempotent either way."""
+    home = ctx['data_dir']
+    if _paid(home, row['sub_id'], _now()[:10]):
+        return get_subscribe(ctx, row)
     _event(home, 'subscribe_yes', row['sub_id'])
-    stripe = os.environ.get(STRIPE_ENV, '').strip()
-    if not stripe:
+    import mailer
+    import stripe_pay
+    cust = subscriptions.customer_get(home, row['sub_id']) or {}
+    if stripe_pay.configured():
         try:
-            import mailer
-            cust = subscriptions.customer_get(home, row['sub_id']) or {}
-            mailer.send(home, 'operator', 'operator',
-                        f"[Murara] Ja von {cust.get('name') or row['sub_id']}",
-                        f"<p>{esc(row['sub_id'])} hat auf 'weiter' geklickt "
-                        f"({esc(cust.get('contact_email') or '—')}). "
-                        f"Kein Stripe-Link gesetzt — bitte melden.</p>",
-                        to=CONTACT)
+            url = stripe_pay.checkout_url(
+                row['sub_id'], cust.get('contact_email'),
+                success_url=f'{mailer.app_url()}/danke',
+                cancel_url=f'{mailer.app_url()}/y/{row["token"]}')
+            return ('303 See Other', 'text/html; charset=utf-8',
+                    f'<a href="{esc(url)}">Zur Zahlung</a>',
+                    [('Location', url)])
         except Exception as e:                                 # noqa: BLE001
-            print(f'[app] operator mail not sent ({e}); the yes is recorded')
-        return page('Danke', """
-          <h1>Danke — Sie sind dabei</h1>
-          <p>Die Berichte laufen weiter. Wir melden uns bei Ihnen wegen der
-             Rechnung; bis dahin ändert sich nichts.</p>""")
+            # Stripe down must not eat the yes: fall through to the
+            # person-follows-up path, with the failure in the operator mail
+            print(f'[app] checkout session failed ({e}); falling back')
+    try:
+        mailer.send(home, 'operator', 'operator',
+                    f"[Murara] Ja von {cust.get('name') or row['sub_id']}",
+                    f"<p>{esc(row['sub_id'])} hat auf 'weiter' geklickt "
+                    f"({esc(cust.get('contact_email') or '—')}). "
+                    f"Kein Stripe-Checkout möglich — bitte melden.</p>",
+                    to=CONTACT)
+    except Exception as e:                                     # noqa: BLE001
+        print(f'[app] operator mail not sent ({e}); the yes is recorded')
+    return page('Danke', """
+      <h1>Danke</h1>
+      <p>Wir melden uns bei Ihnen wegen der Zahlung; bis dahin ändert sich
+         nichts.</p>""")
+
+
+def get_danke(ctx):
+    """Where Stripe Checkout sends the browser after a completed payment.
+    The state change arrives on the webhook, not here — this page only has
+    to be true whether the webhook landed already or not."""
     return page('Danke', f"""
-      <h1>Danke — Sie sind dabei</h1>
-      <p>Die Berichte laufen weiter. Der letzte Schritt ist die Zahlung:</p>
-      <p><a href="{esc(stripe)}"
-            style="display:inline-block;padding:6px 14px;border:1px solid #2a6;
-                   border-radius:4px">Zur Zahlung</a></p>
-      <p class="muted">Die Zahlungsseite betreibt unser Zahlungsdienstleister;
-         sie ist von dieser Seite getrennt.</p>""")
+      <h1>Danke — Ihre Zahlung ist eingegangen</h1>
+      <p>Die Berichte laufen weiter. Die Bestätigung kommt per E-Mail von
+         unserem Zahlungsdienstleister; bei Fragen:
+         <a href="mailto:{esc(CONTACT)}">{esc(CONTACT)}</a>.</p>""")
+
+
+def post_stripe_webhook(ctx, environ):
+    """Stripe's side of doc/PAYMENT.md. Only two events matter:
+
+    * `checkout.session.completed` — the payment. client_reference_id names
+      the firm; the Stripe ids go on the customer row, `activate_paid`
+      flips the plan.
+    * `customer.subscription.deleted` — a subscription ended AT STRIPE
+      (card failure, dashboard). If we did not end it ourselves (customer
+      not hard_stopped), the operator is mailed to decide; nothing changes
+      automatically, per the one-way-to-paid rule.
+
+    Everything else is 200 and ignored. Bad signature is 400 — Stripe
+    retries, and a misconfigured secret should be loud in its dashboard."""
+    import stripe_pay
+    home = ctx['data_dir']
+    try:
+        n = min(int(environ.get('CONTENT_LENGTH') or 0), 256 * 1024)
+        raw = environ['wsgi.input'].read(n)
+    except Exception:                                          # noqa: BLE001
+        raw = b''
+    if not stripe_pay.verify_signature(
+            raw, (environ or {}).get('HTTP_STRIPE_SIGNATURE', '')):
+        return ('400 Bad Request', 'text/plain; charset=utf-8', 'bad signature')
+    try:
+        event = json.loads(raw.decode('utf-8'))
+    except Exception:                                          # noqa: BLE001
+        return ('400 Bad Request', 'text/plain; charset=utf-8', 'bad body')
+    kind = event.get('type', '')
+    obj = (event.get('data') or {}).get('object') or {}
+    if kind == 'checkout.session.completed':
+        sub_id = obj.get('client_reference_id') or ''
+        cust = subscriptions.customer_get(home, sub_id)
+        if not cust:
+            _event(home, 'stripe_orphan', 'operator',
+                   detail=f'checkout for unknown {sub_id!r}')
+            return ('200 OK', 'text/plain; charset=utf-8', 'ok')
+        subscriptions.customer_update(
+            home, sub_id,
+            stripe_customer_id=str(obj.get('customer') or ''),
+            stripe_subscription_id=str(obj.get('subscription') or ''))
+        activate_paid(home, sub_id,
+                      source=f"stripe: {obj.get('subscription') or '?'}")
+    elif kind == 'customer.subscription.deleted':
+        cust = subscriptions.customer_by_stripe_sub(home, obj.get('id'))
+        if cust and (cust.get('contact_state') or 'active') == 'active':
+            _event(home, 'stripe_sub_ended', cust['customer_id'],
+                   detail=obj.get('id'))
+            try:
+                import mailer
+                mailer.send(home, 'operator', 'operator',
+                            f"[Murara] Stripe-Abo beendet: "
+                            f"{cust.get('name') or cust['customer_id']}",
+                            f"<p>Das Stripe-Abo {esc(str(obj.get('id')))} von "
+                            f"{esc(cust['customer_id'])} ist beendet (nicht "
+                            f"durch unsere Abbestellung). Bitte entscheiden: "
+                            f"Berichte weiter oder stoppen.</p>", to=CONTACT)
+            except Exception as e:                             # noqa: BLE001
+                print(f'[app] operator mail not sent ({e}); '
+                      f'stripe_sub_ended is ledgered')
+    return ('200 OK', 'text/plain; charset=utf-8', 'ok')
 
 
 # ------------------------------------------------------------- the admin page
@@ -1075,6 +1193,130 @@ def post_admin_stop(ctx, form):
         f'{firm}: keine E-Mails mehr, dauerhaft; alle Links ungültig.'))
 
 
+def get_admin_unstop(ctx, environ):
+    """doc/PAYMENT.md 5: the way back from `hard_stopped` — admin only,
+    because the stop page promised 'dauerhaft' and the only honest exception
+    is the firm itself asking to return. The note (why, when, how they
+    asked) is REQUIRED and lands in the ledger next to the state change."""
+    home = ctx['data_dir']
+    sub_id = _query(environ, 'sub_id')
+    cust, firm = _admin_firm(home, sub_id)
+    if not cust:
+        return not_found(ctx)
+    return page('Reaktivieren', f"""
+      <h1>Reaktivieren</h1>
+      <p><strong>{esc(firm)}</strong> ist gestoppt. Reaktivieren heißt:
+         E-Mails sind wieder erlaubt, neue Links werden beim nächsten
+         Versand erzeugt.</p>
+      <form method="post" action="/admin/unstop">
+        <input type="hidden" name="sub_id" value="{esc(sub_id)}">
+        <p><input type="text" name="note" style="min-width:24em"
+                  placeholder="Warum? z. B.: per E-Mail am 22.08. gebeten"></p>
+        <p><button type="submit">Reaktivieren</button>
+           <a href="/admin?q={esc(firm)}">abbrechen</a></p>
+      </form>
+      <p class="muted">Ohne Begründung passiert nichts — sie ist der Beleg,
+         dass die Firma selbst zurückwollte (oder dass dies ein Test ist).</p>""")
+
+
+def post_admin_unstop(ctx, form):
+    home = ctx['data_dir']
+    sub_id = (form.get('sub_id') or '').strip()
+    note = (form.get('note') or '').strip()
+    cust, firm = _admin_firm(home, sub_id)
+    if not cust:
+        return not_found(ctx)
+    if not note:
+        return admin_page(ctx, firm, error=(
+            f'{firm}: nicht reaktiviert — die Begründung fehlt.'))
+    subscriptions.customer_update(home, sub_id, contact_state='active')
+    _event(home, 'unstop', sub_id, detail=f'admin: {note}')
+    return admin_page(ctx, firm, note=(
+        f'{firm}: reaktiviert. Neue Links entstehen beim nächsten Versand.'))
+
+
+def get_admin_activate(ctx, environ):
+    """The backdoor half of doc/PAYMENT.md's one rule: 'subscription only
+    when customer pays or i activate them in backdoor for testing'
+    (operator, 2026-08-20). One page so the click is deliberate."""
+    home = ctx['data_dir']
+    sub_id = _query(environ, 'sub_id')
+    cust, firm = _admin_firm(home, sub_id)
+    if not cust:
+        return not_found(ctx)
+    return page('Aktivieren', f"""
+      <h1>Als bezahlt aktivieren</h1>
+      <p><strong>{esc(firm)}</strong> wird Kunde, ohne dass Stripe eine
+         Zahlung bestätigt hat — für Tests, oder wenn die Zahlung anders
+         geregelt ist. Im Protokoll steht „admin (backdoor)".</p>
+      <form method="post" action="/admin/activate">
+        <input type="hidden" name="sub_id" value="{esc(sub_id)}">
+        <p><button type="submit">Aktivieren</button>
+           <a href="/admin?q={esc(firm)}">abbrechen</a></p>
+      </form>""")
+
+
+def post_admin_activate(ctx, form):
+    home = ctx['data_dir']
+    sub_id = (form.get('sub_id') or '').strip()
+    cust, firm = _admin_firm(home, sub_id)
+    if not cust:
+        return not_found(ctx)
+    if not activate_paid(home, sub_id, source='admin (backdoor)'):
+        return admin_page(ctx, firm, error=(
+            f'{firm}: keine Subscription vorhanden — erst einladen/anlegen, '
+            f'dann aktivieren.'))
+    return admin_page(ctx, firm, note=f'{firm}: aktiviert (bezahlt).')
+
+
+def get_admin_delete(ctx, environ):
+    """doc/PAYMENT.md 5: full erasure — the operator's test loop ('I will
+    frequently add and remove Jebsen') and Art. 17 in one mechanism. The
+    page says exactly what goes; a live Stripe subscription blocks it."""
+    home = ctx['data_dir']
+    sub_id = _query(environ, 'sub_id')
+    cust, firm = _admin_firm(home, sub_id)
+    if not cust:
+        return not_found(ctx)
+    warn = ('<p class="err">Es gibt ein Stripe-Abo. Löschen wird verweigert, '
+            'solange es läuft — erst stoppen (kündigt auch bei Stripe).</p>'
+            if cust.get('stripe_subscription_id')
+            and (cust.get('contact_state') or 'active') == 'active' else '')
+    return page('Löschen', f"""
+      <h1>Vollständig löschen</h1>
+      <p><strong>{esc(firm)}</strong>: Kundendatensatz, alle
+         Subscription-Versionen, alle Links, alle Ereignisse — alles weg,
+         unwiderruflich. Danach kann die Firma neu eingeladen werden, als
+         wäre nichts gewesen.</p>{warn}
+      <form method="post" action="/admin/delete">
+        <input type="hidden" name="sub_id" value="{esc(sub_id)}">
+        <p><button type="submit" class="secondary">Endgültig löschen</button>
+           <a href="/admin?q={esc(firm)}">abbrechen</a></p>
+      </form>""")
+
+
+def post_admin_delete(ctx, form):
+    home = ctx['data_dir']
+    sub_id = (form.get('sub_id') or '').strip()
+    cust, firm = _admin_firm(home, sub_id)
+    if not cust:
+        return not_found(ctx)
+    if (cust.get('stripe_subscription_id')
+            and (cust.get('contact_state') or 'active') == 'active'):
+        # deleting our records cannot stop a payment — the stop button can
+        return admin_page(ctx, firm, error=(
+            f'{firm}: nicht gelöscht — es läuft ein Stripe-Abo. Erst '
+            f'stoppen, dann löschen.'))
+    try:
+        gone = subscriptions.erase(home, sub_id)
+    except subscriptions.SubscriptionError as e:
+        return admin_page(ctx, firm, error=f'{firm}: nicht gelöscht — {e}')
+    detail = ', '.join(f'{t}: {n}' for t, n in gone.items())
+    _event(home, 'erased', 'operator', detail=f'{sub_id} ({detail})')
+    return admin_page(ctx, None, note=(
+        f'{firm} ist vollständig gelöscht ({detail}).'))
+
+
 def get_experiments(ctx, environ):
     """The operator's A/B overview (doc/EXPERIMENTS.md §9): open experiments
     with their verdict line and per-arm tables, closed ones, the constants.
@@ -1098,6 +1340,9 @@ ADMIN_ROUTES = {
     'message': (get_admin_message, None),
     'sent': (None, post_admin_sent),
     'stop': (get_admin_stop, post_admin_stop),
+    'unstop': (get_admin_unstop, post_admin_unstop),
+    'activate': (get_admin_activate, post_admin_activate),
+    'delete': (get_admin_delete, post_admin_delete),
     'experiments': (get_experiments, None),
 }
 
@@ -1133,6 +1378,7 @@ STATIC = {
     '/datenschutz': get_datenschutz,
     '/healthz': get_healthz,
     '/robots.txt': get_robots,
+    '/danke': get_danke,
 }
 
 # prefix -> (token purpose, GET handler, POST handler). The purpose is what
@@ -1160,6 +1406,14 @@ def route(ctx, method, path, environ=None):
         if method != 'GET':
             return not_yet(ctx)
         return STATIC[path](ctx)
+
+    if path == '/stripe/webhook':
+        # POST only, authenticated by its HMAC signature, not by a token —
+        # and never rate-limited: Stripe batches retries in bursts, and the
+        # signature already prices out enumeration (doc/PAYMENT.md 4)
+        if method != 'POST':
+            return not_yet(ctx)
+        return post_stripe_webhook(ctx, environ or {})
 
     parts = [p for p in path.split('/') if p]
     if parts and parts[0] == 'admin':
@@ -1205,11 +1459,15 @@ def route(ctx, method, path, environ=None):
 
 def application(environ, start_response):
     ctx = {'data_dir': environ.get('tm.data_dir') or config.data_root()}
-    status, ctype, body = route(ctx, environ.get('REQUEST_METHOD', 'GET'),
-                                environ.get('PATH_INFO', '/'), environ)
+    out = route(ctx, environ.get('REQUEST_METHOD', 'GET'),
+                environ.get('PATH_INFO', '/'), environ)
+    # (status, ctype, body) everywhere; a 4th element carries extra headers
+    # for the one response kind that needs any — the Checkout redirect
+    status, ctype, body = out[:3]
+    extra = list(out[3]) if len(out) > 3 else []
     payload = body.encode('utf-8')
     headers = [('Content-Type', ctype),
-               ('Content-Length', str(len(payload)))] + BASE_HEADERS
+               ('Content-Length', str(len(payload)))] + extra + BASE_HEADERS
     start_response(status, headers)
     return [payload]
 
