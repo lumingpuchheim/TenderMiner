@@ -71,11 +71,33 @@ of them. The operator decides: backdoor, or stop.
 | --- | --- | --- |
 | **Aktivieren** | `/admin/activate?sub_id=…` | the backdoor: `plan: paid` without Stripe, `paid_started` detail `admin (backdoor)`. For tests and payments arranged outside Stripe. Offered until the row is a customer. |
 | **Reaktivieren** | `/admin/unstop?sub_id=…` | the way back from `hard_stopped` — with a REQUIRED note (why/when the firm asked to return, or that this is a test), ledgered as `unstop` detail `admin: <note>`. The stop page's "dauerhaft" stays honest: only the firm's own request (or the operator's test) reopens the door. Revoked tokens stay revoked; standing links re-mint on the next mail. |
-| **Löschen** | `/admin/delete?sub_id=…` | full erasure (`subscriptions.erase`): customer row, every subscription version, every token, every app event — one transaction, then a firm can be invited again as if never seen. Doubles as Art. 17. Refused while a live Stripe subscription exists (deleting our records cannot stop a payment — stop first, which cancels). Refused for firms the frozen pre-migration JSONL files mention (`ledger.frozen_mentions`): deleting their DB rows would trip the stale-file guard on every later read. |
+| **Löschen** | `/admin/delete?sub_id=…` | full erasure (`subscriptions.erase`): customer row, every subscription version, every token, every app event — one transaction. Two buttons, see §3a: **Löschen + Sperrliste** (default) keeps the firm's name as a do-not-contact marker; **Restlos löschen** keeps nothing (test data only — a firm can be invited again as if never seen). Refused while a live Stripe subscription exists (deleting our records cannot stop a payment — stop first, which cancels). Refused for firms the frozen pre-migration JSONL files mention (`ledger.frozen_mentions`): deleting their DB rows would trip the stale-file guard on every later read. |
 
 Erasure is the one legal exception to the append-only triggers on
 `subscription_version` and `app_event`; `subscriptions.erase` drops the two
 delete-triggers inside its transaction and recreates them before commit.
+
+### 3a. "Löscht alles und schreibt uns nie wieder" — the suppression entry
+
+The two demands collide: never-contact requires remembering the firm,
+erasure requires forgetting it. Art. 17 Abs. 3 DSGVO resolves it — data
+needed to comply with a legal obligation (here: honouring the Art. 21
+objection, durably) is exempt from erasure. So the DEFAULT delete keeps a
+**suppression entry**: after `erase`, the customer row is re-created with
+nothing but the firm's name(s) and `hard_stopped`, plus one `objection`
+event (`Sperrvermerk nach Löschung`). Address, notes, history, versions,
+tokens: gone. The row shows as `Widerspruch` with no data behind it.
+
+The marker is not pedantry: the prospect list is rebuilt from **public**
+procurement data every cycle, so a fully forgotten firm resurfaces as a
+fresh lead and would be written to again — the marker is what makes the
+erasure compatible with the promise. The reply to the firm, in one
+sentence: „Wir haben alle Ihre Daten gelöscht. Nur Ihren Firmennamen
+behalten wir als Sperrvermerk — das ist nötig, um Ihren Wunsch, nie wieder
+kontaktiert zu werden, dauerhaft zu erfüllen (Art. 17 Abs. 3 DSGVO)."
+
+**Restlos löschen** (the second button) also drops the marker and exists
+for test data like Jebsen — never for a real firm that objected.
 
 The operator's test loop ("I will frequently add and remove Jebsen"):
 Einladen → mails to own inbox → Aktivieren or a test-mode checkout →
