@@ -347,7 +347,8 @@ def main():
     run_ = sub.add_parser('run', help='execute one full cycle')
     run_.add_argument('--last', default='7d', metavar='NdNwNm',
                       help='download window: the last N days/weeks/months (default 7d)')
-    run_.add_argument('--cpv', default='45', help='CPV scope (default 45 = construction)')
+    run_.add_argument('--cpv', default='45,48,72',
+                      help='CPV scope (default 45,48,72 = construction + software + IT services)')
     run_.add_argument('--country', default='DEU', help='buyer country (default DEU)')
     add_common_args(run_)
     run_.add_argument('--threshold', type=float, default=sb.THRESHOLD,

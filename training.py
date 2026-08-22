@@ -123,6 +123,34 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint, arm=None, plan=None
         val_metrics['top_slice_lift'] = (top_hit / val_metrics['base_rate']
                                          if val_metrics['base_rate'] else None)
         gate['val_metrics'] = val_metrics
+        # The same grades per CPV division, beside the pooled ones. Pooled
+        # PR-AUC can hide a slide in one trade once the store spans several —
+        # a candidate can win the pot while losing construction — so every
+        # division's own validation grade is written down. Recorded evidence
+        # only: promotion still compares the pooled number. The top slice is
+        # ranked WITHIN the division, mirroring what a customer of that trade
+        # is shown.
+        val_div = data.loc[~split.is_train, 'cpv_main'].astype(str).str[:2].to_numpy()
+        by_division = {}
+        for d in sorted(set(val_div)):
+            m = val_div == d
+            row = {'n_rows': int(m.sum()),
+                   'n_lots': int(data.loc[~split.is_train].loc[m]
+                                 .groupby(sb.KEY).ngroups),
+                   'base_rate': float(np.average(split.yte[m], weights=split.wte[m]))}
+            if len(set(split.yte[m])) == 2:
+                row.update({k: v for k, v in
+                            sb.metrics(split.yte[m], p_val[m], split.wte[m],
+                                       threshold=args.threshold).items()
+                            if k in ('pr_auc', 'roc_auc')})
+                kd = max(1, round(int(m.sum()) * args.top_slice))
+                idx_d = np.argsort(-p_val[m])[:kd]
+                row['top_slice_hit'] = float(np.average(split.yte[m][idx_d],
+                                                        weights=split.wte[m][idx_d]))
+                row['top_slice_lift'] = (row['top_slice_hit'] / row['base_rate']
+                                         if row['base_rate'] else None)
+            by_division[d] = row
+        gate['val_by_division'] = by_division
         # tripwire: too good to be true
         if val_metrics['roc_auc'] >= sb.TOO_GOOD_ROC:
             gate['failures'].append(
@@ -236,6 +264,7 @@ def learn(paths, tenders, roles, data, aw, args, checkpoint, arm=None, plan=None
         'val_roc_auc': None if val_metrics is None else val_metrics['roc_auc'],
         'val_top_hit': None if val_metrics is None else val_metrics.get('top_slice_hit'),
         'val_top_lift': None if val_metrics is None else val_metrics.get('top_slice_lift'),
+        'val_by_division': gate.get('val_by_division'),
         'gate': gate, 'promoted': promote,
         'threshold': args.threshold,
     }
