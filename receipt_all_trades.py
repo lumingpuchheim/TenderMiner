@@ -29,7 +29,12 @@ import util
 
 EPSILON = 0.005          # cycle.py --promote-epsilon default, the bar Receipt B uses
 TOP_SLICE = 0.2          # cycle.py --top-slice default
-VAL_WINDOW = '8w'        # cycle.py --val-window default
+# NOT the cycle's 8w gate window: labels lag publication by months, so an 8w
+# window holds a few dozen labeled lots and a PR-AUC over them is noise.
+# The receipt wants statistical power, not the production gate's recency —
+# 26 weeks gives thousands of labeled validation lots while leaving the
+# training side its years.
+VAL_WINDOW = '26w'
 DIVISIONS = ('45', '48', '72')
 
 
@@ -121,15 +126,22 @@ def main():
     threshold_date = pub.max() - util.parse_window(VAL_WINDOW)
     print(f'[split] validation = lots first published after {threshold_date.date()}')
 
-    # ---- volume per division (what a customer of that trade would see)
+    # ---- volume and single-bid rate per division, over the WHOLE labeled set
+    # — the product numbers, before any model enters the picture
     print('\n== Receipt A — the IT product ==')
+    data_all, _, _ = sb.assemble(tenders, awards)
+    lab_div = data_all.drop_duplicates(subset=sb.KEY)
+    lab_div = lab_div.assign(d=lab_div['cpv_main'].astype(str).str[:2])
     div = tenders['cpv_main'].astype(str).str[:2]
     recent = pub >= pub.max() - pd.Timedelta(weeks=26)
     for d in DIVISIONS:
         lots = tenders[(div == d)]
-        weekly = (tenders[(div == d) & recent].groupby(sb.KEY).ngroups) / 26
+        weekly = tenders[(div == d) & recent].groupby(sb.KEY).ngroups / 26
+        lab = lab_div[lab_div['d'] == d]
+        rate = lab['label'].mean() if len(lab) else float('nan')
         print(f'  division {d}: {lots.groupby(sb.KEY).ngroups} lots in store, '
-              f'~{weekly:.0f} new lots/week (26-week mean)')
+              f'~{weekly:.0f} new lots/week (26-week mean), '
+              f'{len(lab)} labeled, single-bid rate {rate:.1%}')
 
     # ---- widened arm (also serves Receipt B)
     t45, a45 = slice_45(tenders, awards)
