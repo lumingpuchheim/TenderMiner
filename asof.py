@@ -174,10 +174,17 @@ class World:
         # calibration read the same two parquets a second time
         r = run_calibration(str(self.work), tenders=self.tenders,
                             awards=self.awards)
+        # Each code carries the division baseline it was judged against
+        # (calibrate.code_trust, 2026-08-23); `baseline` stays the store-wide
+        # number, which is what pseudo_refs falls back to for a code that has
+        # none — the shape a pre-2026-08-23 file has.
         (self.work / TRUST_NAME).write_text(json.dumps(
-            {'baseline': r['baseline'], 'cut': r['trust_cut'],
+            {'baseline': r['baseline'],
+             'baselines': r['baselines'],
              'codes': {k: {'n': v['n'], 'cohesion': v['cohesion'],
-                           'trusted': v['cohesion'] >= r['trust_cut']}
+                           'division': v['division'], 'baseline': v['baseline'],
+                           'cut': v['cut'],
+                           'trusted': v['cohesion'] >= v['cut']}
                        for k, v in r['cohesion'].items()}}), encoding='utf-8')
         self._calibration = r
         return r

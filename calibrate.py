@@ -147,15 +147,41 @@ def best_code_score(codes, fp_rows, lmat, lpos):
 
 
 def code_trust(mat, cpv, rng, world):
-    """Random-pair baseline and per-deep-code cohesion; a code is trusted when its
-    lots read alike (cohesion >= baseline + TRUST_MARGIN). No code is assumed.
+    """Per-DIVISION random-pair baseline and per-deep-code cohesion; a code is
+    trusted when its lots read alike against random lots OF ITS OWN DIVISION
+    (cohesion >= that division's baseline + TRUST_MARGIN). No code is assumed.
 
     `world` are the sidecar rows this store has published (see `calibrate`).
     The baseline must be drawn from them and not from the whole sidecar: it
     sets `cut`, so a baseline that has seen later notices decides which codes
-    are trusted in a replayed week."""
-    base = mat[rng.choice(world, BASELINE_SAMPLE, replace=False)]
-    baseline = float((base @ base.T).mean())
+    are trusted in a replayed week.
+
+    The baseline is per division since 2026-08-23, when the store stopped
+    being one trade. Store-wide, "two random lots" became one construction
+    and one IT lot, which read nothing alike: the baseline fell 0.330 -> 0.284
+    and carried the cut down with it, and trusted construction codes went
+    56 -> 203 — about 122 of those on the diluted comparison alone, while
+    construction cohesion itself drifted DOWN. A construction firm competes
+    among construction lots, so that is the comparison that decides whether a
+    code tells them anything; how unlike an IT tender it looks is not the
+    question being asked.
+    """
+    def baseline_of(ix):
+        b = mat[rng.choice(ix, BASELINE_SAMPLE, replace=False)]
+        return float((b @ b.T).mean())
+
+    store_baseline = baseline_of(world)
+    world_div = np.array([c[:2] if isinstance(c, str) else ''
+                          for c in cpv[world]])
+    baselines = {}
+    for d in sorted(set(world_div)):
+        ix = world[world_div == d]
+        # A division too thin to sample falls back to the whole store rather
+        # than to a number precise enough to look trustworthy and wrong
+        # enough to move its cut — WorldTooThin's reasoning, one level down.
+        baselines[d] = (baseline_of(ix) if len(ix) >= BASELINE_SAMPLE
+                        else store_baseline)
+
     cohesion = {}
     counts = pd.Series([c for c in cpv if is_deep(c)]).value_counts()
     for code, n in counts.items():
@@ -164,11 +190,13 @@ def code_trust(mat, cpv, rng, world):
         ix = np.flatnonzero(cpv == code)
         s = rng.choice(ix, min(len(ix), COHESION_SAMPLE), replace=False)
         S = mat[s] @ mat[s].T
+        base = baselines.get(code[:2], store_baseline)
         cohesion[code] = {'n': int(n),
-                          'cohesion': float((S.sum() - len(s)) / (len(s) ** 2 - len(s)))}
-    cut = baseline + TRUST_MARGIN
-    trusted = {c for c, v in cohesion.items() if v['cohesion'] >= cut}
-    return baseline, cut, cohesion, trusted
+                          'cohesion': float((S.sum() - len(s)) / (len(s) ** 2 - len(s))),
+                          'division': code[:2],
+                          'baseline': base, 'cut': base + TRUST_MARGIN}
+    trusted = {c for c, v in cohesion.items() if v['cohesion'] >= v['cut']}
+    return store_baseline, baselines, cohesion, trusted
 
 
 def pseudo_refs(mat, cpv, trusted, cohesion, baseline):
@@ -180,7 +208,11 @@ def pseudo_refs(mat, cpv, trusted, cohesion, baseline):
         ix = np.flatnonzero(cpv == code)
         S = mat[ix] @ mat[ix].T
         mean_sim = (S.sum(axis=1) - 1.0) / (len(ix) - 1)
-        floor = (cohesion[code]['cohesion'] + baseline) / 2
+        # the code's own division baseline when the trust file carries one;
+        # `baseline` is the store-wide fallback for files written before
+        # 2026-08-23, which had nothing else
+        base = cohesion[code].get('baseline', baseline)
+        floor = (cohesion[code]['cohesion'] + base) / 2
         keep = ix[mean_sim >= floor]
         order = np.argsort(-mean_sim[mean_sim >= floor])
         pools[code] = keep[order][:PSEUDO_REF_CAP]
@@ -268,9 +300,11 @@ def calibrate(data_dir, tenders=None, awards=None):
             f'baseline needs {BASELINE_SAMPLE}')
 
     rng = np.random.default_rng(SEED)
-    baseline, cut, cohesion, trusted = code_trust(mat, all_cpv, rng, world)
-    print(f'[calibrate] cohesion baseline {baseline:.3f}, trust cut {cut:.3f}: '
-          f'{len(trusted)}/{len(cohesion)} deep codes trusted')
+    baseline, baselines, cohesion, trusted = code_trust(mat, all_cpv, rng, world)
+    print(f'[calibrate] {len(trusted)}/{len(cohesion)} deep codes trusted; '
+          f'store baseline {baseline:.3f}, per-division cut: '
+          + ', '.join(f'{d} {b + TRUST_MARGIN:.3f}'
+                      for d, b in sorted(baselines.items()) if d))
     pools = pseudo_refs(mat, all_cpv, trusted, cohesion, baseline)
 
     # Label-to-label similarities once for configuration F: turns every
@@ -673,7 +707,7 @@ def calibrate(data_dir, tenders=None, awards=None):
 
     return {
         'n_firms': len(by_firm), 'n_positives': n_pos,
-        'baseline': baseline, 'trust_cut': cut, 'n_deep_codes': len(cohesion),
+        'baseline': baseline, 'baselines': baselines, 'n_deep_codes': len(cohesion),
         'n_trusted': len(trusted), 'cohesion': cohesion,
         'pos_text': pos_text, 'pos_auto': pos_auto, 'pos_code': pos_code,
         'neg_hyb_text': neg_hyb_text, 'neg_code': neg_code_s,
@@ -757,8 +791,12 @@ def write_receipt(path, r):
         f'- Firms (>= {MIN_WINS} embedded wins): **{r["n_firms"]}**; '
         f'held-out positives: **{r["n_positives"]}**',
         f'- Trusted codes: **{r["n_trusted"]}** of {r["n_deep_codes"]} deep codes '
-        f'with >= {TRUST_MIN_LOTS} lots (cohesion >= {r["trust_cut"]:.3f}; '
-        f'random baseline {r["baseline"]:.3f})',
+        f'with >= {TRUST_MIN_LOTS} lots. A code is judged against random lots '
+        f'of ITS OWN CPV division, not of the whole store: '
+        + '; '.join(f'division {d} cut {b + TRUST_MARGIN:.3f}'
+                    for d, b in sorted(r['baselines'].items()) if d)
+        + f' (store-wide baseline {r["baseline"]:.3f}, used only where a '
+          f'division has under {BASELINE_SAMPLE} lots)',
         f'- **Defaults: `min_relevance` = {d["threshold"]:.3f}, '
         f'`min_code_relevance` = {d["code_threshold"]:.3f}** '
         f'(best two-channel configuration: {best_name}; '
@@ -838,10 +876,17 @@ def main():
     codes = Path(f'trusted_codes_{MODEL_TAG}.json')
     codes.write_text(json.dumps(
         {'model_tag': MODEL_TAG, 'generated': date.today().isoformat(),
-         'baseline': round(r['baseline'], 4), 'cut': round(r['trust_cut'], 4),
+         'baseline': round(r['baseline'], 4),
+         'baselines': {d: round(b, 4) for d, b in sorted(r['baselines'].items()) if d},
+         'trust_margin': TRUST_MARGIN,
          'min_lots': TRUST_MIN_LOTS,
+         # every code states the comparison it was judged against, so a
+         # reader never has to guess which baseline applied to it
          'codes': {k: {'n': v['n'], 'cohesion': round(v['cohesion'], 4),
-                       'trusted': v['cohesion'] >= r['trust_cut']}
+                       'division': v['division'],
+                       'baseline': round(v['baseline'], 4),
+                       'cut': round(v['cut'], 4),
+                       'trusted': v['cohesion'] >= v['cut']}
                    for k, v in sorted(r['cohesion'].items())}},
         indent=1), encoding='utf-8')
     for name, v in r['configs'].items():

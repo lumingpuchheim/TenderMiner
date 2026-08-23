@@ -141,7 +141,7 @@ class TheSidecar(Fixture):
 
 
 class TheRecipes(Fixture):
-    RESULT = {'baseline': 0.3, 'trust_cut': 0.45, 'cohesion': {},
+    RESULT = {'baseline': 0.3, 'baselines': {'45': 0.3}, 'cohesion': {},
               'configs': {
                   'F hard/soft codes + floor/consensus': {
                       'soft_floor': 0.5, 'soft_consensus': 2,

@@ -35,7 +35,7 @@ import rewind_all
 import relevance
 import subscriptions
 from calibrate import (BASELINE_SAMPLE, CODE_GRID, SEED, SOFT_GRID,
-                       TRUST_MARGIN, code_trust)
+                       TRUST_MARGIN, TRUST_MIN_LOTS, code_trust)
 
 SOFT_OFF = 2.0   # the sentinel in SOFT_GRID meaning "soft channel off"
 
@@ -62,10 +62,14 @@ class BaselineStaysInsideTheWorld(unittest.TestCase):
 
     def test_future_rows_cannot_move_the_baseline(self):
         mat, cpv, world = _split_world(BASELINE_SAMPLE, BASELINE_SAMPLE * 3)
-        baseline, cut, _, _ = code_trust(
+        baseline, baselines, _, _ = code_trust(
             mat, cpv, np.random.default_rng(SEED), world)
         self.assertAlmostEqual(baseline, 1.0, places=6)
-        self.assertAlmostEqual(cut, 1.0 + TRUST_MARGIN, places=6)
+        # one division here (these lots carry no CPV), and its cut is the
+        # store's — the per-division split must not move a single-trade world
+        self.assertEqual(list(baselines), [''])
+        self.assertAlmostEqual(baselines[''] + TRUST_MARGIN,
+                               1.0 + TRUST_MARGIN, places=6)
 
     def test_growing_the_future_changes_nothing(self):
         """The same world calibrates the same however much later data exists —
@@ -189,3 +193,80 @@ class ChannelOffIsNotCustomerInput(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ThePerDivisionBaseline(unittest.TestCase):
+    """A code is judged against random lots of its OWN division (2026-08-23).
+
+    Widening the store to software and IT services made "two random lots"
+    mean one construction and one IT lot, which read nothing alike. The
+    store-wide baseline fell and carried the trust cut with it, and trusted
+    construction codes went 56 -> 203 — most of them on the diluted
+    comparison alone, while construction cohesion itself drifted DOWN. What
+    decides whether a code tells a construction firm anything is how its lots
+    read against other CONSTRUCTION lots.
+    """
+
+    def _two_trade_world(self):
+        """One tight division and one loose one, plus a code inside the tight
+        division that is no more alike than that division's random pairs."""
+        rng = np.random.default_rng(SEED)
+        n = BASELINE_SAMPLE
+
+        def tight(k, spread):
+            v = np.zeros((k, 8), dtype=np.float32)
+            v[:, 0] = 1.0
+            v += rng.normal(scale=spread, size=(k, 8)).astype(np.float32)
+            return v / np.linalg.norm(v, axis=1, keepdims=True)
+
+        tight_div = tight(n, 0.10)                    # lots that all read alike
+        loose_div = rng.normal(size=(n, 8)).astype(np.float32)
+        loose_div /= np.linalg.norm(loose_div, axis=1, keepdims=True)
+        code_lots = tight(TRUST_MIN_LOTS * 3, 0.10)   # as alike as its division
+
+        mat = np.vstack([tight_div, loose_div, code_lots])
+        cpv = np.array(['11111111'] * n + ['22222222'] * n
+                       + ['11119999'] * len(code_lots), dtype=object)
+        return mat, cpv, np.arange(len(mat))
+
+    def test_a_code_is_not_trusted_for_matching_its_own_divisions_noise(self):
+        mat, cpv, world = self._two_trade_world()
+        store_baseline, baselines, cohesion, trusted = code_trust(
+            mat, cpv, np.random.default_rng(SEED), world)
+
+        self.assertIn('11119999', cohesion)
+        own = cohesion['11119999']
+        self.assertEqual(own['division'], '11')
+
+        # the tight division's own baseline sits far above the store's, which
+        # mixes it with a division it shares nothing with
+        self.assertGreater(baselines['11'], store_baseline)
+
+        # judged against its own division it says nothing, so it is not trusted
+        self.assertNotIn('11119999', trusted)
+        # while the store-wide comparison would have certified it — the whole
+        # defect, in one assertion
+        self.assertGreaterEqual(own['cohesion'], store_baseline + TRUST_MARGIN)
+
+    def test_every_code_records_the_comparison_it_was_judged_against(self):
+        mat, cpv, world = self._two_trade_world()
+        _, baselines, cohesion, _ = code_trust(
+            mat, cpv, np.random.default_rng(SEED), world)
+        for code, v in cohesion.items():
+            self.assertEqual(v['division'], code[:2])
+            self.assertEqual(v['baseline'], baselines[code[:2]])
+            self.assertAlmostEqual(v['cut'], v['baseline'] + TRUST_MARGIN)
+
+    def test_a_thin_division_falls_back_to_the_store(self):
+        """Too few lots to sample is answered by the store-wide baseline, not
+        by a number precise enough to look trustworthy and wrong enough to
+        move its own cut."""
+        rng = np.random.default_rng(SEED)
+        mat = rng.normal(size=(BASELINE_SAMPLE + 40, 8)).astype(np.float32)
+        mat /= np.linalg.norm(mat, axis=1, keepdims=True)
+        cpv = np.array(['11111111'] * BASELINE_SAMPLE
+                       + ['22229999'] * 40, dtype=object)
+        store_baseline, baselines, cohesion, _ = code_trust(
+            mat, cpv, np.random.default_rng(SEED), np.arange(len(mat)))
+        self.assertEqual(baselines['22'], store_baseline)
+        self.assertEqual(cohesion['22229999']['baseline'], store_baseline)
