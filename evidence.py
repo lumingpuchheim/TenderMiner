@@ -341,6 +341,29 @@ NEG_PER_FIRM = 50
 VOL_PER_FIRM = 200
 MIN_WINS = 3
 
+# Measurement-internal trade groups (pipeline/gate-per-trade.md 3): pooled
+# numbers steer per-trade behaviour once the store spans trades, so recall
+# and leakage are tallied per group beside the pooled figures. From cpv_main
+# on purpose and NEVER customer-facing — the customer-facing grouping stays
+# title-words by standing rule. 48 and 72 are one group: shared language,
+# shared firms (the system houses win both).
+TRADE_GROUPS = {'45': 'construction', '48': 'it', '72': 'it'}
+
+
+def trade_of(cpv):
+    """The measurement trade group of one CPV code, else None."""
+    return TRADE_GROUPS.get(str(cpv or '')[:2])
+
+
+def firm_trade(win_cpvs):
+    """A firm's group: the strict majority of its wins' divisions, else None
+    (no majority = the firm stays in the pooled numbers only)."""
+    groups = [g for g in (trade_of(c) for c in win_cpvs) if g]
+    if not groups:
+        return None
+    top = max(set(groups), key=groups.count)
+    return top if groups.count(top) * 2 > len(groups) else None
+
 # Every constant above that can change WHICH LOTS PASS — as opposed to how a
 # sweep samples (SEED, NEG_PER_FIRM, VOL_PER_FIRM, MIN_WINS, SWEEP_BARS) or
 # how a cache is keyed (DICT_CACHE_V). `relevance.GateConfig` snapshots this
@@ -1910,7 +1933,14 @@ def judge_run(data_dir, modes=('embedding', 'evidence'), volume=True):
         # --- recall (leave-one-out), leakage, volume through judge() ---
         rng = np.random.default_rng(SEED)
         n_pos = hits = n_neg = neg_pass = n_vol = vol_pass = 0
+        # per-trade tallies beside the pooled ones (pipeline/gate-per-trade.md):
+        # a firm's group is the majority division of its wins; no majority
+        # means pooled-only
+        by_trade = {g: {'n_pos': 0, 'hits': 0, 'n_neg': 0, 'neg_pass': 0}
+                    for g in sorted(set(TRADE_GROUPS.values()))}
         for firm, keys in wins_by_firm.items():
+            group = firm_trade([raw[k][2] for k in keys])
+            tally = by_trade.get(group)
             for i, k in enumerate(keys):
                 use = [pub_of(r) for j, r in enumerate(keys) if j != i]
                 profile = rel.build_profile(gate, firm_sub(firm, use))
@@ -1919,6 +1949,9 @@ def judge_run(data_dir, modes=('embedding', 'evidence'), volume=True):
                     'buyer_name': raw[k][4]}, config=cfg)
                 n_pos += 1
                 hits += bool(ok)
+                if tally is not None:
+                    tally['n_pos'] += 1
+                    tally['hits'] += bool(ok)
             profile = rel.build_profile(gate, firm_sub(
                 firm, [pub_of(r) for r in keys]))
             firm_classes = {str(raw[k][2] or '')[:4] for k in keys}
@@ -1934,6 +1967,9 @@ def judge_run(data_dir, modes=('embedding', 'evidence'), volume=True):
                         'buyer_name': raw[k][4]}, config=cfg)
                     n_neg += 1
                     neg_pass += bool(ok)
+                    if tally is not None:
+                        tally['n_neg'] += 1
+                        tally['neg_pass'] += bool(ok)
             # the draw ALWAYS happens, so the negatives of the next firm are
             # the same lots whether or not the volume sample is judged
             vol_draw = rng.choice(len(all_keys), VOL_PER_FIRM, replace=False)
@@ -1947,11 +1983,25 @@ def judge_run(data_dir, modes=('embedding', 'evidence'), volume=True):
         results[mode] = {'benchmark': bench, 'recall': hits / n_pos,
                          'leakage': neg_pass / n_neg,
                          'volume': (vol_pass / n_vol) if n_vol else None,
-                         'n_pos': n_pos, 'n_neg': n_neg, 'n_vol': n_vol}
+                         'n_pos': n_pos, 'n_neg': n_neg, 'n_vol': n_vol,
+                         'by_trade': {
+                             g: {'recall': (t['hits'] / t['n_pos'])
+                                           if t['n_pos'] else None,
+                                 'leakage': (t['neg_pass'] / t['n_neg'])
+                                            if t['n_neg'] else None,
+                                 'n_pos': t['n_pos'], 'n_neg': t['n_neg']}
+                             for g, t in by_trade.items()}}
         print(f'[judge-run] {mode:9s}: benchmark {bench}, '
               f'recall {hits / n_pos:.1%} ({hits}/{n_pos}), '
               f'leakage {neg_pass / n_neg:.1%} ({n_neg} negatives), '
               f'volume {(vol_pass / n_vol) if n_vol else float("nan"):.1%}', flush=True)
+        for g, t in by_trade.items():
+            if t['n_pos'] or t['n_neg']:
+                print(f'[judge-run] {mode:9s}   {g}: recall '
+                      f'{(t["hits"] / t["n_pos"]) if t["n_pos"] else float("nan"):.1%} '
+                      f'({t["n_pos"]} wins), leakage '
+                      f'{(t["neg_pass"] / t["n_neg"]) if t["n_neg"] else float("nan"):.1%} '
+                      f'({t["n_neg"]} negatives)', flush=True)
     if rel._SYN is not None:
         rel._SYN.save()
     # The shape `write_judge_json` reads — one configuration row per mode, the
@@ -1959,7 +2009,8 @@ def judge_run(data_dir, modes=('embedding', 'evidence'), volume=True):
     # and the denominators the rates rest on (same lots under both modes).
     committed = rel.DEFAULT_CONFIG.mode
     rows = [(f'{mode} gate' + (' (committed)' if mode == committed else ''),
-             None, r['benchmark'], [], r['recall'], r['leakage'], r['volume'])
+             None, r['benchmark'], [], r['recall'], r['leakage'], r['volume'],
+             r['by_trade'])
             for mode, r in results.items()]
     counted = results.get(committed) or next(iter(results.values()))
     counts = {k: counted[k] for k in ('n_pos', 'n_neg', 'n_vol')}
@@ -2188,10 +2239,13 @@ def write_judge_json(path, rows, counts=None):
         # leakage's n_neg, volume's n_vol
         'counts': counts or {},
         'configurations': [
-            {'name': name, 'hard19': b19, 'benchmark': ball,
-             'recall': recall, 'leakage': leakage, 'volume': volume,
-             'hard_fails': [c.get('expect') for c, _ in hard_fails]}
-            for name, b19, ball, hard_fails, recall, leakage, volume in rows],
+            {'name': row[0], 'hard19': row[1], 'benchmark': row[2],
+             'recall': row[4], 'leakage': row[5], 'volume': row[6],
+             'hard_fails': [c.get('expect') for c, _ in row[3]],
+             # per-trade recall/leakage when the harness tallied them
+             # (pipeline/gate-per-trade.md 4); absent on older 7-field rows
+             'by_trade': row[7] if len(row) > 7 else None}
+            for row in rows],
     }
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(json.dumps(doc, indent=2, default=str), encoding='utf-8')

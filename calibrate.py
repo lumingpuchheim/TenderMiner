@@ -247,7 +247,7 @@ def threshold_for_recall(scores, n_auto, target):
         np.quantile(scores, 0.90))
 
 
-def calibrate(data_dir, tenders=None, awards=None):
+def calibrate(data_dir, tenders=None, awards=None, trade=None):
     """Calibrate the gate over the store in `data_dir`.
 
     `tenders`/`awards` let a caller that already holds those frames hand them
@@ -256,6 +256,16 @@ def calibrate(data_dir, tenders=None, awards=None):
     ~460 MB of duplicate frames alive at the same moment as the label table
     below — the replay's peak (doc/MEMORY_BUDGET.md). Same data either way;
     `single_bidder.load_with_roles` is `pd.read_parquet` plus column metadata.
+
+    `trade` (pipeline/gate-per-trade.md): a group name from
+    `evidence.TRADE_GROUPS` restricts the whole calibration to that group's
+    sub-store — wins, negatives, admitted-volume pool and baselines all
+    inside the group, the world a customer of that trade lives in. The
+    thresholds this search returns are that trade's numbers; a pooled search
+    over a mixed store recommends numbers that are loose for one trade and
+    tight for the other (found 2026-08-23: the pooled text bar fell 0.700 ->
+    0.660 purely because IT entered the average). None = the whole store,
+    which is only sensible while the store is one trade.
     """
     rows, mat = load_sidecar(data_dir)
     lpos, lrows, lmat = load_label_sidecar(data_dir)
@@ -264,6 +274,13 @@ def calibrate(data_dir, tenders=None, awards=None):
         tenders = pd.read_parquet(Path(data_dir) / 'store' / 'tenders.parquet')
     if awards is None:
         awards = pd.read_parquet(Path(data_dir) / 'store' / 'awards.parquet')
+    if trade is not None:
+        from evidence import trade_of
+        keep = tenders['cpv_main'].map(lambda c: trade_of(c) == trade)
+        tenders = tenders[keep]
+        keys = set(map(tuple, tenders[KEY].drop_duplicates().values))
+        awards = awards[[tuple(k) in keys for k in awards[KEY].values]]
+        print(f'[calibrate] trade {trade}: {len(keys)} lots in the sub-store')
 
     wins = firm_win_rows(awards, tenders)
     wins['row'] = [pos_of.get((p, l)) for p, l in zip(wins['procedure_id'], wins['lot_id'])]
@@ -797,11 +814,35 @@ def write_receipt(path, r):
                     for d, b in sorted(r['baselines'].items()) if d)
         + f' (store-wide baseline {r["baseline"]:.3f}, used only where a '
           f'division has under {BASELINE_SAMPLE} lots)',
-        f'- **Defaults: `min_relevance` = {d["threshold"]:.3f}, '
+        f'- **Pooled defaults: `min_relevance` = {d["threshold"]:.3f}, '
         f'`min_code_relevance` = {d["code_threshold"]:.3f}** '
         f'(best two-channel configuration: {best_name}; '
-        f'recall promise {RECALL_TARGET:.0%})',
+        f'recall promise {RECALL_TARGET:.0%}). A store spanning trades should '
+        f'hand a new customer their OWN trade row below, not this one — '
+        f'pooled numbers are loose for one trade and tight for the other '
+        f'(pipeline/gate-per-trade.md).',
         '',
+    ]
+    by_trade = r.get('defaults_by_trade') or {}
+    if by_trade:
+        lines += [
+            '## Defaults per trade — what a NEW customer of that trade gets',
+            '',
+            "Each row is its own calibration over that trade's sub-store: its "
+            'firms, its negatives, its admitted-volume pool. An existing '
+            'subscription carries its own stored values and is not touched by '
+            'a recalibration.',
+            '',
+            '| trade | min_relevance | min_code_relevance | recall | leakage | firms |',
+            '| --- | --- | --- | --- | --- | --- |',
+        ]
+        for g, v in sorted(by_trade.items()):
+            lines.append(
+                f'| {g} | {v["min_relevance"]:.3f} | '
+                f'{v["min_code_relevance"]:.3f} | {v["recall"]:.1%} | '
+                f'{v["leakage"]:.1%} | {v["n_firms"]} |')
+        lines.append('')
+    lines += [
         '| configuration | text thr | code thr | recall | wrong-trade leakage |',
         '| --- | --- | --- | --- | --- |',
     ]
@@ -866,11 +907,44 @@ def main():
     ap.add_argument('--data-dir', default=config.data_root())
     ap.add_argument('--fingerprint', metavar='FIRM', nargs='?', const='',
                     help='print a trade-fingerprint demo (optionally for FIRM) and exit')
+    ap.add_argument('--no-trades', action='store_true', dest='no_trades',
+                    help='skip the per-trade threshold searches (pooled only)')
     args = ap.parse_args()
     if args.fingerprint is not None:
         trade_fingerprint_demo(args.data_dir, args.fingerprint or None)
         return
     r = calibrate(args.data_dir)
+
+    # One threshold search per trade group beside the pooled one
+    # (pipeline/gate-per-trade.md 4). The pooled run above still produces the
+    # trusted-code list and the receipt's body — codes are judged per
+    # division and do not depend on the grouping — while these give each
+    # trade the thresholds a NEW customer of that trade should be given.
+    # A group whose sub-store cannot carry a calibration says so and is
+    # skipped; nobody is handed a number measured on too little.
+    defaults = {}
+    if not args.no_trades:
+        from evidence import TRADE_GROUPS
+        for group in sorted(set(TRADE_GROUPS.values())):
+            try:
+                tr = calibrate(args.data_dir, trade=group)
+            except WorldTooThin as e:
+                print(f'[calibrate] trade {group}: skipped — {e}')
+                continue
+            two = {k: v for k, v in tr['configs'].items() if 'code_threshold' in v}
+            name, d = min(two.items(), key=lambda kv: kv[1]['leakage'])
+            defaults[group] = {
+                'min_relevance': round(d['threshold'], 3),
+                'min_code_relevance': round(d['code_threshold'], 3),
+                'configuration': name, 'recall': round(d['recall'], 4),
+                'leakage': round(d['leakage'], 4),
+                'n_firms': tr['n_firms'], 'n_positives': tr['n_positives']}
+            print(f'[calibrate] trade {group}: min_relevance '
+                  f'{d["threshold"]:.3f}, min_code_relevance '
+                  f'{d["code_threshold"]:.3f} (recall {d["recall"]:.1%}, '
+                  f'leakage {d["leakage"]:.1%}, {tr["n_firms"]} firms)')
+    r['defaults_by_trade'] = defaults
+
     receipt = Path(f'calibration_{MODEL_TAG}.md')
     write_receipt(receipt, r)
     codes = Path(f'trusted_codes_{MODEL_TAG}.json')
@@ -878,6 +952,7 @@ def main():
         {'model_tag': MODEL_TAG, 'generated': date.today().isoformat(),
          'baseline': round(r['baseline'], 4),
          'baselines': {d: round(b, 4) for d, b in sorted(r['baselines'].items()) if d},
+         'defaults_by_trade': defaults,
          'trust_margin': TRUST_MARGIN,
          'min_lots': TRUST_MIN_LOTS,
          # every code states the comparison it was judged against, so a

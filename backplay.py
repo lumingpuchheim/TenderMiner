@@ -140,10 +140,13 @@ def rejects(current, candidate, hard_bar=knobs.HARD_BAR):
     breaches = [m for m in candidate
                 if m.get('leakage') is not None and m['leakage'] > hard_bar]
     if len(breaches) > MAJORITY * len(candidate):
-        worst = max(m['leakage'] for m in breaches)
-        return True, (f'leaks above {hard_bar * 100:.1f}% on '
+        top = max(breaches, key=lambda m: m['leakage'])
+        # the rejection names the trade whose leakage bound the measurement,
+        # so a construction-caused kill is never read as a pooled one
+        trade = f' in {top["leakage_trade"]}' if top.get('leakage_trade') else ''
+        return True, (f'leaks above {hard_bar * 100:.1f}%{trade} on '
                       f'{len(breaches)}/{len(candidate)} measurements '
-                      f'(worst {worst * 100:.1f}%)')
+                      f'(worst {top["leakage"] * 100:.1f}%)')
     pairs = _paired(current, candidate)
     if pairs and len(pairs) == len(candidate):
         losses = 0
@@ -400,6 +403,12 @@ def show(paths, today=None):
     return lines
 
 
+# A trade group's leakage binds only when it rests on enough negatives —
+# below this, one flipped lot moves the rate more than a real change would
+# (pipeline/gate-per-trade.md 4)
+TRADE_MIN_NEG = 30
+
+
 def judge_read(payload, row='(committed)'):
     """The default reader for the `judge` harness: the shipped configuration's
     row, with the denominators its rates rest on.
@@ -413,8 +422,26 @@ def judge_read(payload, row='(committed)'):
     counts = payload.get('counts') or {}
     for cfg in payload.get('configurations') or []:
         if row in cfg['name']:
-            return [{'metric': cfg['recall'], 'n': counts.get('n_pos') or 0,
-                     'leakage': cfg['leakage'], 'n_neg': counts.get('n_neg') or 0}]
+            m = {'metric': cfg['recall'], 'n': counts.get('n_pos') or 0,
+                 'leakage': cfg['leakage'], 'n_neg': counts.get('n_neg') or 0}
+            # The hard bar holds PER TRADE (pipeline/gate-per-trade.md): the
+            # measurement's leakage becomes the worst of the pooled number
+            # and any trade with enough negatives, so `rejects()` and the
+            # knobs' HARD_BAR checks enforce the per-trade bar without their
+            # logic changing. A pooled 1.9% may not shelter construction's
+            # 2.4% behind IT's 1.4%.
+            by_trade = cfg.get('by_trade') or {}
+            binding = None
+            for g, t in sorted(by_trade.items()):
+                lk = t.get('leakage')
+                if (lk is not None and (t.get('n_neg') or 0) >= TRADE_MIN_NEG
+                        and (m['leakage'] is None or lk > m['leakage'])):
+                    m['leakage'], binding = lk, g
+            if by_trade:
+                m['leakage_by_trade'] = by_trade
+            if binding:
+                m['leakage_trade'] = binding
+            return [m]
     return []
 
 
