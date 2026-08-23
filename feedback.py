@@ -109,13 +109,27 @@ def award_names(sub):
     return [str(n) for n in names]
 
 
-def wins_of(awards, tenders, names):
+def wins_of(awards, tenders, names, groups=None):
     """-> {pub: (procedure_id, lot_id, publication_date)} for lots won by
     any of `names`. The reference is the CONTRACT NOTICE's publication
-    number (RUNBOOK §2), so the award rows are joined back to the store."""
+    number (RUNBOOK §2), so the award rows are joined back to the store.
+
+    `names` are the spellings the customer was registered under; `groups`
+    ({spelling: company}, from firms.py) widens them to every spelling of the
+    same COMPANY. A win published as "SoftwareOne Deutschland GmbH" was
+    invisible to a customer registered as "SoftwareONE Deutschland GmbH" — it
+    never became a learned reference, so the relevance gate went on judging
+    new lots against a history missing a fifth of that firm's wins, and the
+    six references it reads are the NEWEST, which is where a fresh spelling
+    lands first. Without `groups` this behaves exactly as before.
+    """
     if not names or awards is None or not len(awards):
         return {}
     want = set(names)
+    if groups:
+        companies = {groups[n] for n in want if n in groups}
+        want |= {spelling for spelling, company in groups.items()
+                 if company in companies}
     hit = awards['winner_names'].apply(
         lambda x: x is not None and not isinstance(x, float)
         and bool(want.intersection(map(str, x))))
@@ -136,12 +150,13 @@ def wins_of(awards, tenders, names):
     return out
 
 
-def discover(sub, awards, tenders, learned_rows, as_of):
-    """Wins of this subscription's firm that are not references yet.
+def discover(sub, awards, tenders, learned_rows, as_of, groups=None):
+    """Wins of this subscription's firm that are not references yet — under
+    every spelling of the firm, not only the ones on the subscription.
     -> {pub: (procedure_id, lot_id, publication_date)}"""
     known = set(sub.get('profile_refs') or [])
     known.update(refs_for(learned_rows, sub['sub_id'], as_of))
-    found = wins_of(awards, tenders, award_names(sub))
+    found = wins_of(awards, tenders, award_names(sub), groups)
     return {p: v for p, v in found.items() if p not in known}
 
 
@@ -158,12 +173,22 @@ def learn(data_dir, subs, awards, tenders, today, gate_factory=None,
     today = str(today)
     learned_rows = read_learned(data_dir)
     candidates = {}
+    # Which spellings are one company (firms.py). Read from the operator index
+    # the cycle has just rebuilt; when there is none, identity is the spelling
+    # and learning behaves as it did before.
+    try:
+        import firms
+        groups = firms.groups(data_dir)
+    except Exception as e:                                     # noqa: BLE001
+        if verbose:
+            print(f'[learn] firm identity unavailable ({e}) — spellings only')
+        groups = None
     for sub in subs:
         if not award_names(sub):
             if verbose:
                 print(f"[learn] {sub['sub_id']}: no award_names / name — skipped")
             continue
-        found = discover(sub, awards, tenders, learned_rows, today)
+        found = discover(sub, awards, tenders, learned_rows, today, groups)
         if found:
             candidates[sub['sub_id']] = (sub, found)
     if not candidates:

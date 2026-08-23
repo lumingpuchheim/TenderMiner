@@ -133,7 +133,13 @@ def add(data_dir, company, *, sub_id=None, also_names=(), batch=None,
     row = target_row(data_dir, company)
     name = row['company']
     sub_id = sub_id or slug(name)
-    names = [name] + [n for n in also_names if n and n != name]
+    # Every spelling TED published for this company, plus anything the
+    # salesman added by hand. Before firms.py these had to be typed in as
+    # --also-name or the customer's own wins under the other spelling were
+    # never learned (feedback.wins_of).
+    names = [name] + [n for n in list(row.get('spellings') or [])
+                      + list(also_names) if n and n != name]
+    names = list(dict.fromkeys(names))
 
     refs = list(row.get('profile_refs') or [])
     if len(refs) < MIN_REFS:
