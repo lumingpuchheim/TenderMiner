@@ -465,6 +465,12 @@ def resolve(firms):
     grouped = collections.defaultdict(list)
     for f in firms:
         grouped[union.find(id(f))].append(f)
+    # A pair refused early can still end up in one company by another route —
+    # a third spelling links both, on evidence neither of them had. Reporting
+    # it as a disagreement wastes the reader's time on a question that
+    # answered itself, so the list is what is STILL apart at the end.
+    blocked = [(a, b, w) for a, b, w in blocked
+               if union.find(id(a)) != union.find(id(b))]
     clusters = [Cluster(members, why.get(root, []))
                 for root, members in grouped.items()]
     clusters.sort(key=lambda c: (-c.wins, c.name))
