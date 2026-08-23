@@ -89,35 +89,59 @@ Software is the thin one — its numbers will be coarser than construction's,
 and `backplay.TRADE_MIN_NEG` may keep it from binding at all. Not a reason to
 merge it into 72; a reason to read its row with its firm count beside it.
 
+## The three-trade calibration ran. Software fails the leakage bar.
+
+`/data/scratch/calib3/` on the server, 2026-08-23 15:59, three groups:
+
+| trade | min_relevance | min_code_relevance | recall | leakage | firms | positives |
+| --- | --- | --- | --- | --- | --- | --- |
+| construction | 0.700 | 0.775 | 64.5% | 1.5% | 4,528 | 30,712 |
+| it-services | 0.680 | 0.675 | 56.5% | 0.9% | 335 | 2,714 |
+| software | 0.680 | 0.675 | 58.2% | **3.0%** | 157 | 1,544 |
+
+**Software leaks 3.0% against the standing 2.2% refusal, and that is the
+BEST point in the whole grid for software** — least leakage at the volume
+floor. Construction 1.5% and IT services 0.9% put the pooled number at 1.7%,
+which looks fine and hides it completely. Had 48 and 72 stayed one group,
+software's 3.0% would have been averaged with IT services' 0.9% over twice
+the firms and a software customer would have been given a bar no software
+evidence ever cleared. That is the split earning itself on the first run.
+
+So construction and IT services have a defensible recommendation and
+**software does not have one yet**. Three explanations are still open and
+this run cannot separate them: 157 firms is thin; division 48 mixes licence
+resellers, hardware suppliers and real software houses (see the ACP case
+below); or software genuinely needs a bar tighter than TEXT_GRID's 0.70
+ceiling, which the search cannot reach.
+
+Also from this run: construction's own code bar rises 0.675 -> 0.775 once it
+is measured alone. And calib3's trusted-code list is the SAME 95 codes as
+calib2's, verified set-equal — so the failed flip receipt stands unchanged
+and needs no re-run.
+
 ## NEXT STEPS, in order
 
-1. **Re-run the calibration, three groups.** The two-group run was killed
-   mid-flight when the grouping changed; nothing from it was kept. Detached,
-   ~25 minutes, on the deployed image with the branch code shadowing it:
+1. **Decide what software gets.** It cannot be 0.680 at 3.0%. Cheapest test
+   of the three explanations, in order: (a) raise TEXT_GRID's ceiling above
+   0.70 and re-run `calibrate.py --trade software` alone (~5 min, cannot
+   touch the other two trades' numbers) — if the leakage falls under 2.2% at
+   0.72-0.75, software simply needs a tighter bar; (b) if it does not, the
+   negatives are the suspect, not the threshold.
 
-```bash
-ssh debian@57.129.112.187 "docker run -d --rm --name tm-calib3 -v /home/debian/tm-state:/data -w /data/scratch/calib3 -e PYTHONPATH=/data/scratch/code3:/app tendermining:09b8937 sh -c 'python /data/scratch/code3/calibrate.py --data-dir /data > /data/logs/calib3.log 2>&1'"
-```
+2. **Re-read the doubtful division-48 labels.** ACP IT Solutions AG is
+   marked `out` on 00621440-2025, a framework for used Microsoft volume
+   licences, while ACP's own wins include 'Lieferung Lizenzen für Microsoft
+   Windows'. If labels like that are wrong, software's leakage is measured
+   against a bad exam. Operator was offered a re-read of the doubtful 48
+   pairs; not yet answered.
 
-   `/data/scratch/code3/` holds the branch copies of the changed modules;
-   re-copy them after any edit or the run uses the image's older code.
+3. **The trusted-codes swap is still blocked** by the flip receipt (7 fixed,
+   10 worse; the losses are firms' own trades). Before proposing any swap,
+   build a candidate list restricted to division 45 and see whether the seven
+   losses survive — that separates 'IT codes entered the file' from
+   'construction gained 30 codes of its own'.
 
-2. **Re-run the flip receipt against the list that run produces**, not
-   against `calib2/`. Same command as before with `--candidate` pointing at
-   `/data/scratch/calib3/trusted_codes_jina-v2-base-de.json`. Note the
-   container is `--rm` and the script prints to stdout only: start
-   `docker logs -f <name> > /data/logs/flips.log` alongside it, or the
-   receipt is lost when the container exits.
-
-3. **If it still fails, find out which movement causes the losses** before
-   proposing any swap: re-run with a candidate list built from the
-   per-division trust but restricted to division 45, and see whether the
-   seven losses survive. That separates "IT codes entered the file" from
-   "construction gained 30 codes of its own".
-
-4. **Show the operator the flips and the three-row defaults table, and wait.**
-
-5. **Still open, lower priority**
+4. **Still open, lower priority**
    - No IT customer uses the gate yet; IT friends run on the trade filter
      alone (`cpv_prefixes: ["72","48"]` + `profile_texts`, no
      `min_relevance`). Before the gate is turned on for a real IT customer,
@@ -131,6 +155,19 @@ ssh debian@57.129.112.187 "docker run -d --rm --name tm-calib3 -v /home/debian/t
    - The `Leistung` section is empty on nearly every IT lot, so both readers
      and the gate lean on title + description there.
    - WATCH MONDAY'S CYCLE RUNTIME (~1h recurring against a 90-minute gap).
+
+## Benchmark coverage, by division (after the IT merge)
+
+| division | labeled cases | in | out | store lots |
+| --- | --- | --- | --- | --- |
+| 45 construction | 1,752 | 592 | 1,160 | 81,011 |
+| 48 software | 566 | 279 | 287 | 4,722 |
+| 72 IT services | 704 | 291 | 413 | 7,106 |
+
+Per lot in the store, IT and software are already sampled about five times
+harder than construction. `label_packets_it.py` skips (pub, firm) pairs
+already in the benchmark, so raising its FRACTION and re-running yields only
+fresh packets — that is the way to deepen the sample without duplicating it.
 
 ## Standing constraints (learned the hard way this session)
 
