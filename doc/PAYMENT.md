@@ -100,7 +100,7 @@ There is no restlos button for a real firm: the total forget exists only
 for test twins (§3b), decided by the `test-` id and not by a click a hurry
 could get wrong.
 
-### 3b. Test twins — `testfirm.py`
+### 3b. Test twins — `testfirm.py` (operator's manual: doc/TESTFIRM.md)
 
 The operator tests with real firms, and every admin state is then a false
 statement about a real firm ("Jebsen objected" — they didn't; "never
