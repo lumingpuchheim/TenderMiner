@@ -259,17 +259,43 @@ class AdminDoors(Base):
         self.assertEqual(len(ev), 1)
         self.assertEqual(ev[0]['detail'], 'admin (backdoor)')
 
-    def test_delete_erases_everything_so_the_firm_can_start_over(self):
+    def test_deleting_a_twin_is_restlos_by_identity(self):
+        """A test- sub_id gets the total forget WITHOUT any button choice —
+        restlos is decided by what the row is, not by what was clicked."""
+        self.sub(sub_id='test-beck')
+        tokens.mint(self.dir, 'y', 'test-beck')
+        request(self.dir, '/admin/delete', method='POST',
+                form={'sub_id': 'test-beck'}, admin=True)
+        self.assertIsNone(subscriptions.customer_get(self.dir, 'test-beck'))
+        self.assertEqual([r for r in subscriptions.read_all(self.dir)
+                          if r['sub_id'] == 'test-beck'], [])
+        self.assertIsNone(tokens.live_value(self.dir, 'y', 'test-beck'))
+        self.assertEqual([e for e in ledger.read(self.dir, 'app_events')
+                          if e['sub_id'] == 'test-beck'], [])
+
+    def test_the_default_delete_keeps_a_suppression_entry(self):
+        """doc/PAYMENT.md 3a: 'löscht alles und schreibt uns nie wieder' —
+        every personal datum goes, the name stays as the block, and a click
+        that chose nothing gets THIS, never the total forget."""
         self.sub()
         tokens.mint(self.dir, 'y', 'beck')
         request(self.dir, '/admin/delete', method='POST',
                 form={'sub_id': 'beck'}, admin=True)
-        self.assertIsNone(subscriptions.customer_get(self.dir, 'beck'))
+        cust = subscriptions.customer_get(self.dir, 'beck')
+        self.assertEqual(cust['contact_state'], 'hard_stopped')
+        self.assertEqual(cust['name'], 'Beck GmbH')
+        self.assertIsNone(cust['contact_email'])          # the datum is gone
         self.assertEqual([r for r in subscriptions.read_all(self.dir)
                           if r['sub_id'] == 'beck'], [])
         self.assertIsNone(tokens.live_value(self.dir, 'y', 'beck'))
-        self.assertEqual([e for e in ledger.read(self.dir, 'app_events')
-                          if e['sub_id'] == 'beck'], [])
+        kinds = [e['kind'] for e in ledger.read(self.dir, 'app_events')
+                 if e['sub_id'] == 'beck']
+        self.assertEqual(kinds, ['objection'])            # history is gone
+        # and the mailer cannot write to the shell that remains
+        import mailer
+        with self.assertRaises(mailer.MailerError):
+            mailer.send(self.dir, 'report', 'beck', 'x', 'x',
+                        transport=lambda p: 'id')
 
     def test_delete_refuses_while_a_stripe_subscription_lives(self):
         self.sub(plan='paid')

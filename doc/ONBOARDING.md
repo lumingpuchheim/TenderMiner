@@ -43,7 +43,7 @@ bid.
 
 | filter | why | roughly |
 | --- | --- | --- |
-| appears as `winner_names` on an award | proven bidder, and we hold the evidence | 5,229 names |
+| appears as `winner_names` on an award | proven bidder, and we hold the evidence | 17,080 companies (22,029 spellings, `firms.py`) |
 | `winner_size` ∈ {small, micro} | the segment the price is sized for; large firms need a different pitch | 2,566 |
 | ≥ 2 won lots | one win can be luck; two is a habit, and it gives the profile two anchors | 471 |
 | ≥ 2 usable `profile_refs` | the **contract-notice** publication numbers behind their wins, not the award notices — without these there is no profile and no receipt | printed by `outreach.py` |

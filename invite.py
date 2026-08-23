@@ -10,8 +10,9 @@ only through subscriptions.py, tokens.py and ledger.py (CLAUDE.md).
 `add` computes the firm's row from the store itself — `outreach.firm`: the
 awards and tenders parquet, the embedding sidecar for the contract-notice
 refs, the firm's own award notices for its contact details. No
-file to prepare, nothing to copy to the server. It writes the customer row (name, the exact winner spelling as
-award_names, the postal contact as contact_note), appends subscription
+file to prepare, nothing to copy to the server. It writes the customer row (name, and as award_names EVERY spelling TED
+published for that company — `firms.py`, so a win published under any of
+them is still learned; the postal contact as contact_note), appends subscription
 version 1 with `active: false` — the DRAFT the app's signup handler
 pre-flights and activates — mints one `t` token and prints the QR URL. The
 URL is printed exactly once: a token is never read back out of storage, only
@@ -133,7 +134,13 @@ def add(data_dir, company, *, sub_id=None, also_names=(), batch=None,
     row = target_row(data_dir, company)
     name = row['company']
     sub_id = sub_id or slug(name)
-    names = [name] + [n for n in also_names if n and n != name]
+    # Every spelling TED published for this company, plus anything the
+    # salesman added by hand. Before firms.py these had to be typed in as
+    # --also-name or the customer's own wins under the other spelling were
+    # never learned (feedback.wins_of).
+    names = [name] + [n for n in list(row.get('spellings') or [])
+                      + list(also_names) if n and n != name]
+    names = list(dict.fromkeys(names))
 
     refs = list(row.get('profile_refs') or [])
     if len(refs) < MIN_REFS:

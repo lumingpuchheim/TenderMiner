@@ -288,7 +288,11 @@ def _own_win(home, company):
         import outreach
         store = Path(home) / 'store'
         g = outreach.winner_rows(store)
-        g = g[g['company'] == company]
+        # The company's whole record, not one spelling of it: the most
+        # quotable win is the least contested and the most recent, and both
+        # can sit under the spelling the customer was not registered by.
+        firm = g.loc[g['company'] == company, 'firm']
+        g = g[g['firm'] == firm.iloc[0]] if len(firm) else g[g['company'] == company]
         if not len(g):
             return None
         import pyarrow.parquet as pq

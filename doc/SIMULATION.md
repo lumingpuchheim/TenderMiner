@@ -27,11 +27,20 @@ Two products of the same rows:
 
 ## Method
 
-- **Who**: every distinct `winner_names` entry in the awards store
-  (~5,300 exact-name companies; ~1,300 with ≥2 won lots). Identity is the
-  exact name string — spelling variants of one firm count as two companies.
-  Acceptable for aggregate numbers; clean before using any single row for
-  outreach.
+- **Who**: every COMPANY in the awards store, as `firms.py` resolves it —
+  the registration number on the award notice (VAT or Handelsregister), with
+  the name and postcode voting alongside it and only the number allowed to
+  veto. Spelling variants of one firm are one company: `SVA GmbH` and `SVA
+  System Vertrieb Alexander GmbH` share `DE185176948` and count once, while
+  `Bechtle GmbH` and `Bechtle AG` do not and count twice. Over the store as
+  of 2026-08-23 that is 22,029 winner spellings resolving to 17,080
+  companies (CPV 45/48/72).
+
+  This was the exact name string until 2026-08-23, and the note here used to
+  say "acceptable for aggregate numbers; clean before using any single row
+  for outreach". It was not acceptable: one firm counted as two understated
+  every prospect's win history, and the operator's list held 881 companies
+  that do not exist.
 - **Their market**: derived from what they won — the set of `cpv3` trade
   codes and the set of NUTS-1 regions of their won lots. A company with no
   region information bids nationwide.

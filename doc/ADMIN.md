@@ -28,7 +28,9 @@ password once.
 
 1. Types **blitzschutz** in the one search field. The page says which trade
    that word is (`blitzschutz`) and lists every firm in the awards store
-   whose *own* trade recurs on it — exact winner spelling, wins, single-bid
+   whose *own* trade recurs on it — one row per COMPANY (`firms.py`: the
+   spellings a registration number says are one firm, headed by the
+   commonest, all of them searchable), wins, single-bid
    wins, last win, **the firm's trade** (`blitzschutz · fangstang · erder`,
    with the evidence on hover: „blitzschutz: 4 von 6 Referenzen"), and the
    **status** column (§3). Strongest first: a firm with 6 of 6 lightning

@@ -52,6 +52,8 @@ def win_history(store_dir):
     The tenders table supplies cpv_main / place_nuts3 per lot (any notice
     version — the trade of a lot does not change between versions).
     """
+    import firms
+    groups = firms.groups(Path(store_dir).parent)
     awards = pd.read_parquet(Path(store_dir) / 'awards.parquet')
     tenders = pd.read_parquet(
         Path(store_dir) / 'tenders.parquet',
@@ -67,8 +69,12 @@ def win_history(store_dir):
         info = (lot_info.loc[(a['procedure_id'], a['lot_id'])]
                 if (a['procedure_id'], a['lot_id']) in lot_info.index else None)
         for name in names:
+            spelling = str(name).strip()
+            if not firms.is_firm_name(spelling):
+                continue
             rows.append({
-                'company': str(name).strip(),
+                'company': spelling,
+                'firm': groups.get(spelling, spelling),
                 'procedure_id': a['procedure_id'],
                 'lot_id': a['lot_id'],
                 'winner_size': a['winner_size'],
@@ -89,11 +95,19 @@ class OutreachError(ValueError):
     """A firm that cannot be named with confidence."""
 
 
-def winner_rows(store_dir):
+def winner_rows(store_dir, groups=None):
     """One row per (award, winner name) — the awards store exploded on
-    `winner_names`, `company` = the exact stripped spelling. Cheap: no
-    iterrows, no tenders join; `win_history` is the heavy sibling for the
-    whole list, this is for one firm."""
+    `winner_names`. `company` stays the exact stripped spelling, because a
+    letter must quote what TED published; `firm` is the COMPANY that spelling
+    belongs to, which is what a win count, a dossier and a profile should be
+    grouped by (firms.py). Cheap: no iterrows, no tenders join; `win_history`
+    is the heavy sibling for the whole list, this is for one firm.
+
+    `groups` is {spelling: company} — pass the map when the caller already has
+    it (`admin.build_index` computes it), otherwise it is read from the
+    operator index. Without any map at all `firm` equals `company` and every
+    caller behaves exactly as it did before identity existed.
+    """
     awards = pd.read_parquet(
         Path(store_dir) / 'awards.parquet',
         columns=['procedure_id', 'lot_id', 'publication_number',
@@ -101,7 +115,17 @@ def winner_rows(store_dir):
                  'winner_names', 'winner_size', 'source_file'])
     ex = awards.explode('winner_names').dropna(subset=['winner_names'])
     ex = ex.assign(company=ex['winner_names'].astype(str).str.strip())
-    return ex[ex['company'] != '']
+    ex = ex[ex['company'] != '']
+    import firms
+    # A sentence is not a company. TED has no box for "the winners are lawfully
+    # unpublished", so a buyer types the explanation into the name box and we
+    # filed it as a firm — `vertraulich` sat in the operator's prospect list
+    # with one win, ready to be written to. The award ROWS keep it; only the
+    # firm list does not (firms.is_firm_name).
+    ex = ex[ex['company'].map(firms.is_firm_name)]
+    if groups is None:
+        groups = firms.groups(Path(store_dir).parent)
+    return ex.assign(firm=ex['company'].map(lambda c: groups.get(c, c)))
 
 
 def match_name(names, company):
@@ -152,8 +176,14 @@ def firm(data_dir, company):
     OutreachError when the name is not an exact winner spelling."""
     store = Path(data_dir) / 'store'
     ex = winner_rows(store)
-    name = match_name(sorted(set(ex['company'])), company)
-    g = ex[ex['company'] == name]
+    spelling = match_name(sorted(set(ex['company'])), company)
+    # Everything below is about the COMPANY, not the spelling that was typed:
+    # its wins, its regions, and above all its six newest profile references —
+    # a firm whose last wins were published under another spelling was invited
+    # on older lots, or refused for having too few (invite.MIN_REFS).
+    name = ex.loc[ex['company'] == spelling, 'firm'].iloc[0]
+    g = ex[ex['firm'] == name]
+    spellings = list(g['company'].value_counts().index)
     tenders = pd.read_parquet(store / 'tenders.parquet',
                               columns=['procedure_id', 'lot_id', 'place_nuts3'])
     place = (tenders.dropna(subset=['place_nuts3'])
@@ -170,6 +200,10 @@ def firm(data_dir, company):
     refs = refs_for(g, contract_refs(sidecar_index(data_dir)))
     row = {
         'company': name,
+        # every string TED published for this company — an invitation records
+        # them all as award_names, so a win published under any of them is
+        # still this customer's (feedback.wins_of)
+        'spellings': spellings,
         'size': sizes.mode().iloc[0] if len(sizes) else 'unknown',
         'wins': int(len(g)),
         'single_bid_wins': int((g['n_tenders'] <= 1).sum()),
@@ -335,7 +369,7 @@ def build(args):
               'run the loop once to build it')
     notice_of = contract_refs(sidecar[0])
     per_company = []
-    for company, g in hist.groupby('company'):
+    for company, g in hist.groupby('firm' if 'firm' in hist.columns else 'company'):
         sizes = g['winner_size'].dropna()
         size = (sizes.mode().iloc[0] if len(sizes) else 'unknown')
         trades = g['cpv3'].dropna().value_counts()

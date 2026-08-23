@@ -1282,17 +1282,35 @@ def get_admin_delete(ctx, environ):
             'solange es läuft — erst stoppen (kündigt auch bei Stripe).</p>'
             if cust.get('stripe_subscription_id')
             and (cust.get('contact_state') or 'active') == 'active' else '')
+    if sub_id.startswith('test-'):
+        # a twin never objected; its erase is total and needs no Art. 17 prose
+        return page('Löschen', f"""
+          <h1>Testzwilling löschen</h1>
+          <p><strong>{esc(firm)}</strong> ist ein Testzwilling (testfirm.py):
+             restlos weg, kein Sperrvermerk, kann sofort neu angelegt
+             werden.</p>{warn}
+          <form method="post" action="/admin/delete">
+            <input type="hidden" name="sub_id" value="{esc(sub_id)}">
+            <p><button type="submit" class="secondary">Endgültig löschen
+               </button> <a href="/admin?q={esc(firm)}">abbrechen</a></p>
+          </form>""")
     return page('Löschen', f"""
       <h1>Vollständig löschen</h1>
       <p><strong>{esc(firm)}</strong>: Kundendatensatz, alle
          Subscription-Versionen, alle Links, alle Ereignisse — alles weg,
-         unwiderruflich. Danach kann die Firma neu eingeladen werden, als
-         wäre nichts gewesen.</p>{warn}
+         unwiderruflich. Nur der Firmenname bleibt als Sperrvermerk, die
+         Firma wird nie wieder angeschrieben — sonst käme sie über die
+         öffentlichen Vergabedaten als neuer Interessent zurück (Art. 17
+         Abs. 3 DSGVO erlaubt genau dieses Behalten, doc/PAYMENT.md 3a).</p>
+      {warn}
       <form method="post" action="/admin/delete">
         <input type="hidden" name="sub_id" value="{esc(sub_id)}">
-        <p><button type="submit" class="secondary">Endgültig löschen</button>
-           <a href="/admin?q={esc(firm)}">abbrechen</a></p>
-      </form>""")
+        <p><button type="submit" class="secondary">Löschen + Sperrliste
+           </button> <a href="/admin?q={esc(firm)}">abbrechen</a></p>
+      </form>
+      <p class="muted">Testdaten ohne Sperrvermerk löschen:
+         <code>python testfirm.py remove "…"</code> — nur für
+         test-Zwillinge.</p>""")
 
 
 def post_admin_delete(ctx, form):
@@ -1313,8 +1331,26 @@ def post_admin_delete(ctx, form):
         return admin_page(ctx, firm, error=f'{firm}: nicht gelöscht — {e}')
     detail = ', '.join(f'{t}: {n}' for t, n in gone.items())
     _event(home, 'erased', 'operator', detail=f'{sub_id} ({detail})')
+    if sub_id.startswith('test-'):
+        # a twin (testfirm.py) never objected: total forget, by identity
+        # and not by a button a hurried click could get wrong
+        return admin_page(ctx, None, note=(
+            f'{firm} (Testzwilling) ist restlos gelöscht ({detail}).'))
+    # doc/PAYMENT.md 3a — the suppression entry, always, for a real firm:
+    # the prospect list is rebuilt from PUBLIC procurement data, so a fully
+    # forgotten firm resurfaces as a fresh lead and gets written to again —
+    # Art. 17(3) DSGVO permits keeping exactly this much to honour the
+    # Art. 21 objection. Name + block + one event; no address, no notes,
+    # no history.
+    subscriptions.customer_update(
+        home, sub_id, name=cust.get('name') or firm,
+        award_names=cust.get('award_names') or [firm],
+        contact_state='hard_stopped')
+    _event(home, 'objection', sub_id,
+           detail='Sperrvermerk nach Löschung (Art. 17 Abs. 3)')
     return admin_page(ctx, None, note=(
-        f'{firm} ist vollständig gelöscht ({detail}).'))
+        f'{firm}: alle Daten gelöscht ({detail}); der Firmenname bleibt '
+        f'als Sperrvermerk — die Firma wird nie wieder angeschrieben.'))
 
 
 def get_experiments(ctx, environ):

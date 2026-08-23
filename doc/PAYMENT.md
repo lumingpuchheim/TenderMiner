@@ -71,15 +71,70 @@ of them. The operator decides: backdoor, or stop.
 | --- | --- | --- |
 | **Aktivieren** | `/admin/activate?sub_id=…` | the backdoor: `plan: paid` without Stripe, `paid_started` detail `admin (backdoor)`. For tests and payments arranged outside Stripe. Offered until the row is a customer. |
 | **Reaktivieren** | `/admin/unstop?sub_id=…` | the way back from `hard_stopped` — with a REQUIRED note (why/when the firm asked to return, or that this is a test), ledgered as `unstop` detail `admin: <note>`. The stop page's "dauerhaft" stays honest: only the firm's own request (or the operator's test) reopens the door. Revoked tokens stay revoked; standing links re-mint on the next mail. |
-| **Löschen** | `/admin/delete?sub_id=…` | full erasure (`subscriptions.erase`): customer row, every subscription version, every token, every app event — one transaction, then a firm can be invited again as if never seen. Doubles as Art. 17. Refused while a live Stripe subscription exists (deleting our records cannot stop a payment — stop first, which cancels). Refused for firms the frozen pre-migration JSONL files mention (`ledger.frozen_mentions`): deleting their DB rows would trip the stale-file guard on every later read. |
+| **Löschen** | `/admin/delete?sub_id=…` | full erasure (`subscriptions.erase`): customer row, every subscription version, every token, every app event — one transaction. Two buttons, see §3a: **Löschen + Sperrliste** (default) keeps the firm's name as a do-not-contact marker; **Restlos löschen** keeps nothing (test data only — a firm can be invited again as if never seen). Refused while a live Stripe subscription exists (deleting our records cannot stop a payment — stop first, which cancels). Refused for firms the frozen pre-migration JSONL files mention (`ledger.frozen_mentions`): deleting their DB rows would trip the stale-file guard on every later read. |
 
 Erasure is the one legal exception to the append-only triggers on
 `subscription_version` and `app_event`; `subscriptions.erase` drops the two
 delete-triggers inside its transaction and recreates them before commit.
 
-The operator's test loop ("I will frequently add and remove Jebsen"):
-Einladen → mails to own inbox → Aktivieren or a test-mode checkout →
-Stoppen → Reaktivieren or Löschen → Einladen again.
+### 3a. "Löscht alles und schreibt uns nie wieder" — the suppression entry
+
+The two demands collide: never-contact requires remembering the firm,
+erasure requires forgetting it. Art. 17 Abs. 3 DSGVO resolves it — data
+needed to comply with a legal obligation (here: honouring the Art. 21
+objection, durably) is exempt from erasure. So the DEFAULT delete keeps a
+**suppression entry**: after `erase`, the customer row is re-created with
+nothing but the firm's name(s) and `hard_stopped`, plus one `objection`
+event (`Sperrvermerk nach Löschung`). Address, notes, history, versions,
+tokens: gone. The row shows as `Widerspruch` with no data behind it.
+
+The marker is not pedantry: the prospect list is rebuilt from **public**
+procurement data every cycle, so a fully forgotten firm resurfaces as a
+fresh lead and would be written to again — the marker is what makes the
+erasure compatible with the promise. The reply to the firm, in one
+sentence: „Wir haben alle Ihre Daten gelöscht. Nur Ihren Firmennamen
+behalten wir als Sperrvermerk — das ist nötig, um Ihren Wunsch, nie wieder
+kontaktiert zu werden, dauerhaft zu erfüllen (Art. 17 Abs. 3 DSGVO)."
+
+There is no restlos button for a real firm: the total forget exists only
+for test twins (§3b), decided by the `test-` id and not by a click a hurry
+could get wrong.
+
+### 3b. Test twins — `testfirm.py` (operator's manual: doc/TESTFIRM.md)
+
+The operator tests with real firms, and every admin state is then a false
+statement about a real firm ("Jebsen objected" — they didn't; "never
+contact Jebsen" — they're a real prospect). The twin resolves it: `add`
+builds a customer from the REAL firm's public award history (that is what
+makes the mails real — same profile door as a real invitation) under the
+identity `test-<slug>` / "TEST <name>", pointed at the operator's inbox.
+
+* A twin is a full customer to delivery (operator, 2026-08-22: "i want to
+  receive real monday mails for test companies") — the Monday cron mails
+  it, the trial clock runs: four free mails, the ask, silence. `remove` +
+  `add` restarts the trial; `add --paid` makes the Mondays endless.
+* `send` mails the current report NOW through the same door — it counts as
+  one of the trial mails, because it is one.
+* Twins are excluded from the admin counts line; the real firm's row stays
+  untouched and invitable throughout.
+* `remove` (and the admin Löschen page for a `test-` id) erases restlos —
+  a twin never objected, so no Sperrvermerk — and the `test-` prefix guard
+  means the tool cannot delete a real firm. A test-mode Stripe
+  subscription is cancelled first; if that fails the erase proceeds and
+  the id is printed for the dashboard.
+
+```
+python testfirm.py add "Jebsen" [--email you@…] [--paid]
+python testfirm.py send "Jebsen"
+python testfirm.py remove "Jebsen"
+python testfirm.py list
+```
+
+The operator's test loop ("I will frequently add and remove Jebsen") does
+NOT run through these doors — it runs on twins (§3b):
+`testfirm.py add "Jebsen"` → real Monday mails / `send` / a test-mode
+checkout → `testfirm.py remove "Jebsen"` → add again. The real firm's row
+never carries a test state.
 
 ## 4. The transport (`stripe_pay.py`)
 

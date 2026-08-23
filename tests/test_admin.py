@@ -1151,3 +1151,71 @@ class TheInForceCheckSurvivesTheOperatorsPassword(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class OneCompanyNotTwoRows(unittest.TestCase):
+    """The index lists companies, not the spellings clerks typed.
+
+    `SoftwareONE Deutschland GmbH` (140 wins) and `SoftwareOne Deutschland
+    GmbH` (35) were two rows here and one company in the world, and the
+    operator wrote to whichever row they happened to open.
+    """
+
+    NAMES = ['Weber Ausbau GmbH'] * 3 + ['WEBER Ausbau GmbH']
+
+    def setUp(self):
+        import pandas as pd
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+        (self.dir / 'store').mkdir()
+        pd.DataFrame([{
+            'procedure_id': f'p{i}', 'lot_id': 'LOT-0001',
+            'publication_number': f'0000000{i}-2026',
+            'publication_date': f'2026-0{i + 1}-01', 'buyer_nuts': 'DE300',
+            'n_tenders': 1, 'winner_names': [name],
+            'winner_national_ids': ['DE 312 456 789'],
+            'winner_postal_zones': ['30159'], 'winner_size': 'small',
+            'source_file': 'a.xml'} for i, name in enumerate(self.NAMES)]
+        ).to_parquet(self.dir / 'store' / 'awards.parquet')
+        pd.DataFrame([{'procedure_id': f'p{i}', 'lot_id': 'LOT-0001',
+                       'publication_number': f'0000000{i}-2026',
+                       'title': 'Trockenbauarbeiten',
+                       'description': 'Trockenbau und Innenausbau',
+                       'buyer_name': 'Stadt Musterhausen'}
+                      for i in range(len(self.NAMES))]
+                     ).to_parquet(self.dir / 'store' / 'tenders.parquet')
+        admin.build_index(self.dir)
+        admin._cache.update(mtime=None, firms=None)
+        import firms
+        firms._cache.update(stamp=None, groups=None)
+
+    def rows(self):
+        return admin.index(self.dir)
+
+    def test_two_spellings_are_one_row_with_the_wins_added_up(self):
+        rows = self.rows()
+        self.assertEqual(list(rows), ['Weber Ausbau GmbH'])
+        self.assertEqual(rows['Weber Ausbau GmbH']['wins'], 4)
+        self.assertEqual(sorted(rows['Weber Ausbau GmbH']['spellings']),
+                         ['WEBER Ausbau GmbH', 'Weber Ausbau GmbH'])
+
+    def test_the_firm_is_found_under_the_spelling_that_is_not_the_heading(self):
+        state = admin.state_of(self.dir)
+        rows, total = admin.search(self.dir, 'WEBER Ausbau', state)
+        self.assertEqual(total, 1)
+        self.assertEqual(rows[0]['company'], 'Weber Ausbau GmbH')
+
+    def test_a_customer_recorded_under_the_other_spelling_is_not_a_prospect(self):
+        # The objection case (doc/PAYMENT.md 3a): a firm that asked never to be
+        # written to again is recorded under the spelling it was invited by. If
+        # the index row's heading is the OTHER spelling and only the heading is
+        # looked up, the firm comes back as a fresh prospect.
+        state = {'sub_of': {'WEBER Ausbau GmbH': 'weber-sub'},
+                 'customers': {'weber-sub': {'contact_state': 'hard_stopped'}},
+                 'events': {'weber-sub': [{'kind': 'objection'}]},
+                 'name_of': {'weber-sub': 'WEBER Ausbau GmbH'}}
+        row = self.rows()['Weber Ausbau GmbH']
+        self.assertIsNone(state['sub_of'].get(row['company']))   # the old bug
+        self.assertEqual(admin.sub_id_of(state, row), 'weber-sub')
+        self.assertEqual(admin.status_of(state, row)['label'], 'Widerspruch')

@@ -495,6 +495,24 @@ def award_results(root, orgs, keys):
             winning = lot_bids
         winners = sorted({n for b in winning for n in b['tenderer_names']})
         winner_orgs = {o for b in winning for o in b['tenderer_ids'] if o in orgs}
+        # The winner's registration number, postcode and city, in the SAME order as
+        # winner_names. A typed name is not an identity — the same firm arrives as
+        # "SVA GmbH" and "SVA System Vertrieb Alexander GmbH", and two different
+        # companies share the name "Matthai Bauunternehmen GmbH & Co. KG". The
+        # notice carries these three fields for every organisation and they are what
+        # firms.py votes on. Kept exactly as published, junk included ('Keine Angabe',
+        # telephone numbers, UUIDs): deciding which of them is usable is a reader's
+        # job, not the extractor's.
+        org_by_name = {}
+        for o in sorted(winner_orgs):
+            nm = orgs[o]['buyer_name']
+            if nm:
+                org_by_name.setdefault(nm, orgs[o])
+        winner_ids = [(org_by_name.get(n) or {}).get('buyer_national_id')
+                      for n in winners]
+        winner_zips = [(org_by_name.get(n) or {}).get('buyer_postal_zone')
+                       for n in winners]
+        winner_cities = [(org_by_name.get(n) or {}).get('buyer_city') for n in winners]
         winner_sizes = {orgs[o]['company_size'] for o in winner_orgs} - {None}
         winner_size = winner_sizes.pop() if len(winners) == 1 and len(winner_sizes) == 1 else None
         n_ubos = sum(orgs[o]['n_ubos'] for o in winner_orgs)
@@ -535,6 +553,9 @@ def award_results(root, orgs, keys):
             'n_winning_bids': len(lot_bids),
             'winning_bids': lot_bids,
             'winner_names': winners,
+            'winner_national_ids': winner_ids,
+            'winner_postal_zones': winner_zips,
+            'winner_cities': winner_cities,
             'n_winners': len(winners),
             'winner_size': winner_size,
             'n_beneficial_owners': n_ubos,
@@ -1023,7 +1044,9 @@ ROLES = {
     'n_participation_requests': 'numeric', 'submission_statistics': 'nested',
     'lowest_tender_amount': 'numeric', 'highest_tender_amount': 'numeric',
     'n_winning_bids': 'numeric', 'winning_bids': 'nested',
-    'winner_names': 'entity', 'n_winners': 'numeric', 'winner_size': 'categorical',
+    'winner_names': 'entity', 'winner_national_ids': 'entity',
+    'winner_postal_zones': 'entity', 'winner_cities': 'entity',
+    'n_winners': 'numeric', 'winner_size': 'categorical',
     'n_beneficial_owners': 'numeric', 'contract_id': 'key',
     'contract_reference': 'key', 'contract_title': 'text',
     'contract_signed_date': 'date', 'contract_award_date': 'date',
@@ -1208,6 +1231,9 @@ AWARD_SCHEMA = pa.schema([
     ('n_winning_bids', pa.int32()),
     ('winning_bids', pa.list_(BID)),
     ('winner_names', pa.list_(pa.string())),
+    ('winner_national_ids', pa.list_(pa.string())),
+    ('winner_postal_zones', pa.list_(pa.string())),
+    ('winner_cities', pa.list_(pa.string())),
     ('n_winners', pa.int32()),
     ('winner_size', pa.string()),
     ('n_beneficial_owners', pa.int32()),
