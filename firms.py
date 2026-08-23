@@ -369,6 +369,20 @@ def _conflict(ids_a, ids_b):
     return False
 
 
+def _forms_conflict(forms_a, forms_b):
+    """True when two groups state different legal forms.
+
+    The pair rule already refuses "Bechtle GmbH" and "Bechtle AG". It was not
+    enough: the bare spelling "Bechtle" states no form, so it merges with each
+    of them and chains all three into one company — which is what the live
+    store showed the first time this ran against it. A group inherits every
+    form its members state, and a name-based merge across two stated forms is
+    refused. A matching registration number still overrides it: a firm that
+    writes itself GmbH in one notice and AG in the next, under one number, is
+    one firm."""
+    return bool(forms_a and forms_b and not (forms_a & forms_b))
+
+
 def resolve(firms):
     """-> (clusters, blocked) — the firms grouped into companies, and the pairs
     a registration number refused to merge. Those are the list a person reads.
@@ -405,9 +419,12 @@ def resolve(firms):
 
     union = _Union()
     ids = {}          # cluster root -> {kind: set of numbers}
+    forms = {}        # cluster root -> the legal forms its spellings state
     why = collections.defaultdict(list)
     for f in firms:
-        ids[union.find(id(f))] = {k: set(f.ids[k]) for k in f.ids if f.ids[k]}
+        root = union.find(id(f))
+        ids[root] = {k: set(f.ids[k]) for k in f.ids if f.ids[k]}
+        forms[root] = legal_forms(f.clean)
     refused = 0
     for _, _, a, b, reason in proposals:
         ra, rb = union.find(id(a)), union.find(id(b))
@@ -418,13 +435,21 @@ def resolve(firms):
             blocked.append((a, b, 'another spelling in one of the two groups '
                                   'has a different registration number'))
             continue
+        if ('registration' not in reason
+                and _forms_conflict(forms.get(ra, set()), forms.get(rb, set()))):
+            refused += 1
+            blocked.append((a, b, 'the two groups state different legal forms '
+                                  'and no registration number says otherwise'))
+            continue
         merged_ids = dict(ids.get(ra, {}))
         for kind, numbers in ids.get(rb, {}).items():
             merged_ids[kind] = merged_ids.get(kind, set()) | numbers
+        merged_forms = forms.get(ra, set()) | forms.get(rb, set())
         merged_why = why.pop(ra, []) + why.pop(rb, []) + [reason]
         union.union(ra, rb)
         root = union.find(ra)
         ids[root] = merged_ids
+        forms[root] = merged_forms
         why[root] = merged_why
 
     grouped = collections.defaultdict(list)

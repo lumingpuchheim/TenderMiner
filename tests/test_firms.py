@@ -221,6 +221,21 @@ class OneBadLinkDoesNotWeldTwoFirms(unittest.TestCase):
         self.assertTrue(any('different registration number' in why
                             for _, _, why in blocked))
 
+    def test_a_form_less_spelling_cannot_chain_two_legal_forms(self):
+        # "Bechtle" states no legal form, so it merges with both "Bechtle GmbH"
+        # and "Bechtle AG" — and welded all three into one company the first
+        # time this ran against the live store.
+        clusters, blocked = firms.resolve([firm('Bechtle GmbH'), firm('Bechtle AG'),
+                                           firm('Bechtle')])
+        self.assertEqual(len(clusters), 2)
+        self.assertTrue(any('different legal forms' in why for _, _, why in blocked))
+
+    def test_a_number_still_beats_the_legal_form(self):
+        clusters, _ = firms.resolve([firm('Bechtle GmbH', ('DE145104053', '74172')),
+                                     firm('Bechtle AG', ('DE145104053', '74172')),
+                                     firm('Bechtle', ('DE145104053', '74172'))])
+        self.assertEqual(len(clusters), 1)
+
     def test_branch_spellings_still_gather_under_one_company(self):
         head = firms.Firm('STRABAG AG')
         for _ in range(20):
