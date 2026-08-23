@@ -176,6 +176,17 @@ class TwoCompaniesThatLookAlike(unittest.TestCase):
                                      firm('SoftwareONE Deutschland')])
         self.assertEqual(len(clusters), 1)
 
+    def test_a_pair_that_ends_up_together_is_not_reported_as_apart(self):
+        # A and C are refused directly; B links both on evidence neither had.
+        # The reader must not be handed a disagreement that resolved itself.
+        a = firm('Kessler Rohrbau GmbH', ('DE111222333', '30159'))
+        b = firm('Kessler Rohrbau GmbH Nord', ('DE111222333', '30159'),
+                 ('DE444555666', '30159'))
+        c = firm('Kessler Rohrbau GmbH Süd', ('DE444555666', '30159'))
+        clusters, blocked = firms.resolve([a, b, c])
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(blocked, [])
+
     def test_a_short_name_never_swallows_a_longer_one(self):
         clusters, _ = firms.resolve([firm('Bau GmbH'), firm('Baumann GmbH')])
         self.assertEqual(len(clusters), 2)
