@@ -31,10 +31,15 @@ def payload(pooled, by_trade=None, n_neg=1000, recall=0.6, n_pos=500):
 
 class TheTradeGroups(unittest.TestCase):
 
-    def test_the_three_divisions_map_to_two_groups(self):
+    def test_each_division_in_the_store_has_its_own_group(self):
+        """Three divisions, three groups — 48 and 72 are not merged
+        (operator, 2026-08-23): a bar measured across both is a bar neither
+        trade chose, which is the pooling this module exists to stop."""
         self.assertEqual(evidence.trade_of('45213150'), 'construction')
-        self.assertEqual(evidence.trade_of('48000000'), 'it')
-        self.assertEqual(evidence.trade_of('72268000'), 'it')
+        self.assertEqual(evidence.trade_of('48000000'), 'software')
+        self.assertEqual(evidence.trade_of('72268000'), 'it-services')
+        self.assertEqual(len(set(evidence.TRADE_GROUPS.values())),
+                         len(evidence.TRADE_GROUPS))
 
     def test_a_code_outside_the_scope_has_no_group(self):
         self.assertIsNone(evidence.trade_of('30200000'))
@@ -50,6 +55,15 @@ class TheTradeGroups(unittest.TestCase):
         self.assertIsNone(evidence.firm_trade(['45213150', '72000000']))
         self.assertIsNone(evidence.firm_trade([]))
 
+    def test_a_firm_split_between_software_and_it_services_is_pooled_only(self):
+        """The cost of the split, stated: an even 48/72 winner used to be
+        'it' and now has no majority. Measurement only — the firm's own
+        market is its subscription's cpv_prefixes."""
+        self.assertIsNone(evidence.firm_trade(['48000000', '72268000']))
+        self.assertEqual(
+            evidence.firm_trade(['48000000', '48100000', '72268000']),
+            'software')
+
 
 class TheHardBarHoldsPerTrade(unittest.TestCase):
 
@@ -58,8 +72,8 @@ class TheHardBarHoldsPerTrade(unittest.TestCase):
         m = backplay.judge_read(payload(
             0.019, {'construction': {'leakage': 0.024, 'n_neg': 600,
                                      'recall': 0.6, 'n_pos': 300},
-                    'it': {'leakage': 0.014, 'n_neg': 400,
-                           'recall': 0.6, 'n_pos': 200}}))
+                    'software': {'leakage': 0.014, 'n_neg': 400,
+                                 'recall': 0.6, 'n_pos': 200}}))
         self.assertEqual(len(m), 1)
         self.assertAlmostEqual(m[0]['leakage'], 0.024)
         self.assertEqual(m[0]['leakage_trade'], 'construction')
@@ -76,8 +90,9 @@ class TheHardBarHoldsPerTrade(unittest.TestCase):
         """One flipped lot in a thin trade moves the rate more than a real
         change would, so it may not kill a candidate."""
         m = backplay.judge_read(payload(
-            0.019, {'it': {'leakage': 0.5, 'n_neg': backplay.TRADE_MIN_NEG - 1,
-                           'recall': 0.6, 'n_pos': 10}}))
+            0.019, {'software': {'leakage': 0.5,
+                                 'n_neg': backplay.TRADE_MIN_NEG - 1,
+                                 'recall': 0.6, 'n_pos': 10}}))
         self.assertAlmostEqual(m[0]['leakage'], 0.019)
         self.assertIsNone(m[0].get('leakage_trade'))
 
@@ -100,8 +115,10 @@ class TheHardBarHoldsPerTrade(unittest.TestCase):
         cand = backplay.judge_read(payload(
             0.015, {'construction': {'leakage': 0.018, 'n_neg': 600,
                                      'recall': 0.6, 'n_pos': 300},
-                    'it': {'leakage': 0.012, 'n_neg': 400,
-                           'recall': 0.6, 'n_pos': 200}}))
+                    'software': {'leakage': 0.012, 'n_neg': 400,
+                                 'recall': 0.6, 'n_pos': 200},
+                    'it-services': {'leakage': 0.011, 'n_neg': 400,
+                                    'recall': 0.6, 'n_pos': 200}}))
         dead, _ = backplay.rejects([], cand)
         self.assertFalse(dead)
 

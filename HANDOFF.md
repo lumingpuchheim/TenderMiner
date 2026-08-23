@@ -52,55 +52,85 @@ Three trusted-codes files exist:
 | --- | --- | --- |
 | serving | in the image, `/app/trusted_codes_jina-v2-base-de.json` | Aug 6, 56 codes, construction era |
 | rejected | `/data/scratch/calib/` on the server | pooled/diluted, 220 codes, ~122 certified by dilution — evidence only |
-| candidate | `/data/scratch/calib2/` on the server | per-division, 95 codes — the one proposed |
+| candidate | `/data/scratch/calib2/` on the server | per-division, 95 codes — REJECTED by the flip receipt, 10 construction cases worse |
 
 Corrected calibration numbers (candidate): per-division cuts 45 0.479,
 48 0.456, 72 0.475; recommended text bar back to **0.700** (the pooled run had
 dragged it to 0.660, looser than the paying customer's own 0.68); recall
 63.0%, leakage 1.7% (bar 2.2%).
 
+## What happened on 2026-08-23, afternoon
+
+**The flip receipt ran to the end, and it FAILS.** 1,712 construction lots
+judged under both trusted-codes lists; 17 verdicts change: 7 fixed, 10 worse.
+The full list with titles is in `/data/logs/flips.log` on the server. The
+seven losses are not borderline lots — SPIE SAG on Hoch-/Mittelspannung, Nahm
+and HADI on heating, Johmann on sanitary, Beck on Zimmer-/Holzbau, Heinrich
+Schmid on Bodenbeschichtung, Schandert on Sonnenschutz: each is the firm's
+own trade, thrown out. The seven gains are almost all one narrow shape,
+floor-covering lots correctly dropped. **The candidate list is not swapped and
+must not be.** Trusted codes went 45: 56 -> 86, plus 7 codes in 48 and 2 in
+72; which of those two movements causes the losses is NOT yet established.
+
+**The trade groups are now one per division** (operator: "there are three
+categories from CPV and there are only two values... treat some separately so
+that one never interferes the other"). 48 and 72 were one group on a
+shared-firms argument; that argument has the same shape as the pooled numbers
+this work exists to stop. `evidence.TRADE_GROUPS` is now
+`{'45': 'construction', '48': 'software', '72': 'it-services'}` and everything
+downstream keys off that table, so calibrate searches three sub-stores,
+`judge_run` tallies three, and `judge_read` takes the worst of pooled and
+three trades. `calibrate.py --trade GROUP` (repeatable) searches one group
+without re-running the others.
+
+Sizes, for what each bar will rest on: division 45 has 81,011 lots and 4,528
+firms with >= 3 awarded lots; 72 has 7,106 and 335; 48 has 4,722 and 157.
+Software is the thin one — its numbers will be coarser than construction's,
+and `backplay.TRADE_MIN_NEG` may keep it from binding at all. Not a reason to
+merge it into 72; a reason to read its row with its firm count beside it.
+
 ## NEXT STEPS, in order
 
-1. **Re-run the flip receipt — it was interrupted mid-run.** It is the gate on
-   swapping the trusted-codes artifact. Run it DETACHED (it takes well over
-   10 minutes) and read the output file, don't foreground it:
+1. **Re-run the calibration, three groups.** The two-group run was killed
+   mid-flight when the grouping changed; nothing from it was kept. Detached,
+   ~25 minutes, on the deployed image with the branch code shadowing it:
 
 ```bash
-ssh debian@57.129.112.187 "docker run -d --rm --name tm-flips -v /home/debian/tm-state:/data -w /app -e PYTHONPATH=/app tendermining:4e1e7da sh -c 'python /data/scratch/receipt_gate_flips.py --data-dir /data --serving /app/trusted_codes_jina-v2-base-de.json --candidate /data/scratch/calib2/trusted_codes_jina-v2-base-de.json --benchmark /app/benchmark_relevance.jsonl > /data/logs/flips.log 2>&1'"
+ssh debian@57.129.112.187 "docker run -d --rm --name tm-calib3 -v /home/debian/tm-state:/data -w /data/scratch/calib3 -e PYTHONPATH=/data/scratch/code3:/app tendermining:09b8937 sh -c 'python /data/scratch/code3/calibrate.py --data-dir /data > /data/logs/calib3.log 2>&1'"
 ```
 
-   `receipt_gate_flips.py` is already at `/data/scratch/` on the server, but
-   re-copy it if you change it. It prints every construction benchmark verdict
-   that changes between the two lists, as a readable title, and exits 1 if any
-   case the operator has already read gets WORSE. Show the operator the flips.
+   `/data/scratch/code3/` holds the branch copies of the changed modules;
+   re-copy them after any edit or the run uses the image's older code.
 
-2. **Re-run the calibration with the current `calibrate.py`.** The candidate
-   list came from an earlier copy (`/data/scratch/calibrate_perdiv.py`) that
-   has the per-division baseline but NOT the new `--trade` per-trade defaults.
-   A fresh run produces the `defaults_by_trade` block (what a NEW customer of
-   each trade should be given) and the receipt's per-trade table. Run detached
-   into its own scratch dir; the previous full run took ~25 minutes.
+2. **Re-run the flip receipt against the list that run produces**, not
+   against `calib2/`. Same command as before with `--candidate` pointing at
+   `/data/scratch/calib3/trusted_codes_jina-v2-base-de.json`. Note the
+   container is `--rm` and the script prints to stdout only: start
+   `docker logs -f <name> > /data/logs/flips.log` alongside it, or the
+   receipt is lost when the container exits.
 
-3. **Show the operator two things and wait**: the flips, and the per-trade
-   defaults table. Only then merge the branch to master and push (which
-   auto-deploys via the GitHub Action) — benchmark, per-trade bar, corrected
-   trusted codes and receipts in ONE move.
+3. **If it still fails, find out which movement causes the losses** before
+   proposing any swap: re-run with a candidate list built from the
+   per-division trust but restricted to division 45, and see whether the
+   seven losses survive. That separates "IT codes entered the file" from
+   "construction gained 30 codes of its own".
 
-4. **Still open, lower priority**
-   - The relevance thresholds are now *recommended* per trade but no IT
-     customer uses them yet; IT friends start on the trade filter alone
-     (`cpv_prefixes: ["72","48"]` + `profile_texts`, no `min_relevance`).
-     Before turning the gate on for a real IT customer, show the operator a
-     sample of how it judges IT lots.
+4. **Show the operator the flips and the three-row defaults table, and wait.**
+
+5. **Still open, lower priority**
+   - No IT customer uses the gate yet; IT friends run on the trade filter
+     alone (`cpv_prefixes: ["72","48"]` + `profile_texts`, no
+     `min_relevance`). Before the gate is turned on for a real IT customer,
+     show the operator a sample of how it judges IT lots.
    - `[shadow] guard sample skipped ('sub_id')` in the cycle log is
-     PRE-EXISTING (also in the 2026-08-18 manual cycle), deliberately caught
-     so it cannot fail a cycle. Not investigated. It means the gate guardrail
-     sample is not being queued.
-   - IT tenders carry non-IT contamination (a nutrition-coaching contract
-     under CPV 72000000, electrical work under 72220000). Worth measuring —
-     it bounds how much of the ~92 IT lots/week is really IT.
+     PRE-EXISTING and deliberately caught so it cannot fail a cycle. It means
+     the gate guardrail sample is not being queued. Not investigated.
+   - IT tenders carry non-IT contamination (nutrition coaching under CPV
+     72000000, electrical work under 72220000). Worth measuring — it bounds
+     how much of the ~92 IT lots/week is really IT.
    - The `Leistung` section is empty on nearly every IT lot, so both readers
      and the gate lean on title + description there.
+   - WATCH MONDAY'S CYCLE RUNTIME (~1h recurring against a 90-minute gap).
 
 ## Standing constraints (learned the hard way this session)
 

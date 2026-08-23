@@ -909,6 +909,12 @@ def main():
                     help='print a trade-fingerprint demo (optionally for FIRM) and exit')
     ap.add_argument('--no-trades', action='store_true', dest='no_trades',
                     help='skip the per-trade threshold searches (pooled only)')
+    ap.add_argument('--trade', action='append', metavar='GROUP', dest='trades',
+                    help='search only this trade group (repeatable); the '
+                         'default is every group in evidence.TRADE_GROUPS. '
+                         'One trade cannot move another trade number — each '
+                         'searches its own sub-store — so a bar can be hunted '
+                         'for one division without re-running the rest.')
     args = ap.parse_args()
     if args.fingerprint is not None:
         trade_fingerprint_demo(args.data_dir, args.fingerprint or None)
@@ -925,7 +931,15 @@ def main():
     defaults = {}
     if not args.no_trades:
         from evidence import TRADE_GROUPS
-        for group in sorted(set(TRADE_GROUPS.values())):
+        groups = sorted(set(TRADE_GROUPS.values()))
+        if args.trades:
+            unknown = sorted(set(args.trades) - set(groups))
+            if unknown:
+                raise SystemExit(
+                    f'--trade: no such group {unknown}; known groups are '
+                    f'{groups}')
+            groups = [g for g in groups if g in set(args.trades)]
+        for group in groups:
             try:
                 tr = calibrate(args.data_dir, trade=group)
             except WorldTooThin as e:

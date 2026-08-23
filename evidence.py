@@ -345,9 +345,16 @@ MIN_WINS = 3
 # numbers steer per-trade behaviour once the store spans trades, so recall
 # and leakage are tallied per group beside the pooled figures. From cpv_main
 # on purpose and NEVER customer-facing — the customer-facing grouping stays
-# title-words by standing rule. 48 and 72 are one group: shared language,
-# shared firms (the system houses win both).
-TRADE_GROUPS = {'45': 'construction', '48': 'it', '72': 'it'}
+# title-words by standing rule.
+#
+# ONE GROUP PER DIVISION, never a merge (operator, 2026-08-23). 48 and 72
+# were one group on a shared-firms argument, and that argument is the same
+# shape as the pooled numbers this file exists to stop: a bar measured
+# across two divisions is a bar neither of them chose. The store holds
+# three divisions, so it carries three bars, and none of them can move
+# because another trade grew. A division added later gets its own group in
+# the same commit that admits it to the store.
+TRADE_GROUPS = {'45': 'construction', '48': 'software', '72': 'it-services'}
 
 
 def trade_of(cpv):
@@ -357,7 +364,13 @@ def trade_of(cpv):
 
 def firm_trade(win_cpvs):
     """A firm's group: the strict majority of its wins' divisions, else None
-    (no majority = the firm stays in the pooled numbers only)."""
+    (no majority = the firm stays in the pooled numbers only).
+
+    Splitting 48 from 72 (2026-08-23) costs the firms that win evenly in
+    both: they now have no majority and count only pooled. That is the
+    price of a bar per division, and it is paid by the measurement, not
+    by any customer — a subscription's market is its own cpv_prefixes.
+    """
     groups = [g for g in (trade_of(c) for c in win_cpvs) if g]
     if not groups:
         return None

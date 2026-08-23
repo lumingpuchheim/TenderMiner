@@ -39,11 +39,23 @@ per-trade version.
 
 ## 3. Trade groups
 
-`evidence.TRADE_GROUPS`: division 45 -> `construction`; 48 and 72 -> `it`
-(one group: shared language, shared firms — the system houses win both).
+`evidence.TRADE_GROUPS`: one group per CPV division in the store — 45 ->
+`construction`, 48 -> `software`, 72 -> `it-services`. Three divisions,
+three bars, and **no group is ever a merge of two divisions** (operator,
+2026-08-23: "treat some separately so that one never interferes the other").
+
+48 and 72 were briefly one group, argued from shared language and shared
+firms. That argument has the same shape as the pooled numbers this component
+exists to stop: a bar measured across two divisions is a bar neither of them
+chose, and a division that grows drags the other's number with it. A division
+admitted to the store later gets its own group in the same commit.
+
 Measurement-internal, from `cpv_main` — never customer-facing, which stays
 title-words by standing rule. A firm's group is the majority division of its
-embedded wins; firms with no majority stay in the pooled numbers only.
+embedded wins; firms with no majority stay in the pooled numbers only, which
+after the split includes firms winning evenly across software and IT
+services. That is the price of the split and it is paid by the measurement,
+never by a customer — a subscription's market is its own `cpv_prefixes`.
 
 ## 4. What changes
 
