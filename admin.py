@@ -90,15 +90,26 @@ def _refs_of(g, by_lot, max_refs):
 
 
 def _firm_rows(ex):
-    """{winner name: the numbers the row prints} — from the awards store
-    alone, no texts. Cheap (a groupby over the exploded awards) and the only
-    thing an EMPTY query ever needs, so it is what `customers_only` reads
-    when there is no index file yet."""
+    """{company: the numbers the row prints} — from the awards store alone, no
+    texts. Cheap (a groupby over the exploded awards) and the only thing an
+    EMPTY query ever needs, so it is what `customers_only` reads when there is
+    no index file yet.
+
+    One row per COMPANY, not per spelling: `SoftwareONE Deutschland GmbH` with
+    140 wins and `SoftwareOne Deutschland GmbH` with 35 were two rows in this
+    index and one company in the world, and the operator wrote to whichever
+    one they happened to open. Every spelling is kept in `spellings` — a letter
+    still quotes what TED published, and a customer registered under any of
+    them is still found (`state_of`)."""
     firms = {}
-    for name, g in ex.groupby('company'):
+    for name, g in ex.groupby('firm' if 'firm' in ex.columns else 'company'):
         sizes = g['winner_size'].dropna()
+        spellings = (sorted(g['company'].value_counts().index,
+                            key=lambda s: (-int((g['company'] == s).sum()), s))
+                     if 'company' in g.columns else [name])
         firms[name] = {
             'company': name,
+            'spellings': list(spellings),
             'size': str(sizes.mode().iloc[0]) if len(sizes) else 'unknown',
             'wins': int(len(g)),
             'single_bid_wins': int((g['n_tenders'] <= 1).sum()),
@@ -123,9 +134,18 @@ def build_index(data_dir, out=None):
     import pyarrow.parquet as pq
     import evidence as evd
     import outreach
+    import firms as firm_identity
     store = Path(data_dir) / 'store'
     out = Path(out) if out else Path(data_dir) / INDEX_FILE
-    ex = outreach.winner_rows(store)
+    # The identity pass, ~20 s over 22,000 names. It happens HERE and nowhere
+    # else: this file is what every reader consults for which spellings are one
+    # company (firms.groups), so a request never pays for it.
+    clusters, blocked = firm_identity.resolve_store(store)
+    groups = {spelling: c.name for c in clusters for spelling in c.spellings}
+    print(f'[admin] {len(groups)} winner spellings -> {len(clusters)} companies '
+          f'({sum(1 for c in clusters if len(c.spellings) > 1)} merged, '
+          f'{len(blocked)} left apart)')
+    ex = outreach.winner_rows(store, groups=groups)
     firms = _firm_rows(ex)
     have = set(pq.read_schema(store / 'tenders.parquet').names)
     cols = [c for c in ('procedure_id', 'lot_id', 'title', 'description',
@@ -141,7 +161,10 @@ def build_index(data_dir, out=None):
         del lots
     import trade_pages
     trade_words = trade_pages.market.load_trades()
-    for name, g in ex.groupby('company'):
+    for name, g in ex.groupby('firm'):
+        # The gate's six newest references, over the COMPANY — a firm whose
+        # last wins were published under its other spelling was deriving its
+        # trade from older lots, or from none.
         texts, titles, dates = _refs_of(g, by_lot, outreach.MAX_PROFILE_REFS)
         core = evd.core_keywords(texts, firm=name, titles=titles, dates=dates)
         counts = evd.root_share(texts)
@@ -191,6 +214,7 @@ def index(data_dir):
         doc = json.loads(p.read_text(encoding='utf-8'))
         for f in doc['firms']:
             f['name_cf'] = f['company'].casefold()
+            f.setdefault('spellings', [f['company']])
             f.setdefault('core', [])
             f.setdefault('counts', {})
             f.setdefault('name_roots', [])
@@ -231,7 +255,8 @@ def customers_only(data_dir, state):
         try:
             import outreach
             ex = outreach.winner_rows(Path(data_dir) / 'store')
-            firms.update(_firm_rows(ex[ex['company'].isin(names)]))
+            wanted = set(ex.loc[ex['company'].isin(names), 'firm'])
+            firms.update(_firm_rows(ex[ex['firm'].isin(wanted)]))
         except Exception as e:                                 # noqa: BLE001
             print(f'[admin] awards store unavailable ({e})')
     return [firms.get(name, {'company': name, 'size': '—', 'wins': 0,
@@ -295,12 +320,13 @@ def search(data_dir, q, state, limit=LIMIT):
         rows, strength = [], {}
         for f in firms.values():
             hit = trade_strength(f, roots) if roots else None
-            if hit is None and q not in f['name_cf']:
+            if hit is None and q not in f['name_cf'] and not any(
+                    q in sp.casefold() for sp in f.get('spellings', ())):
                 continue
             rows.append(f)
             strength[f['company']] = hit or (0.0, 0)
     total = len(rows)
-    rows.sort(key=lambda f: (0 if state['sub_of'].get(f['company']) else 1,
+    rows.sort(key=lambda f: (0 if sub_id_of(state, f) else 1,
                              -strength.get(f['company'], (0.0, 0))[0],
                              -strength.get(f['company'], (0.0, 0))[1],
                              -f.get('wins', 0), f['company']))
@@ -352,10 +378,30 @@ def state_of(home, today=None):
             'sub_of': sub_of, 'name_of': name_of, 'today': today}
 
 
+def sub_id_of(state, firm):
+    """The customer behind a firm row, found under ANY of its spellings.
+
+    A customer's `award_names` hold the spellings that were current when they
+    were invited; the index row is now headed by the company's commonest
+    spelling, which need not be one of them. Looking up only the heading would
+    show an existing customer as a fresh prospect — and, for a firm that
+    objected (`hard_stopped`, doc/PAYMENT.md 3a), would offer it up to be
+    written to again. So every spelling is tried."""
+    if isinstance(firm, dict):
+        names = [firm.get('company')] + list(firm.get('spellings') or ())
+    else:
+        names = [firm]
+    for name in names:
+        if name and state['sub_of'].get(name):
+            return state['sub_of'][name]
+    return None
+
+
 def status_of(state, company):
     """One firm's standing -> {sub_id, label, cls, email} (doc/ADMIN.md 3).
-    Computed from the record on every request, never stored."""
-    sub_id = state['sub_of'].get(company)
+    Computed from the record on every request, never stored. `company` may be
+    a name or a whole index row; a row is matched under every spelling."""
+    sub_id = sub_id_of(state, company)
     if sub_id is None:
         return {'sub_id': None, 'label': 'nicht eingeladen', 'cls': 'st-none',
                 'email': None}
@@ -750,7 +796,7 @@ def list_html(data_dir, q, state, *, url=None, url_firm=None, error=None,
         return '\n'.join(parts)
     import trade_pages
     verdicts = trade_pages.forecasts(data_dir)
-    body = ''.join(_row_html(f, status_of(state, f['company']), None, roots,
+    body = ''.join(_row_html(f, status_of(state, f), None, roots,
                              verdicts)
                    for f in rows)
     parts.append('<table class="adm"><thead><tr><th>Firma / Gewerk</th>'

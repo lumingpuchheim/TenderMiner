@@ -38,6 +38,7 @@ so a letter can still quote the exact string TED published.
 import collections
 import difflib
 import re
+from pathlib import Path
 
 # A name that is really a sentence, a note to the reader, or an empty form. The
 # `Keine Angabe …` one covers five BITMARCK lots whose winners are lawfully
@@ -82,6 +83,9 @@ NAME_STRONG = 0.90      # cores this alike are one firm unless the number says n
 NAME_WEAK = 0.84        # ... this alike needs the postcode to agree as well
 MIN_CORE = 6            # "bau" must never swallow "Baumann"
 MAX_BLOCK = 400         # a leading word shared by more names than this says nothing
+
+# What identity needs out of the awards store, and all it needs.
+COLUMNS = ('winner_names', 'winner_national_ids', 'winner_postal_zones')
 
 
 def is_firm_name(name):
@@ -463,3 +467,74 @@ def _at(values, i):
         return values[i] if i < len(values) else None
     except TypeError:
         return None
+
+
+# ---------------------------------------------------------------- the store
+
+_cache = {'stamp': None, 'groups': None}
+
+
+def resolve_store(store_dir):
+    """-> (clusters, blocked) for a whole awards store. Twenty seconds over
+    22,000 names, which is why exactly one thing calls it — `admin.build_index`,
+    the index file's only writer — and everything else reads the answer.
+
+    A store written before the identity columns existed still works: the
+    columns are simply absent and the vote falls back to names alone."""
+    import pandas as pd
+    import pyarrow.parquet as pq
+    path = Path(store_dir) / 'awards.parquet'
+    have = set(pq.read_schema(path).names)
+    awards = pd.read_parquet(path, columns=[c for c in COLUMNS if c in have])
+    return resolve(from_awards(awards))
+
+
+def groups(data_dir, index_file='admin_index.json'):
+    """-> {spelling: the company's name} for every winner spelling.
+
+    Read from the operator index, which `admin.build_index` writes with each
+    firm's spellings; recomputed from the store only if that file is missing or
+    older than the store. A spelling nobody merged maps to itself, so a caller
+    can always look up and never has to ask whether identity is available —
+    and a deployment with no index behaves exactly as it did before firms.py
+    existed, one spelling per company.
+    """
+    data_dir = Path(data_dir)
+    store = data_dir / 'store'
+    stamp = _store_stamp(store)
+    if _cache['stamp'] == stamp and _cache['groups'] is not None:
+        return _cache['groups']
+    found = _from_index(data_dir / index_file, stamp)
+    if found is None:
+        clusters, _ = resolve_store(store)
+        found = {spelling: c.name for c in clusters for spelling in c.spellings}
+    _cache.update(stamp=stamp, groups=found)
+    return found
+
+
+def _store_stamp(store):
+    try:
+        return tuple(sorted((f.name, f.stat().st_mtime_ns)
+                            for f in Path(store).glob('*.parquet')))
+    except OSError:
+        return None
+
+
+def _from_index(path, stamp):
+    """The spellings already worked out by the index build, but only if the
+    index is not older than the store it describes — a stale map would quietly
+    serve last week's companies."""
+    import json
+    try:
+        if stamp and path.stat().st_mtime_ns < max(m for _, m in stamp):
+            return None
+        doc = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    out = {}
+    for f in doc.get('firms', []):
+        for spelling in f.get('spellings') or [f.get('company')]:
+            if spelling:
+                out[spelling] = f['company']
+    return out or None
+

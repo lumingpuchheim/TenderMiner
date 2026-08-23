@@ -89,11 +89,19 @@ class OutreachError(ValueError):
     """A firm that cannot be named with confidence."""
 
 
-def winner_rows(store_dir):
+def winner_rows(store_dir, groups=None):
     """One row per (award, winner name) — the awards store exploded on
-    `winner_names`, `company` = the exact stripped spelling. Cheap: no
-    iterrows, no tenders join; `win_history` is the heavy sibling for the
-    whole list, this is for one firm."""
+    `winner_names`. `company` stays the exact stripped spelling, because a
+    letter must quote what TED published; `firm` is the COMPANY that spelling
+    belongs to, which is what a win count, a dossier and a profile should be
+    grouped by (firms.py). Cheap: no iterrows, no tenders join; `win_history`
+    is the heavy sibling for the whole list, this is for one firm.
+
+    `groups` is {spelling: company} — pass the map when the caller already has
+    it (`admin.build_index` computes it), otherwise it is read from the
+    operator index. Without any map at all `firm` equals `company` and every
+    caller behaves exactly as it did before identity existed.
+    """
     awards = pd.read_parquet(
         Path(store_dir) / 'awards.parquet',
         columns=['procedure_id', 'lot_id', 'publication_number',
@@ -101,7 +109,17 @@ def winner_rows(store_dir):
                  'winner_names', 'winner_size', 'source_file'])
     ex = awards.explode('winner_names').dropna(subset=['winner_names'])
     ex = ex.assign(company=ex['winner_names'].astype(str).str.strip())
-    return ex[ex['company'] != '']
+    ex = ex[ex['company'] != '']
+    import firms
+    # A sentence is not a company. TED has no box for "the winners are lawfully
+    # unpublished", so a buyer types the explanation into the name box and we
+    # filed it as a firm — `vertraulich` sat in the operator's prospect list
+    # with one win, ready to be written to. The award ROWS keep it; only the
+    # firm list does not (firms.is_firm_name).
+    ex = ex[ex['company'].map(firms.is_firm_name)]
+    if groups is None:
+        groups = firms.groups(Path(store_dir).parent)
+    return ex.assign(firm=ex['company'].map(lambda c: groups.get(c, c)))
 
 
 def match_name(names, company):
