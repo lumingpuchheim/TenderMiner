@@ -17,9 +17,11 @@ So identity here is a vote of three, with one rule about who may veto:
 
   * the registration number (VAT or Handelsregister) may say "same" and may
     also say "DIFFERENT", and only it may veto. It is the one field that means
-    something specific — it is what separates `Siemens AG` from `Siemens
-    Healthineers AG`, and `Becker GmbH & Co. KG` from `Becker & Partner
-    Baugesellschaft mbH`.
+    something specific — on the live store it is what keeps `Siemens AG` apart
+    from `Siemens Healthineers AG`, `Becker GmbH & Co. KG` from `Becker &
+    Partner Baugesellschaft mbH`, and `STRABAG GmbH` from `STRABAG AG`. It
+    also merges a group that files under one VAT number (see
+    `_forms_conflict`), which is the price of trusting it.
   * the name may say "same" when nothing contradicts it.
   * the postcode may only SUPPORT a merge, never block one — a firm's branch
     office in another town is still that firm (`XERVON GmbH` / `Xervon GmbH`
@@ -372,14 +374,22 @@ def _conflict(ids_a, ids_b):
 def _forms_conflict(forms_a, forms_b):
     """True when two groups state different legal forms.
 
-    The pair rule already refuses "Bechtle GmbH" and "Bechtle AG". It was not
-    enough: the bare spelling "Bechtle" states no form, so it merges with each
-    of them and chains all three into one company — which is what the live
-    store showed the first time this ran against it. A group inherits every
-    form its members state, and a name-based merge across two stated forms is
-    refused. A matching registration number still overrides it: a firm that
-    writes itself GmbH in one notice and AG in the next, under one number, is
-    one firm."""
+    The pair rule already refuses "Bechtle GmbH" and "Bechtle AG" on the name.
+    It was not enough: the bare spelling "Bechtle" states no form, so it merges
+    with each of them and chains all three into one company — which is what a
+    store WITHOUT registration numbers showed the first time this ran. A group
+    inherits every form its members state, and a name-based merge across two
+    stated forms is refused.
+
+    A matching registration number still overrides this, and it is worth being
+    clear about what that costs. On the live store `Bechtle AG` carries VAT
+    DE143849458 on 27 notices and `Bechtle GmbH` carries the same number among
+    its own, because a group files under one VAT and that is what a buyer
+    types. So they merge, and the parent and its subsidiaries become one
+    company here. That is what the notices say; the store cannot tell them
+    apart, and pretending otherwise would mean trusting the typed name over
+    the number everywhere else too. Where it matters to a person, the pair is
+    in the receipt's "same name, two numbers" list to be read."""
     return bool(forms_a and forms_b and not (forms_a & forms_b))
 
 

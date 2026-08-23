@@ -56,10 +56,12 @@ WHAT EVERY NUMBER HERE IS HONEST ABOUT
   `SMALL_SAMPLE` lots it says "indicative" instead of pretending to be a rate.
 * **Firm identity is the registration number on the award notice** (firms.py),
   not the name a clerk typed. `SVA GmbH` and `SVA System Vertrieb Alexander
-  GmbH` share a VAT number and are one company; `Bechtle GmbH` and `Bechtle AG`
-  do not and are two. Where no usable number exists, an identical name with
-  nothing contradicting it still merges, and the postcode may support a merge
-  but never block one. `firms` still PRINTS one row per spelling, because a
+  GmbH` share a VAT number and are one company; `Siemens AG` and `Siemens
+  Healthineers AG` do not and are two. A group filing under one VAT number
+  (Bechtle) therefore arrives as one company, parent and subsidiaries
+  together — what the notices say, listed for a person in the receipt.
+  Where no usable number exists, an identical name with nothing contradicting
+  it still merges, and the postcode may support a merge but never block one. `firms` still PRINTS one row per spelling, because a
   person reading it wants to see what buyers actually typed; the numbers a
   letter quotes are the company's.
 """
