@@ -54,9 +54,14 @@ WHAT EVERY NUMBER HERE IS HONEST ABOUT
   beside it with its own denominator.
 * **Sample size.** Every rate prints what it is out of. Below
   `SMALL_SAMPLE` lots it says "indicative" instead of pretending to be a rate.
-* **Firm identity is the exact winner-name string**, per SIMULATION.md.
-  Spelling variants of one firm stay separate rows; `firms` flags likely
-  duplicates so a person can merge them, and never merges them itself.
+* **Firm identity is the registration number on the award notice** (firms.py),
+  not the name a clerk typed. `SVA GmbH` and `SVA System Vertrieb Alexander
+  GmbH` share a VAT number and are one company; `Bechtle GmbH` and `Bechtle AG`
+  do not and are two. Where no usable number exists, an identical name with
+  nothing contradicting it still merges, and the postcode may support a merge
+  but never block one. `firms` still PRINTS one row per spelling, because a
+  person reading it wants to see what buyers actually typed; the numbers a
+  letter quotes are the company's.
 """
 
 import argparse
@@ -598,27 +603,54 @@ def modal_size(sizes):
     return top + ('*' if len(sizes) > 1 else '')
 
 
-def _alias_key(name):
-    """The first two significant words of a firm name, folded — "NDB
+def _alias_key(name, companies=None):
+    """The company a spelling belongs to (firms.py) — a fact off the award
+    notice, a matching VAT or Handelsregister number, rather than the guess
+    this used to make from the first two words of a name.
+
+    The guess merged what it should not ("Bechtle GmbH" with "Bechtle AG", two
+    companies) and split what it should not ("SVA GmbH" from "SVA System
+    Vertrieb Alexander GmbH", one company, because a three-letter key fell back
+    to the exact name). It stays as the fallback for a store without the
+    identity columns, which is every store written before 2026-08.
+
+    The first two significant words of a firm name, folded — "NDB
     ELEKTROTECHNIK GmbH & Co. KG, NL Berlin" and "NDB Elektrotechnik GmbH &
     Co. KG" reduce to the same key. Too-short keys fall back to the exact
     name so "BAU GmbH" never swallows "Baumann GmbH"."""
+    if companies:
+        found = companies.get(name) or companies.get(str(name).strip())
+        if found:
+            return found
     n = re.sub(r'\b(gmbh|co|kg|ag|mbh|se|ohg|e\.?k|und|&|\+)\b', ' ',
                name.casefold())
     key = ' '.join(re.sub(r'[^a-zäöüß ]', ' ', n).split()[:2])
     return key if len(key) >= 6 else name.casefold()
 
 
-def alias_groups(rows):
-    """Rows that share an alias key are probably one firm typed twice.
+def _companies(data_dir):
+    """{spelling: company} from the operator index, or None when there is no
+    index yet — then every firm number in this view is per spelling, exactly
+    as it was before firms.py."""
+    try:
+        import firms
+        return firms.groups(data_dir)
+    except Exception as e:                                     # noqa: BLE001
+        print(f'# firm identity unavailable ({e}) — counts are per spelling')
+        return None
 
-    They are flagged and listed, never merged: identity is the exact string
-    (SIMULATION.md), and the split matters because it understates a real
-    prospect's win count. The footer prints the combined total so a person can
-    see what the firm is actually worth before deciding to merge."""
+
+def alias_groups(rows, companies=None):
+    """Rows that belong to one company, flagged and listed, never merged HERE.
+
+    `cmd_firms` prints one row per spelling on purpose — a person reading it
+    wants to see what the buyers actually typed. The numbers a LETTER quotes
+    are merged (`prospect_rows`), and since firms.py both the flag and the
+    merge follow a registration number rather than a resemblance. The footer
+    prints the combined total so a person can see what the firm is worth."""
     seen = {}
     for r in rows:
-        seen.setdefault(_alias_key(r['firm']), []).append(r)
+        seen.setdefault(_alias_key(r['firm'], companies), []).append(r)
     groups = [g for g in seen.values() if len(g) > 1]
     for group in groups:
         for r in group:
@@ -633,7 +665,7 @@ def cmd_firms(lots, trades, args):
     if not rows:
         print(f'# {name}\nNo awarded lot with a named winner yet.')
         return
-    rows, groups = alias_groups(rows)
+    rows, groups = alias_groups(rows, _companies(args.data_dir))
     if args.size:
         rows = [r for r in rows if r['size'].rstrip('*') in args.size]
     if args.min_wins:
@@ -724,7 +756,7 @@ def trade_economics(lots, sel, covered, mature):
     return region_year, rate, len(mat), med_award
 
 
-def prospect_rows(lots, sel, region_year, rate, med_award):
+def prospect_rows(lots, sel, region_year, rate, med_award, companies=None):
     """One row per prospect FIRM (alias-merged), with the letter numbers.
 
     This is the one place spellings ARE merged — by alias key, for the maths
@@ -746,7 +778,7 @@ def prospect_rows(lots, sel, region_year, rate, med_award):
             if not raw:
                 continue
             name = str(raw).strip()
-            f = per.setdefault(_alias_key(name), {
+            f = per.setdefault(_alias_key(name, companies), {
                 'names': set(), 'wins': 0, 'low': 0, 'regions': set(),
                 'sizes': Counter(), 'values': []})
             f['names'].add(name)
@@ -810,7 +842,8 @@ def cmd_next(lots, trades, args):
             rejected.append((name, 'no published award sum — '
                                    'nothing to price'))
             continue
-        pros = prospect_rows(lots, sel, region_year, rate, med_award)
+        pros = prospect_rows(lots, sel, region_year, rate, med_award,
+                             _companies(args.data_dir))
         contact = [p for p in pros if p['contactable']]
         if not contact:
             rejected.append(
@@ -870,7 +903,8 @@ def cmd_pitch(lots, trades, args):
             trade_economics(lots, sel, covered, mature)
         if rate is None or med_award is None:
             continue
-        for p in prospect_rows(lots, sel, region_year, rate, med_award):
+        for p in prospect_rows(lots, sel, region_year, rate, med_award,
+                               _companies(args.data_dir)):
             if any(want in s.casefold() for s in p['names']):
                 hits.append((name, sel, rate, awarded, med_award, p))
     if not hits:
