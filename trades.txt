@@ -608,3 +608,175 @@ fachraumeinricht
 baureinig
 gebaeudereinig
 feinreinig
+
+# ---------------------------------------------------------------------------
+# IT AND SOFTWARE
+#
+# The store stopped being construction-only on 2026-08-22: cycle.py downloads
+# CPV 45, 48 (Softwarepakete) and 72 (IT-Dienste), and 11,828 of its lots are
+# now IT. Nothing above claimed 81 of them, so a software firm searching for
+# its own trade found a site made entirely of Estrich and Dachdeckung.
+#
+# The rules do not change. A trade is still the words the buyer wrote in the
+# title, still at least 5 characters, still specific over generic. Two notes
+# that are particular to this half:
+#
+# * The words are English as often as German, because the buyers write them
+#   that way ("managed service", "storage", "security"). That is the corpus,
+#   not a preference.
+# * cpv_trade_roots.txt is construction vocabulary and none of these words are
+#   in it. The header above says that convention holds only while the store
+#   does; it stopped holding here.
+#
+# COLLISIONS, the same shape as Sportgeraete/Transportgeraete above:
+#   server   is inside wasserversorgung, glasfaserverkabelung and
+#            laservereinzelung — three construction words that have nothing to
+#            do with a server. Hence the exclusions on that trade.
+#   erp      is inside Koerperschaft, Sperrung and a dozen others; there is no
+#            safe substring for ERP, so the systems are named instead
+#            (erp-system, s/4hana, successfactors).
+#   siem     is inside Siemens. Not used.
+#   wlan     is four characters, under the minimum; "wlan-" is what is left.
+#
+# OVERLAP with Elektro and Datennetz is real and stays: an "aktive
+# Netzwerktechnik" lot is bid by a systems house and by an electrician, and it
+# is counted in both trades. About a fifth of "Netzwerk und WLAN" is cabling
+# work filed under CPV 45 — that is the market, not a matching error.
+
+= IT-Lizenzen und Softwarepflege
+lizenz
+softwarepflege
+softwarewartung
+wartungsverlaengerung
+enterprise agreement
+subscription
+microsoft
+vmware
+citrix
+autodesk
+adobe
+
+= Softwareentwicklung und Programmierung
+softwareentwicklung
+anwendungsentwicklung
+entwicklungsleistung
+weiterentwicklung
+programmier
+individualsoftware
+softwareimplementier
+software-implementier
+softwareanpassung
+# "Weiterentwicklung" is also how a city describes the next stage of a
+# building site — one buyer's Neubau series alone is 20 lots.
+-bbz ettlingen
+-staedtebau
+
+= Standardsoftware und Fachanwendungen
+standardsoftware
+softwarebeschaffung
+softwareloesung
+softwarepaket
+softwaresystem
+fachanwendung
+fachverfahren
+fachsoftware
+branchensoftware
+
+= SAP und ERP-Systeme
+sap-basis
+sap-beratung
+sap-entwicklung
+sap-umfeld
+sap-system
+sap-lizenz
+sap-support
+sap s/4
+s/4hana
+successfactors
+erp-system
+erp-software
+erp-einfuehrung
+erp-loesung
+erp-implementier
+
+= IT-Betrieb und Managed Services
+it-betrieb
+it-dienstleistung
+it-servicevertrag
+it-support
+managed
+betriebsunterstuetzung
+applikationsbetrieb
+anwendungsbetrieb
+systembetrieb
+anwenderbetreuung
+servicedesk
+helpdesk
+
+= Server, Storage und Virtualisierung
+server
+storage
+backup
+virtualisier
+kubernetes
+hyper-v
+-wasserver
+-faserver
+-laserver
+-serverraum
+-serverkuehl
+
+= Netzwerk und WLAN
+netzwerk
+wlan-
+switche
+router
+lan-infrastruktur
+
+= IT-Sicherheit
+it-sicherheit
+informationssicherheit
+cybersicher
+security
+firewall
+penetrationstest
+virenschutz
+verschluesselung
+
+= IT-Beratung und Projektunterstützung
+it-beratung
+it-consulting
+projektunterstuetzung
+unterstuetzungsleistung
+anforderungsmanagement
+beratungsleistung
+
+= Cloud und Hosting
+cloud
+hosting
+software as a service
+software-as-a-service
+rechenzeit
+colocation
+# one construction project is called "Husemannplatz; green cloud"
+-husemannplatz
+-coal2cloud
+
+= Web-Portale und Online-Dienste
+website
+webseite
+internetauftritt
+webanwendung
+web-anwendung
+online-portal
+buergerportal
+relaunch
+content-management
+
+= Gesundheits- und Klinik-IT
+patientenportal
+krankenhausinformation
+klinikinformation
+medizinsoftware
+pflegedokumentation
+telematikinfrastruktur

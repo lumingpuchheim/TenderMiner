@@ -57,15 +57,14 @@ the project's existing line for "below this, a share is indicative, not a
 rate". A page whose headline figure cannot honestly be quoted should not
 exist.
 
-Measured by the generator against the live store (2026-08-11, 12 covered
-months): **32 of 47 trades clear it.** The fifteen that do not — Sportstätten
-(27 awarded lots), Küchen-/Bühnentechnik (26), Photovoltaik (22),
-Sicherheits- und Meldeanlagen (21), Reinigung (17), Möbel (16),
-Industrieboden (15), Schwimmbad (11), Feuerlöschanlagen (10), Kanalbau (8),
-Schließanlagen (7), Brückenbau (6), Wasser- und Abwassertechnik (5), Zaunbau
-(3), Modulbau (2) — get no page until the data arrives. The floor is
-re-checked at every build, so a trade appears on its own the month it
-qualifies, and disappears again if it stops qualifying.
+Measured by the generator against the server store (2026-08-23, 34 covered
+months, CPV 45 + 48 + 72): **54 of 59 trades clear it.** The five that do not
+— Wasser- und Abwassertechnik (25 awarded lots in the bidder window),
+Brückenbau (18), Gesundheits- und Klinik-IT (13), Zaunbau (10), Modulbau (5)
+— get no page until the data arrives. The floor is re-checked at every build,
+so a trade appears on its own the month it qualifies, and disappears again if
+it stops qualifying. (The 2026-08-11 measurement, before the archive was
+backfilled and before IT: 32 of 47.)
 
 `python trade_pages.py --dry-run` prints exactly this list without writing
 anything.
@@ -110,8 +109,8 @@ rather than an intention:
    „Ausschreibungen Maler" can read it, learn something true and unavailable
    elsewhere, and leave without contacting us. That is exactly the property a
    doorway page lacks.
-3. **No mass permutation.** ~28 pages, one per trade with real data. The
-   dangerous version is trade × Bundesland — 16 × 28 = 448 near-identical
+3. **No mass permutation.** ~54 pages, one per trade with real data. The
+   dangerous version is trade × Bundesland — 16 × 54 = 864 near-identical
    pages, which is what gets a whole domain demoted. **Rejected**, and the
    earlier implementation of it was removed (`LAUNCH.md` §4.1).
 4. **No padding.** No text written to make a page look substantial. If a trade
@@ -411,6 +410,32 @@ public slice is by title words while the backtest's own table is by CPV3.
   record, and putting it in the database invites the weekly cycle to depend on
   a run this expensive — which §6c forbids. Revisit if cross-run queries ever
   matter; loading the JSONs is easy.
+
+## 6e. IT and software trades — 2026-08-23
+
+The store widened to CPV 45 + 48 + 72 on 2026-08-22, but `trades.txt` was
+still 47 construction trades, so all 43 live pages were construction and the
+11,828 IT lots were claimed by 81 words' worth of accident. Twelve IT trades
+were added to `trades.txt` — the file itself carries the word lists and the
+collisions they came with.
+
+Measured against the server store the same day: **11 of the 12 clear the
+floor**, Gesundheits- und Klinik-IT (13 awarded lots) does not, and the site
+goes from 43 pages to 54. The IT half is a thinner but much lonelier market
+than construction: IT-Lizenzen und Softwarepflege 45 lots/month at 30 %
+höchstens ein Angebot, Server/Storage 20 at 42 %, Standardsoftware 6 at 42 %,
+against 1,5–24 % across the construction trades.
+
+Two things this does NOT do, deliberately:
+
+- **No forecast claim on any IT page.** The `latest.json` replay is from
+  2026-08-20, before the widening, so every IT page prints „noch nicht genug
+  ausgewertete Hinweise" — the correct state per §6c. The overall line it
+  still shows („über alle Gewerke zusammen") is a construction-only pool
+  until `rewind_all.py` is re-run against the widened store.
+- **No change to what any customer receives.** These are public market pages;
+  the gate and the per-trade bar are a separate question
+  (`pipeline/gate-per-trade.md`).
 
 ## 7. Out of scope
 
