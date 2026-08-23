@@ -1046,12 +1046,16 @@ python feedback.py --learn     # discover + append
 python feedback.py --rebuild   # regenerate from awards.parquet
 ```
 
-**Open, deliberately.** (1) `award_names` is read from the subscription
-but no line carries it yet, so matching falls back to the display `name`
-— exact-string against `winner_names`, which holds entries like
-`KG Robert Seidel GmbH &amp; Co.`; a silent mismatch means a customer
-never learns, so `--dry-run` should be checked per customer before
-relying on it. (2) Profiles grow without bound; capping is a union-time
+**Open, deliberately.** (1) `award_names` is read from the subscription and
+`invite.py` now fills it with every spelling TED published for that company
+(`firms.py`), and `feedback.wins_of` widens whatever it is given to the rest
+of the company's spellings before matching. Registered as `SVA GmbH`, a
+customer used to find 21 of its wins with a newest reference from 2026-03-02;
+it now finds 245 and the newest is 2026-07-10 — the six references the gate
+reads are the NEWEST, so a fresh spelling used to blind it first. What stays
+open: the match is still by name once the spellings are known, so a company
+absent from the operator index (no index built yet) falls back to exact
+strings, and `--dry-run` per customer is still the way to check. (2) Profiles grow without bound; capping is a union-time
 decision (keep newest N), never a record-time one, and stays unbounded
 until a receipt shows growth moving leakage. (3) False negatives are
 printed but not yet surfaced in the weekly operator report.
