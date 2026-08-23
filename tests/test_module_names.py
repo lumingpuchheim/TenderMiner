@@ -21,7 +21,8 @@ sys.path.insert(0, str(REPO))
 MODULES = ['cycle.py', 'deliver.py', 'util.py', 'grading.py', 'training.py', 'predicting.py',
            'delivering.py', 'housekeeping.py', 'drift.py', 'report.py',
            'knobs.py', 'backplay.py', 'shadow.py', 'experiments.py', 'selection.py',
-           'render.py', 'simulation.py', 'feedback.py', 'ledger.py', 'heavy_lock.py']
+           'render.py', 'simulation.py', 'feedback.py', 'ledger.py', 'heavy_lock.py',
+           'firms.py']
 
 
 def _bound_names(tree):

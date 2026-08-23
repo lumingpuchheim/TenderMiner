@@ -60,6 +60,7 @@ The same `role` tag is embedded in each parquet column's metadata:
 | `est_value_procedure` | `double` | numeric |
 | `est_value_procedure_currency` | `string` | categorical |
 | `deadline_date` | `date32[day]` | date |
+| `participation_deadline_date` | `date32[day]` | date |
 | `deadline_days` | `int32` | numeric |
 | `deadline_days_published` | `int32` | numeric |
 | `publication_number` | `string` | key |
@@ -165,6 +166,9 @@ The same `role` tag is embedded in each parquet column's metadata:
 | `n_winning_bids` | `int32` | numeric |
 | `winning_bids` | `list<item: struct<tender_id: string, tender_reference: string, amount: double, currency: string, rank: int32, is_ranked: bool, is_variant: bool, subcontracting: string, tenderer_ids: list<item: string>, tenderer_names: list<item: string>, tenderer_sizes: list<item: string>, withheld_fields: list<item: string>>>` | nested |
 | `winner_names` | `list<item: string>` | entity |
+| `winner_national_ids` | `list<item: string>` | entity |
+| `winner_postal_zones` | `list<item: string>` | entity |
+| `winner_cities` | `list<item: string>` | entity |
 | `n_winners` | `int32` | numeric |
 | `winner_size` | `string` | categorical |
 | `n_beneficial_owners` | `int32` | numeric |
