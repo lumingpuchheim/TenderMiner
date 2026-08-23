@@ -564,20 +564,44 @@ def page(name, slug, f, fc=None, all_fc=None):
         f'</body>\n</html>\n')
 
 
-def index_page(built):
+def _by_group(built, groups=None):
+    """-> [(group or None, [(name, slug), ...])], the groups in `trades.txt`
+    order and the trades alphabetical inside each. One (None, everything)
+    block when the file names no groups, which is the old list exactly."""
+    groups = groups or {}
+    present = {groups.get(name) for name, _ in built}
+    order = [g for g in dict.fromkeys(groups.values()) if g in present]
+    if None in present:
+        order.append(None)          # a trade with no group goes last
+    return [(g, [(n, s) for n, s in built if groups.get(n) == g])
+            for g in order]
+
+
+def index_page(built, groups=None):
     """The plain list. Nothing else on it — it exists so the trade pages are
-    reachable, not to be read (TRADE_PAGES.md 4)."""
-    items = '\n'.join(
-        f'  <li><a href="{slug}/index.html">{esc(name)}</a></li>'
-        for name, slug in built)
+    reachable, not to be read (TRADE_PAGES.md 4).
+
+    `groups` is {trade name: group name} from `trades.txt`, in file order.
+    With it the list is broken under headings — 54 trades in one column asks
+    a software firm to read past 40 Gewerke to find itself. Without it, or
+    for a trade that carries no group, the list is exactly as before: the
+    heading is a display device, nothing selects by it."""
+    lists = []
+    for group, names in _by_group(built, groups):
+        items = '\n'.join(
+            f'  <li><a href="{slug}/index.html">{esc(name)}</a></li>'
+            for name, slug in names)
+        head = f'<h2>{esc(group)}</h2>\n' if group else ''
+        lists.append(f'{head}<ul class="plain">\n{items}\n</ul>')
+    body = '\n\n'.join(lists)
     return (
         f'<!doctype html>\n<html lang="de">\n<head>\n'
         f'<meta charset="utf-8">\n'
         f'<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         f'<title>Marktzahlen nach Gewerk | Murara</title>\n'
-        f'<meta name="description" content="Öffentliche Bauvergaben nach '
-        f'Gewerk: Lose pro Monat, Auftragswerte und wie oft kaum jemand '
-        f'mitbietet.">\n'
+        f'<meta name="description" content="Öffentliche Ausschreibungen nach '
+        f'Gewerk — Bau und IT: Lose pro Monat, Auftragswerte und wie oft kaum '
+        f'jemand mitbietet.">\n'
         f'<link rel="canonical" href="{BASE_URL}/gewerke/">\n'
         f'<link rel="stylesheet" href="../style.css">\n'
         f'</head>\n<body>\n\n'
@@ -586,10 +610,10 @@ def index_page(built):
         f'  <span class="tag">Ausschreibungen mit wenig Wettbewerb</span>\n'
         f'</header>\n\n'
         f'<h1>Marktzahlen nach Gewerk</h1>\n'
-        f'<p class="lede">Öffentliche Bauvergaben in Deutschland, je Gewerk: '
-        f'wie viel ausgeschrieben wird, was ein Los wert ist und wie oft kaum '
-        f'jemand mitbietet.</p>\n\n'
-        f'<ul class="plain">\n{items}\n</ul>\n\n'
+        f'<p class="lede">Öffentliche Ausschreibungen in Deutschland, je '
+        f'Gewerk: wie viel ausgeschrieben wird, was ein Los wert ist und wie '
+        f'oft kaum jemand mitbietet.</p>\n\n'
+        f'{body}\n\n'
         f'<footer>\n'
         f'  <a href="../index.html">Startseite</a> ·\n'
         f'  <a href="../impressum/index.html">Impressum</a> ·\n'
@@ -789,7 +813,9 @@ def build(data_dir, out=None, dry_run=False, site=SITE, replay=None):
         for slug, text in pages.items():
             (gew / slug).mkdir()
             (gew / slug / 'index.html').write_text(text, encoding='utf-8')
-        (gew / 'index.html').write_text(index_page(built), encoding='utf-8')
+        (gew / 'index.html').write_text(
+            index_page(built, {n: t['group'] for n, t in trades.items()}),
+            encoding='utf-8')
         # the sitemap can only be written here: it is the one file that has
         # to know both halves, the hand-written pages and the generated ones
         (root / 'sitemap.xml').write_text(sitemap(built), encoding='utf-8')

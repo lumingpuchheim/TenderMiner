@@ -273,6 +273,35 @@ class GeneratedOutput(unittest.TestCase):
         linked = set(re.findall(r'href="([a-z0-9-]+)/index\.html"', index))
         self.assertEqual(linked, {p.parent.name for p in self.pages})
 
+    def test_index_groups_the_list_under_headings_in_file_order(self):
+        built = [(n, tp.slugify(n)) for n in
+                 ('Estricharbeiten', 'IT-Sicherheit', 'Maurerarbeiten')]
+        groups = {'Maurerarbeiten': 'Bau und Ausbau',
+                  'Estricharbeiten': 'Bau und Ausbau',
+                  'IT-Sicherheit': 'IT und Software'}
+        html = tp.index_page(built, groups)
+        self.assertLess(html.index('Bau und Ausbau'),
+                        html.index('IT und Software'))
+        self.assertLess(html.index('IT und Software'),
+                        html.index('it-sicherheit/index.html'))
+        # a heading may not swallow a trade: both lists are still complete
+        for _, slug in built:
+            self.assertIn(f'{slug}/index.html', html)
+        self.assertEqual(html.count('<ul class="plain">'), 2)
+
+    def test_index_without_groups_is_one_plain_list(self):
+        built = [(n, tp.slugify(n)) for n in ('Estricharbeiten', 'Maurerarbeiten')]
+        self.assertEqual(tp.index_page(built), tp.index_page(built, {}))
+        self.assertEqual(tp.index_page(built).count('<ul class="plain">'), 1)
+        self.assertNotIn('<h2>', tp.index_page(built))
+
+    def test_a_trade_with_no_group_is_listed_last_not_dropped(self):
+        built = [(n, tp.slugify(n)) for n in ('Estricharbeiten', 'IT-Sicherheit')]
+        html = tp.index_page(built, {'IT-Sicherheit': 'IT und Software'})
+        self.assertIn('estricharbeiten/index.html', html)
+        self.assertLess(html.index('it-sicherheit/index.html'),
+                        html.index('estricharbeiten/index.html'))
+
     def test_sitemap_covers_every_page(self):
         xml = (self.out / 'sitemap.xml').read_text(encoding='utf-8')
         for p in self.pages:

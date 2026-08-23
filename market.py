@@ -120,20 +120,31 @@ AWARD_COLS = ['procedure_id', 'lot_id', 'publication_date', 'n_tenders',
 # ------------------------------------------------------------- trade list
 
 def load_trades(path=TRADES_FILE):
-    """trades.txt -> {name: {'terms': [...], 'exclude': [...]}}, folded.
+    """trades.txt -> {name: {'terms': [...], 'exclude': [...], 'group': str
+    or None}}, folded, in file order.
 
     Owned by a person (see the file's own header). Parsing is deliberately
-    dumb: a line is a word, "-" makes it an exclusion, "=" starts a trade.
-    A word too short to be a safe substring is a hard error, not a warning —
-    it would quietly contaminate every number downstream."""
-    trades, name, bad = {}, None, []
+    dumb: a line is a word, "-" makes it an exclusion, "=" starts a trade,
+    "==" starts a group of trades. A word too short to be a safe substring is
+    a hard error, not a warning — it would quietly contaminate every number
+    downstream.
+
+    The group is display only — the one place it is read is the public index,
+    which lists 54 trades and is unreadable as one column. Nothing selects,
+    ranks or measures by it: a lot belongs to a trade because of the words in
+    its title, and that is unchanged."""
+    trades, name, group, bad = {}, None, None, []
     for lineno, raw in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
         line = raw.split('#')[0].strip()
         if not line:
             continue
-        if line.startswith('='):
+        if line.startswith('=='):
+            group, name = line.lstrip('= ').strip(), None
+            if not group:
+                bad.append(f'{path.name}:{lineno}: "==" with no group name')
+        elif line.startswith('='):
             name = line.lstrip('= ').strip()
-            trades[name] = {'terms': [], 'exclude': []}
+            trades[name] = {'terms': [], 'exclude': [], 'group': group}
         elif name is None:
             bad.append(f'{path.name}:{lineno}: word before any "=" trade header')
         else:

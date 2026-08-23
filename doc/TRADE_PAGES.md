@@ -86,7 +86,14 @@ Three links, and no more:
   Google finds pages through links, and a page nothing links to is crawled
   rarely and ranks worse — building the asset and then hiding it from the
   mechanism that makes it work.
-- **Index → each trade page.** A plain list, nothing else on it.
+- **Index → each trade page.** A plain list, nothing else on it — but broken
+  under two headings since 2026-08-23, „Bau und Ausbau" and „IT und
+  Software", because 54 trades in one column made a software firm read past
+  40 Gewerke to find itself (operator: „people cannot distinguish between IT
+  and software"). The groups come from `==` lines in `trades.txt` and are
+  **display only**: no figure, selection or ranking consults them, and a
+  trade that carries no group is still listed, last. Without groups the page
+  is byte-for-byte the old one.
 - **Each trade page → the main page**, in its footer.
 
 **Never trade page → trade page.** That is the rule the whole design exists to

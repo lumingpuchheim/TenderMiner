@@ -17,6 +17,10 @@
 # where to spend a sales week; it may not rest on a word list nobody read.
 #
 # FORMAT
+#   == Group name         starts a group of trades. Display only, and read in
+#                         exactly one place: the public index at /gewerke/,
+#                         which lists 54 trades and needs headings to be
+#                         readable. Nothing selects, ranks or measures by it.
 #   = Trade name          starts a trade; everything until the next "=" is its
 #   wort                  match word — substring, so plurals and compounds
 #                         need no entry (blitzschutz catches
@@ -43,6 +47,8 @@
 # with its neighbours. Do not chase exclusivity by deleting words — you would
 # lose the lot from the trade that actually wants it.
 
+
+== Bau und Ausbau
 
 = Abbruch und Rückbau
 abbruch
@@ -642,6 +648,8 @@ feinreinig
 # Netzwerktechnik" lot is bid by a systems house and by an electrician, and it
 # is counted in both trades. About a fifth of "Netzwerk und WLAN" is cabling
 # work filed under CPV 45 — that is the market, not a matching error.
+
+== IT und Software
 
 = IT-Lizenzen und Softwarepflege
 lizenz
