@@ -107,12 +107,21 @@ SEED = 7
 
 
 class WorldTooThin(RuntimeError):
-    """This store has too few embedded lots to calibrate against.
+    """This store cannot carry a calibration yet. Three ways that happens,
+    all of them ordinary at the start of an archive:
+
+    * fewer embedded lots than the random-pair baseline needs,
+    * no firm with `MIN_WINS` embedded wins, so there is nothing to learn a
+      threshold from,
+    * firms, but no lot outside their own CPV class to compare against, so
+      the non-match pile is empty.
 
     Raised rather than quietly sampling whatever is there: the baseline is a
     mean over random pairs, and a handful of lots gives a number precise
     enough to look trustworthy and wrong enough to move `cut`. As-of harnesses
-    catch this and skip the cutoff.
+    catch this and skip the cutoff — which is why every one of these is an
+    exception with a sentence in it and not an IndexError from numpy three
+    hundred lines further down.
     """
 
 
@@ -289,6 +298,15 @@ def calibrate(data_dir, tenders=None, awards=None, trade=None):
     by_firm = {name: g for name, g in wins.groupby('winner_names') if len(g) >= MIN_WINS}
     print(f'[calibrate] {len(by_firm)} firms with >= {MIN_WINS} embedded wins '
           f'({sum(len(g) for g in by_firm.values())} wins total)')
+    # Normal at the start of an archive, and not an error: a store six months
+    # old holds nobody who has won three times yet. Said here, before the
+    # label table below is built, because that table is tens of megabytes and
+    # minutes of work spent on a calibration that cannot happen.
+    if not by_firm:
+        raise WorldTooThin(
+            f'no firm has {MIN_WINS} embedded wins in {data_dir} '
+            f'({len(wins)} wins over {wins["winner_names"].nunique()} firms) '
+            f'— there is nothing to calibrate from')
 
     lots = tenders.drop_duplicates(subset=KEY)
     key_cpv = dict(zip(zip(lots['procedure_id'], lots['lot_id']), lots['cpv_main']))
@@ -505,6 +523,22 @@ def calibrate(data_dir, tenders=None, awards=None, trade=None):
     pos_auto = np.array(pos_auto)
     pos_text = np.array(pos_text)
     pos_code = np.array(pos_code)
+    # The other half of the same precondition. A threshold is a line drawn
+    # between two piles — what a firm's own work scores, and what an
+    # unrelated lot scores — so an empty non-match pile is not a degenerate
+    # calibration, it is no calibration. Every firm above can be skipped for
+    # a good reason (`naive_pool` and `trust_pool` are drawn from lots
+    # OUTSIDE the firm's own CPV class, and early in an archive there may be
+    # none), and until now the piles were simply used anyway, which numpy
+    # reported as "need at least one array to concatenate" — a stack trace
+    # for an ordinary, expected state of the data.
+    if not neg_naive or not neg_trust:
+        raise WorldTooThin(
+            f'{len(by_firm)} firms with >= {MIN_WINS} wins, but the '
+            f'non-match pile is empty (naive {len(neg_naive)}, trusted '
+            f'{len(neg_trust)}): a negative has to come from another line '
+            f'of business, and this world holds none — a threshold is a '
+            f'line between two piles and needs both')
     neg = {'naive': np.concatenate(neg_naive), 'trusted': np.concatenate(neg_trust)}
     neg_hyb_text = np.concatenate(neg_hyb_text)
     neg_code_s = np.array(neg_code_s)
@@ -919,7 +953,12 @@ def main():
     if args.fingerprint is not None:
         trade_fingerprint_demo(args.data_dir, args.fingerprint or None)
         return
-    r = calibrate(args.data_dir)
+    try:
+        r = calibrate(args.data_dir)
+    except WorldTooThin as e:
+        # The per-trade loop below already reports this per group; the pooled
+        # run had nothing, and a person at a terminal gets the sentence too.
+        raise SystemExit(f'[calibrate] nothing to calibrate: {e}')
 
     # One threshold search per trade group beside the pooled one
     # (pipeline/gate-per-trade.md 4). The pooled run above still produces the
