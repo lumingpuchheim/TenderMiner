@@ -4,6 +4,12 @@ Status: measured 2026-08-13 over the 2026-08-11 store (28,973 tender rows,
 24,023 embedded lots, 9,454 CPV labels); fixes below implemented in the same
 pass. The question that prompted it: **does the replay fit in a 4 GB VM?**
 
+> **2026-08-24: the store is 4.1× this document's baseline and the answer to
+> its question is now NO.** See "The 4× store" at the end — every absolute
+> number below is a 29k-row figure; the proportions still hold, the totals do
+> not. The measurement is repeatable with `memory_receipt.py` (committed that
+> day, so the next re-measure is one command instead of an archaeology dig).
+
 ## The result
 
 Peak working set of `python rewind_all.py --step 21`, sampled at 4 Hz, both
@@ -181,3 +187,55 @@ survives the store roughly doubling. Before these changes the same box had
 `python embed_vocab.py --check` before a replay on a memory-tight box: it
 exits non-zero exactly when the run would otherwise load the model and add
 646 MB to the numbers above.
+
+## The 4× store (2026-08-24)
+
+The bulk backfill to 2024-11 (landed 2026-08-19..22) took the store from
+28,973 to **118,573 tender rows** in ten days. The paragraph above promised
+survival for a *doubling*; nobody re-read it before quadrupling, and the OOM
+killer delivered the news instead:
+
+- **2026-08-23 19:23** — global OOM, a replay's python at 4.3 GB anon,
+  killed while a manual calibration ran beside it (the calibration harnesses
+  do not take the heavy lock — only the cycle, the delivery, the replay, the
+  backfill and backplay do). The kernel picked the victim; it could as
+  easily have picked `app.py`.
+- **2026-08-23 23:26** — memcg OOM at 5.2 GB, the full weekly replay killed
+  by its container limit **one cutoff from the end of a five-hour run**.
+
+Re-measured 2026-08-24 on the server, in a container capped at 6 GB, with
+the sampler now committed as `memory_receipt.py`:
+
+```
+docker run --rm --memory 6g -e TM_DATA_DIR=/data \
+  -v /home/debian/tm-state:/data "tendermining:$TAG" \
+  python memory_receipt.py --label replay-late -- \
+  python rewind_all.py --from 2026-05-01 --sub nobody --out /tmp/measure.json
+```
+
+**Peak 4,835 MB over 77 minutes** (17 cutoffs, 2026-05-01..2026-08-21,
+exit 0). The late window is the honest short form: the as-of world grows
+monotonically, so the peak lives in the last cutoffs and a measurement that
+starts in May answers "does it fit" in a quarter of the full run's time. The
+full weekly run from 2024-11 peaks slightly higher (more allocate/free
+rounds, more fragmentation — its kill came at 5.2 GB) and takes ~5 hours.
+The model never loaded (no tier-3 miss line): this is pure store scaling,
+exactly the "roughly 2× adds ~1 GB" rule above, applied twice.
+
+What stands as of that day, in order of preference when memory is tight:
+
+- The box has **4 GB of swap** (`docker/swap.sh`, swappiness 10) — a
+  transient peak now means a slow tail, not a dead five-hour run.
+- Run a full replay under `--memory 6g` (as above), so a regression dies
+  alone in its cgroup instead of handing the kernel a free choice of victim.
+- Backplay starts no measurement within six hours of the Monday cycle
+  (`backplay.CYCLE_CLEARANCE`) — on 2026-08-24 a 04:00 backplay held the
+  heavy lock past 09:30 and the Monday mail was never sent.
+- The duplication pass that produced the table above has not been repeated
+  at 118k rows; `awards_full` (59,565 rows, all columns, held for the whole
+  run) is the first place to look when someone does. Same acceptance test:
+  byte-identical documents, or it is a different product, not a saving.
+
+`doc/HOSTING.md` §0's per-stage table and its "fits a 4 GB machine" claims
+are 2026-08-13 numbers over the 29k store — read them as proportions, not
+totals, until they are re-measured.
