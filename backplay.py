@@ -276,21 +276,34 @@ def measurements(paths, q, today=None):
     return out
 
 
-def run(paths, questions=None, today=None, harness=None, force=False, now=None):
+def _hm(gap):
+    return f'{gap.seconds // 3600}h{gap.seconds % 3600 // 60:02d}m'
+
+
+def run(paths, questions=None, today=None, harness=None, force=False,
+        clock=None):
     """Measure every live question's candidates and record the verdicts.
 
     Per question: the current value first (the baseline row, `role='current'`),
     then each neighbour under its override. Skipped — with a line saying so —
     when the evidence stamp equals the one the last measurement of this
-    question stood on, unless `force`. Nothing at all is measured inside
-    CYCLE_CLEARANCE of the Monday cycle — see `next_cycle`."""
-    now = now or datetime.now()
+    question stood on, unless `force`. No measurement STARTS inside
+    CYCLE_CLEARANCE of the Monday cycle — checked before every single harness
+    run, not just at entry, because a many-question night entered on Sunday
+    can reach Monday: whatever is measured by then is kept and settled, and
+    the rest waits for the next run (`next_cycle`, CYCLE_CLEARANCE)."""
+    clock = clock or datetime.now
     today = today or util.now_utc().date().isoformat()
     questions = knobs.queue(paths, today) if questions is None else questions
-    gap = next_cycle(now) - now
-    if questions and gap <= CYCLE_CLEARANCE:
-        lines = [f'[backplay] the cycle starts in {gap.seconds // 3600}h'
-                 f'{gap.seconds % 3600 // 60:02d}m (Monday '
+
+    def cycle_gap():
+        now = clock()
+        gap = next_cycle(now) - now
+        return gap if gap <= CYCLE_CLEARANCE else None
+
+    gap = cycle_gap()
+    if questions and gap:
+        lines = [f'[backplay] the cycle starts in {_hm(gap)} (Monday '
                  f'{CYCLE_HOUR:02d}:00) — no measurement starts now. One '
                  f'judge run is hours at today\'s store, and on 2026-08-24 a '
                  f'04:00 backplay still held the lock at 09:30: the cycle and '
@@ -313,6 +326,12 @@ def run(paths, questions=None, today=None, harness=None, force=False, now=None):
                          f'(benchmark, store, gate unchanged) — not re-measured')
             lines += _settle(paths, q, today)
             continue
+        gap = cycle_gap()
+        if gap:
+            lines.append(f'[backplay] {q.knob}: the cycle is {_hm(gap)} away '
+                         f'— measurement waits for the next run')
+            lines += _settle(paths, q, today)
+            continue
         try:
             base = measure(paths, q.current, use)
         except Exception as e:
@@ -324,6 +343,11 @@ def run(paths, questions=None, today=None, harness=None, force=False, now=None):
         lines.append(f'[backplay] {q.knob}={q.current} (current): '
                      + _fmt(cur_metrics))
         for value in q.neighbours():
+            gap = cycle_gap()
+            if gap:
+                lines.append(f'[backplay] {q.knob}: remaining candidates wait '
+                             f'for the next run — the cycle is {_hm(gap)} away')
+                break
             try:
                 payload = measure(paths, value, use, knob=q.knob.split('.')[-1])
             except Exception as e:

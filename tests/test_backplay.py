@@ -434,7 +434,7 @@ class ClearOfTheCycle(unittest.TestCase):
         with mock.patch.object(backplay, 'measure',
                                side_effect=AssertionError('must not run')):
             lines = backplay.run(self.paths, [q], today='2026-08-24',
-                                 now=datetime(2026, 8, 24, 4, 0))    # Monday 04:00
+                                 clock=lambda: datetime(2026, 8, 24, 4, 0))    # Monday 04:00
         self.assertIn('no measurement starts now', lines[0])
         self.assertIn('3h00m', lines[0])
         # the verdict on what is already in the ledger is still settled
@@ -447,8 +447,29 @@ class ClearOfTheCycle(unittest.TestCase):
         with mock.patch.object(backplay, 'measure',
                                side_effect=lambda *a, **k: seen.append(a) or {}):
             backplay.run(self.paths, [q], today='2026-08-23',
-                         now=datetime(2026, 8, 23, 4, 0))            # Sunday 04:00
+                         clock=lambda: datetime(2026, 8, 23, 4, 0))            # Sunday 04:00
         self.assertTrue(seen, 'Sunday 04:00 is 27 h clear — it must measure')
+
+    def test_a_long_night_stops_measuring_when_the_cycle_nears(self):
+        """The guard is checked before EVERY harness run, not only at entry:
+        a many-question Sunday run that reaches Monday 01:00+ keeps what it
+        measured and leaves the rest for the next night."""
+        from datetime import datetime
+        q = dataclasses.replace(Q)
+        # entry Sunday 22:00 (9 h clear), baseline measured; by the first
+        # candidate the clock says Monday 01:30 — inside the clearance
+        ticks = iter([datetime(2026, 8, 23, 22, 0),      # entry check
+                      datetime(2026, 8, 23, 22, 0),      # before the baseline
+                      datetime(2026, 8, 24, 1, 30)])     # before candidate 1
+        measured = []
+        with mock.patch.object(backplay, 'measure',
+                               side_effect=lambda p, v, *a, **k: measured.append(v) or {}):
+            lines = backplay.run(self.paths, [q], today='2026-08-23',
+                                 clock=lambda: next(ticks))
+        self.assertEqual(measured, [q.current],
+                         'the baseline ran; no candidate was started')
+        self.assertTrue(any('remaining candidates wait' in l for l in lines),
+                        lines)
 
     def test_a_monday_afternoon_ad_hoc_run_is_not_blocked(self):
         """The guard is about the night before the cycle, not about Mondays:
