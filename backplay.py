@@ -43,7 +43,10 @@ still dead.
 
 What it never does: edit a constant, promote anything, touch the real ledger
 (the harnesses read the store; the as-of worlds are scratch and are pruned
-after), or run while the weekly cycle holds the heavy lock.
+after), run while the weekly cycle holds the heavy lock — or start a
+measurement when the cycle is about to want that lock (`next_cycle`,
+CYCLE_CLEARANCE): the Monday customer mail outranks a measurement that is
+cheap to repeat.
 """
 from __future__ import annotations
 
@@ -53,7 +56,7 @@ import os
 import subprocess
 import sys
 import tempfile
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import grading
@@ -273,24 +276,34 @@ def measurements(paths, q, today=None):
     return out
 
 
-def run(paths, questions=None, today=None, harness=None, force=False):
+def run(paths, questions=None, today=None, harness=None, force=False, now=None):
     """Measure every live question's candidates and record the verdicts.
 
     Per question: the current value first (the baseline row, `role='current'`),
     then each neighbour under its override. Skipped — with a line saying so —
     when the evidence stamp equals the one the last measurement of this
-    question stood on, unless `force`."""
+    question stood on, unless `force`. Nothing at all is measured inside
+    CYCLE_CLEARANCE of the Monday cycle — see `next_cycle`."""
+    now = now or datetime.now()
     today = today or util.now_utc().date().isoformat()
     questions = knobs.queue(paths, today) if questions is None else questions
+    gap = next_cycle(now) - now
+    if questions and gap <= CYCLE_CLEARANCE:
+        lines = [f'[backplay] the cycle starts in {gap.seconds // 3600}h'
+                 f'{gap.seconds % 3600 // 60:02d}m (Monday '
+                 f'{CYCLE_HOUR:02d}:00) — no measurement starts now. One '
+                 f'judge run is hours at today\'s store, and on 2026-08-24 a '
+                 f'04:00 backplay still held the lock at 09:30: the cycle and '
+                 f'the delivery both gave up and no customer mail went out. '
+                 f'Everything is measured on the next run.']
+        for q in questions:
+            lines += _settle(paths, q, today)
+        return lines
     stamp = evidence_stamp(paths)
     lines, rows = [], []
     for q in questions:
         use = harness or getattr(q, 'harness', None) or 'judge'
         read = getattr(q, 'read', None) or READERS[use]
-        if use == 'replay' and date.fromisoformat(today).weekday() in REPLAY_SKIP_WEEKDAYS:
-            lines.append(f'[backplay] {q.knob}: replay skipped tonight — the cycle '
-                         f'wants the lock at 08:15; measured on the next run')
-            continue
         had = last_rows(paths, q.id, today)
         stood_on = {r.get('stamp') for r in had.values()}
         wanted = {q.current, *q.neighbours()}
@@ -475,11 +488,29 @@ def replay_read(payload, max_tenders=1):
 
 READERS = {'judge': judge_read, 'replay': replay_read}
 
-# The replay is hours, and a Monday 04:00 start could still be running when
-# the 08:15 cycle wants the heavy lock; the cycle would wait, which is a late
-# report for customers. So the replay bucket sits out the night before the
-# cycle. The judge bucket (minutes per value) does not need to.
-REPLAY_SKIP_WEEKDAYS = (0,)      # Monday (date.weekday())
+# No measurement starts when the Monday cycle is this close. The judge was
+# "minutes per value" at the 29k-row store this module was written against;
+# at the 118k-row store one run is 30-90 minutes and a question is a baseline
+# plus up to five candidates — hours. On 2026-08-24 the 04:00 backplay still
+# held the heavy lock at 09:30, the cycle (07:00, waits 1 h) and the delivery
+# (08:30, waits 1 h) both gave up, and no customer mail went out. The
+# customer mail outranks a measurement that is, by this module's own charter,
+# cheap to repeat: the night before the cycle, backplay settles verdicts from
+# the ledger and measures nothing. Six hours covers the 04:00 cron slot plus
+# the longest measurement the `measure` timeout permits (three hours).
+CYCLE_WEEKDAY, CYCLE_HOUR = 0, 7      # Monday 07:00 — docker/crontab's cycle line
+CYCLE_CLEARANCE = timedelta(hours=6)
+
+
+def next_cycle(now):
+    """The next Monday 07:00 local after `now` — when the weekly cycle's cron
+    fires (docker/crontab; tests pin the two against each other)."""
+    days = (CYCLE_WEEKDAY - now.weekday()) % 7
+    at = (now + timedelta(days=days)).replace(hour=CYCLE_HOUR, minute=0,
+                                              second=0, microsecond=0)
+    if at <= now:
+        at += timedelta(days=7)
+    return at
 
 
 def _ad_hoc(knob, grid, current, metric='recall', harness='judge'):

@@ -804,8 +804,11 @@ the queue has a second bucket.
   picks is visible; EXPERIMENTS.md §1's "recall secondary" is the reason the
   forward arm, not this number, decides.
 - **Cadence.** A replay is ~33 min on the laptop per value, three values a
-  night, so the replay bucket **sits out Monday night** (`REPLAY_SKIP_WEEKDAYS`)
-  — a run still going at 08:15 would make the cycle wait on the lock. Both
+  night — and at the 118k-row store (2026-08-24) even a judge run is 30–90
+  minutes, so **no bucket measures inside six hours of the Monday cycle**
+  (`backplay.next_cycle`, `CYCLE_CLEARANCE`; it replaced the replay-only
+  `REPLAY_SKIP_WEEKDAYS` after a 04:00 backplay held the lock past 09:30 and
+  the cycle and delivery both gave up — no customer mail that Monday). Both
   buckets run on the other nights, one knob each.
 - **What promotes them:** not this. A `move` here is a standing proposal like
   any other, and the forward evidence for a competitiveness knob is an

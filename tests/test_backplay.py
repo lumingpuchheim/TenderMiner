@@ -415,14 +415,65 @@ class TheReplayHarness(unittest.TestCase):
         self.assertIn(f'build {sb.FEATURE_BUILD}', stamp)
         self.assertIn(f'threshold {sb.THRESHOLD}', stamp)
 
-    def test_the_replay_bucket_sits_out_the_night_before_the_cycle(self):
-        q = knobs.question_from(next(t for t in knobs.KNOBS if t.harness == 'replay'),
-                                '2026-08-16')
-        with tempfile.TemporaryDirectory() as tmp:
-            paths = util.Paths(tmp, Path(tmp) / 'models')
-            with mock.patch.object(backplay, 'measure', side_effect=AssertionError('must not run')):
-                lines = backplay.run(paths, [q], today='2026-08-17')       # a Monday
-            self.assertIn('skipped tonight', lines[0])
+class ClearOfTheCycle(unittest.TestCase):
+    """2026-08-24: a 04:00 backplay still held the heavy lock at 09:30; the
+    cycle and the delivery both gave up after their hour and no customer mail
+    went out. No measurement starts inside CYCLE_CLEARANCE of Monday 07:00 —
+    for EVERY bucket, because the judge too is hours at the 118k-row store."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        import gc
+        self.addCleanup(gc.collect)
+        self.paths = util.Paths(self.tmp.name, Path(self.tmp.name) / 'models')
+
+    def test_the_monday_0400_cron_slot_measures_nothing(self):
+        from datetime import datetime
+        q = dataclasses.replace(Q)
+        with mock.patch.object(backplay, 'measure',
+                               side_effect=AssertionError('must not run')):
+            lines = backplay.run(self.paths, [q], today='2026-08-24',
+                                 now=datetime(2026, 8, 24, 4, 0))    # Monday 04:00
+        self.assertIn('no measurement starts now', lines[0])
+        self.assertIn('3h00m', lines[0])
+        # the verdict on what is already in the ledger is still settled
+        self.assertTrue(any(q.knob in l for l in lines[1:]))
+
+    def test_every_other_night_measures(self):
+        from datetime import datetime
+        q = dataclasses.replace(Q)
+        seen = []
+        with mock.patch.object(backplay, 'measure',
+                               side_effect=lambda *a, **k: seen.append(a) or {}):
+            backplay.run(self.paths, [q], today='2026-08-23',
+                         now=datetime(2026, 8, 23, 4, 0))            # Sunday 04:00
+        self.assertTrue(seen, 'Sunday 04:00 is 27 h clear — it must measure')
+
+    def test_a_monday_afternoon_ad_hoc_run_is_not_blocked(self):
+        """The guard is about the night before the cycle, not about Mondays:
+        by afternoon the next cycle is a week away."""
+        from datetime import datetime
+        gap = backplay.next_cycle(datetime(2026, 8, 24, 15, 0)) \
+            - datetime(2026, 8, 24, 15, 0)
+        self.assertGreater(gap, backplay.CYCLE_CLEARANCE)
+
+    def test_the_clearance_constant_matches_the_crontab(self):
+        """`next_cycle` hardcodes the cycle's cron slot; if the crontab moves,
+        this is what notices."""
+        crontab = (REPO / 'docker' / 'crontab').read_text(encoding='utf-8')
+        job = [l for l in crontab.splitlines()
+               if 'cycle.sh' in l and not l.lstrip().startswith('#')][0]
+        minute, hour, _, _, dow = job.split()[:5]
+        self.assertEqual(int(hour), backplay.CYCLE_HOUR)
+        self.assertEqual(minute, '0')
+        # cron's day-of-week 1 is Monday; date.weekday()'s Monday is 0
+        self.assertEqual(int(dow) - 1, backplay.CYCLE_WEEKDAY)
+
+    def test_next_cycle_rolls_over_a_monday_morning(self):
+        from datetime import datetime
+        self.assertEqual(backplay.next_cycle(datetime(2026, 8, 24, 8, 0)),
+                         datetime(2026, 8, 31, 7, 0))
 
 
 if __name__ == '__main__':
