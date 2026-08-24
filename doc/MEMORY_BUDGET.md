@@ -156,6 +156,52 @@ that gap tier 3 actually closes is still an open measurement. Trading an
 unmeasured amount of recall for memory obtainable by fixing a cache is not a
 trade; it is a shortcut with a receipt nobody has run.
 
+## Second pass — 2026-08-24, after the archive tripled
+
+The prediction above ("2× the store adds ~1 GB") came true and then some. The
+store went from 28,973 lots to 92,839 — the 2023-24 backfill of construction,
+which is 52,000 of those lots, plus 11,828 IT lots when the scope widened to
+CPV 48 and 72. On the server the replay was killed twice by the kernel:
+
+| | |
+| --- | --- |
+| 2026-08-23, cutoff 89 of 94 | `Out of memory: Killed process`, anon-rss **4.28 GB**, sharing a 7.6 GB box with another session's calibration |
+| 2026-08-23, cutoff 93 of 94 | box to itself, killed against a `--memory 5g` container cap |
+
+Both died near the END of the window, which is the shape to expect: the peak
+is one cutoff's world, and the last cutoff has the biggest one (43,130
+training lots against 6,551 on the laptop store).
+
+**Three changes, all of them the same kind as the first pass — the document
+they produce is byte-identical (3,930,390 bytes, 18,891 lot rows).**
+
+1. **The sidecar matrices are mapped, not copied** (`load_sidecar(mmap=True)`,
+   `load_label_sidecar(mmap=True)`, taken by `relevance.Gate` and
+   `calibrate`). 285 MB of lot vectors and 29 MB of label vectors are read and
+   never written. Mapped, they are file-backed pages: the kernel can drop them
+   under pressure instead of killing the process. Writers keep the copy —
+   `ensure_embeddings` replaces the file underneath, and a map of a replaced
+   file is a map of the old bytes.
+2. **The embedding model is cached out of the loop** (`embed_texts_cached`,
+   `embed.unload_model()` once per cutoff). A subscription with
+   `profile_texts` used to load 646 MB of ONNX to embed the same dozen strings
+   at every one of 94 cutoffs, and leave it resident through the next cutoff's
+   calibration and training — which is exactly where the peak is. The section
+   above had already named this the largest avoidable item.
+3. **The rewind streams instead of materialising** (`asof.World.rewind`). It
+   read the entire store — 92,839 rows × 103 mostly-text columns — into Arrow
+   and then held the filtered copy beside it, 94 times. A dataset scanner
+   pushes the date predicate down and yields one batch at a time, so the peak
+   is a batch and stays a batch however deep the archive gets.
+
+**Measured on the laptop store, same method as above, same tree rule:
+1461 MB → 1410 MB.** That number understates the changes and is reported
+anyway, because it is what was measured: at 24,023 embedded lots the mapped
+matrix is 74 MB rather than 285 MB, the rewind moves 29k rows rather than 93k,
+and the model never loads at all (the word cache covers it), so two of the
+three changes have almost nothing to bite on. The server-side figure is the
+one that matters and is measured on the next server run.
+
 ## Reading this on a VM
 
 Two properties do not shrink and should be planned around.

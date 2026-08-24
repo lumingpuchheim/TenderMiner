@@ -50,6 +50,7 @@ import pandas as pd
 
 import asof
 import config
+import embed
 import heavy_lock
 import relevance as rel
 import selection
@@ -232,6 +233,12 @@ def replay(data_dir, step_days, sub_ids, start=None):
         gate = world.gate(cfg)
         profiles = {s: as_of_profile(gate, subs[s], world.awards)
                     for s in subs}
+        # A profile with `profile_texts` loads the embedding model — 646 MB
+        # that nothing else in the loop needs, and that would otherwise stay
+        # resident through the NEXT cutoff's calibration and training, which
+        # is where the peak is. `embed_texts_cached` means the reload never
+        # actually happens after the first cutoff. doc/MEMORY_BUDGET.md.
+        embed.unload_model()
         # the target simulation is a market-wide question with no subscription
         # behind it, so it keeps its own fixed horizon; a customer's own
         # deadline promise is applied per subscription, inside selection.py

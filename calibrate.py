@@ -276,8 +276,10 @@ def calibrate(data_dir, tenders=None, awards=None, trade=None):
     0.660 purely because IT entered the average). None = the whole store,
     which is only sensible while the store is one trade.
     """
-    rows, mat = load_sidecar(data_dir)
-    lpos, lrows, lmat = load_label_sidecar(data_dir)
+    # read-only, so mapped rather than copied — this runs inside the replay,
+    # where it is the largest allocation of the largest program we have
+    rows, mat = load_sidecar(data_dir, mmap=True)
+    lpos, lrows, lmat = load_label_sidecar(data_dir, mmap=True)
     pos_of = {(r['procedure_id'], r['lot_id']): i for i, r in enumerate(rows)}
     if tenders is None:
         tenders = pd.read_parquet(Path(data_dir) / 'store' / 'tenders.parquet')

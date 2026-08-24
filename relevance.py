@@ -475,8 +475,11 @@ class Gate:
         # another to build_profile()/judge() — see GateConfig
         self.config = config or DEFAULT_CONFIG
         self._learned = None
-        self.rows, self.mat = load_sidecar(data_dir)
-        self.lpos, self.lrows, self.lmat = load_label_sidecar(data_dir)
+        # mapped, not copied: the gate reads these matrices and never writes
+        # them, and 285 MB of file-backed pages is 285 MB the kernel can take
+        # back instead of taking the process (doc/MEMORY_BUDGET.md)
+        self.rows, self.mat = load_sidecar(data_dir, mmap=True)
+        self.lpos, self.lrows, self.lmat = load_label_sidecar(data_dir, mmap=True)
         trust = json.loads(Path(self.config.trusted_codes).read_text(
             encoding='utf-8'))
         self.baseline = trust['baseline']
@@ -625,8 +628,11 @@ def build_profile(gate, sub, config=None):
     ref_rows = np.array(sorted(set(ref_rows)), dtype=int)
     ref_vecs = gate.mat[ref_rows] if len(ref_rows) else np.empty((0, gate.mat.shape[1]))
     if sub.get('profile_texts'):
-        from embed import embed_texts  # loads the model lazily, only when needed
-        ref_vecs = np.vstack([ref_vecs, embed_texts(list(sub['profile_texts']))])
+        # cached: the same profile texts are embedded again at every cutoff of
+        # a replay, and the model behind them is 646 MB (doc/MEMORY_BUDGET.md)
+        from embed import embed_texts_cached
+        ref_vecs = np.vstack([ref_vecs,
+                              embed_texts_cached(list(sub['profile_texts']))])
     if not len(ref_vecs):
         raise ValueError('gated subscription has an empty profile')
 

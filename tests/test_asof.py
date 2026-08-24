@@ -85,20 +85,20 @@ class TheRewind(Fixture):
         file — stale, but readable, and the next rewind repairs it."""
         w = self.world()
         w.rewind(pd.Timestamp('2026-06-10'))
-        real = asof.pq.write_table
+        real = asof.pq.ParquetWriter
 
-        def dies_on_awards(tab, path, *a, **k):
+        def dies_on_awards(path, *a, **k):
             if 'awards' in str(path):
                 Path(path).write_bytes(b'half a parquet')   # the crash
                 raise KeyboardInterrupt
-            return real(tab, path, *a, **k)
+            return real(path, *a, **k)
 
-        asof.pq.write_table = dies_on_awards
+        asof.pq.ParquetWriter = dies_on_awards
         try:
             with self.assertRaises(KeyboardInterrupt):
                 w.rewind(pd.Timestamp('2026-03-10'))
         finally:
-            asof.pq.write_table = real
+            asof.pq.ParquetWriter = real
         # both store files still parse; awards still shows the OLD cutoff
         for name in ('tenders', 'awards'):
             pd.read_parquet(self.work / 'store' / f'{name}.parquet')

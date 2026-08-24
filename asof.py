@@ -45,7 +45,7 @@ import json
 import shutil
 from pathlib import Path
 
-import pyarrow.compute as pc
+import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
 import relevance as rel
@@ -114,10 +114,25 @@ class World:
         (Hit for real on 2026-08-11.)
         """
         for name in ('tenders', 'awards'):
-            tab = pq.read_table(self.full / 'store' / f'{name}.parquet')
-            mask = pc.less(tab.column('publication_date'), cutoff.date())
+            # Streamed, not materialised: `pq.read_table` held the whole
+            # store — 92,839 rows x 103 mostly-text columns — and then its
+            # filtered copy beside it, at every one of ~94 cutoffs. The
+            # dataset scanner pushes the date down and hands back one batch
+            # at a time, so the peak here is a batch instead of the archive,
+            # and it stays a batch as the archive deepens. Same rows, same
+            # order, same schema. doc/MEMORY_BUDGET.md.
+            src = self.full / 'store' / f'{name}.parquet'
+            data = ds.dataset(src, format='parquet')
+            scanner = data.scanner(
+                filter=ds.field('publication_date') < cutoff.date())
             tmp = self.work / 'store' / f'{name}.parquet.partial'
-            pq.write_table(tab.filter(mask), tmp)
+            writer = pq.ParquetWriter(tmp, data.schema)
+            try:
+                for batch in scanner.to_batches():
+                    if batch.num_rows:
+                        writer.write_batch(batch)
+            finally:
+                writer.close()
             tmp.replace(self.work / 'store' / f'{name}.parquet')
         self.cutoff = cutoff
         self._frames = {}

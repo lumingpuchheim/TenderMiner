@@ -103,6 +103,31 @@ def unload_model():
     gc.collect()
 
 
+_vec_cache = {}
+
+
+def embed_texts_cached(texts):
+    """Like `embed_texts`, but remembers what it has already embedded.
+
+    For the caller that repeats itself: a replay builds the same
+    subscription's profile at all 94 cutoffs, from the same handful of
+    `profile_texts`, and each of those calls used to load 646 MB of model to
+    embed a dozen strings it had embedded the week before — and left it
+    resident through the next week's calibration and training, which is where
+    the run's peak is. With the cache the model is loaded once, and once
+    `unload_model()` has been called it is never loaded again.
+
+    Keyed by model tag, so switching EMBED_MODEL cannot serve vectors from
+    the other space. Bounded by the number of distinct texts a run sees,
+    which for profiles is a few dozen.
+    """
+    todo = [t for t in dict.fromkeys(texts) if (MODEL_TAG, t) not in _vec_cache]
+    if todo:
+        for t, v in zip(todo, embed_texts(todo)):
+            _vec_cache[(MODEL_TAG, t)] = v
+    return np.stack([_vec_cache[(MODEL_TAG, t)] for t in texts])
+
+
 def embed_texts(texts, batch_size=16):
     """L2-normalised float32 vectors, one per text. Model is loaded lazily so
     importing this module stays free for callers that only read the sidecar.
@@ -172,26 +197,36 @@ def build_label_sidecar(data_dir):
     return len(codes)
 
 
-def load_label_sidecar(data_dir):
-    """(code -> row position, label rows, matrix); build first via --labels."""
+def load_label_sidecar(data_dir, mmap=False):
+    """(code -> row position, label rows, matrix); build first via --labels.
+    `mmap` as in `load_sidecar` — 29 MB here, read-only in every consumer."""
     d = sidecar_dir(data_dir)
     with open(d / 'cpv_labels_index.jsonl', encoding='utf-8') as f:
         rows = [json.loads(line) for line in f if line.strip()]
-    mat = np.load(d / 'cpv_labels.npy')
+    mat = np.load(d / 'cpv_labels.npy', mmap_mode='r' if mmap else None)
     if len(rows) != len(mat):
         raise RuntimeError(f'label sidecar misaligned — delete {d} and re-run')
     return {r['code']: i for i, r in enumerate(rows)}, rows, mat
 
 
-def load_sidecar(data_dir):
-    """(index rows, matrix) — aligned by position; ([], empty) before first run."""
+def load_sidecar(data_dir, mmap=False):
+    """(index rows, matrix) — aligned by position; ([], empty) before first run.
+
+    `mmap=True` returns the matrix as a read-only memory map instead of a
+    copy in the heap. Every reader wants this: at 90,000 lots the matrix is
+    285 MB, it is read and never written, and mapped pages are file-backed —
+    the kernel can drop them under pressure instead of killing the process,
+    and a row indexed out of it (`mat[rows]`) is a normal array. Writers
+    (`ensure_embeddings`) must keep the default: the file is replaced under
+    them, and a map of a replaced file is a map of the old bytes.
+    """
     d = sidecar_dir(data_dir)
     npy, idx = d / 'lots.npy', d / 'lots_index.jsonl'
     if not npy.exists() or not idx.exists():
         return [], np.empty((0, DIM), dtype=np.float32)
     with open(idx, encoding='utf-8') as f:
         rows = [json.loads(line) for line in f if line.strip()]
-    mat = np.load(npy)
+    mat = np.load(npy, mmap_mode='r' if mmap else None)
     if len(mat) > len(rows):
         # Crash between matrix replace and index append: the tail vectors have no
         # index lines. Drop them — their lots re-embed as new on the next run.
