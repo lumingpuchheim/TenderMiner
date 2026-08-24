@@ -137,10 +137,23 @@ def replay(data_dir, step_days, sub_ids, start=None):
     tenders_full = pd.read_parquet(
         full_store / 'tenders.parquet',
         columns=['procedure_id', 'lot_id', 'publication_date', 'deadline_date'])
-    awards_full = pd.read_parquet(full_store / 'awards.parquet')
+    # Same discipline for the awards, added at the 118k-row store
+    # (MEMORY_BUDGET.md "The 4x store"): this frame stays resident for the
+    # WHOLE replay (own_win_rows and winner_map read it at the end), and of
+    # its 48 columns exactly these six are ever touched here — the grading
+    # key, the revision order, the two verdict fields and the quality flag
+    # `latest_awards` filters on. The nested ones left behind
+    # (submission_statistics, winning_bids) are the heavy ones.
+    awards_full = pd.read_parquet(
+        full_store / 'awards.parquet',
+        columns=['procedure_id', 'lot_id', 'publication_date',
+                 'quality_flags', 'n_tenders', 'winner_names'])
     aw_latest, _ = sb.latest_awards(awards_full)
     outcome = {(a['procedure_id'], a['lot_id']): int(a['n_tenders'])
                for _, a in aw_latest.iterrows()}
+    # aw_latest answered one dict; without this it stays bound until the
+    # return, a second copy of the awards riding along for hours
+    del aw_latest
 
     # The subscription DEFINITION is taken as it stands now (the newest
     # version in force), not as of each cutoff: as_of_profile() is what
