@@ -231,10 +231,17 @@ What stands as of that day, in order of preference when memory is tight:
 - Backplay starts no measurement within six hours of the Monday cycle
   (`backplay.CYCLE_CLEARANCE`) — on 2026-08-24 a 04:00 backplay held the
   heavy lock past 09:30 and the Monday mail was never sent.
-- The duplication pass that produced the table above has not been repeated
-  at 118k rows; `awards_full` (59,565 rows, all columns, held for the whole
-  run) is the first place to look when someone does. Same acceptance test:
-  byte-identical documents, or it is a different product, not a saving.
+- The duplication pass was partially repeated the same night. The full
+  weekly replay (95 cutoffs, 2024-11..2026-08) peaked at **5,230 MB over
+  3 h 36 m** — the exact number the 2026-08-23 memcg kill hit, confirming
+  that run died at its natural peak. Narrowing `awards_full` to the six
+  columns the replay reads (of 48; the nested `submission_statistics` and
+  `winning_bids` stay on disk) and dropping the second awards copy after
+  the outcome dict re-ran **byte-identical** (same store, same night, only
+  the `generated` stamp excluded) at **5,117 MB** — ~200 MB lower through
+  the middle of the run, ~113 MB at the peak. The peak lives in the Gate,
+  the World's store copy and the label-table transients; those are the
+  remaining candidates, and they are real surgery, not a column list.
 
 `doc/HOSTING.md` §0's per-stage table and its "fits a 4 GB machine" claims
 are 2026-08-13 numbers over the 29k store — read them as proportions, not
