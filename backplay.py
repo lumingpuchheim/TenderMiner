@@ -98,7 +98,17 @@ def replay_harness(data_dir, out_path):
 HARNESSES = {'judge': judge_harness, 'replay': replay_harness}
 
 
-def measure(paths, value, harness='judge', knob=None, timeout=10800):
+# Six hours per harness run. The old three-hour ceiling was written when a
+# judge run was minutes; at the 118k-row store (2026-08-25) a judge run is
+# ~2 h 55 m — minutes under that axe — and the full replay is 3 h 34 m, OVER
+# it, so the THRESHOLD question timed out nightly and could never land. The
+# timeout exists to bound a HUNG harness, not a working one; six hours is
+# twice the slowest measured run and still ends a wedged night before the
+# next one starts.
+MEASURE_TIMEOUT = 6 * 3600
+
+
+def measure(paths, value, harness='judge', knob=None, timeout=MEASURE_TIMEOUT):
     """Run one candidate under its own gate configuration. -> the payload dict.
 
     Raises on a non-zero exit: a harness that fell over measured nothing, and
@@ -281,7 +291,7 @@ def _hm(gap):
 
 
 def run(paths, questions=None, today=None, harness=None, force=False,
-        clock=None):
+        clock=None, emit=None):
     """Measure every live question's candidates and record the verdicts.
 
     Per question: the current value first (the baseline row, `role='current'`),
@@ -291,29 +301,47 @@ def run(paths, questions=None, today=None, harness=None, force=False,
     CYCLE_CLEARANCE of the Monday cycle — checked before every single harness
     run, not just at entry, because a many-question night entered on Sunday
     can reach Monday: whatever is measured by then is kept and settled, and
-    the rest waits for the next run (`next_cycle`, CYCLE_CLEARANCE)."""
+    the rest waits for the next run (`next_cycle`, CYCLE_CLEARANCE).
+
+    Progress is DURABLE and VISIBLE as it happens (2026-08-25): every row goes
+    to the ledger the moment its measurement completes, and `emit` (the
+    caller's print) gets each line immediately — two deploys in a row had
+    killed multi-hour runs whose only trace was a missing "done" line, hours
+    of measurement discarded because rows were batched per question and lines
+    were printed only at the end. A candidate already measured under the
+    CURRENT evidence stamp is kept, not re-measured, so a question too big
+    for one night accumulates across nights instead of restarting forever."""
     clock = clock or datetime.now
     today = today or util.now_utc().date().isoformat()
     questions = knobs.queue(paths, today) if questions is None else questions
+    lines = []
+
+    def say(line):
+        lines.append(line)
+        if emit:
+            emit(line)
 
     def cycle_gap():
         now = clock()
         gap = next_cycle(now) - now
         return gap if gap <= CYCLE_CLEARANCE else None
 
+    def keep(row):
+        ledger.append(paths.ledger_home, 'backplays', [row])
+
     gap = cycle_gap()
     if questions and gap:
-        lines = [f'[backplay] the cycle starts in {_hm(gap)} (Monday '
-                 f'{CYCLE_HOUR:02d}:00) — no measurement starts now. One '
-                 f'judge run is hours at today\'s store, and on 2026-08-24 a '
-                 f'04:00 backplay still held the lock at 09:30: the cycle and '
-                 f'the delivery both gave up and no customer mail went out. '
-                 f'Everything is measured on the next run.']
+        say(f'[backplay] the cycle starts in {_hm(gap)} (Monday '
+            f'{CYCLE_HOUR:02d}:00) — no measurement starts now. One '
+            f'judge run is hours at today\'s store, and on 2026-08-24 a '
+            f'04:00 backplay still held the lock at 09:30: the cycle and '
+            f'the delivery both gave up and no customer mail went out. '
+            f'Everything is measured on the next run.')
         for q in questions:
-            lines += _settle(paths, q, today)
+            for line in _settle(paths, q, today):
+                say(line)
         return lines
     stamp = evidence_stamp(paths)
-    lines, rows = [], []
     for q in questions:
         use = harness or getattr(q, 'harness', None) or 'judge'
         read = getattr(q, 'read', None) or READERS[use]
@@ -321,50 +349,57 @@ def run(paths, questions=None, today=None, harness=None, force=False,
         stood_on = {r.get('stamp') for r in had.values()}
         wanted = {q.current, *q.neighbours()}
         if not force and stood_on == {stamp} and wanted <= set(had):
-            lines.append(f'[backplay] {q.knob}: nothing moved since '
-                         f'{max(str(r["ts"])[:10] for r in had.values())} '
-                         f'(benchmark, store, gate unchanged) — not re-measured')
-            lines += _settle(paths, q, today)
+            say(f'[backplay] {q.knob}: nothing moved since '
+                f'{max(str(r["ts"])[:10] for r in had.values())} '
+                f'(benchmark, store, gate unchanged) — not re-measured')
+            for line in _settle(paths, q, today):
+                say(line)
             continue
         gap = cycle_gap()
         if gap:
-            lines.append(f'[backplay] {q.knob}: the cycle is {_hm(gap)} away '
-                         f'— measurement waits for the next run')
-            lines += _settle(paths, q, today)
+            say(f'[backplay] {q.knob}: the cycle is {_hm(gap)} away '
+                f'— measurement waits for the next run')
+            for line in _settle(paths, q, today):
+                say(line)
             continue
         try:
             base = measure(paths, q.current, use)
         except Exception as e:
-            lines.append(f'[backplay] {q.knob}: baseline failed ({e}) — nothing rejected')
+            say(f'[backplay] {q.knob}: baseline failed ({e}) — nothing rejected')
             continue
         cur_metrics = read(base)
-        rows.append(_row(q, q.current, use, base, cur_metrics, False, 'current value',
-                         stamp, 'current'))
-        lines.append(f'[backplay] {q.knob}={q.current} (current): '
-                     + _fmt(cur_metrics))
+        keep(_row(q, q.current, use, base, cur_metrics, False, 'current value',
+                  stamp, 'current'))
+        say(f'[backplay] {q.knob}={q.current} (current): ' + _fmt(cur_metrics))
         for value in q.neighbours():
+            prev = had.get(value)
+            if not force and prev is not None and prev.get('stamp') == stamp \
+                    and prev.get('metric') is not None:
+                # measured under this very evidence on an earlier (killed or
+                # partial) run — the verdict row already stands in the ledger
+                say(f'[backplay] {q.knob}={value}: already measured under '
+                    f'this evidence ({str(prev["ts"])[:16]}) — kept')
+                continue
             gap = cycle_gap()
             if gap:
-                lines.append(f'[backplay] {q.knob}: remaining candidates wait '
-                             f'for the next run — the cycle is {_hm(gap)} away')
+                say(f'[backplay] {q.knob}: remaining candidates wait '
+                    f'for the next run — the cycle is {_hm(gap)} away')
                 break
             try:
                 payload = measure(paths, value, use, knob=q.knob.split('.')[-1])
             except Exception as e:
-                lines.append(f'[backplay] {q.knob}={value}: harness failed ({e}) — not rejected')
+                say(f'[backplay] {q.knob}={value}: harness failed ({e}) — not rejected')
                 continue
             cand = read(payload)
             killed, reason = rejects(cur_metrics, cand)
-            rows.append(_row(q, value, use, payload, cand, killed, reason, stamp, 'candidate'))
-            lines.append(f'[backplay] {q.knob}={value}: '
-                         f'{"REJECTED" if killed else "survives"} — {reason}; {_fmt(cand)}')
-        if rows:
-            ledger.append(paths.ledger_home, 'backplays', rows)
-            rows = []
-        lines += _settle(paths, q, today)
+            keep(_row(q, value, use, payload, cand, killed, reason, stamp, 'candidate'))
+            say(f'[backplay] {q.knob}={value}: '
+                f'{"REJECTED" if killed else "survives"} — {reason}; {_fmt(cand)}')
+        for line in _settle(paths, q, today):
+            say(line)
     if not questions:
-        lines.append('[backplay] no live question — nothing to measure '
-                     '(PARAMETERS.md 8.1 files one)')
+        say('[backplay] no live question — nothing to measure '
+            '(PARAMETERS.md 8.1 files one)')
     return lines
 
 
@@ -632,15 +667,13 @@ def main():
         print(f'[backplay] ad hoc: {q.knob} at {q.current}, '
               f'candidates {q.neighbours()} — one harness run each')
         with heavy_lock.held(paths.data, 'backplay (ad hoc)', wait=7200):
-            for line in run(paths, [q], harness=args.harness):
-                print(line)
+            run(paths, [q], harness=args.harness, emit=print)
         return
     # The harnesses open the embedding model and rewrite as-of worlds; the
     # weekly cycle must never meet one halfway. Waiting is right here — this
     # is a night job with nowhere to be.
     with heavy_lock.held(paths.data, 'backplay', wait=7200):
-        for line in run(paths, harness=args.harness, force=args.force):
-            print(line)
+        run(paths, harness=args.harness, force=args.force, emit=print)
 
 
 if __name__ == '__main__':

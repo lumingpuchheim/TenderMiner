@@ -167,6 +167,23 @@ Fix TM_STATE (or .env), or set TM_FORCE_STATE=1 if the move is intended."
 
 switch_to() {
     local tag="$1"
+    # Recreating the scheduler SIGTERMs whatever cron job is running inside
+    # it. On 2026-08-24 and again on 2026-08-25 that silently discarded
+    # multi-hour backplay measurements — the only trace was a missing "done"
+    # line in cron.log. A deploy is a human pressing a button; a measurement
+    # night is hours of CPU: the button waits. flock on the same lockfile the
+    # heavy jobs hold (heavy_lock.py), so a held lock is a running job, never
+    # a stale file. TM_DEPLOY_FORCE=1 overrides when losing the measurement
+    # is the deliberate choice (e.g. deploying a fix to backplay itself).
+    if [ -e "$STATE/heavy.lock" ] && ! flock -n "$STATE/heavy.lock" true; then
+        if [ "${TM_DEPLOY_FORCE:-0}" != 1 ]; then
+            die "a heavy job holds $STATE/heavy.lock ($(tail -n1 "$STATE/heavy.lock" 2>/dev/null || echo unknown)) —
+recreating the scheduler would kill it and discard hours of measurement.
+The image is built and proved ($IMAGE:$tag); re-run this deploy when the
+job is done, or set TM_DEPLOY_FORCE=1 to discard the job deliberately."
+        fi
+        say "TM_DEPLOY_FORCE=1: deploying over a running heavy job — it dies now and its night is discarded"
+    fi
     # The scheduler is behind a compose profile and may or may not be running.
     # Recreating it matters: OPERATIONS.md 2 step 5 — next Monday must run the
     # same image the app just proved, never the one from two deploys ago.
