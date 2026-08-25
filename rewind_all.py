@@ -284,8 +284,12 @@ def replay(data_dir, step_days, sub_ids, start=None):
             # which is what delivering.deliver runs on Monday. This is the whole
             # point of the measurement — the drifted second copy that used to
             # live here is what defect 1 was.
+            # `seen`: what this replayed customer was already sent in earlier
+            # weeks — the shipped no-repeat rule, so a repeated lot's slot
+            # goes to the next new one here exactly as it does in the mail
             sel = selection.for_sub(subs[s], candidates, D.date(),
-                                    gate=gate, profile=profile)
+                                    gate=gate, profile=profile,
+                                    seen=set(sub_picks[s]))
             sub_market[s].update(lot_key(d) for d in sel.market)
             for d in sel.picks:
                 sub_picks[s].setdefault(

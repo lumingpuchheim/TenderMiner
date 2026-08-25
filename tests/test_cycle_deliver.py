@@ -13,7 +13,7 @@ import shutil
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import db                                                     # noqa: E402
 import deliver                                                # noqa: E402
+import delivering                                             # noqa: E402
 import ledger                                                 # noqa: E402
 import predicting                                             # noqa: E402
 import util                                                   # noqa: E402
@@ -148,6 +149,33 @@ class Freshness(unittest.TestCase):
             self.assertEqual(ledger.read(data, 'deliveries'), [], 'nothing was delivered')
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class SeenBefore(unittest.TestCase):
+    """`delivering.seen_before`: the no-repeat rule's memory. A lot in an
+    earlier report is excluded from today's picks; a lot from TODAY's own
+    rows is not, so re-running the same day regenerates the same report."""
+
+    ROWS = [
+        {'ts': '2026-08-17T08:30:00+00:00', 'sub_id': 'a',
+         'procedure_id': 'p1', 'lot_id': 'L1'},
+        {'ts': '2026-08-24T08:30:00+00:00', 'sub_id': 'a',
+         'procedure_id': 'p2', 'lot_id': 'L1'},
+        {'ts': '2026-08-17T08:30:00+00:00', 'sub_id': 'b',
+         'procedure_id': 'p3', 'lot_id': 'L1'},
+    ]
+
+    def test_earlier_reports_count_todays_do_not(self):
+        seen = delivering.seen_before(self.ROWS, date(2026, 8, 24))
+        self.assertEqual(seen, {'a': {('p1', 'L1')}, 'b': {('p3', 'L1')}})
+
+    def test_memory_is_per_subscription(self):
+        """Customer b never saw a's lot; it must stay recommendable to b."""
+        seen = delivering.seen_before(self.ROWS, date(2026, 8, 24))
+        self.assertNotIn(('p1', 'L1'), seen['b'])
+
+    def test_no_history_no_memory(self):
+        self.assertEqual(delivering.seen_before([], date(2026, 8, 24)), {})
 
 
 class OpenScored(unittest.TestCase):

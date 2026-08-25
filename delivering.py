@@ -180,6 +180,25 @@ def send_report(home, sub, today, page, headers, transport=None):
     return None
 
 
+def seen_before(past, today):
+    """{sub_id: lot keys recommended in a report BEFORE `today`}, from the
+    deliveries ledger.
+
+    What each subscription has already been given, so a lot is never
+    recommended twice (operator, 2026-08-24: "in two consecutive emails,
+    same tender will be recommended. can you remove it? it is ok if one week
+    there is less tender to recommend"). Strictly before today, so a re-run
+    of the same day regenerates the same report rather than an emptier one —
+    the same idempotence line the `already` set draws for ledger rows.
+    """
+    seen = {}
+    for d in past:
+        if str(d['ts'])[:10] < today.isoformat():
+            seen.setdefault(d['sub_id'], set()).add(
+                (d['procedure_id'], d['lot_id']))
+    return seen
+
+
 def deliver(paths, scored, args):
     """The dispatcher: one run, many views. Filter this cycle's scored open
     lots per subscription, re-rank and re-tier WITHIN the slice, write the
@@ -200,6 +219,7 @@ def deliver(paths, scored, args):
     past = ledger.read(paths.deliveries_home, 'deliveries')
     already = {(d['sub_id'], d['procedure_id'], d['lot_id'], str(d['ts'])[:10])
                for d in past}
+    seen_by_sub = seen_before(past, today)
     by_sub = {}
     for d in past:
         by_sub.setdefault(d['sub_id'], []).append(d)
@@ -254,7 +274,8 @@ def deliver(paths, scored, args):
         # since the annex needs a verdict for short-deadline lots too — and
         # near-misses render separately.
         sel = selection.for_sub(sub, latest.values(), today, gate=gate,
-                                profile=profile)
+                                profile=profile,
+                                seen=seen_by_sub.get(sub['sub_id']))
         # render.py turns the SliceResult into the two documents and the
         # delivery rows (REFACTOR.md phase 4b). This loop keeps only the
         # dispatch and the writing: everything above is "what does this

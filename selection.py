@@ -54,12 +54,20 @@ class SliceResult:
     judged: dict = field(default_factory=dict)      # lot_key -> (text, code, why, hard)
 
 
-def for_sub(sub, rows, today, gate=None, profile=None):
+def for_sub(sub, rows, today, gate=None, profile=None, seen=None):
     """Everything one subscription selects out of `rows`, as of `today`.
 
     Without a profile the gate step is skipped and the slice is the market
     filter alone — the ungated delivery path, which must stay byte-identical
     for customers who never asked for a profile.
+
+    `seen` is the lot keys this subscription was already given in earlier
+    reports. A lot stays open for weeks, so without it the same tender tops
+    the ranking in two consecutive mails (operator, 2026-08-24: "can you
+    remove it? it is ok if one week there is less tender to recommend").
+    Seen lots are excluded from the RECOMMENDATION only — the market view
+    and the annex still carry them, same shape as the deadline promise: a
+    narrower mail, never a narrower market.
     """
     res = SliceResult()
     for row in rows:
@@ -79,7 +87,11 @@ def for_sub(sub, rows, today, gate=None, profile=None):
         (r for r in res.market if subscriptions.deadline_ok(sub, r, today)),
         key=lambda r: -r['score'])
     # ONE bar (RELEVANCE.md decision 2026-08-05): passing the gate means
-    # recommendable — a pick just needs the competition flag on top
+    # recommendable — a pick just needs the competition flag on top, and to
+    # be news: a lot recommended in an earlier report does not come back,
+    # and its slot under the cap goes to the next-best new lot instead
+    seen = seen or set()
     res.picks = [r for r in res.ranked
-                 if r.get('flag')][:subscriptions.max_picks(sub)]
+                 if r.get('flag') and lot_key(r) not in seen
+                 ][:subscriptions.max_picks(sub)]
     return res

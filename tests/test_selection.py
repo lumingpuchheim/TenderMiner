@@ -164,6 +164,41 @@ class SelectionTest(unittest.TestCase):
         self.assertEqual([r['lot_id'] for r in res.picks], ['L0', 'L1', 'L2'])
         self.assertEqual(len(res.ranked), 9, 'the cap must not shrink the slice')
 
+    # ------------------------------------------------- the no-repeat rule
+
+    def test_a_lot_recommended_before_is_not_recommended_again(self):
+        """A lot stays open for weeks; without `seen` the same tender topped
+        two consecutive mails (operator, 2026-08-24). Fewer picks one week is
+        the accepted price."""
+        rows = [row(lot_id='old', score=0.99), row(lot_id='new', score=0.60)]
+        res = selection.for_sub({'sub_id': 's'}, rows, TODAY,
+                                seen={('p1', 'old')})
+        self.assertEqual([r['lot_id'] for r in res.picks], ['new'])
+
+    def test_a_seen_lot_stays_in_the_market_and_the_ranking(self):
+        """Same shape as the deadline promise: the mail narrows, the market
+        view and the annex do not — the lot still deserves its verdict."""
+        rows = [row(lot_id='old', score=0.99), row(lot_id='new', score=0.60)]
+        res = selection.for_sub({'sub_id': 's'}, rows, TODAY,
+                                seen={('p1', 'old')})
+        self.assertEqual(len(res.market), 2)
+        self.assertEqual([r['lot_id'] for r in res.ranked], ['old', 'new'])
+
+    def test_a_seen_lots_slot_goes_to_the_next_new_lot(self):
+        """The cap counts recommendations, not candidates: excluding a seen
+        lot must not waste one of the max_picks slots on it."""
+        rows = [row(lot_id=f'L{i}', score=0.9 - i / 100) for i in range(4)]
+        res = selection.for_sub({'sub_id': 's', 'max_picks': 2}, rows, TODAY,
+                                seen={('p1', 'L0')})
+        self.assertEqual([r['lot_id'] for r in res.picks], ['L1', 'L2'])
+
+    def test_no_seen_set_changes_nothing(self):
+        rows = [row(lot_id='a', score=0.9), row(lot_id='b', score=0.8)]
+        with_none = selection.for_sub({'sub_id': 's'}, rows, TODAY, seen=None)
+        plain = selection.for_sub({'sub_id': 's'}, rows, TODAY)
+        self.assertEqual([r['lot_id'] for r in with_none.picks],
+                         [r['lot_id'] for r in plain.picks])
+
     def test_only_flagged_lots_are_recommended(self):
         """Passing the gate means relevant; a pick needs the competition
         verdict on top (RELEVANCE.md decision 2026-08-05)."""
