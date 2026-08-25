@@ -21,6 +21,15 @@ services:
     # artifact that served yesterday has to still exist, unchanged, to go back to.
     image: tendermining:${TM_TAG:-latest}
     init: true                       # so Ctrl-C reaches python, not PID 1
+    # The memory fence, inherited by every service that extends this one
+    # (doc/MEMORY_BUDGET.md "The 4x store"): a job that regresses dies alone
+    # in its own cgroup instead of handing the kernel's global OOM killer a
+    # free choice of victim — on 2026-08-23 19:23 that choice was one score
+    # away from app.py. The swap ceiling is above the RAM one so a transient
+    # peak (the replay measured 4.8 GB that day) spills to the swapfile
+    # (docker/swap.sh) and finishes slow rather than dying five hours in.
+    mem_limit: 6g
+    memswap_limit: 10g
     # The first env.d layer of doc/SECRETS.md 1-2: site.env, the per-machine
     # configuration that is not secret and not in git (the salesman's
     # address TM_SALES_OWNER lives there — operator, 2026-08-18: "not in

@@ -23,6 +23,13 @@ TED only serves recent packages), the database 111 MB (irreplaceable — what we
 promised customers), embeddings 513 MB + store 23 MB + models (all recomputed
 by the cycle). **≈2 GB, growing ~90 MB/week** with the raw archive.
 
+> **2026-08-24:** every RAM figure in §0–0a is a 29k-row-store number, and
+> the store is now 118k rows (4.1×) — the replay alone measured **4.8 GB**
+> that day. Read these as proportions until re-measured; the current numbers,
+> the repeatable command (`memory_receipt.py`) and what now protects the box
+> (swap, container caps, backplay's cycle clearance) are in
+> [`MEMORY_BUDGET.md`](MEMORY_BUDGET.md), "The 4× store".
+
 ## 0a. What the cycle actually costs — measured 2026-08-13
 
 One real `loop.py run --last 7d`, in the container, against a Docker volume

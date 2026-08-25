@@ -43,7 +43,10 @@ still dead.
 
 What it never does: edit a constant, promote anything, touch the real ledger
 (the harnesses read the store; the as-of worlds are scratch and are pruned
-after), or run while the weekly cycle holds the heavy lock.
+after), run while the weekly cycle holds the heavy lock — or start a
+measurement when the cycle is about to want that lock (`next_cycle`,
+CYCLE_CLEARANCE): the Monday customer mail outranks a measurement that is
+cheap to repeat.
 """
 from __future__ import annotations
 
@@ -53,7 +56,7 @@ import os
 import subprocess
 import sys
 import tempfile
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import grading
@@ -95,7 +98,17 @@ def replay_harness(data_dir, out_path):
 HARNESSES = {'judge': judge_harness, 'replay': replay_harness}
 
 
-def measure(paths, value, harness='judge', knob=None, timeout=10800):
+# Six hours per harness run. The old three-hour ceiling was written when a
+# judge run was minutes; at the 118k-row store (2026-08-25) a judge run is
+# ~2 h 55 m — minutes under that axe — and the full replay is 3 h 34 m, OVER
+# it, so the THRESHOLD question timed out nightly and could never land. The
+# timeout exists to bound a HUNG harness, not a working one; six hours is
+# twice the slowest measured run and still ends a wedged night before the
+# next one starts.
+MEASURE_TIMEOUT = 6 * 3600
+
+
+def measure(paths, value, harness='judge', knob=None, timeout=MEASURE_TIMEOUT):
     """Run one candidate under its own gate configuration. -> the payload dict.
 
     Raises on a non-zero exit: a harness that fell over measured nothing, and
@@ -273,61 +286,120 @@ def measurements(paths, q, today=None):
     return out
 
 
-def run(paths, questions=None, today=None, harness=None, force=False):
+def _hm(gap):
+    return f'{gap.seconds // 3600}h{gap.seconds % 3600 // 60:02d}m'
+
+
+def run(paths, questions=None, today=None, harness=None, force=False,
+        clock=None, emit=None):
     """Measure every live question's candidates and record the verdicts.
 
     Per question: the current value first (the baseline row, `role='current'`),
     then each neighbour under its override. Skipped — with a line saying so —
     when the evidence stamp equals the one the last measurement of this
-    question stood on, unless `force`."""
+    question stood on, unless `force`. No measurement STARTS inside
+    CYCLE_CLEARANCE of the Monday cycle — checked before every single harness
+    run, not just at entry, because a many-question night entered on Sunday
+    can reach Monday: whatever is measured by then is kept and settled, and
+    the rest waits for the next run (`next_cycle`, CYCLE_CLEARANCE).
+
+    Progress is DURABLE and VISIBLE as it happens (2026-08-25): every row goes
+    to the ledger the moment its measurement completes, and `emit` (the
+    caller's print) gets each line immediately — two deploys in a row had
+    killed multi-hour runs whose only trace was a missing "done" line, hours
+    of measurement discarded because rows were batched per question and lines
+    were printed only at the end. A candidate already measured under the
+    CURRENT evidence stamp is kept, not re-measured, so a question too big
+    for one night accumulates across nights instead of restarting forever."""
+    clock = clock or datetime.now
     today = today or util.now_utc().date().isoformat()
     questions = knobs.queue(paths, today) if questions is None else questions
+    lines = []
+
+    def say(line):
+        lines.append(line)
+        if emit:
+            emit(line)
+
+    def cycle_gap():
+        now = clock()
+        gap = next_cycle(now) - now
+        return gap if gap <= CYCLE_CLEARANCE else None
+
+    def keep(row):
+        ledger.append(paths.ledger_home, 'backplays', [row])
+
+    gap = cycle_gap()
+    if questions and gap:
+        say(f'[backplay] the cycle starts in {_hm(gap)} (Monday '
+            f'{CYCLE_HOUR:02d}:00) — no measurement starts now. One '
+            f'judge run is hours at today\'s store, and on 2026-08-24 a '
+            f'04:00 backplay still held the lock at 09:30: the cycle and '
+            f'the delivery both gave up and no customer mail went out. '
+            f'Everything is measured on the next run.')
+        for q in questions:
+            for line in _settle(paths, q, today):
+                say(line)
+        return lines
     stamp = evidence_stamp(paths)
-    lines, rows = [], []
     for q in questions:
         use = harness or getattr(q, 'harness', None) or 'judge'
         read = getattr(q, 'read', None) or READERS[use]
-        if use == 'replay' and date.fromisoformat(today).weekday() in REPLAY_SKIP_WEEKDAYS:
-            lines.append(f'[backplay] {q.knob}: replay skipped tonight — the cycle '
-                         f'wants the lock at 08:15; measured on the next run')
-            continue
         had = last_rows(paths, q.id, today)
         stood_on = {r.get('stamp') for r in had.values()}
         wanted = {q.current, *q.neighbours()}
         if not force and stood_on == {stamp} and wanted <= set(had):
-            lines.append(f'[backplay] {q.knob}: nothing moved since '
-                         f'{max(str(r["ts"])[:10] for r in had.values())} '
-                         f'(benchmark, store, gate unchanged) — not re-measured')
-            lines += _settle(paths, q, today)
+            say(f'[backplay] {q.knob}: nothing moved since '
+                f'{max(str(r["ts"])[:10] for r in had.values())} '
+                f'(benchmark, store, gate unchanged) — not re-measured')
+            for line in _settle(paths, q, today):
+                say(line)
+            continue
+        gap = cycle_gap()
+        if gap:
+            say(f'[backplay] {q.knob}: the cycle is {_hm(gap)} away '
+                f'— measurement waits for the next run')
+            for line in _settle(paths, q, today):
+                say(line)
             continue
         try:
             base = measure(paths, q.current, use)
         except Exception as e:
-            lines.append(f'[backplay] {q.knob}: baseline failed ({e}) — nothing rejected')
+            say(f'[backplay] {q.knob}: baseline failed ({e}) — nothing rejected')
             continue
         cur_metrics = read(base)
-        rows.append(_row(q, q.current, use, base, cur_metrics, False, 'current value',
-                         stamp, 'current'))
-        lines.append(f'[backplay] {q.knob}={q.current} (current): '
-                     + _fmt(cur_metrics))
+        keep(_row(q, q.current, use, base, cur_metrics, False, 'current value',
+                  stamp, 'current'))
+        say(f'[backplay] {q.knob}={q.current} (current): ' + _fmt(cur_metrics))
         for value in q.neighbours():
+            prev = had.get(value)
+            if not force and prev is not None and prev.get('stamp') == stamp \
+                    and prev.get('metric') is not None:
+                # measured under this very evidence on an earlier (killed or
+                # partial) run — the verdict row already stands in the ledger
+                say(f'[backplay] {q.knob}={value}: already measured under '
+                    f'this evidence ({str(prev["ts"])[:16]}) — kept')
+                continue
+            gap = cycle_gap()
+            if gap:
+                say(f'[backplay] {q.knob}: remaining candidates wait '
+                    f'for the next run — the cycle is {_hm(gap)} away')
+                break
             try:
                 payload = measure(paths, value, use, knob=q.knob.split('.')[-1])
             except Exception as e:
-                lines.append(f'[backplay] {q.knob}={value}: harness failed ({e}) — not rejected')
+                say(f'[backplay] {q.knob}={value}: harness failed ({e}) — not rejected')
                 continue
             cand = read(payload)
             killed, reason = rejects(cur_metrics, cand)
-            rows.append(_row(q, value, use, payload, cand, killed, reason, stamp, 'candidate'))
-            lines.append(f'[backplay] {q.knob}={value}: '
-                         f'{"REJECTED" if killed else "survives"} — {reason}; {_fmt(cand)}')
-        if rows:
-            ledger.append(paths.ledger_home, 'backplays', rows)
-            rows = []
-        lines += _settle(paths, q, today)
+            keep(_row(q, value, use, payload, cand, killed, reason, stamp, 'candidate'))
+            say(f'[backplay] {q.knob}={value}: '
+                f'{"REJECTED" if killed else "survives"} — {reason}; {_fmt(cand)}')
+        for line in _settle(paths, q, today):
+            say(line)
     if not questions:
-        lines.append('[backplay] no live question — nothing to measure '
-                     '(PARAMETERS.md 8.1 files one)')
+        say('[backplay] no live question — nothing to measure '
+            '(PARAMETERS.md 8.1 files one)')
     return lines
 
 
@@ -475,11 +547,29 @@ def replay_read(payload, max_tenders=1):
 
 READERS = {'judge': judge_read, 'replay': replay_read}
 
-# The replay is hours, and a Monday 04:00 start could still be running when
-# the 08:15 cycle wants the heavy lock; the cycle would wait, which is a late
-# report for customers. So the replay bucket sits out the night before the
-# cycle. The judge bucket (minutes per value) does not need to.
-REPLAY_SKIP_WEEKDAYS = (0,)      # Monday (date.weekday())
+# No measurement starts when the Monday cycle is this close. The judge was
+# "minutes per value" at the 29k-row store this module was written against;
+# at the 118k-row store one run is 30-90 minutes and a question is a baseline
+# plus up to five candidates — hours. On 2026-08-24 the 04:00 backplay still
+# held the heavy lock at 09:30, the cycle (07:00, waits 1 h) and the delivery
+# (08:30, waits 1 h) both gave up, and no customer mail went out. The
+# customer mail outranks a measurement that is, by this module's own charter,
+# cheap to repeat: the night before the cycle, backplay settles verdicts from
+# the ledger and measures nothing. Six hours covers the 04:00 cron slot plus
+# the longest measurement the `measure` timeout permits (three hours).
+CYCLE_WEEKDAY, CYCLE_HOUR = 0, 7      # Monday 07:00 — docker/crontab's cycle line
+CYCLE_CLEARANCE = timedelta(hours=6)
+
+
+def next_cycle(now):
+    """The next Monday 07:00 local after `now` — when the weekly cycle's cron
+    fires (docker/crontab; tests pin the two against each other)."""
+    days = (CYCLE_WEEKDAY - now.weekday()) % 7
+    at = (now + timedelta(days=days)).replace(hour=CYCLE_HOUR, minute=0,
+                                              second=0, microsecond=0)
+    if at <= now:
+        at += timedelta(days=7)
+    return at
 
 
 def _ad_hoc(knob, grid, current, metric='recall', harness='judge'):
@@ -577,15 +667,13 @@ def main():
         print(f'[backplay] ad hoc: {q.knob} at {q.current}, '
               f'candidates {q.neighbours()} — one harness run each')
         with heavy_lock.held(paths.data, 'backplay (ad hoc)', wait=7200):
-            for line in run(paths, [q], harness=args.harness):
-                print(line)
+            run(paths, [q], harness=args.harness, emit=print)
         return
     # The harnesses open the embedding model and rewrite as-of worlds; the
     # weekly cycle must never meet one halfway. Waiting is right here — this
     # is a night job with nowhere to be.
     with heavy_lock.held(paths.data, 'backplay', wait=7200):
-        for line in run(paths, harness=args.harness, force=args.force):
-            print(line)
+        run(paths, harness=args.harness, force=args.force, emit=print)
 
 
 if __name__ == '__main__':

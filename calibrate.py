@@ -49,6 +49,7 @@ import numpy as np
 import pandas as pd
 
 import config
+import heavy_lock
 from embed import KEY, MODEL_TAG, load_label_sidecar, load_sidecar
 
 if hasattr(sys.stdout, 'reconfigure'):
@@ -952,6 +953,21 @@ def main():
                          'searches its own sub-store — so a bar can be hunted '
                          'for one division without re-running the rest.')
     args = ap.parse_args()
+    # A manual calibration is a heavy job like the replay — the label table
+    # alone is tens of MB per recalibration and the sub-store searches peak in
+    # the gigabytes at today's store. On 2026-08-23 19:23 one ran beside a
+    # replay and the kernel's global OOM killer picked the victim. Fail fast
+    # (wait=0), like every manual job: the operator is sitting right there.
+    # The cycle is unaffected — it calls run_calibration() in-process under
+    # its own lock, never through this CLI.
+    try:
+        with heavy_lock.held(args.data_dir, 'the calibration'):
+            return _cli(args)
+    except heavy_lock.Busy as e:
+        raise SystemExit(f'[calibrate] {e}')
+
+
+def _cli(args):
     if args.fingerprint is not None:
         trade_fingerprint_demo(args.data_dir, args.fingerprint or None)
         return

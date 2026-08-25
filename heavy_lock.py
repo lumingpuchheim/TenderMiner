@@ -35,11 +35,14 @@ Five properties, each removing one way that could happen.
    the backfill fail immediately, because they are manual, cheap
    to repeat, and their operator is sitting right there.
 
-5. **Only these four take it.** `app.py` must never wait behind batch work —
-   a customer clicking a link at 08:20 on a Monday is not part of this. And
-   each job takes the lock *before* it opens the database and releases it
-   *after*, so the lock is always outermost: no holder ever waits on SQLite
-   while something waiting on this lock holds it.
+5. **Only the batch jobs take it** — the cycle, the delivery, the replay,
+   the vocabulary backfill, backplay, and (since 2026-08-24, after a manual
+   calibration ran beside a replay and handed the kernel's OOM killer a
+   choice of victim) the calibration CLI. `app.py` must never wait behind
+   batch work — a customer clicking a link at 08:20 on a Monday is not part
+   of this. And each job takes the lock *before* it opens the database and
+   releases it *after*, so the lock is always outermost: no holder ever
+   waits on SQLite while something waiting on this lock holds it.
 """
 from __future__ import annotations
 
