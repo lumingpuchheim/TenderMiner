@@ -1,5 +1,5 @@
 #!/bin/sh
-# The delivery — the sending. Cron runs it Monday 08:30 (docker/crontab),
+# The delivery — the sending. Cron runs it Monday 11:00 (docker/crontab),
 # ninety minutes after cycle.sh, and it is the ONE scheduled job that reaches
 # a customer (RUNBOOK 1). It reads the predictions the cycle wrote; it trains
 # nothing, and if the newest prediction is older than a day it refuses and

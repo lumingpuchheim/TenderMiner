@@ -66,7 +66,7 @@ Expected output:
 — der Montagsversand nimmt sie ab jetzt mit
 ```
 
-From now on the Monday 08:30 delivery treats the twin as a customer. On
+From now on the Monday 11:00 delivery treats the twin as a customer. On
 `trial` you get the real prospect experience: four reports, each with the
 subscribe box ("Empfehlung n von 4"), then the ask, then nothing — exactly
 what a real firm would see. `remove` + `add` restarts the trial from 1.

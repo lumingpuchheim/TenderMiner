@@ -216,9 +216,50 @@ class Scheduled(unittest.TestCase):
                if 'backplay.sh' in l and not l.lstrip().startswith('#')]
         self.assertEqual(len(job), 1, 'exactly one backplay cron line')
         fields = job[0].split()
-        self.assertEqual(fields[:5], ['0', '4', '*', '*', '*'], 'nightly 04:00')
+        self.assertEqual(fields[:5], ['0', '4', '*', '*', '0,2-6'],
+                         '04:00 every day but Monday')
         self.assertEqual(fields[5], 'tm', 'runs as tm, like the other jobs')
         self.assertIn('cron.log', job[0], 'a job whose output goes nowhere is silent')
+
+    def test_the_rejector_leaves_the_cycle_its_morning(self):
+        """A run can last twenty-one hours, which is longer than the gap to any
+        other job — on 2026-08-24 one started at 04:00 still held the heavy
+        lock at 07:00, the cycle waited its hour and died, and no customer was
+        mailed that week. Monday is the cycle's; backplay takes the other six
+        nights. If this ever reads '*' again, that week goes unsent."""
+        def days(spec):
+            """A cron day-of-week field as the set of days it fires on."""
+            out = set()
+            for part in spec.split(','):
+                if part == '*':
+                    return set(range(7))
+                lo, _, hi = part.partition('-')
+                out |= set(range(int(lo), int(hi or lo) + 1))
+            return {0 if d == 7 else d for d in out}
+
+        crontab = (REPO / 'docker' / 'crontab').read_text(encoding='utf-8')
+        live = [l for l in crontab.splitlines()
+                if l.strip() and not l.lstrip().startswith('#')]
+        dow = {name: [l.split()[4] for l in live if name in l]
+               for name in ('cycle.sh', 'deliver.sh', 'backplay.sh')}
+        self.assertEqual(dow['cycle.sh'], ['1'], 'the cycle runs Monday')
+        self.assertEqual(dow['deliver.sh'], ['1'], 'the delivery runs Monday')
+        self.assertEqual(len(dow['backplay.sh']), 1)
+        self.assertEqual(days(dow['backplay.sh'][0]), {0, 2, 3, 4, 5, 6})
+        self.assertNotIn(1, days(dow['backplay.sh'][0]),
+                         'backplay must never start on the cycle day')
+
+    def test_the_delivery_has_room_behind_the_cycle(self):
+        """The cycle takes 30-75 minutes and may wait an hour on the lock
+        first; a delivery that starts before it finishes refuses on staleness
+        and nobody is mailed. Moved 08:30 -> 11:00 on 2026-08-27."""
+        crontab = (REPO / 'docker' / 'crontab').read_text(encoding='utf-8')
+        live = [l.split() for l in crontab.splitlines()
+                if l.strip() and not l.lstrip().startswith('#')]
+        at = {n: next(int(f[1]) * 60 + int(f[0]) for f in live if n in ' '.join(f))
+              for n in ('cycle.sh', 'deliver.sh')}
+        self.assertGreaterEqual(at['deliver.sh'] - at['cycle.sh'], 180,
+                                'at least three hours between cycle and mail')
 
     def test_the_job_script_exists_and_never_fails_the_container(self):
         script = (REPO / 'docker' / 'backplay.sh').read_text(encoding='utf-8')

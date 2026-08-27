@@ -27,7 +27,7 @@ Monday. The cycle has written this week's predictions.
    weeks, searched `/admin` for `elektro`, `lueftung`, `heizung` and pressed
    **Vormerken** on twelve small firms. Each row became *vorgemerkt ·
    Inhaber: luming*.
-2. 08:30, after the cycle: one e-mail, subject **„Heute schreiben: 3
+2. 11:00, after the cycle: one e-mail, subject **„Heute schreiben: 3
    Firmen"**. Body, one line each:
    `Elektro Beckhoff GmbH · klein · Elektroinstallation (Vorsprung 1,2-fach)
    · 2 Lose mit wenigen Bietern erwartet, nächste Frist 07.09. → Nachricht`
@@ -64,7 +64,7 @@ Monday. The cycle has written this week's predictions.
 
 | | to whom | when | content | built by |
 | --- | --- | --- | --- | --- |
-| **customer report** | a subscribed customer | Monday 08:30, only when there is something to report (`delivering.py`: „nothing to report — not sent") | the picks of the week, the record | exists — **not changed by this document** |
+| **customer report** | a subscribed customer | Monday 11:00, only when there is something to report (`delivering.py`: „nothing to report — not sent") | the picks of the week, the record | exists — **not changed by this document** |
 | **Heute schreiben** | the owner of vormerkt firms | Monday, right after the cycle, **only when at least one firm is due** | the due firms, one line each, linking to their message page | new: `sales.py`, called at the end of `cycle.py` |
 
 Nothing else mails anybody. A prospect is reached only by the salesman's

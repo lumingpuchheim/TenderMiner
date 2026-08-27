@@ -68,7 +68,7 @@ else
     # Deliberately loud and deliberately not retried: a failed cycle is
     # idempotent to re-run by hand (`--skip-download` if the archive is fine),
     # and a cron loop retrying a cycle that trains a model is how two of them
-    # end up training at once. deliver.sh at 08:30 will find last week's
+    # end up training at once. deliver.sh at 11:00 will find last week's
     # predictions, refuse, and say so.
     echo "[cron] CYCLE FAILED (exit $status) — simulation check skipped."
     echo "[cron] tail -50 $LOGS/cycle.log"

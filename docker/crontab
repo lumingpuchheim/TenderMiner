@@ -55,15 +55,25 @@ PYTHONUNBUFFERED=1
 #
 # m  h  dom mon dow  user  command
    0 7  *   *   1    tm    /app/docker/cycle.sh   >> /data/logs/cron.log 2>&1
-  30 8  *   *   1    tm    /app/docker/deliver.sh >> /data/logs/cron.log 2>&1
+   0 11 *   *   1    tm    /app/docker/deliver.sh >> /data/logs/cron.log 2>&1
 
-# Ninety minutes apart, and the gap is not a guess: the cycle takes 30–75
-# minutes and may first wait up to an hour behind a replay on the heavy lock.
-# The delivery takes the same lock with the same wait, so a cycle that
-# overruns 08:30 delays the mail rather than skipping it — and a cycle that
+# Four hours apart, and the gap is not a guess: the cycle takes 30–75
+# minutes and may first wait up to an hour behind another heavy job on the
+# lock. The delivery takes the same lock with the same wait, so a cycle that
+# overruns 11:00 delays the mail rather than skipping it — and a cycle that
 # died leaves last week's predictions, which deliver.py refuses (--max-age
 # 1d) with a loud line in cron.log and no mail. The order of the two lines
 # is the order of the day; nothing else enforces it.
+#
+# The delivery was 08:30 until 2026-08-27, ninety minutes after the cycle.
+# Ninety minutes was enough while backplay finished by 08:00; it stopped
+# being enough when backplay grew past twenty hours and held the lock
+# straight through Monday morning. On 2026-08-24 the cycle waited its hour
+# and died, the delivery waited its hour and died, and nobody was mailed that
+# week — the run was repeated by hand on the Tuesday. The repair is the
+# backplay line below, which now leaves Monday alone; this later hour is the
+# margin on top of it, so a cycle that starts slow still has room to finish
+# before the mail goes.
 
 # The nightly backup (OPERATIONS.md 3): export always, off-site push when
 # restic is configured, Sunday self-verification. 02:30 keeps clear of the
@@ -78,9 +88,24 @@ PYTHONUNBUFFERED=1
 # or Monday's store is measured the next night; cheap most nights because the
 # job re-measures only when the evidence moved (benchmark blob, store files,
 # champion fingerprint) and otherwise prints what it stood on and exits. 04:00
-# is ninety minutes after the backup and three hours before the Monday cycle;
-# it takes the heavy lock, so the separation is politeness and the lock is
-# the guarantee.
-   0 4  *   *   *    tm    /app/docker/backplay.sh >> /data/logs/cron.log 2>&1
+# is ninety minutes after the backup; it takes the heavy lock, so that
+# separation is politeness and the lock is the guarantee.
+#
+# EVERY DAY BUT MONDAY (dow 0,2-6) since 2026-08-27. The clock separation
+# above assumed backplay was a few hours' work: on 2026-08-20 it ran
+# 04:00–08:09, and the Monday cycle three hours later found the lock free.
+# By 2026-08-26 a single run took nearly twenty-one hours (04:00 to 00:48 the
+# next morning) — longer than the gap to any other job, so a run starting
+# Monday 04:00 is still holding the lock at Monday 19:00. Monday is therefore
+# given back: Sunday's run ends around 01:00 Monday, nothing starts at 04:00,
+# and the cycle at 07:00 has the machine to itself. The cost is one
+# measurement night in seven, which this job already tolerates — it
+# re-measures only when the evidence moved, so a skipped Monday is picked up
+# on the Tuesday.
+#
+# If backplay ever passes ~21 hours again this stops working too: Sunday's run
+# would still hold the lock at Monday 07:00. The duration is worth watching on
+# its own account — it went from four hours to twenty-one inside one week.
+   0 4  *   *   0,2-6 tm    /app/docker/backplay.sh >> /data/logs/cron.log 2>&1
 
 # A cron.d file that does not end in a newline is silently ignored. This is it.

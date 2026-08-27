@@ -75,7 +75,7 @@ track-record window · `--skip-download` offline run on the existing store ·
 `--data-dir` / `--models-dir` alternative locations.
 
 Scheduled on the server by cron ([`docker/crontab`](docker/crontab)): the
-cycle Mondays 07:00, the delivery Mondays 08:30 — [`RUNBOOK.md`](doc/RUNBOOK.md) §1.
+cycle Mondays 07:00, the delivery Mondays 11:00 — [`RUNBOOK.md`](doc/RUNBOOK.md) §1.
 
 ### bulk.py — bulk notice download from TED packages
 

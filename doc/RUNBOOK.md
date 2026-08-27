@@ -69,8 +69,10 @@ rather than reading half-written predictions.
   one live knob per bucket, rotating through `knobs.KNOBS`; nobody files
   or picks a value by hand.
 
-**The rejector is scheduled** — `docker/backplay.sh`, **nightly 04:00**, third
-line in `docker/crontab` beside the Monday cycle and the nightly backup. It
+**The rejector is scheduled** — `docker/backplay.sh`, **04:00 every day but
+Monday**, third line in `docker/crontab` beside the Monday cycle and the
+nightly backup. Monday is skipped because a run can last twenty-one hours and
+would otherwise still hold the heavy lock when the cycle starts (§1c). It
 measures each step in its own subprocess under `TM_GATE_OVERRIDE` and may
 **reject** — never promote — and it re-measures only when the evidence moved
 (benchmark, store, champion fingerprint); most nights it prints what it stood
@@ -142,8 +144,8 @@ python deliver.py run --no-mail
 
 **Scheduled** ([`docker/crontab`](../docker/crontab), §1c): every **Monday
 07:00** the cycle, followed by the simulation scorecard; every **Monday
-08:30** the delivery. Ninety minutes apart because the cycle takes 30–75
-minutes and may wait up to an hour behind a replay on the heavy lock; the
+11:00** the delivery. Four hours apart because the cycle takes 30–75
+minutes and may wait up to an hour behind another heavy job on the lock; the
 delivery waits behind the cycle on the same lock, so an early cycle overrun
 delays the mail rather than skipping it, and a dead cycle stops it. The
 simcheck log accumulates one dated block per week; watch the hit rate firm
@@ -201,14 +203,16 @@ to compare against. Harmless; the vectors are byte-identical to the laptop's.
 docker run --rm -v C:\Users\user\workspace\tm-state:/data -v tm-model-cache:/models_cache tendermining:latest python cycle.py run --last 7d
 ```
 
-## 1c. Monday 07:00 and 08:30, in the container
+## 1c. Monday 07:00 and 11:00, in the container
 
-Two scheduled jobs ([`docker/crontab`](../docker/crontab)), since 2026-08-18:
+Two scheduled jobs ([`docker/crontab`](../docker/crontab)), since 2026-08-18
+(the delivery moved from 08:30 to 11:00 on 2026-08-27, and backplay gave up
+its Monday slot the same day — see below):
 
 | when | script | what | log |
 | --- | --- | --- | --- |
 | Monday 07:00 | [`docker/cycle.sh`](../docker/cycle.sh) | `cycle.py run --last 7d`, then — *only if it succeeded* — a dated heading and the simulation scorecard | `data/logs/cycle.log`, `data/logs/simcheck.log` |
-| Monday 08:30 | [`docker/deliver.sh`](../docker/deliver.sh) | `deliver.py run` — render, mail, record | `data/logs/deliver.log` |
+| Monday 11:00 | [`docker/deliver.sh`](../docker/deliver.sh) | `deliver.py run` — render, mail, record | `data/logs/deliver.log` |
 
 Both append to `data/logs/cron.log` as well, which is what
 `docker compose logs scheduler` tails. `deliver.sh` exits 2 when `deliver.py`
